@@ -538,8 +538,9 @@ The incident is a **container** that stays open for weeks and gathers everything
 *Not a wizard.* The incident is created at step 1 and everything after it is a separate edit, days or weeks apart — a repair invoice in three weeks, an insurance settlement in three months. A six-step form that must be completed in one sitting would be the wrong shape for a record whose entire purpose is to stay open (§6.6).
 *Why the extension is its own record:* choosing *extend* moves the lease end date, and a year later "why does this lease run twelve days long" has exactly one answer. Leaving that to be inferred from two timestamps is leaving it unanswered.
 **Accept**
-· §7.2 reproduces: 95,000 spent, 80,000 recovered, **net 15,000**, spread July/August/September with `60,000 pending recovery` visible in July and August
+· §7.2 reproduces: 95,000 spent, 80,000 recovered, **net 15,000**, spread July/August/September with `60,000 pending recovery` visible in July and August — *verified end-to-end against live Postgres*
 · Pending recovery **never** enters profit (INV-4-adjacent — money expected is not money earned)
+· **A recovery carries two dates, not one**: the month it was agreed and became expected, and the month the money actually arrived. They are routinely different — the customer's contribution was agreed and paid in August, the insurer's settled in September. With a single date the two collapse into one month and the *pending recovery* line, which is what makes a bad month visibly temporary, cannot be produced at all
 · Costs and recoveries land in different months and the incident still answers "what did this crash cost" years later (§9.2)
 · Choosing *extend* adds the days to the lease term and the allowance follows automatically (F-2.3)
 · Claims-per-vehicle-per-year is derivable (useful at renewal).
@@ -728,7 +729,11 @@ Both balances, days owed and paid, trips, fees, advances, offsets, deposit, excu
 #### F-7.1 What each vehicle made and my share
 *Actor:* Owner · *Source:* UC-62, §4.5 · *Phase:* 1
 One screen per vehicle: earned, spent, profit, my share. **60 seconds, no entry, no navigation.**
-**Accept** · Uses the ownership share **in force for that month** (INV-16) · below-the-line costs (INV-5) are visible but outside profit · a vehicle with patchy odometer data shows "not available", never a confident wrong number.
+**Accept**
+· Uses the ownership share **in force for that month** (INV-16)
+· Below-the-line costs (INV-5) are visible but outside profit
+· A vehicle with patchy odometer data shows "not available", never a confident wrong number
+· **"Spent" is not one table.** A month's costs are the expenses borne by us **plus** the driver fees and management fees owed for that month, which are obligations rather than expenses. Reading only the expense table under-reports every month containing a charter by exactly the driver's fee — 9,000 of 46,000 in the §7.1 walkthrough, which would make the month read 9,000 more profitable than it was. The query is in `DATA_MODEL.md` §15 and is verified against that fixture.
 
 #### F-7.2 Payouts and partner settlement
 *Actor:* Owner · *Source:* UC-63 · *Phase:* 1

@@ -1404,7 +1404,7 @@ SELECT u.id, u.display_name,
   FROM app_user u
   LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
                FROM payment
-              WHERE direction='received' AND status='active' AND voided_at IS NULL
+              WHERE direction='received' AND status='active'   -- payment has no voided_at
               GROUP BY 1) r ON r.uid = u.id
   LEFT JOIN (SELECT from_user_id uid, SUM(amount_counted_minor) total
                FROM banking_event WHERE voided_at IS NULL GROUP BY 1) b ON b.uid = u.id
@@ -1453,6 +1453,8 @@ SELECT vehicle_id, business_date, expected_minor
 ```
 
 The other four checklist items are the same shape: open trips, unsettled advances, obligations with no decision, and incidents with no bill.
+
+**Every query in this section has been executed** against the populated fixture branch and returns the §7 figures: UC-76 gives `lost 4 / ran 24 / lease-eligible 28 / 20,000`; UC-74 gives the driver's `2,000` in the 1–30 bucket; UC-56 returns **two rows** (`owed_by_us 9,000`, `owed_to_us 2,000`) and never a net; UC-70 gives `46,000`. Running them found one defect — the UC-75 query filtered `payment.voided_at`, a column that does not exist because payments are corrected through `status` instead (§10.2).
 
 ---
 
