@@ -76,6 +76,25 @@ No `numeric`, no `float`, no negative amounts standing in for a refund. Every am
 CREATE EXTENSION IF NOT EXISTS btree_gist;  -- required by the exclusion constraints below
 ```
 
+### 2.1 Glossary — flow-document names to tables
+
+`user-flows-v1.md` names entities in the language of the flow; the schema names them in the language of storage. Neither is wrong, but reading both without a map is confusing.
+
+| Flow document says | Schema | Note |
+|---|---|---|
+| `Receipt` | `payment` | One table, both directions (`direction`) |
+| `DayAllocation[]` | `payment_allocation` | Generic; the day-ness comes from `obligation.source_type = 'day_record'` |
+| `DriverArrears` | `obligation` where `direction='owed_to_us'` | **No arrears table.** Arrears are outstanding obligations |
+| `HeldCash(+)` | derived (§15) | **No stored balance.** Computed from payments minus banking minus advances |
+| `MileageTerms` | columns on `lease` | Inline, and deliberately copied rather than referenced (§1.5) |
+| `PaymentSchedule` | `billing_period` | The generated schedule |
+| `ConditionPhotoSet` | `attachment` with `kind IN ('condition_handover','condition_return')` | Grouped by `subject_type` + `subject_id`; the *pair* is a convention, not a table |
+| `UserBusinessRole` | `business_member` | |
+| `TripDriver(fee)` | `trip.driver_id`, `trip.driver_fee_minor` | Inline. W-47 (one driver per trip) is what makes a junction table unnecessary |
+| `OpeningBalanceBatch` | `opening_balance_batch` | |
+
+Four of these are the same idea under two names; the other six are places where the flow implies an entity that turned out not to need a table. **None is a structural gap** — every fact is representable.
+
 ---
 
 ## 3. Identity, tenancy and periods
@@ -147,6 +166,32 @@ CREATE UNIQUE INDEX one_open_period ON accounting_period (business_id) WHERE sta
 
 `belongs_to_period_id` is null for ordinary records and set for late facts. That single pair is what makes W-35 real rather than aspirational.
 
+### 3.1 The accounting-period lifecycle — who creates a period
+
+`posted_period_id` is `NOT NULL` on every money table, so **a business with no open accounting period cannot record anything at all.** Two rules close that:
+
+| When | What |
+|---|---|
+| **At business creation** (UC-08) | The first `accounting_period` is created covering the month of the go-live date, `status = 'open'`. Along with the `business_settings` row, which is a `PRIMARY KEY` reference and will not default itself into existence |
+| **At period close** (UC-98) | Closing creates its successor as `open`, **in the same transaction** |
+
+```sql
+-- At close. The successor is not optional: the one_open_period index permits at
+-- most one open period, and every money table requires one to exist.
+WITH closed AS (
+  UPDATE accounting_period SET status='closed', closed_at=now(), closed_by=$2
+   WHERE id=$1 AND status='open'
+  RETURNING business_id, period_end
+)
+INSERT INTO accounting_period (id, business_id, period_start, period_end, status)
+SELECT $3, business_id, period_end + 1,
+       (date_trunc('month', (period_end + 1)::timestamp)
+         + interval '1 month - 1 day')::date, 'open'
+  FROM closed;
+```
+
+Without the successor, a close leaves zero open periods and the next write — a day confirmation, an expense, anything — fails on a `NOT NULL`. It is also what gives W-35 somewhere to put a late fact: **a period cannot close without a successor to post late facts into.**
+
 ---
 
 ## 4. Vehicles
@@ -157,6 +202,8 @@ CREATE TABLE vehicle (
   business_id   uuid NOT NULL REFERENCES business(id),
   registration  text NOT NULL,
   vehicle_type  text NOT NULL,
+  -- ST-1 lists a 'draft' state; it is deliberately absent. UC-01 creates a vehicle
+  -- in one step with two required fields, so there is nothing to save a draft of.
   lifecycle     text NOT NULL DEFAULT 'active'
                   CHECK (lifecycle IN ('active','archived','disposed')),
   created_at    timestamptz NOT NULL DEFAULT now(),
@@ -211,7 +258,11 @@ CREATE TABLE capital_contribution (
   amount_minor    bigint NOT NULL CHECK (amount_minor > 0),
   contributed_on  date NOT NULL,
   note            text,
-  posted_period_id uuid NOT NULL REFERENCES accounting_period(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 ```
 
@@ -239,6 +290,31 @@ CREATE INDEX ON vehicle_day_allocation (vehicle_id, business_date);  -- UC-95 ca
 ```
 
 **W-46 (the boundary day) needs no rule of its own.** A lease writes allocations through `end_date` inclusive; the next lease starts the following day. If someone tries to start one on the same day the last ended, the unique index refuses — which is the behaviour W-46 describes, enforced rather than remembered.
+
+#### How far ahead the calendar is materialised
+
+An open-ended daily lease has no end date, so "one row per occupied day" cannot mean *every* day. The rule:
+
+| Source | Materialised |
+|---|---|
+| **Trip** (C) | The full date range, **at booking**. Always bounded, and it must claim the days immediately or two trips could take the same day |
+| **Lease** (A) | Through `end_date`; for an open-ended lease, to a **rolling 90-day horizon**, extended daily by the same cron that rolls billing periods |
+| **Daily lease** (B) | To the same rolling horizon, written by `generate-day-cards` alongside each `day_record` |
+
+**This is what makes trip booking work for future dates**, and it is the trap worth naming: a trip booked three months out has *no* `day_record` rows to mark as `paused_for_trip`, because they do not exist yet. So booking does two different things depending on the date:
+
+```
+Trip booked for a date …
+├─ inside the horizon   → the daily-lease allocation row is REPLACED by the trip's,
+│                         and the existing day_record is set to 'paused_for_trip'
+└─ beyond the horizon   → only the trip's allocation row is written. Later, when
+                          generate-day-cards reaches that date, it finds the day
+                          already allocated to a trip and generates no card at all
+```
+
+Both paths end in the same place: the day earns from the trip, not the lease. But **a developer who assumes booking always updates `day_record` rows will silently do nothing for future trips**, and the daily cards will appear weeks later as if the charter had never been booked. The cron must check `vehicle_day_allocation` before generating, and that check is not optional.
+
+`generate-day-cards` therefore reads: *for each pattern day inside the horizon with no allocation row, insert an allocation and a `day_record`.* Idempotent by the unique index, and correct for trips booked at any distance.
 
 ---
 
@@ -384,7 +460,8 @@ CREATE TABLE mileage_assessment (
   status                text NOT NULL DEFAULT 'final'
                           CHECK (status IN ('provisional','final','superseded')),
   superseded_by_id      uuid REFERENCES mileage_assessment(id),  -- reconcile, never rewrite
-  posted_period_id      uuid NOT NULL REFERENCES accounting_period(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35
 );
 
 -- The per-period split when combined. Largest-remainder; must sum to the parent (INV-26).
@@ -454,6 +531,7 @@ CREATE TABLE day_record (
   trip_id        uuid,                           -- set when state = 'paused_for_trip'
   note           text,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   UNIQUE (daily_lease_id, business_date),        -- idempotent card generation
 
   -- W-4 / INV-6: a day that did not run raises nothing. No setting can change it.
@@ -495,6 +573,7 @@ CREATE TABLE trip (
   advance_disposition text CHECK (advance_disposition IN ('refunded','retained')), -- UC-45
   -- W-41 / INV-30: recognised on the CLOSING date, in exactly one accounting period.
   posted_period_id    uuid REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (end_date >= start_date),
   CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))
@@ -515,7 +594,12 @@ CREATE TABLE expense (
   vehicle_id     uuid REFERENCES vehicle(id),        -- NULL = overhead (UC-66)
   trip_id        uuid REFERENCES trip(id),
   incident_id    uuid,
-  category       text NOT NULL,
+  -- The borne-by default matrix (§6.7) is keyed on this. An unconstrained free-text
+  -- category means a typo silently falls through to no default.
+  category       text NOT NULL CHECK (category IN (
+                   'fuel','tolls','fines','cleaning','tyres','servicing','repairs',
+                   'insurance','licence','crew_food','permits','office','legal',
+                   'messaging','other')),
   amount_minor   bigint NOT NULL CHECK (amount_minor >= 0),
   spent_on       date NOT NULL,
 
@@ -529,7 +613,7 @@ CREATE TABLE expense (
   odometer_reading_id uuid REFERENCES odometer_reading(id),
   attachment_id  uuid,
   note           text,
-  posted_period_id     uuid NOT NULL REFERENCES accounting_period(id),
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
   belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   voided_at      timestamptz,                         -- W-50: voided, never deleted
   voided_reason  text,
@@ -563,6 +647,21 @@ CREATE TABLE incident (
   closed_at      timestamptz
 );
 
+-- W-9 'extend'. The incident pushes lease.end_date forward and generates further
+-- billing periods. Without this row, the audit log records THAT the end date moved
+-- and never why — and "why does this lease run 12 days long" is exactly the question
+-- asked a year later, when the incident is the only answer.
+CREATE TABLE lease_extension (
+  id           uuid PRIMARY KEY,
+  lease_id     uuid NOT NULL REFERENCES lease(id),
+  incident_id  uuid NOT NULL REFERENCES incident(id),
+  days_added   int  NOT NULL CHECK (days_added > 0),
+  applied_on   date NOT NULL,
+  previous_end_date date,
+  new_end_date date NOT NULL,
+  created_by   uuid REFERENCES app_user(id)
+);
+
 CREATE TABLE insurance_claim (                    -- W-11: optional, off by default
   id                    uuid PRIMARY KEY,
   incident_id           uuid NOT NULL REFERENCES incident(id),
@@ -582,7 +681,10 @@ CREATE TABLE incident_recovery (
   agreed_amount_minor   bigint NOT NULL CHECK (agreed_amount_minor >= 0),
   received_amount_minor bigint NOT NULL DEFAULT 0,
   obligation_id         uuid,                     -- customer contributions become receivable
-  note                  text
+  note                  text,
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 ```
 
@@ -619,14 +721,17 @@ CREATE TABLE obligation (
   status        text NOT NULL DEFAULT 'pending' CHECK (status IN
                   ('pending','part_paid','paid','waived','written_off')),
 
-  posted_period_id     uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id),
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_at    timestamptz NOT NULL DEFAULT now(),
 
   CHECK (settled_minor + waived_minor <= amount_minor),
   CHECK ((party_customer_id IS NOT NULL)::int
        + (party_driver_id   IS NOT NULL)::int
-       + (party_user_id     IS NOT NULL)::int = 1)
+       + (party_user_id     IS NOT NULL)::int = 1),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 CREATE INDEX obligation_outstanding ON obligation
@@ -654,8 +759,8 @@ CREATE TABLE payment (
   reference      text,
   status         text NOT NULL DEFAULT 'active'
                    CHECK (status IN ('active','corrected','reversed')),
-  posted_period_id     uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id),
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_by     uuid REFERENCES app_user(id),
   created_at     timestamptz NOT NULL DEFAULT now()
 );
@@ -666,9 +771,33 @@ CREATE TABLE payment_allocation (
   payment_id    uuid NOT NULL REFERENCES payment(id),
   obligation_id uuid NOT NULL REFERENCES obligation(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+  allocated_on  date NOT NULL,          -- may be later than payment.occurred_on
   UNIQUE (payment_id, obligation_id)
 );
+```
 
+**Overpayment and credit — the convention.** F-2.2 holds a surplus "as customer credit against the next due"; F-4.5 does the same for a driver. There is **no credit table and no credit balance column**. A credit is simply a payment that is not yet fully allocated:
+
+```
+credit = payment.amount_minor − SUM(payment_allocation.amount_minor)
+```
+
+It is consumed by allocating that same payment to an obligation raised later — which is why `allocated_on` exists separately from `payment.occurred_on`. A payment made in June can settle a due raised in July, and the allocation records when that happened.
+
+*Why not a credit obligation in the other direction:* it would be a second representation of money already recorded, and the two would drift the first time one was corrected. An unallocated remainder cannot drift — it is arithmetic over rows that already exist.
+
+The oldest-first preview (§6.5) must therefore surface **pre-existing credit** before proposing new allocations, or a customer in credit will be asked to pay twice.
+
+```sql
+-- Unapplied credit per party. Feeds the allocation preview and UC-74.
+SELECT p.id, p.amount_minor - COALESCE(SUM(a.amount_minor), 0) AS credit_minor
+  FROM payment p LEFT JOIN payment_allocation a ON a.payment_id = p.id
+ WHERE p.business_id = $1 AND p.status = 'active'
+ GROUP BY p.id
+HAVING p.amount_minor - COALESCE(SUM(a.amount_minor), 0) > 0;
+```
+
+```sql
 -- UC-93, W-36/W-37. A correction references the original; it never edits it (INV-21).
 CREATE TABLE payment_correction (
   id                uuid PRIMARY KEY,
@@ -679,7 +808,8 @@ CREATE TABLE payment_correction (
   reason            text NOT NULL,
   receipt_message_id uuid,        -- if a receipt already went out, a correction is owed
   corrected_on      date NOT NULL,
-  posted_period_id  uuid NOT NULL REFERENCES accounting_period(id),
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_by        uuid REFERENCES app_user(id)
 );
 ```
@@ -699,8 +829,12 @@ CREATE TABLE adjustment (
   sign            smallint NOT NULL CHECK (sign IN (-1, 1)),
   reason          text,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_by      uuid REFERENCES app_user(id),
-  created_at      timestamptz NOT NULL DEFAULT now()
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- W-28 / INV-14. A SEPARATE TABLE, not an adjustment_type. They must never
@@ -717,7 +851,11 @@ CREATE TABLE write_off (
   reason        text NOT NULL,
   written_off_on date NOT NULL,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  created_by    uuid REFERENCES app_user(id)
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
+  created_by    uuid REFERENCES app_user(id),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- INV-15. A later payment is a RECOVERY against the write-off, not fresh income.
@@ -726,7 +864,11 @@ CREATE TABLE write_off_recovery (
   write_off_id  uuid NOT NULL REFERENCES write_off(id),
   payment_id    uuid NOT NULL REFERENCES payment(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
-  posted_period_id uuid NOT NULL REFERENCES accounting_period(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- W-2 / UC-56. The ONLY thing that moves both driver balances.
@@ -738,8 +880,12 @@ CREATE TABLE offset_record (
   occurred_on  date NOT NULL,
   note         text,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_by   uuid NOT NULL REFERENCES app_user(id),   -- an agreement between two people
-  created_at   timestamptz NOT NULL DEFAULT now()
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 CREATE TABLE offset_allocation (
@@ -779,7 +925,11 @@ CREATE TABLE deposit_movement (
   reason        text,
   obligation_id uuid REFERENCES obligation(id),    -- when applied against what is owed
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  created_by    uuid REFERENCES app_user(id)
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
+  created_by    uuid REFERENCES app_user(id),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- UC-53. Not a cost. Reconciled to zero, and INV-17 blocks trip closure until it is.
@@ -790,9 +940,16 @@ CREATE TABLE advance (
   trip_id      uuid REFERENCES trip(id),
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
   issued_on    date NOT NULL,
+  -- Whose pocket it came out of. Without this the cash position (§15) cannot
+  -- tell which partner is down the money.
+  issued_by_user_id uuid REFERENCES app_user(id),
   status       text NOT NULL DEFAULT 'open'
                  CHECK (status IN ('open','part_settled','settled')),
-  posted_period_id uuid NOT NULL REFERENCES accounting_period(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 CREATE TABLE advance_settlement (
@@ -801,7 +958,10 @@ CREATE TABLE advance_settlement (
   kind          text NOT NULL CHECK (kind IN ('spent','returned','kept_as_fee')),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
   occurred_on   date NOT NULL,
-  expense_id    uuid REFERENCES expense(id)
+  expense_id    uuid REFERENCES expense(id),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 ```
 
@@ -823,8 +983,12 @@ CREATE TABLE banking_event (
                           (amount_recorded_minor - amount_counted_minor) STORED,
   discrepancy_bearer    text CHECK (discrepancy_bearer IN
                           ('absorbed','unattributed','attributed_to_receipt')),
-  posted_period_id      uuid NOT NULL REFERENCES accounting_period(id),
-  created_by            uuid REFERENCES app_user(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
+  created_by            uuid REFERENCES app_user(id),
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- UC-63. Never a cost of the vehicle.
@@ -835,7 +999,11 @@ CREATE TABLE partner_payout (
   amount_minor bigint NOT NULL CHECK (amount_minor > 0),
   kind         text NOT NULL CHECK (kind IN ('payout','partner_settlement')),
   occurred_on  date NOT NULL,
-  posted_period_id uuid NOT NULL REFERENCES accounting_period(id)
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  voided_at    timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by    uuid REFERENCES app_user(id)
 );
 
 -- UC-03, W-53. A vehicle operating cost to the owner; income to the manager.
@@ -1078,7 +1246,7 @@ Every invariant in `user-flows-v1.md` §5, and where it actually lives.
 | 18 outstandings before deposit | `lease.closure_summary_shown_at` gate | **App** (§13) |
 | 19 reading records its source | `odometer_reading.source NOT NULL` + CHECK | **DB** |
 | 20 integer minor units | `bigint` columns; codec at both edges | **DB + app** |
-| 21 append-only money records | `voided_at` + `payment_correction`; no destructive UPDATE | **Schema shape** |
+| 21 append-only money records | `voided_at`/`voided_reason`/`voided_by` on all 13 money-fact tables; `payment.status`; `payment_correction` | **Schema shape** |
 | 22 reversal restores everything | Transaction in `payment_correction` handler | **App + test** |
 | 23 pooled shortfall on the event | `banking_event.discrepancy_minor` generated | **DB** |
 | 24 every record has a business | `business_id NOT NULL` everywhere; `vehicle_id` nullable | **DB** |
@@ -1144,6 +1312,46 @@ SELECT direction, SUM(amount_minor - settled_minor - waived_minor) AS balance_mi
 
 Two rows out. There is no query in this system that returns one netted number, because W-2 says the net is information and only an `offset_record` may move both.
 
+**UC-75 where is our cash — held per partner**
+
+The join is across four tables and the arithmetic is not obvious, so it belongs here rather than being reinvented three times.
+
+```sql
+SELECT u.id, u.display_name,
+       COALESCE(r.total,0) - COALESCE(b.total,0) - COALESCE(a.total,0) AS held_minor
+  FROM app_user u
+  LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
+               FROM payment
+              WHERE direction='received' AND status='active' AND voided_at IS NULL
+              GROUP BY 1) r ON r.uid = u.id
+  LEFT JOIN (SELECT from_user_id uid, SUM(amount_counted_minor) total
+               FROM banking_event WHERE voided_at IS NULL GROUP BY 1) b ON b.uid = u.id
+  LEFT JOIN (SELECT issued_by_user_id uid, SUM(amount_minor) total
+               FROM advance
+              WHERE status <> 'settled' AND voided_at IS NULL
+              GROUP BY 1) a ON a.uid = u.id
+ WHERE u.id IN (SELECT user_id FROM business_member
+                 WHERE business_id = $1 AND revoked_at IS NULL);
+```
+
+Three things this query encodes that prose kept getting wrong:
+
+- It subtracts `amount_counted_minor`, not `amount_recorded_minor` — when the bank counted less, the partner is still holding the difference until `discrepancy_bearer` decides otherwise (INV-23)
+- It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
+- **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
+
+**UC-98 pre-close checklist — unconfirmed days**
+
+```sql
+SELECT vehicle_id, business_date, expected_minor
+  FROM day_record
+ WHERE business_id = $1 AND state = 'open'
+   AND business_date BETWEEN $2 AND $3
+ ORDER BY business_date;
+```
+
+The other four checklist items are the same shape: open trips, unsettled advances, obligations with no decision, and incidents with no bill.
+
 ---
 
 ## 16. Validation against the user flows
@@ -1152,7 +1360,7 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 
 | Flow | Tables |
 |---|---|
-| F-0.1 create business | `business`, `app_user`, `business_member`, `business_settings`, `accounting_period` |
+| F-0.1 create business | `business`, `app_user`, `business_member`, `business_settings`, `accounting_period` (§3.1) |
 | F-0.2 opening balances | `opening_balance_batch`, `opening_balance_entry`, `obligation`, `deposit`, `advance` |
 | F-1.1 add vehicle | `vehicle`, `vehicle_arrangement`, `vehicle_document` |
 | F-1.2 change arrangement | `vehicle_arrangement` (exclusion constraint prevents overlap) |
@@ -1174,15 +1382,16 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 | F-3.1 record expense | `expense` |
 | F-3.2 no-vehicle cost | `expense` (`vehicle_id` NULL) |
 | F-3.3 fuel fill | `expense` (`litres`), `odometer_reading` |
-| F-3.4 incident | `incident`, `expense`, `incident_recovery`, `insurance_claim` |
+| F-3.4 incident | `incident`, `expense`, `incident_recovery`, `insurance_claim`, `lease_extension` |
 | F-3.5 maintenance | `expense`, `odometer_reading` |
 | F-4.1 pending | `day_record`, `obligation`, `vehicle_document`, `message` |
 | F-4.2 confirm day | `day_record`, `obligation`, `payment`, `payment_allocation` |
 | F-4.3 adjust + going forward | `day_record`, `daily_lease_rate` |
 | F-4.4 didn't run | `day_record` (CHECK forces `earned = 0`) |
 | F-4.5 settle several days | `payment`, `payment_allocation`, `obligation` |
-| F-4.6 change driver | `daily_lease` |
-| F-5.1 book trip | `trip`, `vehicle_day_allocation`, `day_record` → `paused_for_trip` |
+| F-4.6 confirm a week in one pass | `day_record`, `obligation`, `payment`, `payment_allocation` — one transaction |
+| F-4.7 change driver | `daily_lease` |
+| F-5.1 book trip | `trip`, `vehicle_day_allocation`, `day_record` → `paused_for_trip` (inside the horizon only — §4.1) |
 | F-5.2 trip costs / advances | `expense`, `advance` |
 | F-5.3 customer money | `payment`, `obligation` |
 | F-5.4 close trip | `trip`, `odometer_reading`, `advance` (INV-17) |
@@ -1199,15 +1408,15 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 | F-7.2 payouts | `partner_payout` |
 | F-7.3 owned vs managed | `ownership_share`, `management_fee_agreement` |
 | F-7.4 bank cash | `banking_event` |
-| F-7.5 where is our cash | `payment.handled_by_user_id`, `banking_event`, `advance`, `deposit` |
+| F-7.5 where is our cash | `payment.handled_by_user_id`, `banking_event`, `advance.issued_by_user_id`, `deposit` — query in §15 |
 | F-7.6 partner account | `capital_contribution`, `expense.paid_by_user_id`, `partner_payout`, `ownership_share` |
 | F-8.1 late fact | `belongs_to_period_id` on every money table |
 | F-8.2 payment reversal | `payment_correction`, `payment`, `obligation`, `message` |
 | F-8.3 write off | `write_off`, `write_off_recovery` |
 | F-8.4 post-closure charge | `obligation` (`kind='post_closure_charge'`) |
-| F-8.5 fix a mistake | `voided_at` + `audit_log` |
+| F-8.5 fix a mistake | `voided_at` on 13 money tables, `payment.status`, `audit_log` |
 | F-8.6 who changed what | `audit_log` |
-| F-9.1 close the month | `accounting_period` |
+| F-9.1 close the month | `accounting_period` — close **and create the successor** (§3.1) |
 | F-9.2 reports | §15 queries |
 | F-9.3 export | all, filtered by `business_member.role` |
 | F-10.1 paperwork | `vehicle_document`, `driver.licence_expiry` |
@@ -1252,6 +1461,8 @@ The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and asse
 | **D-3** | `pattern_weekdays smallint[]` vs a child table | Array is fine at this scale; revisit if patterns need per-date exceptions beyond skipping |
 | **D-4** | Retention for `audit_log` and `message_event` | Both grow forever. Partition by month once either passes ~1M rows |
 | **D-5** | `obligation.effective_due_on` maintenance | Derived from `driver.settlement_rhythm` at creation. If the rhythm changes, existing rows keep their original value — deliberate, but worth confirming |
+| **D-6** | Allocation horizon length (§4.1) | 90 days is a guess. Long enough that a trip booked "next quarter" is inside it; short enough that an open-ended lease does not materialise years. Revisit once real booking lead times are known |
+| **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
 
 ---
 

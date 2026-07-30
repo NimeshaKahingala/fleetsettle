@@ -162,3 +162,21 @@ Secrets via `wrangler secret put`, never in `wrangler.jsonc`.
 **Neon database branching is worth using deliberately here.** The golden fixtures in `user-flows-v1.md` §9.1 are the regression suite; a preview branch seeded with them means every PR can assert that §7.1's `134,000` and §7.3's `7,500` still come out right against real Postgres, not a mock.
 
 Migrations are **forward-only**. A money system that rolls a migration backwards over live data has a worse problem than the migration.
+
+---
+
+## 10. Neon organization
+
+**Org:** `FleetSettle` (`org-cold-rice-64493165`), created 30 July 2026, **Free plan**. No project has been created in it yet — the app's Neon project, with its `main` production branch, still needs provisioning before §9 applies.
+
+Free-plan limits that bound the §9 branching strategy:
+
+| Limit | Free plan | Consequence for FleetSettle |
+|---|---|---|
+| Branches | 10/project | The per-PR preview branch strategy in §9 needs a cleanup step (delete on merge/close, or a [branch TTL](https://neon.com/docs/guides/branch-expiration)) — without one, branch creation starts failing once roughly 9 branches are open at a time |
+| Protected branches | Not available (Launch plan and above) | Nothing at the platform level stops `main` from being deleted or reset by a branch operation; that guardrail has to come from who holds write access in the Neon console, not from Neon itself |
+| Storage | 0.5 GB/project, shared across root + child branches | Enough for early development; the first ceiling likely to matter once real fleet/lease data accumulates |
+| Compute | 100 CU-hours/project/month, scale-to-zero after 5 min (can't be disabled) | Matches the "handful of users, long idle stretches" usage pattern from §1 — no action needed |
+| Public network transfer | 5 GB/month | Worth watching if the report/export endpoints (UC-70…UC-79) move meaningful data out |
+
+Nothing here blocks building on Free. The two limits worth planning around before production traffic: **branch cleanup** for the preview workflow, and the **lack of protected branches** — upgrade to Launch first if that guardrail matters before go-live.

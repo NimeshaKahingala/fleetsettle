@@ -1,6 +1,6 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2 — consistency pass applied, gaps closed, open values decided
+**Status:** v1.2.1 — independent review incorporated
 **Date:** 30 July 2026
 **Companion:** `user-flows-v1.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
@@ -299,6 +299,8 @@ Owner — once, before anything else. Name the business, confirm its **currency*
 
 *Why the last row is not a technicality:* it is what makes §7.3's periods come out as 31, 28, 31 and 30 days, and its 152 / 148 split add back to exactly 300. Leave the convention unstated and half of those numbers move by one.
 
+*Two records are created with it, neither optional.* The settings above, and the **first accounting period** (W-40), open, covering the month you start in. Every record of money has to belong to an open period, so a business without one cannot record a single expense — the app would appear broken on the first thing anyone tried to do.
+
 *One business or several:* one business holds vehicles with **different ownership splits** — shares live on the vehicle (UC-02), not on the business. A passive owner's two cars and an owner-manager's bus are one business, which is what makes UC-64's owned-versus-managed view possible at all.
 
 **UC-09 Go live with what you already have** *(W-51)*
@@ -551,6 +553,17 @@ Received 30,000 from [driver]
 *Why the preview is not optional here:* the driver's arrears figure is the number he is most likely to dispute, and "which days did that 30,000 cover" has to be answerable weeks later.
 
 *One thing the ageing report must not confuse (UC-78):* a driver who settles every Friday by agreement is **not** behind on Thursday. An arrangement records whether he settles daily or weekly, and arrears age from the agreed settlement point — otherwise a perfectly reliable weekly payer shows six days in arrears forever and the report stops meaning anything.
+
+**UC-38 Confirm a week in one pass**
+Manager — back from a few days away, or catching up on a Sunday.
+
+§4.3 promises the weekly catch-up takes two minutes: *"days missed while away appear as a stack; bulk-confirm at the expected amount, adjust the odd one."* Confirming one card at a time cannot deliver that, and U-8 makes catch-up the normal case rather than the exception — so the bulk action belongs in the design rather than being added later as a convenience.
+
+*Flow:* the stack lists every open day, oldest first, each showing its expected amount. Adjust the odd one individually; then one action confirms the rest.
+*What it will not do:* bulk-confirm a day that did not run. That needs a reason, and a reason is a decision somebody has to make (W-4). Days already adjusted by hand are left exactly as they were.
+*What the manager sees before it writes:* the list and the total. The same preview discipline as every other bulk money action here (§6.5), for the same reason — the driver may dispute it next week.
+
+*And if the cards were never generated:* they are created on the spot. The days are derivable from the arrangement, the pattern and the rate in force, so nothing about this workflow depends on a background job having run while nobody was watching.
 
 ---
 
@@ -962,6 +975,7 @@ Owner or owner-manager — monthly, per §4.4.
 
 *Closing is one-way.* There is no reopen, because **a month that can change after everyone agreed it is not a settlement** — which is the entire premise of W-35. Anything arriving later posts to the open month carrying a reference to the month it belongs to (§6.14).
 *An accounting period cannot close while an earlier one is open*, or "the open period" stops being a single thing and every late fact becomes a question.
+*And closing opens the next one in the same breath.* Every record of money belongs to an open month, so a close that leaves none stops the business dead the following morning — nothing can be recorded at all. It is also what gives W-35 somewhere to put a late arrival: **a month cannot be settled without a successor for the facts that arrive after it.**
 *Which period this is:* the accounting one (W-40). Billing periods roll on their own cycle — a lease billing the 12th to the 11th spans two of these and always will.
 
 **UC-99 Get the numbers out**
@@ -1330,6 +1344,7 @@ Both produced wrong numbers rather than missing features. Detail in §1.2.
 | G — partner money | UC-67 what each partner put in and is owed |
 | H — insight | UC-76 lost days · UC-77 goodwill given · UC-78 ageing · UC-79 utilisation, plus UC-70–75 expanded from one-liners |
 | K — administration *(new)* | UC-94 change arrangement · UC-95 vehicle calendar · UC-96 fix a mistake · UC-97 who changed what · UC-98 close the month · UC-99 export |
+| D — daily lease | UC-38 confirm a week in one pass *(added v1.2.1)* |
 
 UC-03 also gained the permission matrix.
 

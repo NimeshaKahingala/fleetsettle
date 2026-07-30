@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1 — synced to `vehicle-rental-use-cases-v1.md` (v1.2)
+**Status:** v1.1.1 — independent review incorporated
 **Date:** 30 July 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
@@ -314,8 +314,12 @@ Each is a property test, not a unit test. Each cites its source.
 *Actor:* Owner · *Source:* UC-08, W-39, W-54 · *Phase:* 1
 **Pre** none.
 **Steps** 1. Sign up. 2. Name the business, confirm timezone and currency. 3. Land on an empty home screen with one action: *Add a vehicle*.
-**Writes** `Business`, `User`, `UserBusinessRole`.
-**Accept** · A new business has exactly one owner · currency and timezone are set once and are not editable from any operational screen.
+**Writes** `Business`, `User`, `UserBusinessRole`, **`BusinessSettings`**, **the first `AccountingPeriod` (open)**.
+**Accept**
+· A new business has exactly one owner
+· Currency and timezone are set once and are not editable from any operational screen
+· **The settings row and the first accounting period are created in the same transaction.** Neither is optional and neither defaults itself into existence: settings is a one-row-per-business table keyed on the business, and *every money record requires an open period to post to*. Without both, the first expense the user records fails on a constraint and the app appears broken on day one
+· Defaults applied: auto-waive threshold **zero** (W-43), send window 08:00–20:00, paperwork warning 30 days.
 
 #### F-0.2 Go live mid-stream — opening balances
 *Actor:* Owner-manager · *Source:* UC-09, W-51 · *Phase:* 1
@@ -331,7 +335,9 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 5. Opening cash held by each partner.
 6. Confirm. The system writes one dated `OpeningBalance` batch.
 **Writes** `OpeningBalanceBatch` + one entry per party/vehicle.
-**Alternates** · Correct an opening balance later — allowed until the first period is closed, then it becomes an ordinary adjustment.
+**Alternates**
+· **Save as a draft and come back.** The batch is draft until committed, so the go-live date can be set, a vehicle or two entered, and the rest finished after a day of real use. This matters more than it looks: a twenty-field form at first launch, before the user has seen the app do anything, is the highest-friction moment in the product. Nothing needs to be complete on day one — only correct by the time the first month closes.
+· Correct an opening balance later — allowed until the first period is closed, then it becomes an ordinary adjustment.
 **Accept** · Opening entries never appear as income or expense in any P&L · a driver statement (F-6.5) starting before go-live shows one "brought forward" line, not fabricated days · the ageing report dates opening dues from their **real** due dates.
 
 ---
@@ -367,7 +373,7 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 #### F-1.5 See a vehicle's calendar
 *Actor:* Manager · *Source:* UC-95 · *Phase:* 1
 **Steps** Open a vehicle → month view, each day coloured by its derived state (ST-1). Booking any new allocation starts here.
-**Accept** · Every day shows exactly one state · a `hold` (ST-5) is visually distinct from a `booked` trip · the calendar is the screen that answers "is the bus free on the 12th" without opening the trip form.
+**Accept** · Every day shows exactly one state · a `hold` (ST-5) is visually distinct from a `booked` trip · the calendar is the screen that answers "is the bus free on the 12th" without opening the trip form · **tapping a free day opens F-5.1 or F-2.1 with that date filled in** — otherwise the calendar answers the question and then makes you go somewhere else to act on it.
 
 #### F-1.6 Add a driver
 *Actor:* Manager · *Source:* UC-04 · *Phase:* 1
@@ -411,8 +417,10 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 6. **Condition photos** — optional paired set (W-30).
 7. Confirm.
 **Defaults** due day = start day-of-month · rate package = last used · reminder settings = business default.
-**Writes** `Customer`, `Lease`, `MileageTerms`, `PaymentSchedule` (generated), `OdometerReading`, `Deposit(held)`, `ConditionPhotoSet(handover)`.
-**System** generates the full schedule of dues; marks the car allocated; queues the confirmation message (F-8.x / UC-80) carrying the **daily** limit and rate, plus the condition photos.
+**Writes** `Customer`, `Lease`, `MileageTerms`, `PaymentSchedule` (generated), `OdometerReading`, `Deposit(held)` **+ `DepositMovement(taken)`**, `ConditionPhotoSet(handover)`.
+**System** generates the billing periods; marks the car allocated; queues the confirmation message (UC-80) carrying the **daily** limit and rate, plus the condition photos.
+**System, monthly thereafter — the step that was invisible.** A billing period on its own owes nobody anything. The scheduled job that rolls each new billing period **also raises its rent due**, and *that* is what appears on the home screen and what F-2.2 taps. Without it the lease exists, the schedule exists, and no money is ever asked for.
+*The deposit is two records, not one:* the deposit itself, which tracks the lifecycle, and the movement that records the money arriving. Every later change — a top-up, a part-application after an accident (W-44), a refund — is another movement, and the balance is their sum. There is no stored balance to disagree with the history.
 **Alternates** · Repeat customer — everything pre-fills from his last rental · no deposit taken · no photos.
 **Accept**
 · A 12 Jan start bills the 12th of each month and each period runs 12th→11th (§1.1)
@@ -526,7 +534,9 @@ The incident is a **container** that stays open for weeks and gathers everything
 5. **Insurance** — hidden unless enabled (major damage only): amount claimed, excess borne, status, amount received. Until it arrives it is **pending recovery, not income**.
 6. **Bottom line** — total repairs, total recovered, still expected, **net cost to you**.
 
-**Writes** `Incident`, `IncidentCost[]`, `IncidentRecovery[]`, `RentTreatment`, `InsuranceClaim?`.
+**Writes** `Incident`, `IncidentCost[]`, `IncidentRecovery[]`, `RentTreatment`, `InsuranceClaim?`, `LeaseExtension` when the treatment is *extend*.
+*Not a wizard.* The incident is created at step 1 and everything after it is a separate edit, days or weeks apart — a repair invoice in three weeks, an insurance settlement in three months. A six-step form that must be completed in one sitting would be the wrong shape for a record whose entire purpose is to stay open (§6.6).
+*Why the extension is its own record:* choosing *extend* moves the lease end date, and a year later "why does this lease run twelve days long" has exactly one answer. Leaving that to be inferred from two timestamps is leaving it unanswered.
 **Accept**
 · §7.2 reproduces: 95,000 spent, 80,000 recovered, **net 15,000**, spread July/August/September with `60,000 pending recovery` visible in July and August
 · Pending recovery **never** enters profit (INV-4-adjacent — money expected is not money earned)
@@ -560,8 +570,15 @@ Expected from [driver]: 5,000
 ```
 
 **Steps** One tap for the normal case. *Something else* opens **both** figures — earned and received — and any shortfall becomes arrears automatically.
-**Writes** `DayRecord(earned, received, state)`, `DriverArrears` movement if short.
-**Accept** · **INV-2** — a cheap day (`earned` reduced) and an unpaid day (`received` reduced) are distinguishable in storage and in reports forever · one tap writes both figures at the expected amount · the card is reachable without navigating (U-1).
+**Writes** `DayRecord(earned, state)`, the day's `Obligation`, and — on the one-tap path — a `Payment` and its `Allocation`.
+**Accept**
+· **INV-2** — a cheap day (`earned` reduced) and an unpaid day (settled short) are distinguishable in storage and in reports forever
+· One tap writes all of it **in a single transaction**. This is four inserts, and it is the most frequent operation in the product (U-1); a partial write here leaves a day that is confirmed but unpaid, which is a debt the driver does not owe
+· The card is reachable without navigating (U-1).
+
+**If today's card does not exist, confirming creates it.** The cards are generated by a scheduled job, and a job that fails or runs late would otherwise leave the manager with nothing to tap and no way to record the day — the single most-used screen in the app, dark, for a reason he cannot see or fix.
+So the day is derivable rather than dependent: the arrangement, the pattern and the rate in force are all known for any date, and confirming a day with no card generates it first. The scheduled job stops being a prerequisite and becomes an optimisation, which is the only safe relationship to have with something that runs unattended.
+*Same rule for the catch-up stack* (U-8): a week of missing cards is generated on demand when the week is opened.
 
 #### F-4.3 Adjust the amount, and change it going forward
 *Actor:* Manager · *Source:* UC-32, §6.2 · *Phase:* 1
@@ -583,7 +600,18 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 · Surplus becomes credit against his coming days, not an unexplained overpayment
 · **A weekly settler is not in arrears on Thursday.** The arrangement records his agreed rhythm and ageing measures from that point (UC-78), or a perfectly reliable driver sits permanently in a late bucket and the report stops being read.
 
-#### F-4.6 Change the driver
+#### F-4.6 Confirm a week in one pass
+*Actor:* Manager · *Source:* UC-38, U-8, §4.3 · *Phase:* 1
+§4.3 promises "days missed while away appear as a stack; bulk-confirm at the expected amount" and a two-minute weekly catch-up. Per-day confirmation (F-4.2) cannot deliver that — seven cards at one tap each, with a round trip between them, is not two minutes.
+**Steps** 1. The stack shows every open day, oldest first, each at its expected amount. 2. **Confirm all** — one action. 3. Any day needing a different answer is adjusted individually first, then excluded from the bulk action.
+**Writes** one `Payment` covering the batch (or one per day, if he paid daily), `DayRecord` + `Obligation` per day, allocations oldest-first.
+**Accept**
+· Days already adjusted are **not** overwritten by the bulk action
+· A single confirmation step shows the list and the total before writing — the same preview discipline as §6.5, for the same reason
+· One transaction; a partial failure confirms nothing
+· A `did_not_run` day cannot be bulk-confirmed — it needs a reason, and a reason is a decision (W-4).
+
+#### F-4.7 Change the driver
 *Actor:* Manager · *Source:* UC-36 · *Phase:* 1
 **Steps** New driver from a date; previous assignment ends.
 **Accept** · History stays attached to whoever was actually driving · **long downtime** needs no new machinery: assign him to a spare vehicle for a date range (a second arrangement while the first idles), or pay a retainer with no trip attached (F-6.1).
@@ -597,7 +625,16 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 #### F-5.1 Book a trip
 *Actor:* Manager · *Source:* UC-20, UC-40, UC-41, W-6 · *Phase:* 1
 **Steps** 1. Vehicle, dates, customer, destination, agreed amount. 2. Driver — **the lease driver is pre-selected**, his default trip rate fills in; change either. 3. System warns what those dates cost: the daily lease pauses and its expected income disappears. 4. Confirm → `booked`, or **hold** (ST-5) if the enquiry is tentative.
-**Writes** `Trip`, `TripDriver(fee)`, day records → `paused_for_trip`.
+**Writes** `Trip` (driver and fee are columns on it — W-47 means no junction table), `VehicleDayAllocation` for the whole range, and day records → `paused_for_trip` *where they exist*.
+
+**The trap: a future trip has no day records to pause.** Cards are generated on a rolling horizon, so a charter booked three months out has nothing to mark. Booking therefore does one of two things depending on the date, and both end in the same place:
+
+| Trip dates | What booking does |
+|---|---|
+| Inside the horizon | Takes the allocation from the daily lease and sets the existing day records to `paused_for_trip` |
+| Beyond the horizon | Writes only its allocation. Card generation later reaches that date, finds it already taken, and creates no card at all |
+
+A developer who assumes booking always updates day records will write code that silently does nothing for future trips — and the daily cards will surface weeks later as though the charter had never been booked, quietly re-claiming income that belongs to the trip.
 **Accept**
 · **INV-1** — a car on a monthly rental for those dates is refused, stated before the conflict can be created
 · A `hold` reserves the calendar but does **not** suppress daily cards
@@ -672,7 +709,7 @@ Every day owed and paid, every excused day, every lost day, trips and fees, adva
 #### F-6.6 The printed slip
 *Actor:* Manager · *Source:* UC-57, W-3 · *Phase:* 1
 **Not optional.** You chose to be the single source of truth; that works only if the other party can see what you see.
-**Accept** · Same figures as F-6.5 · printable and shareable without a login.
+**Accept** · Same figures as F-6.5 · printable, and shareable without a login via a **signed link that expires** — it carries someone's financial position, so it is not a guessable URL.
 
 #### F-6.7 The driver's deposit
 *Actor:* Manager · *Source:* UC-58, W-8 · *Phase:* 1
@@ -763,7 +800,12 @@ A camera fine or toll arrives three weeks after the car went back.
 *Actor:* Manager · *Source:* UC-96, W-50 · *Phase:* 1
 Wrong vehicle, duplicate day confirm, fuel logged against the wrong trip, a day confirmed that never ran.
 **Steps** Open the record → edit or void → reason (optional for non-money fields, required for money).
-**Accept** · **INV-21** — money records are voided-and-replaced, not overwritten · non-money fields may be edited with the change captured in the audit trail (F-8.6) · a voided record never disappears from the audit trail.
+**Accept**
+· **INV-21** — money records are voided-and-replaced, not overwritten. Every money-fact table carries `voided_at` / `voided_reason` / `voided_by`; payments use their status field for the same purpose
+· **Two tables correct differently, deliberately.** A day record is not voided — it moves state, because a day that was confirmed and did not run is still a day, and `did_not_run` is the honest record of it. A duplicate day cannot arise at all: one record per lease per date is a uniqueness constraint
+· Allocation rows are voided with their parent, never on their own
+· Non-money fields may be edited with the change captured in the audit trail (F-8.6)
+· A voided record never disappears from the audit trail.
 
 #### F-8.6 See who changed what
 *Actor:* Owner / owner-manager · *Source:* UC-97, W-50 · *Phase:* 1
@@ -780,13 +822,15 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 **Steps**
 1. **Pre-close checklist** — unconfirmed days, trips still open, unreconciled advances, dues with no decision, incidents awaiting a bill.
 2. Review each vehicle's month (F-7.1).
-3. Close → the period becomes read-only (ST-9).
+3. Close → the period becomes read-only (ST-9), **and its successor is created as open, in the same transaction**.
 4. Settle with the other partner (F-7.2).
+**Writes** `AccountingPeriod(closed)` **and** `AccountingPeriod(next, open)`.
 **Accept**
 · **INV-10** — after close, no write touches the period. Late facts go to F-8.1
 · Closing is **one-way**. There is no reopen, because a month that can change after everyone agreed it is not a settlement
 · The checklist **warns and lists**; it does not block (U-7) — except where closing would leave money unaccounted for
-· A period cannot close while an earlier one is open.
+· A period cannot close while an earlier one is open
+· **A period cannot close without creating its successor.** Two reasons, and the second is the one that matters: every money record requires an open period to post to, so a close with no successor stops the business dead — *and* W-35 needs somewhere to put a late fact. A close that leaves nowhere to post is a close that breaks the rule it exists to serve.
 
 #### F-9.2 The report catalogue
 *Actor:* Owner or manager · *Source:* UC-70…UC-79, W-56 · *Phase:* 1–2
@@ -856,6 +900,18 @@ Because the source document's usability contract is about *where* things live, n
 | Screen | Flows | U-rule it must satisfy |
 |---|---|---|
 | **Home** | F-4.1, F-4.2, F-4.4, F-2.2, F-2.7, F-10.1, failed messages from F-10.4 | U-1 (30-second day), U-4 (all truth here), U-7 |
+
+**The home screen aggregates seven flows, so its order is a design decision, not an accident.** U-4 says everything outstanding appears here; without a priority it becomes a list nobody scans to the bottom of:
+
+1. **Failed messages** — someone was told nothing when they should have been told something (UC-87)
+2. **Expired paperwork** — an uninsured day is the largest unbudgeted loss available (UC-92)
+3. **Today's day card** — the 30-second obligation, and the reason the app is opened at all (U-1)
+4. **Earlier unconfirmed days**, oldest first
+5. **Rent due and overdue**
+6. **Deposits whose hold window has expired** (F-2.7)
+7. **Trips in progress**
+
+The ordering principle: *things that are silently getting worse* come before *things that are merely waiting*. A failed message and a lapsed insurance both degrade while unattended; an open trip does not.
 | **Vehicle** | F-1.5 calendar, F-3.x costs, F-7.1 month | U-2 (three levels) |
 | **Lease** | F-2.1 → F-2.8 | U-5, U-8 |
 | **Trip** | F-5.1 → F-5.5 | U-2, U-7 (INV-17 is the one hard block) |
@@ -879,7 +935,7 @@ Because the source document's usability contract is about *where* things live, n
 | F-2.1–F-2.8 | UC-10…UC-17, UC-80…UC-83 | W-9…W-11, W-15…W-19, W-24…W-26, W-29, W-30, W-38 |
 | F-2.8 | UC-19 | W-44, W-55 |
 | F-3.1–F-3.5 | UC-12, UC-13, UC-34, UC-60, UC-66 | W-7, W-32, §6.1, §6.7 |
-| F-4.1–F-4.6 | UC-06, UC-30…UC-36 | W-1, W-4, W-5, W-20, W-34 |
+| F-4.1–F-4.7 | UC-06, UC-30…UC-36, UC-38 | W-1, W-4, W-5, W-20, W-34 |
 | F-4.5 | UC-35 variation | §6.5 |
 | F-5.1–F-5.5 | UC-20…UC-22, UC-40…UC-45 | W-6, §6.3, §6.6 |
 | F-6.1–F-6.8 | UC-50…UC-59 | W-2, W-8, W-13, W-34, §6.4 |
@@ -1091,3 +1147,29 @@ Traceability now closes in both directions: no use case without a flow, no flow 
 | §1, §2.2, §2.3 | Unsourced assertions now cite W-54, W-39 and W-49 |
 
 **Unchanged: every figure in §9.1.** The three golden fixtures still hold the numbers they held in v1.0, which is the check that all of the above was safe.
+
+---
+
+## 14. What changed in v1.1.1 — independent review
+
+An independent validation pass against the data model found three blockers, six schema-vs-flow gaps and three usability risks. All were valid. What changed here:
+
+**Blockers — the system could not have run without these**
+
+| | Fix |
+|---|---|
+| No accounting period existed at setup | F-0.1 creates the first period **and** the settings row. Every money record requires an open period; without one the first expense fails on a constraint |
+| Closing a month left no open period | F-9.1 creates the successor in the same transaction. A close with nowhere to post next is a close that breaks W-35 |
+| Rent dues were never raised | F-2.1 gained the monthly system step that raises each period's due — the invisible step between "lease created" and "tap the due" |
+
+**Gaps**
+
+`F-2.1` deposit writes a movement, not just a deposit · `F-5.1` future trips have no day records to pause, and the two paths are now spelled out · `F-8.5` void coverage stated per table, including why day records move state instead · `F-4.2` the one-tap confirm is four inserts in one transaction.
+
+**Usability**
+
+`F-4.2` a missing day card is created on confirm, so an unattended job stops being a prerequisite for the most-used screen · **`F-4.6` is new** — §4.3 promised a two-minute weekly catch-up that per-day confirmation could not deliver · `F-0.2` opening balances can be saved as a draft and finished later.
+
+**Also** the home screen has a stated priority order (§7), the calendar links into booking, and the printed slip shares via an expiring signed link.
+
+The review's one recommendation not taken: it suggested tracing incident-driven lease extensions through the audit log. A `lease_extension` record was added instead — "why does this lease run twelve days long" is a dispute question, and inferring it from two timestamps is not an answer.
