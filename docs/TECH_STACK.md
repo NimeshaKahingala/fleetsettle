@@ -167,7 +167,10 @@ Migrations are **forward-only**. A money system that rolls a migration backwards
 
 ## 10. Neon organization
 
-**Org:** `FleetSettle` (`org-cold-rice-64493165`), created 30 July 2026, **Free plan**. No project has been created in it yet — the app's Neon project, with its `main` production branch, still needs provisioning before §9 applies.
+**Org:** `FleetSettle` (`org-cold-rice-64493165`), created 30 July 2026, **Free plan**.
+**Project:** `fleetsettle` (`spring-sunset-96946055`), Postgres 17, `main` branch `br-odd-cherry-afx5394i`, database `neondb`.
+
+`main` is **empty and deliberately so** — the schema in `DATA_MODEL.md` was validated on disposable branches (`DATA_MODEL.md` §16.0) and has not been applied to `main`. Applying it there is a migration, and migrations are forward-only (§9), so it waits until the schema is being built on rather than tested.
 
 Free-plan limits that bound the §9 branching strategy:
 

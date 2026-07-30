@@ -259,7 +259,7 @@ CREATE TABLE capital_contribution (
   contributed_on  date NOT NULL,
   note            text,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  belongs_to_period_id uuid REFERENCES accounting_period(id),  -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -865,7 +865,7 @@ CREATE TABLE write_off_recovery (
   payment_id    uuid NOT NULL REFERENCES payment(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  belongs_to_period_id uuid REFERENCES accounting_period(id),  -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -946,7 +946,7 @@ CREATE TABLE advance (
   status       text NOT NULL DEFAULT 'open'
                  CHECK (status IN ('open','part_settled','settled')),
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  belongs_to_period_id uuid REFERENCES accounting_period(id),  -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -1000,7 +1000,7 @@ CREATE TABLE partner_payout (
   kind         text NOT NULL CHECK (kind IN ('payout','partner_settlement')),
   occurred_on  date NOT NULL,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
-  belongs_to_period_id uuid REFERENCES accounting_period(id)   -- W-35,
+  belongs_to_period_id uuid REFERENCES accounting_period(id),  -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -1173,8 +1173,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
--- Attach to: obligation, payment, expense, adjustment, write_off, offset_record,
---            deposit_movement, banking_event, partner_payout, day_record, …
+-- Attached below. A function with no trigger enforces nothing.
 
 -- INV-16. Shares must total exactly 100% on any date they are in force.
 CREATE OR REPLACE FUNCTION assert_shares_total() RETURNS trigger AS $$
@@ -1213,7 +1212,52 @@ BEGIN
   END IF;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
--- CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED
+```
+
+### 13.1 Attaching them — the step that is easy to skip
+
+**A function with no trigger enforces nothing.** An earlier draft of this document defined all four functions and attached none of them, listing the attachments as a prose comment instead. Every table was created, every check passed, and four invariants that §14 claimed as database-enforced were silently inert. It was invisible until the schema was executed and `pg_trigger` was counted.
+
+```sql
+-- INV-10. Every table carrying posted_period_id.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[
+    'obligation','payment','expense','adjustment','write_off','write_off_recovery',
+    'offset_record','deposit_movement','advance','banking_event','partner_payout',
+    'capital_contribution','day_record','mileage_assessment','payment_correction']
+  LOOP
+    EXECUTE format(
+      'CREATE TRIGGER %I_period_open BEFORE INSERT OR UPDATE ON %I '
+      'FOR EACH ROW EXECUTE FUNCTION assert_period_open()', t, t);
+  END LOOP;
+END $$;
+
+-- INV-16. Deferred, so a 60/40 change lands as one legal transaction.
+CREATE CONSTRAINT TRIGGER ownership_shares_total
+  AFTER INSERT OR UPDATE ON ownership_share
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_shares_total();
+
+-- INV-17.
+CREATE TRIGGER trip_advances_settled
+  BEFORE UPDATE ON trip
+  FOR EACH ROW EXECUTE FUNCTION assert_advances_settled();
+
+-- INV-26. Deferred, so the parts may be inserted one at a time.
+CREATE CONSTRAINT TRIGGER split_sums
+  AFTER INSERT OR UPDATE ON mileage_assessment_split
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_split_sums();
+```
+
+**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods.
+
+**Verification, after any migration:**
+
+```sql
+SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal;  -- expect 18
 ```
 
 **INV-18 (deposit not settled before the closure summary is shown)** is the one deliberately left to the application: `lease.closure_summary_shown_at` is set when the summary renders, and the deposit-settlement handler refuses while it is null. It is a workflow-ordering rule, not a data rule, and a trigger would enforce it against imports and fixtures too.
@@ -1253,7 +1297,7 @@ Every invariant in `user-flows-v1.md` §5, and where it actually lives.
 | 25 driver sees only his own | `driver.linked_user_id` scoping in the data layer | **App** |
 | 26 splits sum to the whole | `assert_split_sums()` trigger | **DB** |
 | 27 borne_by ≠ paid_by | Two columns on `expense` | **DB** |
-| 28 audit trail on money tables | `audit_log` + per-table triggers | **DB** |
+| 28 audit trail on money tables | `audit_log` table + index exist; **the writer is not yet built** (D-8) | **Pending** |
 | 29 lease boundary day | Falls out of INV-1's unique index | **DB** |
 | 30 trip in exactly one period | `CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))` | **DB** |
 
@@ -1426,19 +1470,46 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 
 **Result: 62 of 62 flows have a home. No flow requires a fact the schema cannot hold.**
 
-### 16.0 What has and has not been verified
+### 16.0 What has been verified
 
-Checked mechanically, and passing:
+**The schema has been executed against Neon Postgres 17** on a disposable branch, and the invariants were then tested behaviourally — not by reading the DDL, but by attempting the writes each one is supposed to refuse.
 
-- All 62 flows appear in the matrix above; the matrix references no flow that does not exist
-- All 30 invariants have an enforcement point in §14
-- Every foreign key resolves to a defined table; all 52 tables have a primary key
-- Every `_minor` column is `bigint` (INV-20)
-- All 11 load-bearing constraints are present by name
+**Structural:** all 74 statements execute clean on an empty database, in document order — no reordering needed, so the document reads in dependency order. What lands:
 
-**Not verified: the DDL has never been executed.** It is written against Postgres 15+ syntax but has not been run, so syntax errors, `btree_gist` operator-class mismatches on the exclusion constraints, and the deferred-trigger definitions are all unproven. Generated columns referencing other columns (`billing_period.days_count`, `banking_event.discrepancy_minor`) are the most likely to need adjustment — Postgres restricts what a generated expression may reference.
+| | |
+|---|---|
+| Tables | 53 |
+| Foreign keys | 177 |
+| Check constraints | 107 |
+| Indexes | 79 |
+| Exclusion constraints | 5 |
+| Triggers | 18 |
+| Rewrite rules (append-only) | 4 |
 
-**The first implementation task is to run this against a Neon branch and fix what it says**, before any application code is written on top of it.
+**Behavioural — each of these was attempted and correctly refused:**
+
+| Invariant | Test |
+|---|---|
+| INV-1 | A second allocation for the same vehicle-day → rejected. A **hold** on that same day → accepted (ST-5) |
+| INV-6 / W-4 | `did_not_run` with `earned > 0` → rejected · with no reason → rejected · `on_charter` as a reason → **rejected**, so §1.2 A is enforced rather than merely documented |
+| INV-7 | `excess_km = -50` → rejected |
+| INV-10 | A write to a closed period → rejected. The same write to the open period with `belongs_to_period_id` set → accepted. W-35 works in both directions |
+| INV-11 | A duplicate `(trigger, subject, stage)` → rejected |
+| INV-13 | `UPDATE` and `DELETE` on `message_event` → silently ignored, row unchanged |
+| INV-16 | An overlapping share → rejected by the exclusion constraint. A lone 60% share → **rejected at commit**. 60 + 40 in one transaction → accepted |
+| INV-17 | Closing a trip with an open advance → rejected; after settling it → accepted |
+| INV-23 | `discrepancy_minor` computed 300,000 from 30,000,000 − 29,700,000 |
+| INV-24 | An expense with `vehicle_id` NULL → accepted |
+| INV-26 | Split 380,000 + 370,000 = 750,000 → accepted; 380,000 + 369,000 → **rejected** |
+| INV-27 | `borne_by = 'driver'` with no driver → rejected |
+| Categories | `category = 'diesel'` → rejected (R-3) |
+| One open period | A second open period → rejected |
+
+**§7.3's arithmetic reproduces against real Postgres.** The generated `days_count` column returns **31, 28, 31, 30** for the four billing periods from 12 January, and the allowances derive as 3,100 / 2,800 / 3,100 / 3,000. That was the number most at risk from an unstated convention, and it is now checked by the database rather than by agreement.
+
+**One gap was found and fixed: the triggers were never attached** (§13.1). Four functions existed, zero triggers referenced them, and four invariants that §14 called database-enforced were inert. Executing the schema is what surfaced it; no amount of reading would have.
+
+**Still unproven:** the audit-log triggers (§12) have no implementation here — `audit_log` is a table with no writer. That is application work, tracked as D-8.
 
 ### 16.1 Golden fixtures against real Postgres
 
@@ -1462,6 +1533,7 @@ The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and asse
 | **D-4** | Retention for `audit_log` and `message_event` | Both grow forever. Partition by month once either passes ~1M rows |
 | **D-5** | `obligation.effective_due_on` maintenance | Derived from `driver.settlement_rhythm` at creation. If the rhythm changes, existing rows keep their original value — deliberate, but worth confirming |
 | **D-6** | Allocation horizon length (§4.1) | 90 days is a guess. Long enough that a trip booked "next quarter" is inside it; short enough that an open-ended lease does not materialise years. Revisit once real booking lead times are known |
+| **D-8** | `audit_log` has no writer (INV-28) | The table and its index exist; nothing populates them. Either a generic `AFTER INSERT OR UPDATE` trigger over the money tables writing `to_jsonb(NEW)`, or the application writes the row inside the same transaction. **The trigger is the safer choice** — it cannot be forgotten in a new code path, which is the whole argument of §1.1 |
 | **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
 
 ---
