@@ -192,6 +192,24 @@ SELECT $3, business_id, period_end + 1,
 
 Without the successor, a close leaves zero open periods and the next write — a day confirmation, an expense, anything — fails on a `NOT NULL`. It is also what gives W-35 somewhere to put a late fact: **a period cannot close without a successor to post late facts into.**
 
+#### Which tables carry a period, and which correctly do not
+
+Not every table holding an amount is a posting. The test is: **does this row represent money moving or an obligation arising?**
+
+| Carries `posted_period_id` | Does not, and should not |
+|---|---|
+| `obligation`, `payment`, `expense`, `adjustment`, `write_off`, `write_off_recovery`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `banking_event`, `partner_payout`, `capital_contribution`, `day_record`, `mileage_assessment`, `payment_correction`, `incident_recovery`, `insurance_claim` | **Terms and rates:** `lease`, `billing_period`, `daily_lease_rate`, `mileage_package`, `driver`, `management_fee_agreement`, `business_settings` — an agreed figure is not a posting; the obligation it generates is |
+| | **Child rows:** `payment_allocation`, `offset_allocation`, `mileage_assessment_split` — the period comes from the parent, and duplicating it invites the two to disagree |
+| | **Opening balances:** `opening_balance_entry` — W-51 puts these outside every P&L by definition |
+
+#### There is no backfilling a closed period
+
+`assert_period_open()` is a trigger, and on Neon the application role **cannot** `SET session_replication_role = replica` to bypass it — that requires superuser. Combined with the one-way close (ST-9), this means:
+
+**History must be written in period order, or not at all.** A migration or import that wants to place records in June must do so while June is open. Once closed, the only route in is W-35's — post to the open period with `belongs_to_period_id` pointing back.
+
+This is the intended behaviour rather than a limitation, and it is worth knowing before writing an importer: there is no admin override, no `--force`, and no way to reopen. The seed for the §16.1 fixtures therefore walks the real lifecycle — open July, write July, close July and open August, and so on — which is also the most honest test of UC-98 available.
+
 ---
 
 ## 4. Vehicles
@@ -670,7 +688,11 @@ CREATE TABLE insurance_claim (                    -- W-11: optional, off by defa
   status                text NOT NULL CHECK (status IN
                           ('submitted','in_progress','settled','rejected')),
   received_amount_minor bigint DEFAULT 0,
-  received_on           date
+  received_on           date,
+  -- Claimed in one month, settled in another. Two periods, or §7.2's
+  -- month-by-month table cannot be produced.
+  posted_period_id      uuid NOT NULL REFERENCES accounting_period(id),
+  received_period_id    uuid REFERENCES accounting_period(id)
 );
 
 -- W-10 / W-11. Until it arrives it is money EXPECTED, never money earned.
@@ -682,6 +704,11 @@ CREATE TABLE incident_recovery (
   received_amount_minor bigint NOT NULL DEFAULT 0,
   obligation_id         uuid,                     -- customer contributions become receivable
   note                  text,
+  -- The month it was agreed and the month the money arrived are different
+  -- months, and §7.2 reports both. One column cannot say both.
+  posted_period_id      uuid NOT NULL REFERENCES accounting_period(id),
+  received_period_id    uuid REFERENCES accounting_period(id),
+  belongs_to_period_id  uuid REFERENCES accounting_period(id),   -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -689,6 +716,15 @@ CREATE TABLE incident_recovery (
 ```
 
 `received_amount_minor` separate from `agreed_amount_minor` is what keeps §7.2's `60,000 pending recovery` visible in July and August without ever entering profit.
+
+**And the two period columns are what let the report say *which* month.** `posted_period_id` is when the recovery was agreed and became expected; `received_period_id` is when the money actually landed, null until it does. §7.2's month-by-month table falls straight out:
+
+| Row | Query |
+|---|---|
+| **Recovered** | `SUM(received_amount_minor)` grouped by `received_period_id` |
+| **Pending recovery shown** | `SUM(agreed_amount_minor)` where `received_period_id IS NULL` |
+
+With a single period column the customer's 20,000 in August and the insurer's 60,000 in September collapse into whichever month the recovery was first written down, and the "pending" line — the one that makes a bad month visibly temporary — cannot be computed at all.
 
 ---
 
@@ -959,6 +995,8 @@ CREATE TABLE advance_settlement (
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
   occurred_on   date NOT NULL,
   expense_id    uuid REFERENCES expense(id),
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   voided_at    timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by    uuid REFERENCES app_user(id)
@@ -1384,6 +1422,26 @@ Three things this query encodes that prose kept getting wrong:
 - It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
 - **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
 
+**UC-70 what a vehicle cost this month — the query most likely to be written wrong**
+
+A month's costs are **not** `SELECT SUM(amount_minor) FROM expense`. A charter's driver fee is money owed to a person, so it lives on `obligation`, and a cost query that reads only the expense table under-reports every month containing a trip by exactly that fee. In §7.1 that is 9,000 of a 46,000 total — the month would read 9,000 more profitable than it was.
+
+```sql
+SELECT COALESCE(SUM(amount_minor), 0) AS costs_minor
+  FROM (
+    SELECT amount_minor FROM expense
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND borne_by = 'us' AND voided_at IS NULL        -- INV-5
+    UNION ALL
+    SELECT amount_minor FROM obligation
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND direction = 'owed_by_us' AND kind IN ('driver_fee','management_fee')
+       AND voided_at IS NULL                            -- W-53
+  ) c;
+```
+
+Verified against G-1: `37,000` of expenses + `9,000` of driver fee = **`46,000`**, giving `180,000 − 46,000 = 134,000`.
+
 **UC-98 pre-close checklist — unconfirmed days**
 
 ```sql
@@ -1515,11 +1573,19 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 
 The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and assert against SQL, not a mock:
 
-| Fixture | Asserts |
-|---|---|
-| **G-1** §7.1 | `day_record` decomposes `31 = 0 + 3 + 24 + 4`; driver obligations `120,000` raised / `118,000` settled; arrears `2,000` from a day that **ran**; `expense` with `borne_by='driver'` absent from the `46,000`; bus profit `134,000`; deposit in `deposit` and in no P&L |
-| **G-2** §7.2 | `incident` totals `95,000` spent / `80,000` recovered / net `15,000`; `incident_recovery.received_amount_minor` keeps `60,000` pending out of July and August profit |
-| **G-3** §7.3 | `billing_period.days_count` yields `31/28/31/30`; allowances `3,100/2,800/6,100`; excesses `3,500` and `7,500`; `mileage_assessment_split` sums to `300` (INV-26); `rent_amount_minor` never moves |
+**All three have been run against the live schema. 39 of 39 assertions pass.**
+
+| Fixture | Asserts | Result |
+|---|---|---|
+| **G-1** §7.1 | Days decompose `31 = 0 + 3 + 24 + 4`; lease-eligible `28`; lost-day value `20,000`; driver earned `120,000` / received `118,000`; arrears `2,000` **from a day that ran**; both balances `2,000` / `9,000` unmerged; charter profit `26,000`; costs `46,000`; driver's own fuel `40,000` below the line; **net profit `134,000`**; deposit `25,000` in no P&L | 19/19 |
+| **G-2** §7.2 | Spent `95,000`, recovered `80,000`, **net `15,000`**; repairs split July `70,000` / August `25,000`; recoveries land August `20,000` / September `60,000`; pending `60,000` visible in July *and* August, zero by September; lease extended 12 days | 12/12 |
+| **G-3** §7.3 | `days_count` `31/28/31/30`; allowances `3,100/2,800/3,100/3,000`; excesses `3,500`, nothing, `7,500` on a combined allowance of `6,100`; rent never moves; split sums to `300` | 8/8 |
+
+**The seed walks the real period lifecycle** — open July, write July, close July and open August, write August, and so on — because there is no way to write into a closed period (§3.1). So the fixtures test UC-98's close-and-succeed as a side effect of testing the figures.
+
+**What running G-2 exposed.** The month-by-month table in §7.2 was not computable as the schema stood: `incident_recovery` had no accounting period at all, so "recovered `20,000` in August, `60,000` in September" collapsed into whichever month the recovery was first written down, and the *pending recovery* line — the one that makes a catastrophic month visibly temporary — could not be produced. Two columns fixed it (§9.1). This was invisible to every structural check; only building the fixture surfaced it.
+
+**One correction to this document's own claim.** An earlier draft asserted these fixtures were "derivable from the schema". Two of the figures are not derivable from any single table: **July's `46,000` of costs is `expense` plus the trip's driver fee**, which lives on `obligation`, not `expense`. A cost query that reads only the expense table under-reports every month containing a charter by exactly the driver's fee. The report definitions in §15 must union the two, and UC-70's implementation should be checked against this fixture before it is trusted.
 
 ---
 
