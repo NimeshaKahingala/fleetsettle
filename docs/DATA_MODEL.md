@@ -1263,14 +1263,28 @@ DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'obligation','payment','expense','adjustment','write_off','write_off_recovery',
-    'offset_record','deposit_movement','advance','banking_event','partner_payout',
-    'capital_contribution','day_record','mileage_assessment','payment_correction']
+    'offset_record','deposit_movement','advance','advance_settlement','banking_event',
+    'partner_payout','capital_contribution','day_record','mileage_assessment',
+    'payment_correction','incident_recovery','insurance_claim']
   LOOP
     EXECUTE format(
       'CREATE TRIGGER %I_period_open BEFORE INSERT OR UPDATE ON %I '
       'FOR EACH ROW EXECUTE FUNCTION assert_period_open()', t, t);
   END LOOP;
 END $$;
+
+-- The array above is a hand-maintained list, which is exactly the kind of thing that
+-- drifts silently: a new money table gets posted_period_id and nobody adds it here, so
+-- it accepts writes into a closed period forever. Assert the two agree, in CI.
+-- Expected: zero rows.
+SELECT c.relname AS table_missing_period_trigger
+  FROM pg_attribute a
+  JOIN pg_class c ON c.oid = a.attrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+ WHERE n.nspname = 'public' AND a.attname = 'posted_period_id' AND NOT a.attisdropped
+   AND NOT EXISTS (SELECT 1 FROM pg_trigger g
+                    WHERE g.tgrelid = c.oid AND NOT g.tgisinternal
+                      AND g.tgname = c.relname || '_period_open');
 
 -- INV-16. Deferred, so a 60/40 change lands as one legal transaction.
 CREATE CONSTRAINT TRIGGER ownership_shares_total
@@ -1364,24 +1378,43 @@ SELECT driver_id,
 
 Off-pattern days have no row (§7), so `not_scheduled` is excluded by construction — the denominator is `ran + lost` and cannot be inflated by either exclusion. That is §1.2 of the use cases expressed as a `WHERE` clause.
 
-**UC-74 / UC-78 who owes us, and by how long**
+**UC-74 who owes us** — one row per party, ordered by size or by age.
 
 ```sql
 SELECT party_type, COALESCE(party_customer_id, party_driver_id) AS party_id,
        SUM(amount_minor - settled_minor - waived_minor) AS outstanding_minor,
-       MIN(effective_due_on)                            AS oldest,
-       CASE WHEN CURRENT_DATE - MIN(effective_due_on) <= 0  THEN 'current'
-            WHEN CURRENT_DATE - MIN(effective_due_on) <= 30 THEN '1-30'
-            WHEN CURRENT_DATE - MIN(effective_due_on) <= 60 THEN '31-60'
-            WHEN CURRENT_DATE - MIN(effective_due_on) <= 90 THEN '61-90'
-            ELSE 'over-90' END AS bucket
+       MIN(effective_due_on)                            AS oldest
   FROM obligation
  WHERE business_id = $1 AND direction = 'owed_to_us'
    AND status IN ('pending','part_paid')
  GROUP BY 1,2;
 ```
 
-`effective_due_on` rather than `due_on` is UC-78's rule in one column: a driver who settles every Friday by agreement is not overdue on Thursday.
+**UC-78 ageing** — a **separate** query, because the bucket belongs to each obligation, not to the party.
+
+```sql
+WITH aged AS (
+  SELECT party_type, COALESCE(party_customer_id, party_driver_id) AS party_id,
+         amount_minor - settled_minor - waived_minor AS outstanding_minor,
+         CASE WHEN $2::date - effective_due_on <= 0  THEN 'current'
+              WHEN $2::date - effective_due_on <= 30 THEN '1-30'
+              WHEN $2::date - effective_due_on <= 60 THEN '31-60'
+              WHEN $2::date - effective_due_on <= 90 THEN '61-90'
+              ELSE 'over-90' END AS bucket
+    FROM obligation
+   WHERE business_id = $1 AND direction = 'owed_to_us'
+     AND status IN ('pending','part_paid')
+)
+SELECT party_type, party_id, bucket, SUM(outstanding_minor) AS outstanding_minor
+  FROM aged
+ GROUP BY 1,2,3;
+```
+
+*Why these cannot be one query.* Bucketing on `MIN(effective_due_on)` puts a party's **entire** balance in the bucket of their oldest unpaid item — so a customer 5 days late on this month's rent and 45 days late on last month's reports both amounts as 31–60. The ageing report then overstates the old buckets, which is the direction that makes it alarming and therefore ignored. Each obligation ages on its own date; the party total is the sum of its buckets, not a bucket of its sum.
+
+`effective_due_on` rather than `due_on` is UC-78's other rule in one column: a driver who settles every Friday by agreement is not overdue on Thursday.
+
+`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and TECH_STACK.md §5 already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
 
 **UC-56 the driver's two balances, unmerged**
 
@@ -1601,7 +1634,7 @@ The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and asse
 | **D-4** | Retention for `audit_log` and `message_event` | Both grow forever. Partition by month once either passes ~1M rows |
 | **D-5** | `obligation.effective_due_on` maintenance | Derived from `driver.settlement_rhythm` at creation. If the rhythm changes, existing rows keep their original value — deliberate, but worth confirming |
 | **D-6** | Allocation horizon length (§4.1) | 90 days is a guess. Long enough that a trip booked "next quarter" is inside it; short enough that an open-ended lease does not materialise years. Revisit once real booking lead times are known |
-| **D-8** | `audit_log` has no writer (INV-28) | The table and its index exist; nothing populates them. Either a generic `AFTER INSERT OR UPDATE` trigger over the money tables writing `to_jsonb(NEW)`, or the application writes the row inside the same transaction. **The trigger is the safer choice** — it cannot be forgotten in a new code path, which is the whole argument of §1.1 |
+| **D-8** | `audit_log` has no writer (INV-28) | The table and its index exist; nothing populates them. Either a generic `AFTER INSERT OR UPDATE` trigger over the money tables writing `to_jsonb(NEW)`, or the application writes the row inside the same transaction. **The trigger is the safer choice** — it cannot be forgotten in a new code path, which is the whole argument of §1.1. **Build it as the first implementation task**, before any money table holds live data: §11.2 moved audit into phase one precisely because retrofitting it later means backfilling history that was never captured, and an audit trail with a gap at the beginning is the one stretch someone will eventually need |
 | **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
 
 ---

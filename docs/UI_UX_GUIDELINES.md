@@ -1,12 +1,12 @@
 # UI/UX Guidelines
 
-**Status:** v1.0
+**Status:** v1.1 — independent review incorporated (§17)
 **Date:** 30 July 2026
-**Companions:** `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics) · `DATA_MODEL.md` (schema) · `TECH_STACK.md` (platform)
+**Companions:** `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics) · `DATA_MODEL.md` (schema) · `TECH_STACK.md` (platform) · `BRAND_GUIDELINES.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
 
-It exists because the flows document ends with a screen-to-flow map (§7) and a single sentence that the map cannot deliver on its own: *"the source document's usability contract is about **where** things live, not just what they do."* U-1 through U-9 are a contract with no implementation. This is the implementation.
+It exists because the flows document ends with a screen-to-flow map (FL §7) and a single sentence that the map cannot deliver on its own: *"the source document's usability contract is about **where** things live, not just what they do."* U-1 through U-9 are a contract with no implementation. This is the implementation.
 
 **One constraint reframes all of it.** The app is used on a phone, standing next to a bus, at a fuel pump, in the dark, one-handed, often on a mid-range Android on 4G. The desktop browser is where the passive owner reads a dashboard once a month. So: **every phase-1 flow must complete on a 360 × 640 viewport with one thumb, and desktop is a widening of that same code — never a second application.**
 
@@ -24,13 +24,27 @@ It exists because the flows document ends with a screen-to-flow map (§7) and a 
 
 **Every rule carries an ID.** `M-n` is a mobile/design decision made here; `U-n`, `W-n`, `UC-n`, `F-n` and `INV-n` are references into the companion documents and are never redefined here. If you disagree with an `M-n`, §2 is one table and reversing one entry is one pass — the same discipline the use-case document uses for `W-n`.
 
+**Section references are prefixed, always.** Four documents number their sections from 1, and three of them have a §6 about different things. So:
+
+| Prefix | Means | Example |
+|---|---|---|
+| `§n` | **This document** | §5.1 is the colour tokens |
+| `UC §n` | `vehicle-rental-use-cases-v1.md` | UC §6.8 is earned-vs-received |
+| `FL §n` | `user-flows-v1.md` | FL §1.5 is the reserved vocabulary |
+| `DM §n` | `DATA_MODEL.md` | DM §15 is the report queries |
+| `TS §n` | `TECH_STACK.md` | TS §6 is money in TypeScript |
+
+A bare `§` always means this document. This matters more than it looks: UC §6.7 (who bears a cost) and UC §6.8 (earned vs received) drive two of the most-used mobile interactions in the product, and an unprefixed `§6.7` sends the reader to §6 here, which is the component inventory.
+
+*The rules those references point at are not restated here.* Copying UC §6.7's cost-owner table into this document would create a second copy to keep in sync, and the whole repository is built on single-sourcing with traceability instead.
+
 ---
 
 ## 1. The design premise
 
 ### 1.1 Two front doors, one set of numbers
 
-§2 of the use-case document states the fact that decides the whole information architecture:
+UC §2 states the fact that decides the whole information architecture:
 
 > **The workload is wildly asymmetric.** One person does 95% of the entry, and another consumes 95% of the reports.
 
@@ -39,7 +53,7 @@ A single interface serving both is tedious for the owner-manager and bewildering
 | Shell | Who | Opens it | Wants |
 |---|---|---|---|
 | **Operate** | Owner-manager, manager | Daily, 30 seconds | To confirm the bus and log a fill without navigating (U-1) |
-| **Review** | Passive owner | Monthly, 60 seconds | One screen per vehicle: earned, spent, my share, anything odd (§4.5) |
+| **Review** | Passive owner | Monthly, 60 seconds | One screen per vehicle: earned, spent, my share, anything odd (UC §4.5) |
 | **Mine** | Linked driver | Occasionally | His two balances and his statement. Read-only, no writes anywhere (W-3, W-13) |
 
 An owner-manager is both an owner and a manager, and gets **Operate** with the Review screens reachable as a tab — not a mode switch. Nobody chooses a shell; the role does (W-49).
@@ -60,7 +74,7 @@ Designing for the *device* is half the job. The other half is the *moment*, and 
 
 The primary users are in Sri Lanka. 4G is the practical standard, 5G is limited to parts of Colombo, and mid-range Android — the LKR 30,000–80,000 band — is the device to design against, not an iPhone Pro. ([Sri Lanka device/network context](https://blog.ikman.lk/en/mobile-phone-buying-guide-sri-lanka/), [2026 buying guide](https://lankawebsites.com/blog/mobile-gadgets/best-phone-in-sri-lanka-under-50000-2026))
 
-That produces §13's performance budget, and it produces one design decision earlier than that: **the app must be usable while the network is not** (M-12). Not a full offline-first CRDT — the flows are single-writer and the schema already enforces idempotency (`TECH_STACK.md` §4) — but reads cached and writes queued, with the queue visible.
+That produces §13's performance budget, and it produces one design decision earlier than that: **the app must be usable while the network is not** (M-12). Not a full offline-first CRDT — the flows are single-writer and the schema already enforces idempotency (TS §4) — but reads cached and writes queued, with the queue visible.
 
 ---
 
@@ -75,26 +89,27 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-3** | **Bottom tab bar is the only primary navigation.** No hamburger, no top-level drawer | ~75% of phone touches are the thumb and the reachable arc is the bottom two-thirds ([thumb-zone research](https://parachutedesign.ca/blog/thumb-zone-ux/), [one-handed UX](https://upslidedesignstudio.com/blogs/one-handed-mobile-ux-design-best-practices-for-better-mobile-apps)). A top-left menu is the least reachable pixel on a 6.5″ screen |
 | **M-4** ⚑ | **A centre `＋` in the tab bar opens a quick-add sheet** — fuel, expense, payment received, payment made, new trip | §4.1 promises fuel is ten seconds. Ten seconds does not survive Home → Vehicle → tab → Add |
 | **M-5** | **Sheets for anything under one screenful; routes for anything multi-step.** Bottom sheets, never centre modals, except for the two hard blocks | The sheet's controls land in the thumb zone; a centre modal's do not. Bottom sheets are the established fintech quick-action pattern ([fintech UX 2026](https://procreator.design/blog/best-fintech-ux-practices-for-mobile-apps/)) |
-| **M-6** | **U-2's three levels are a component, not a convention.** `<Disclosure level={2}>` wraps every advanced field; level 3 lives only in Settings | The flows document already demands the test — *"nothing at level 2 or 3 is ever required to save a record… make it an automated test over every form"* (§7). §12.6 is that test |
+| **M-6** | **U-2's three levels are a component, not a convention.** `<Disclosure level={2}>` wraps every advanced field; level 3 lives only in Settings | The flows document already demands the test — *"nothing at level 2 or 3 is ever required to save a record… make it an automated test over every form"* (FL §7). §12.6 is that test |
 | **M-7** | **Amounts are entered on an in-app keypad, not the OS keyboard.** Other numerics (litres, odometer, km) use the native keyboard with `inputmode` | UC-32 already describes it: *"keypad pre-filled 5,000"*. A custom pad gives 56px digits in the thumb zone, no keyboard-overlap bug, and can carry the expected amount, a `+/−` adjust and "make this the new daily amount" in the same surface |
-| **M-8** | **Any write that moves money shows a preview before it writes** | §6.5 is a product rule; this makes it a component (`<AllocationPreview>`), so oldest-first allocation looks identical in F-4.5, F-4.6 and F-6.2 |
+| **M-8** | **Any write that moves money shows a preview before it writes** | UC §6.5 is a product rule; this makes it a component (`<AllocationPreview>`), so oldest-first allocation looks identical in F-4.5, F-4.6 and F-6.2 |
 | **M-9** | **Warnings are inline strips above the primary action; only INV-1 and INV-17 are blocking dialogs** | U-7 says warn, don't block. A modal for a non-blocking warning teaches people to dismiss modals, which is exactly how the two real blocks get dismissed |
 | **M-10** | **Irreversible actions get a two-step confirm with the consequence stated in the button** — "Close July permanently", not "Confirm" | UC-98 is one-way by design. A button labelled "Confirm" is a button nobody read |
 | **M-11** | **Undo is a 5-second toast, and only for writes that sent no message and settled no obligation** | Anything outside that is UC-96 (void and replace) — a recorded correction, not an undo. W-50 means the ledger never silently forgets |
 | **M-12** | **Reads cached, writes queued, queue visible.** A pending write shows a "not yet saved" chip on the exact record | iOS evicts PWA storage after ~7 days of disuse and offers no background sync ([iOS PWA limits](https://www.magicbell.com/blog/pwa-ios-limitations-safari-support-complete-guide)). So the queue is a convenience, never a store of record — the UI nags until it is empty |
 | **M-13** | **"Not available" is a component with its own styling**, never a dash, never a zero, never an empty cell | W-56 is the one report rule that a UI can silently break. Making it a component makes it greppable and testable |
-| **M-14** | **Two balances are never rendered as one signed number** (§6.4, W-2). The net is muted, secondary, and adjacent to an explicit **Offset** action | A single signed figure *is* a silent netting, whatever the storage does |
+| **M-14** | **Two balances are never rendered as one signed number** (UC §6.4, W-2). The net is muted, secondary, and adjacent to an explicit **Offset** action | A single signed figure *is* a silent netting, whatever the storage does |
 | **M-15** | **Money amounts are always ink-coloured. Direction and status are carried by a word, a sign and a marker — never by hue alone** | Red/green is non-functional for ~5% of users and identical in greyscale ([colour-blind guidance](https://www.tableau.com/blog/examining-data-viz-rules-dont-use-red-green-together)). It also matches the data-viz rule that text wears text tokens |
 | **M-16** ⚑ | **Cents are stored always and displayed only when non-zero.** `Rs 5,000` and `Rs 5,000.50`, never `Rs 5,000.00` | INV-20 keeps minor units; a column of `.00` costs six characters of width on a 360px screen and communicates nothing |
 | **M-17** | **Every date field defaults to today and offers Today / Yesterday chips plus a picker.** Native `<input type="date">` for the picker | U-8 makes past-dating normal. Native date input is the most accessible and lightest option on mobile ([native vs custom](https://blog.openreplay.com/custom-date-picker/)); a custom calendar earns its place only in the vehicle calendar (F-1.5) and range pickers |
 | **M-18** ⚑ | **Photos are captured with `<input capture>`, not `getUserMedia`** | Camera permission is not reliably persisted for iOS home-screen PWAs ([known WebKit issue](https://kb.strich.io/article/29-camera-access-issues-in-ios-pwa)). The file-input path uses the OS camera app, works everywhere, and needs no permission plumbing. Compress client-side before R2 |
 | **M-19** | **Body text is 16px minimum and never smaller than 12px anywhere** | Anything under 16px on an input triggers iOS auto-zoom, which breaks a fixed bottom bar and re-lays out the form mid-entry |
 | **M-20** | **Dark mode is authored, not inverted**, and both modes ship from day one | Managers work at dusk and in vehicles. An inverted palette breaks the validated chart colours (§11.2) |
-| **M-21** ⚑ | **No infinite scroll on any money list.** Date-grouped pages with an explicit "Show older" | A ledger is consulted to find one item and be able to find it again. Infinite scroll makes position unstable, and it fights the "which days did that 30,000 cover" question §6.5 exists to answer |
-| **M-22** | **Capabilities hide, states disable.** A capability the role can never have (W-49) is absent; an action blocked by state is present, disabled, with the reason next to it | A disabled "Write off" teaches a manager to keep asking. An absent one is honest. The driver boundary is server-enforced regardless — the UI never *relies* on hiding (§2.3 of the flows doc) |
-| **M-23** ⚑ | **Swipe gestures are always a shortcut for something also reachable by tap** | Swipe-only actions are unusable with switch control and screen readers ([gesture accessibility](https://blog.logrocket.com/ux-design/accessible-swipe-contextual-action-triggers/)), and WCAG 2.5.7 covers the dragging case |
+| **M-21** ⚑ | **No infinite scroll on any money list.** Date-grouped pages with an explicit "Show older" | A ledger is consulted to find one item and be able to find it again. Infinite scroll makes position unstable, and it fights the "which days did that 30,000 cover" question UC §6.5 exists to answer |
+| **M-22** | **Capabilities hide, states disable.** A capability the role can never have (W-49) is absent; an action blocked by state is present, disabled, with the reason next to it | A disabled "Write off" teaches a manager to keep asking. An absent one is honest. The driver boundary is server-enforced regardless — the UI never *relies* on hiding (FL §2.3) |
+| **M-23** ⚑ | **Swipe gestures are always a shortcut for something also reachable by tap**, and no horizontal swipe originates within **24dp of either screen edge** | Swipe-only actions are unusable with switch control and screen readers ([gesture accessibility](https://blog.logrocket.com/ux-design/accessible-swipe-contextual-action-triggers/)), and WCAG 2.5.7 covers the dragging case. The edge exclusion is Android's: those strips are the system back gesture, so a swipe starting there is either swallowed or navigates away — and a gesture that works in the middle of a row but not at its edge reads as a broken feature rather than a boundary |
 | **M-24** ⚑ | **One primary action per screen**, bottom-anchored, full-width, and it states what it does | Two equally-weighted primary buttons is how the wrong one gets tapped at the end of a long day |
-| **M-25** ⚑ | **The interface has no accounting vocabulary and no abbreviations of the reserved words** (§1.5 of the flows doc, U-6). "Daily lease amount" is never shortened to "rate" on a screen where "driver day fee" could also appear | The two words mean opposite directions of money. UC-04 already had to split them once |
+| **M-26** ⚑ | **Landscape is supported, not locked.** Below `md` in landscape the app bar collapses to 44px, the tab bar becomes icon-only at 44px, and the sticky action stays | Locking orientation is the obvious answer and it is not available: **WCAG 2.1 SC 1.3.4 Orientation** forbids restricting content to one orientation unless it is essential, and a ledger is not essential in that sense. The manifest's `orientation` field is also ignored outside standalone mode and on iOS, so a lock would be a lock in name only. That leaves making landscape work: ~192px of content between the chrome is enough for the day card once the chrome gives back 24px |
+| **M-25** ⚑ | **The interface has no accounting vocabulary and no abbreviations of the reserved words** (FL §1.5, U-6). "Daily lease amount" is never shortened to "rate" on a screen where "driver day fee" could also appear | The two words mean opposite directions of money. UC-04 already had to split them once |
 
 ---
 
@@ -125,7 +140,11 @@ Five tabs maximum, labels always visible, 56px tall plus `env(safe-area-inset-bo
 | **People** | Drivers and customers. A driver's page is the two-balance screen | F-1.6…F-1.8, F-6.x, F-2.8 |
 | **More** | Cash, reports, period close, settings, message log, business | F-7.x, F-9.x, F-10.2, F-10.4 |
 
+**The `＋` at other sizes.** On `base`–`sm` it is a full-width bottom sheet. On `md` it is the same action list in a centred sheet at 420px rather than edge-to-edge. On `lg`+ the tab bar has become a left rail (§14) and `＋` sits at its top as a labelled button, opening the identical list. One component, three placements — the actions and their order never change, because muscle memory for "fuel is the first one" is the point.
+
 *Why cash and reports sit under More for a manager:* he opens the app to record, not to read. §4.4's monthly rhythm is ten minutes once a month; it does not deserve a permanent 20% of the thumb zone that the daily rhythm needs.
+
+**The owner-manager is not a fourth shell.** He gets **Operate** exactly as above — the tab bar does not grow to six (M-3) and there is no mode switch. The Review screens (§7.8) live under **More → My share**, as the same components rendered read-only. He opens the app daily to record and monthly to review; the navigation reflects that ratio rather than splitting it down the middle.
 
 **Review** (passive owner) — four tabs, no `＋`, no write affordance anywhere.
 
@@ -135,7 +154,7 @@ Five tabs maximum, labels always visible, 56px tall plus `env(safe-area-inset-bo
 
 ### 3.2 The home screen is an ordered stack, not a dashboard
 
-The order is already fixed by the flows document (§7) and is not a design choice:
+The order is already fixed by the flows document (FL §7) and is not a design choice:
 
 1. **Failed messages** — someone was told nothing when they should have been told something
 2. **Expired or expiring paperwork** — an uninsured day is the largest unbudgeted loss available
@@ -154,6 +173,16 @@ The order is already fixed by the flows document (§7) and is not a design choic
 - Items 4–7 are **section groups with counts** (`Earlier days · 5`), collapsed to three rows each with "Show all".
 - **Nothing about successful messaging appears.** Success is invisible by design (UC-87).
 - **Empty is a real state and it is a good one.** "Nothing needs you today" with the date, not a blank screen and not a nudge to go find work.
+
+**When more than one vehicle has a card today.** The worked examples describe one bus, but the model allows any number of daily leases, and five stacked cards at ~200px each is a 1,000px home screen before anything else appears — which turns U-4's "the home screen holds the truth" into a wall nobody reads to the bottom of.
+
+| Today-cards | Treatment |
+|---|---|
+| 1 | The elevated card, as specified |
+| 2–3 | Stacked. The most-recently-used vehicle is elevated; the rest are ordinary cards |
+| 4+ | Collapses to one summary row — `3 buses to confirm · 15,000` — expanding to the stack, exactly like items 4–7 |
+
+Earlier unconfirmed days stay in their own section below (item 4) and never interleave with today's cards. "What do I owe today" and "what did I miss" are different questions and mixing them makes both harder to answer.
 
 ### 3.3 Route map
 
@@ -250,44 +279,48 @@ All tokens are CSS custom properties consumed through Tailwind v4's `@theme`. No
 
 **Surfaces and ink** — warm neutrals; a pure-white card at full brightness is unreadable in the sun and harsh at night.
 
-| Role | Light | Dark | Contrast (light / dark) |
-|---|---|---|---|
-| `--bg-page` | `#F1F1EC` | `#0D0D0C` | — |
-| `--bg-surface` (cards, sheets, charts) | `#FBFBF8` | `#141413` | — |
-| `--ink-primary` | `#14140F` | `#F5F5F0` | 17.8 / 16.9 |
-| `--ink-secondary` | `#52514E` | `#C3C2B7` | 7.7 / 10.3 |
-| `--ink-muted` (supporting text) | `#6E6C66` | `#96948C` | 5.1 / 6.1 |
-| `--ink-faint` (axis, hairline labels — **non-text only**) | `#898781` | `#898781` | 3.5 / 3.5 |
-| `--line-hairline` | `rgba(20,20,15,0.10)` | `rgba(255,255,255,0.10)` | — |
-| `--line-strong` (baselines, dividers under headers) | `#DCDBD3` | `#2C2C2A` | — |
+**Every colour token is named `--color-*`, and that prefix is not a style choice.** Tailwind v4's `@theme` is namespaced: only a variable in the `--color-*` namespace generates colour utilities, so `--color-ink-primary` yields `text-ink-primary` / `bg-ink-primary` / `border-ink-primary`, while a token named `--color-ink-primary` generates nothing and fails silently. The tokens below are therefore written exactly as they appear in §12.3 — one name, one place, no translation step.
+
+| Token | Utility | Light | Dark | Contrast (light / dark) |
+|---|---|---|---|---|
+| `--color-page` | `bg-page` | `#F1F1EC` | `#0D0D0C` | — |
+| `--color-surface` (cards, sheets, charts) | `bg-surface` | `#FBFBF8` | `#141413` | — |
+| `--color-ink-primary` | `text-ink-primary` | `#14140F` | `#F5F5F0` | 17.8 / 16.9 |
+| `--color-ink-secondary` | `text-ink-secondary` | `#52514E` | `#C3C2B7` | 7.7 / 10.3 |
+| `--color-ink-muted` (supporting text) | `text-ink-muted` | `#6E6C66` | `#96948C` | 5.1 / 6.1 |
+| `--color-ink-faint` (axis, hairlines — **non-text only**) | `text-ink-faint` | `#898781` | `#898781` | **3.5 / 5.1** |
+| `--color-line-hairline` | `border-line-hairline` | `rgba(20,20,15,0.10)` | `rgba(255,255,255,0.10)` | — |
+| `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DCDBD3` | `#2C2C2A` | — |
 
 **Brand and interactive**
 
-| Role | Light | Dark | Note |
+| Token | Light | Dark | Note |
 |---|---|---|---|
-| `--brand` (filled buttons) | `#256ABF` | `#3987E5` | White on light brand = 5.39:1 |
-| `--brand-ink` (links, brand-coloured text) | `#1C5CAB` | `#86B6EF` | 6.39:1 on light |
-| `--brand-wash` (selected rows, chips) | `#E6F0FC` | `#16283F` | |
-| `--focus-ring` | `#1C5CAB` | `#86B6EF` | 3px, 2px offset, never removed |
+| `--color-brand` (filled buttons) | `#256ABF` | `#3987E5` | White on light brand = 5.39:1; 5.2 / 5.1 against its own surface |
+| `--color-brand-ink` (links, brand-coloured text) | `#1C5CAB` | `#86B6EF` | 6.39:1 on light |
+| `--color-brand-wash` (selected rows, chips) | `#E6F0FC` | `#16283F` | |
+| `--color-focus-ring` | `#1C5CAB` | `#86B6EF` | 3px, 2px offset, never removed |
 
 **Status** — fixed, never themed, never reused as a series colour.
 
-| Role | Fill (light / dark) | Text (light / dark) | Used for |
+| Token | Fill (light / dark) | Text (light / dark) | Used for |
 |---|---|---|---|
-| `--good` | `#0CA30C` / `#3FBF57` | `#006300` (7.3) / `#3FBF57` (7.7) | Settled, paid in full, synced |
-| `--warning` | `#FAB219` / `#FAB219` | `#7A4A00` (7.2) / `#FAB219` (10.1) | Expiring paperwork, unsent queue, provisional figures |
-| `--serious` | `#EC835A` / `#EC835A` | `#8A3B12` / `#EC835A` | Overdue, arrears |
-| `--critical` | `#D03B3B` / `#F0736F` | `#B3231F` (6.4) / `#F0736F` (6.5) | Failed message, expired insurance, blocked action |
+| `--color-good` | `#0CA30C` / `#3FBF57` | `#006300` (7.3) / `#3FBF57` (7.7) | Settled, paid in full, synced |
+| `--color-warning` | `#FAB219` / `#FAB219` | `#7A4A00` (7.2) / `#FAB219` (10.1) | Expiring paperwork, unsent queue, provisional figures |
+| `--color-serious` | `#EC835A` / `#EC835A` | `#8A3B12` / `#EC835A` | Overdue, arrears, lost days on the calendar |
+| `--color-critical` | `#D03B3B` / `#F0736F` | `#B3231F` (6.4) / `#F0736F` (6.5) | Failed message, expired insurance, field errors, blocked action |
 
-Status colours **always ship with an icon and a word** — the light-mode warning fill is deliberately sub-3:1 and the pairing is what makes it legal, in addition to M-15.
+Status colours **always ship with an icon and a word** — the light-mode warning and serious fills are deliberately sub-3:1 and the pairing is what makes them legal, on top of M-15.
 
-**Money direction** is *identity*, not polarity (§6.4, W-2), so it is not a status colour:
+**Money direction** is *identity*, not polarity (UC §6.4, W-2), so it is not a status colour and it is not a raw hex:
 
-| Meaning | Marker | Amount colour |
-|---|---|---|
-| He owes you / receivable | 3px leading rule in `--brand` + the words "owes you" | `--ink-primary` |
-| You owe him / payable | 3px leading rule in `#EB6834` + the words "you owe" | `--ink-primary` |
-| Held, not yours (deposits, advances) | Hatched leading rule + "held" | `--ink-secondary` |
+| Token | Light | Dark | Contrast (light / dark) | Meaning |
+|---|---|---|---|---|
+| `--color-brand` | `#256ABF` | `#3987E5` | 5.2 / 5.1 | **He owes you** — 3px leading rule + the words "owes you" |
+| `--color-direction-payable` | `#EB6834` | `#D95926` | 3.1 / 4.8 | **You owe him** — 3px leading rule + the words "you owe" |
+| `--color-ink-faint` hatched | `#898781` | `#898781` | 3.5 / 5.1 | **Held, not yours** (deposits, advances) + the word "held" |
+
+The amount itself is always `--color-ink-primary`, whichever direction it points (M-15). `--color-direction-payable` is deliberately the same hex as chart slot 2 in both modes (§11.2), so the marker beside a driver's balance and the series in a chart about that driver are the same orange rather than two oranges. All three clear the 3:1 non-text threshold (SC 1.4.11) against the surface they render on.
 
 ### 5.2 Typography
 
@@ -308,6 +341,9 @@ Noto Sans Sinhala is self-hosted, subset, and `font-display: swap`. It is applie
 | `label` | 13 / 16 | 500 | Field labels, table headers |
 | `caption` | 12 / 16 | 400 | Timestamps, provenance, "estimated" markers |
 | `:lang(si)` | line-height × 1.15 | | Applied to every token above |
+| `:lang(ta)` | line-height × 1.15 | | Same rule, same reason — Tamil's glyph extents need the same headroom Sinhala does |
+
+**Truncation.** Names truncate to one line with an ellipsis; **amounts never truncate** (§8.2). Where a name and an amount share a row, the amount is laid out first and the name takes what is left — a registration is recognisable from its first characters, a rupee figure is not. `White Toyota HiAce 2019` and `Rs 1,240,000` do not both fit in 328px, and it is always the name that gives way.
 
 **Figures.** `font-variant-numeric: tabular-nums` on every column that aligns vertically — list amounts, tables, axis ticks, statements. Proportional figures for the hero number only.
 
@@ -318,7 +354,7 @@ space:   4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64
 radius:  sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)
 ```
 
-**Elevation is hairlines, not shadows.** Cards are `--bg-surface` on `--bg-page` with a 1px `--line-hairline`. Shadow is reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it. Two shadow tokens only. Cheap GPUs render large blurs slowly and repaint them on every scroll frame.
+**Elevation is hairlines, not shadows.** Cards are `--color-surface` on `--color-page` with a 1px `--color-line-hairline`. Shadow is reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it. Two shadow tokens only. Cheap GPUs render large blurs slowly and repaint them on every scroll frame.
 
 **Motion**
 
@@ -329,6 +365,19 @@ radius:  sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avat
 | `exit` | 160ms | ease-in | Dismiss |
 
 Everything respects `prefers-reduced-motion: reduce` by collapsing to opacity-only. No parallax, no scroll-linked animation, no skeleton shimmer (a static skeleton reads the same and costs nothing).
+
+**Touch feedback is not optional, because the thumb covers the target.** On a phone the user cannot see what they just tapped — their own finger is on it — so the only confirmation available is what happens at the edges of the press, and it has to be immediate rather than waiting on the network.
+
+| Element | `:active` |
+|---|---|
+| Primary button | `scale(0.98)` + fill darkened 10%, `micro` |
+| Secondary / outline button | Fill becomes `--color-brand-wash`, `micro` |
+| List row, calendar cell | Background `--color-brand-wash` for the duration of the press |
+| Keypad digit (`AmountPad`) | Fill darkened 10% — no scale, because a shrinking key under a stationary thumb reads as a miss |
+
+Use `:active`, not a JS press handler: it survives scroll cancellation and costs nothing. Haptics are Android-only (`navigator.vibrate(10)`) and fire **only** on a write that moves money, never on navigation — iOS Safari has no equivalent, so nothing may depend on it.
+
+**And one performance caveat on `Provisional`.** Its striped edge is a `repeating-linear-gradient` at 45° confined to a 4px pseudo-element on the leading edge — never a full-element overlay. A list where several rows are provisional would otherwise repaint a large gradient on every scroll frame, which is exactly the jank a mid-range GPU shows first.
 
 ---
 
@@ -372,8 +421,8 @@ These carry the product. Get them right and most screens assemble themselves.
 
 - One tap writes the day record, the obligation, the payment and the allocation **in one transaction** (F-4.2). The UI reflects it optimistically and shows a sync chip until confirmed (M-12).
 - If the card does not exist, tapping creates it. The scheduled job is an optimisation, never a prerequisite — a manager must never find the app's most-used screen dark for a reason he cannot see.
-- "Something else" opens a sheet with **both** figures — earned and received (§6.8) — because a cheap day and an unpaid day must stay distinguishable forever.
-- "Didn't run" opens a reason list. `On charter` is **not** in it, ever (§4.1 of the flows doc).
+- "Something else" opens a sheet with **both** figures — earned and received (UC §6.8) — because a cheap day and an unpaid day must stay distinguishable forever.
+- "Didn't run" opens a reason list. `On charter` is **not** in it, ever (FL §4.1).
 
 **`AmountPad`** — the money keypad (M-7).
 
@@ -399,9 +448,13 @@ These carry the product. Get them right and most screens assemble themselves.
 
 Digits build minor units from the right, so there is no decimal-point state machine to get wrong. The value never passes through `Number` (§8.1).
 
+*How the OS keyboard is kept away.* The display is a **non-focusable `<div role="textbox" aria-readonly="true">`**, never an `<input>` — an `<input readonly>` still summons the keyboard on some Android builds and always draws the iOS accessory bar. `user-select: none` suppresses the long-press magnifier and paste bubble. `env(keyboard-inset-height)` does not apply here and must not be used: the pad *is* the keyboard, and treating it as one produces a double offset.
+
+*The "make this the new daily amount" checkbox* (UC-32) persists the figure from the **selected date forward** and never touches earlier days. The Save button is the confirmation — there is no second confirm, because the change is reversible by the same control and F-4.3 already requires the effective date to be editable rather than pinned to today.
+
 **`MoneyField`** — the inline variant for forms, opening `AmountPad` on tap. Where a native keyboard is genuinely better (a long expense form already using the keyboard), it degrades to `type="text" inputmode="decimal"` — never `type="number"`, which rejects locale separators and behaves inconsistently for decimals ([why not type=number](https://css-tricks.com/finger-friendly-numerical-inputs-with-inputmode/)). Format on blur, never per keystroke.
 
-**`AllocationPreview`** — the oldest-first preview (M-8, §6.5).
+**`AllocationPreview`** — the oldest-first preview (M-8, UC §6.5).
 
 ```
 ┌────────────────────────────────────┐
@@ -455,22 +508,50 @@ The net line is never styled as a total, never bold, and never the thing a tap a
 | `EntityPicker` | Vehicle / driver / customer. Pre-filled by U-3, opens a searchable sheet, recent-first, with "Add new" at the bottom |
 | `DateField` | M-17. Today / Yesterday chips + native picker. Shows the weekday, because "Tue 30 Jul" is checkable and "30/07" is not |
 | `ReasonPicker` | Single-select list in a sheet. Used by lost-day reasons, adjustment reasons, write-off reasons |
-| `PhotoCapture` | M-18. Named slots for condition sets (front, back, left, right, interior, existing marks); free grid for receipts. Client-side downscale to ≤1600px longest edge, ~200KB, then presigned R2 upload with per-photo progress and retry |
+| `PhotoCapture` | M-18, plus the pipeline below — a condition set is six photos and the naive version stalls on 4G |
+**`PhotoCapture`** — named slots for condition sets (front, back, left, right, interior, existing marks); a free grid for receipts and odometer photos.
+
+| Stage | Spec |
+|---|---|
+| Capture | `<input type="file" accept="image/*" capture="environment">` (M-18) |
+| Downscale | Longest edge 1600px |
+| Encode | **JPEG at quality 0.75.** Universally encodable from a canvas on every target browser; a 12MP camera photo of a car panel gains nothing from a newer format at this size |
+| Cap | **200KB hard.** If the first encode exceeds it, re-encode at 0.6, then 0.45, then accept whatever the third pass gives and flag it |
+| Where | In a Web Worker where available, with a 3s timeout. A 12MP decode on a 2GB device can block the main thread for seconds; on timeout, upload the original and let the Worker resize it |
+| Upload | Presigned R2 PUT, one request per photo, per-photo progress and retry — **not** the mutation queue, which is for JSON writes |
+| Budget | A six-photo condition set is ≈1.2MB. It uploads in the background and the lease is savable before it finishes; a half-uploaded set shows which photos are still going |
+
+The failure that matters is not a slow upload — it is a manager who taps Save, sees a spinner, and closes the app. So the record saves first and the photos follow it.
+
 | `BorneByPaidBy` | The one control that must never collapse two fields (W-48). Renders as two rows, both pre-filled, both at level 2 — "Paid by *you*" and "Borne by *the driver*" — with the derivation shown as caption text so the default is auditable at a glance |
-| `NoteField` | Level 2, one line, expands. Present on every money record, because §6.5's disputes are settled by notes |
+| `NoteField` | Level 2, one line, expands. Present on every money record, because UC §6.5's disputes are settled by notes |
+| `FieldError` | See below — every form in the product depends on it |
+
+**`FieldError`** — the visual half of §9.2's timing rules.
+
+| | |
+|---|---|
+| Field border | `--color-critical` at 2px, replacing the 1px hairline. The 1px→2px change is a layout shift unless the field reserves 2px from the start — reserve it |
+| Message | `body-sm` in `--color-critical-ink`, with a 16px icon, directly below the field |
+| Space | The message slot is **reserved at 20px whether or not there is an error**, so validating on blur never reflows the form under the user's thumb |
+| Announcement | `aria-describedby` on the field; the summary count announces via a live region (SC 4.1.3) |
+| Colour | Never alone — the icon and the message carry it (M-15) |
+
+*The mobile-specific part.* Focusing the first error must scroll it clear of **both** the sticky action bar and the message that is about to appear beneath it, so the scroll target is `field height + 20px message + scroll-padding-bottom`. Get this wrong and the field the user must fix sits behind the button they are trying to reach, which is SC 2.4.11 and also just infuriating. One line per error on mobile; wrapping is allowed from `md` up.
 
 ### 6.4 Display
 
 | Component | Rules |
 |---|---|
 | `Money` | Tabular, `Rs` prefix, thousands grouped, cents only when non-zero (M-16). Never truncated, never abbreviated to "5k" on a money screen |
-| `StatTile` | Label, value (hero or title), optional delta with arrow **and** sign **and** word, optional sparkline. §11 |
+| `StatTile` | Label, value (hero or title), optional delta with arrow **and** sign **and** word, optional sparkline. §11. *Sparkline:* single 1.5px `--color-ink-muted` stroke, last 30 points, no axes, no dots, no fill, no interaction — it is a shape, not a chart. Below 6 points it renders nothing rather than a misleading near-straight line (M-13). Tapping the tile opens the full report; the sparkline itself is `aria-hidden` |
 | `NotAvailable` | M-13. Renders the em-dash with a caption saying *why* — "no closing odometer" — and an info affordance. Never zero |
 | `Provisional` | The striped-edge treatment for estimated figures: an apportioned mileage split (UC-14), a pending insurance recovery (W-11), an unsynced write (M-12). One visual language for "this number is not final" |
 | `AlertStrip` | Home items 1–2, and inline warnings (M-9). Icon + text + one action |
 | `SyncChip` | "Not yet saved" on the record itself, not in a global banner |
-| `Timeline` | Append-only history on any money record (W-50, UC-97): who, when, from what to what |
-| `EmptyState` | A sentence in `--ink-secondary` and, only where an action is genuinely the answer, one button. No illustrations |
+| `OfflineBanner` | **32px**, `caption`, below the app bar and above the scroll region — never overlaying content, because the scroll region's height must account for it or the day card's buttons move. Reads "Working offline" alone, or "Working offline · 3 waiting" when the queue is non-empty. Not dismissible; it leaves when connectivity returns. It is the only global offline signal — per-record state is the `SyncChip` (M-12) |
+| `Timeline` | Append-only history on any money record (W-50, UC-97): who, when, from what to what. A **voided** record (DM `voided_at`) renders struck through with its replacement linked directly beneath — never hidden and never silently swapped, because F-8.5's whole point is that the original stays visible with its correction attached |
+| `EmptyState` | A sentence in `--color-ink-secondary` and, only where an action is genuinely the answer, one button. No illustrations |
 
 ### 6.5 What is deliberately absent
 
@@ -493,6 +574,8 @@ Each entry gives the target interaction cost, the level-1 fields, and the traps.
 | **Level 1** | Nothing. The card *is* the form |
 | **Level 2** | Earned vs received, note, odometer (optional, never prompted — W-20) |
 
+*First run, empty cache.* The home screen shows the empty state — "Nothing needs you today" — until the first response lands. A skeleton appears **only** if the app already knows a daily-lease vehicle exists and its card has not arrived within 300ms. A skeleton before that is a promise of content that may not exist, and on a business with no daily lease it would never resolve.
+
 Traps: the card must be tappable before data loads (render from cache, confirm optimistically); the three buttons must never reflow after load; "Didn't run" must not be reachable by mis-tapping "Paid in full" — hence the two-row layout with the primary alone on its row.
 
 ### 7.2 F-4.6 · Confirm a week in one pass
@@ -514,11 +597,13 @@ Traps: the card must be tappable before data loads (render from cache, confirm o
 └────────────────────────────────────┘
 ```
 
-Two minutes is the promise (§4.3). Rules: a `did_not_run` day can never be bulk-confirmed; an edited day is never overwritten by the bulk action; the total is shown before the write; one transaction, partial failure confirms nothing.
+*Layout.* The day list scrolls on its own; the summary line and the confirm button are **sticky at the bottom**, so the total and the action stay visible whether the stack is five days or fifteen — a two-week catch-up is 784px of rows and is entirely normal under U-8. Tapping `⋯` on a row opens a sheet rather than expanding inline, because an inline expansion pushes every row below it and loses the reader's place mid-review.
+
+Two minutes is the promise (UC §4.3). Rules: a `did_not_run` day can never be bulk-confirmed; an edited day is never overwritten by the bulk action; the total is shown before the write; one transaction, partial failure confirms nothing.
 
 ### 7.3 F-3.3 · Log a fuel fill — the ten-second flow
 
-Reached from `＋` → Fuel. Level 1 is **vehicle** (pre-filled with the one that has something pending, U-3) and **amount**. Litres, odometer, borne-by, photo and trip link are all level 2, and borne-by is already correct from the arrangement (§6.7) — the manager confirms rather than enters.
+Reached from `＋` → Fuel. Level 1 is **vehicle** (pre-filled with the one that has something pending, U-3) and **amount**. Litres, odometer, borne-by, photo and trip link are all level 2, and borne-by is already correct from the arrangement (UC §6.7) — the manager confirms rather than enters.
 
 The trap is the temptation to require litres because UC-72 wants them. It must stay optional: on a daily lease the driver buys his own fuel and has no reason to report litres, and a report built on a field nobody fills is an empty report (W-20).
 
@@ -539,7 +624,7 @@ Two specifics:
 
 UC-20 is the highest-leverage decision in the source document — **a short car hire is a trip**. One screen, one mental model, one thing to learn.
 
-The live trip screen is a container (§6.6):
+The live trip screen is a container (UC §6.6):
 
 ```
 ┌────────────────────────────────────┐
@@ -569,11 +654,11 @@ Booking warns what the dates cost — the daily lease pauses and its expected in
 
 ### 7.6 F-1.5 · The vehicle calendar
 
-The one screen that justifies a custom date component. A month grid, one state per day (§6.3), colour + **glyph** so it survives colour blindness and greyscale printing:
+The one screen that justifies a custom date component. A month grid, one state per day (UC §6.3), colour + **glyph** so it survives colour blindness and greyscale printing:
 
 | State | Cell |
 |---|---|
-| Not scheduled | empty, `--bg-page` |
+| Not scheduled | empty, `--color-page` |
 | On a lease | brand wash, `L` |
 | Daily lease, ran | brand wash, `✓` |
 | Daily lease, lost | serious wash, `!` |
@@ -640,7 +725,7 @@ One screen, read-only, and the security boundary is server-side (§2.3). `TwoBal
 
 ### 8.1 The type rule, restated for the client
 
-`TECH_STACK.md` §6 fixes it server-side; the client inherits it. **Money is a `string` on the wire, a `bigint` in logic, and never a `number` anywhere.** One codec module, used at both edges of the client too.
+TS §6 fixes it server-side; the client inherits it. **Money is a `string` on the wire, a `bigint` in logic, and never a `number` anywhere.** One codec module, used at both edges of the client too.
 
 ```ts
 // money.ts — the only place minor units are parsed or formatted
@@ -660,6 +745,8 @@ export const format = (v: Minor, opts?: { cents?: boolean }) => {
 
 A value that has passed through `Number` is a bug even when the arithmetic happens to be right. LKR cents stay well inside `MAX_SAFE_INTEGER`, so it will never fail in testing — only in a rounding argument two years from now.
 
+**The locale list is a fallback chain, and the grouping is asserted rather than trusted.** `en-LK` is a valid CLDR locale but not every engine on a mid-range Android WebView carries every locale's data, and the failure is silent — it falls back and formats slightly differently. Two defences: `['en-LK', 'en']` lets the runtime negotiate rather than guess, and a unit test asserts that `format(123456789n)` is `1,234,567.89`. That test is not paranoia — the South Asian alternative is `12,34,567.89`, which is a legitimate grouping for some locales in the region and is wrong for LKR. A silent switch to it would look plausible on screen and be wrong on every statement.
+
 ### 8.2 Presentation
 
 | Rule | |
@@ -674,7 +761,7 @@ A value that has passed through `Number` is a bug even when the arithmetic happe
 
 ### 8.3 Distance, litres, dates
 
-- Whole kilometres. A reading lower than the last one **warns and does not block** (§6.16) — clusters get replaced and figures get mistyped.
+- Whole kilometres. A reading lower than the last one **warns and does not block** (UC §6.16) — clusters get replaced and figures get mistyped.
 - Litres to one decimal, always with the unit.
 - Dates as `Tue 30 Jul` in the UI, `30 Jul 2026` where the year is ambiguous, ISO only in exports. Never `30/07` — the ordering is not universally read the same way.
 - **"Today" is the business timezone's today** (`Asia/Colombo`), computed once in a provider and never from the device clock. A device set to another timezone must not shift the day card.
@@ -729,7 +816,7 @@ Never show a settled state for something the server has not accepted **without**
 
 ### 9.6 The vocabulary lock
 
-The flows document reserves seven words (§1.5). The UI uses them and only them, and never abbreviates:
+The flows document reserves seven words (FL §1.5). The UI uses them and only them, and never abbreviates:
 
 | Say | Never say |
 |---|---|
@@ -758,7 +845,7 @@ And U-6 in one line: no "accrual", no "current account", no "allocation", no "re
 | **3.3.7 Redundant Entry (A, new in 2.2)** | Catch-up flows must not re-ask for the vehicle and driver on each of five days |
 | **1.4.10 Reflow** | 320px, no horizontal scroll except inside a table's own container |
 | **1.4.11 Non-text Contrast** | Field borders, the focus ring, chart marks and calendar cell states all need 3:1 |
-| **1.4.3 Contrast** | Every token in §5.1 is measured; `--ink-faint` is non-text only |
+| **1.4.3 Contrast** | Every token in §5.1 is measured; `--color-ink-faint` is non-text only |
 | **4.1.3 Status Messages** | Sync state, allocation results and error counts announce via `aria-live="polite"` |
 
 **Non-negotiables beyond the standard:**
@@ -792,7 +879,7 @@ Charts appear in exactly one place in the Operate shell — a trip's own P&L —
 
 ### 11.2 Palette
 
-Charts use the validated categorical order, unchanged, on the `--bg-surface` colours in §5.1:
+Charts use the validated categorical order, unchanged, on the `--color-surface` colours in §5.1:
 
 | Slot | Light | Dark |
 |---|---|---|
@@ -833,7 +920,7 @@ W-56 says reports degrade to "not available", never to zero. On screen that mean
 
 | Concern | Choice | Why |
 |---|---|---|
-| Build | Vite + React 19 + TypeScript | Already fixed by `TECH_STACK.md` §1 |
+| Build | Vite + React 19 + TypeScript | Already fixed by TS §1 |
 | Styling | **Tailwind CSS v4**, tokens in `@theme` | Utility-first is the current default and the token layer stays CSS-native, so the same variables serve charts and components |
 | Components | **shadcn/ui** (Radix/Base UI primitives), copied in and resized to §4.3 | Copy-in means we own the touch targets; the primitives bring WAI-ARIA behaviour we would otherwise get wrong ([library comparison](https://www.builder.io/blog/react-component-libraries-2026)) |
 | Sheets | `vaul` (shadcn `Drawer`) | Bottom sheet with drag, plus we add the visible close per M-23 |
@@ -844,6 +931,8 @@ W-56 says reports degrade to "not available", never to zero. On screen that mean
 | Charts | Recharts, lazy, Reports chunk only | Sparklines hand-written |
 | PWA | `vite-plugin-pwa` (Workbox) | §12.5 |
 | Testing | Vitest + Testing Library + Playwright (mobile viewport project) | §12.6 |
+
+**The client never talks to the database.** TS §1 names a driver and an ORM; both are Worker-side only. Every read and write goes through the Worker API, which is where `business_id` scoping and the W-49 capability checks live (TS §2). A frontend dependency on a database driver would put the multi-tenancy boundary in the browser, which is the one place it cannot be enforced.
 
 ### 12.2 Structure
 
@@ -865,42 +954,103 @@ web/src/
   i18n/           en.json, si.json
 ```
 
-`features/` mirrors the flow groups and the Worker's `domain/` modules (`TECH_STACK.md` §3), so a flow is one folder on each side.
+`features/` mirrors the flow groups and the Worker's `domain/` modules (TS §3), so a flow is one folder on each side.
 
 ### 12.3 Tokens as code
+
+This is the **complete** set, not an excerpt. §5 is its documentation; this is its definition, and the names are identical in both (§5.1).
+
+Dark mode has to be reachable two ways — the OS setting and the in-app toggle (M-20) — and CSS has no include. So the hex values live once as **palette constants** and the two mode blocks only remap semantic tokens onto them. That is what stops the toggle and the media query drifting apart, which is the failure mode where switching to dark manually does nothing.
 
 ```css
 /* design/tokens.css */
 @import "tailwindcss";
 
+/* 1 — palette constants. The only place a hex appears. */
+:root {
+  --l-page:#F1F1EC; --l-surface:#FBFBF8; --l-ink1:#14140F; --l-ink2:#52514E;
+  --l-ink3:#6E6C66; --l-faint:#898781;  --l-strong:#DCDBD3;
+  --l-brand:#256ABF; --l-brandink:#1C5CAB; --l-wash:#E6F0FC; --l-payable:#EB6834;
+  --l-hair:rgba(20,20,15,.10);
+
+  --d-page:#0D0D0C; --d-surface:#141413; --d-ink1:#F5F5F0; --d-ink2:#C3C2B7;
+  --d-ink3:#96948C; --d-faint:#898781;  --d-strong:#2C2C2A;
+  --d-brand:#3987E5; --d-brandink:#86B6EF; --d-wash:#16283F; --d-payable:#D95926;
+  --d-hair:rgba(255,255,255,.10);
+}
+
+/* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
+   is needed: the dark selectors simply never match. */
 @theme {
-  --color-page:      #F1F1EC;
-  --color-surface:   #FBFBF8;
-  --color-ink:       #14140F;
-  --color-ink-2:     #52514E;
-  --color-ink-3:     #6E6C66;
-  --color-brand:     #256ABF;
-  --color-brand-ink: #1C5CAB;
-  --color-good:      #0CA30C;
-  --color-warning:   #FAB219;
-  --color-critical:  #D03B3B;
+  --color-page:            var(--l-page);
+  --color-surface:         var(--l-surface);
+  --color-ink-primary:     var(--l-ink1);
+  --color-ink-secondary:   var(--l-ink2);
+  --color-ink-muted:       var(--l-ink3);
+  --color-ink-faint:       var(--l-faint);
+  --color-line-hairline:   var(--l-hair);
+  --color-line-strong:     var(--l-strong);
+  --color-brand:           var(--l-brand);
+  --color-brand-ink:       var(--l-brandink);
+  --color-brand-wash:      var(--l-wash);
+  --color-focus-ring:      var(--l-brandink);
+  --color-direction-payable: var(--l-payable);
 
-  --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
-  --text-body: 1rem/1.5;
+  /* status — fixed, never themed except where the dark step differs */
+  --color-good:     #0CA30C;  --color-good-ink:     #006300;
+  --color-warning:  #FAB219;  --color-warning-ink:  #7A4A00;
+  --color-serious:  #EC835A;  --color-serious-ink:  #8A3B12;
+  --color-critical: #D03B3B;  --color-critical-ink: #B3231F;
+
   --spacing-tap: 44px;
+  --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
+
+  --text-hero: 2.25rem;      --text-hero--line-height: 2.5rem;
+  --text-title-lg: 1.375rem; --text-title-lg--line-height: 1.75rem;
+  --text-title: 1.125rem;    --text-title--line-height: 1.5rem;
+  --text-body: 1rem;         --text-body--line-height: 1.5rem;
+  --text-body-sm: .875rem;   --text-body-sm--line-height: 1.25rem;
+  --text-label: .8125rem;    --text-label--line-height: 1rem;
+  --text-caption: .75rem;    --text-caption--line-height: 1rem;
+
+  --ease-micro: 120ms cubic-bezier(0,0,.2,1);
+  --ease-enter: 200ms cubic-bezier(0,0,.2,1);
+  --ease-exit:  160ms cubic-bezier(.4,0,1,1);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) {
-    --color-page: #0D0D0C; --color-surface: #141413;
-    --color-ink: #F5F5F0;  --color-ink-2: #C3C2B7; --color-ink-3: #96948C;
-    --color-brand: #3987E5; --color-brand-ink: #86B6EF;
-  }
+/* 3 — dark. Two selectors, identical bodies: the media query covers the OS
+   setting, the attribute covers the in-app toggle, and the :not() guard lets a
+   manual light choice beat OS dark. */
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme="light"])) {
+  --color-page:var(--d-page); --color-surface:var(--d-surface);
+  --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
+  --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
+  --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
+  --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
+  --color-direction-payable:var(--d-payable);
+  --color-good:#3FBF57; --color-good-ink:#3FBF57;
+  --color-warning-ink:#FAB219; --color-serious-ink:#EC835A;
+  --color-critical:#F0736F; --color-critical-ink:#F0736F;
+} }
+:root[data-theme="dark"] {
+  --color-page:var(--d-page); --color-surface:var(--d-surface);
+  --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
+  --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
+  --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
+  --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
+  --color-direction-payable:var(--d-payable);
+  --color-good:#3FBF57; --color-good-ink:#3FBF57;
+  --color-warning-ink:#FAB219; --color-serious-ink:#EC835A;
+  --color-critical:#F0736F; --color-critical-ink:#F0736F;
 }
-:root[data-theme="dark"] { /* same block — the toggle must win both ways */ }
 
-:lang(si) { font-family: "Noto Sans Sinhala", system-ui, sans-serif; line-height: 1.72; }
+:lang(si) { font-family:"Noto Sans Sinhala",system-ui,sans-serif; line-height:1.72; }
+:lang(ta) { font-family:"Noto Sans Tamil",system-ui,sans-serif;   line-height:1.72; }
 ```
+
+Two notes a reader will otherwise trip on. The two dark blocks are byte-identical by design — extract them into a PostCSS mixin or a build step if you prefer, but **never let one be edited without the other**; a lint rule comparing them is cheaper than the bug. And there is deliberately no `[data-theme="light"]` block: light values are the `:root` defaults, and the `:not([data-theme="light"])` guard is what lets a manual light choice beat OS dark.
 
 ### 12.4 Capability gating (M-22)
 
@@ -919,7 +1069,7 @@ export const can = (role: Role, cap: Capability): boolean => MATRIX[role][cap];
 </Button>                       {/* present, disabled, reason shown */}
 ```
 
-The client copy of the matrix is **convenience only**. Every capability is re-checked in the Worker, and the driver boundary is enforced by `driver_id` scoping in the data layer (`TECH_STACK.md` §2), never by the client.
+The client copy of the matrix is **convenience only**. Every capability is re-checked in the Worker, and the driver boundary is enforced by `driver_id` scoping in the data layer (TS §2), never by the client.
 
 ### 12.5 PWA scope
 
@@ -930,12 +1080,13 @@ Installable, offline-capable, and deliberately modest about it:
 - **No background sync** — iOS does not have it, so the app never promises delivery while closed.
 - Storage is treated as evictable. The app warns while the queue is non-empty, and the queue is never the only copy of a money record.
 - iOS install has no prompt; a one-time "Add to Home Screen" hint on iOS Safari, dismissible forever.
+- **The manifest itself lives in `BRAND_GUIDELINES.md` §5.2**, with the icon set, because `theme_color`, `background_color` and the icons are identity decisions rather than layout ones. Two rules from here bind it: `background_color` is `--color-page` and never the brand colour — Android generates its splash from it, and a blue splash into a light-grey app is a visible flash on every cold start — and `orientation` is left unset per M-26.
 
 ### 12.6 The tests that encode the rules
 
 | Test | Rule |
 |---|---|
-| **Every create form saves with level-1 fields only** — iterate the form registry, fill level 1, assert a successful write | U-2 / M-6. The flows document asks for this explicitly (§7) |
+| **Every create form saves with level-1 fields only** — iterate the form registry, fill level 1, assert a successful write | U-2 / M-6. The flows document asks for this explicitly (FL §7) |
 | Every interactive element ≥ 44 × 44 in a mobile-viewport Playwright pass | §4.3, SC 2.5.8 |
 | No horizontal body scroll at 320px on every route | SC 1.4.10 |
 | Focused field never intersects the sticky action bar | SC 2.4.11 |
@@ -983,7 +1134,7 @@ Print stylesheets matter more than usual here: the driver's slip (UC-57), the cu
 
 ## 15. Phasing
 
-Aligned with §9.1 of the use-case document. The design work that must exist before a flow can be built:
+Aligned with UC §9.1. The design work that must exist before a flow can be built:
 
 | Phase | UI deliverables |
 |---|---|
@@ -1001,13 +1152,54 @@ Two are blocking nothing but are mine to have proposed rather than yours to have
 
 | | |
 |---|---|
-| **The second language** | §8 of the use-case document leaves it open. The font, the line-height rule and the i18n plumbing here assume **Sinhala**; Tamil changes the font subset and nothing else structural. Needed before the localisation pass, not before the build |
+| **The second language** | UC §8 leaves it open. The font stack, the line-height rule and the i18n plumbing here carry **both** Sinhala and Tamil (§5.2, §12.3), so the choice decides which subset ships and which templates get submitted — not the layout. Needed before the localisation pass and before Meta template submission, not before the build |
 | **Brand identity** | §5.1 derives the brand blue from the validated chart palette, so the two are one system. If you want a different brand colour, it must be re-validated against the surfaces (§11.2) — the palette is not a matter of taste, it is a script that passes or fails |
 | **The `＋` quick-add set** (M-4) | I chose fuel, expense, payment received, payment made, new trip. Worth a week of real use before fixing it |
 
 ---
 
-## 17. Change control
+## 17. What changed in v1.1
+
+An independent review walked v1.0 against the companion documents and the stated mobile constraints. Twenty-six findings; **twenty-three were adopted**, two were adopted with a different fix, and one was rejected on a point of fact. Recorded here on the same principle FL §14 uses — a review is only absorbed if what was *not* taken is written down with the reason.
+
+### Adopted as recommended
+
+| Finding | Fix |
+|---|---|
+| Ambiguous `§` references — three documents have a §6 about different things | §0 now fixes a citation prefix (`UC` / `FL` / `DM` / `TS`); every cross-document reference carries one |
+| `--serious` defined but absent from the code block | Present, with its dark step and its ink pair |
+| The dark-mode toggle block was **empty** | §12.3 restructured: hex values live once as palette constants, two mode blocks remap onto them |
+| No error-state visual spec | `FieldError` in §6.3, including the reserved 20px message slot and the scroll target that keeps a focused error clear of the sticky action |
+| `#EB6834` used as a raw hex, breaking the document's own token rule | `--color-direction-payable`, matched to chart slot 2 in both modes |
+| Owner-manager shell unspecified | §3.1 — Operate, with Review under **More → My share**. No sixth tab, no mode switch |
+| `AmountPad` keyboard suppression unspecified | §6.2 — non-focusable `div role="textbox"`, and `keyboard-inset-height` explicitly does not apply |
+| Photo pipeline had a target but no bounds | §6.3 — JPEG 0.75, 200KB hard cap with re-encode ladder, Web Worker with a 3s timeout, record saves before photos finish |
+| Android edge-gesture conflict | M-23 — no horizontal swipe originates within 24dp of either edge |
+| Bulk-confirm scroll strategy | §7.2 — list scrolls, summary and action sticky, `⋯` opens a sheet rather than expanding inline |
+| Multi-vehicle home stack | §3.2 — 1 elevated, 2–3 stacked, 4+ collapses to a summary row |
+| No touch-feedback spec | §5.3 — `:active` per element class, and haptics Android-only on money writes |
+| `en-LK` locale reliability | §8.1 — `['en-LK','en']` fallback chain, formatter hoisted, and a test asserting `1,234,567.89` rather than the South Asian grouping |
+| Offline banner undefined | `OfflineBanner` in §6.4 — 32px, below the app bar, inside the height calculation |
+| Tamil line-height | §5.2 and §12.3 now carry `:lang(ta)`; §16's claim that Tamil changes "nothing structural" was wrong and is corrected |
+| Sparkline, first-load, truncation, `Provisional` cost, quick-add at other sizes, manifest location, void rendering in `Timeline`, client-never-touches-the-DB | All added at the sections named |
+
+### Adopted, but fixed differently
+
+**Token naming.** The review found §5.1 and §12.3 using two different names for the same values — correct, and it matters. Its recommended fix was to rename the code block to match the spec table (`--bg-page`, `--ink-primary`). **That would have broken the build.** Tailwind v4's `@theme` is namespaced: only `--color-*` generates colour utilities, so `--ink-primary` would have produced no `text-ink-primary` class and failed silently — the worst possible failure for a token system. Unified the other way instead, onto `--color-ink-primary`, which keeps both the semantics and the namespace. §5.1 now states why the prefix is not negotiable.
+
+**Landscape orientation.** The review proposed locking phase-1 flows to portrait via the manifest. Rejected as written on two grounds: **WCAG 2.1 SC 1.3.4** forbids restricting content to a single orientation unless it is essential, and `orientation` in the manifest is ignored outside standalone mode and on iOS — so the lock would fail the audit *and* not work. M-26 makes landscape supported instead, with the chrome giving back 24px.
+
+### Rejected
+
+**Restating UC §6.6–§6.8 inside this document.** The review's preferred fix for the reference ambiguity was to summarise those cross-cutting rules here. Declined: it creates a second copy of a rule that must stay in sync with the first, and every document in this repository is built on single-sourcing with traceability instead. Prefixed references solve the same problem without the duplicate. Recorded because it is a reasonable position and the next reviewer may raise it again.
+
+### One correction the review got right about a measured value
+
+§5.1 published `--color-ink-faint` at **3.5 : 1 in both modes**. Re-measured: `#898781` on the dark surface `#141413` is **5.13 : 1**. The dark figure had been assumed rather than measured, in a table whose entire value is that the numbers are measured. Corrected, and the lesson is the obvious one — a table of measurements is only trustworthy if every cell was actually measured, including the ones that look like they should match.
+
+---
+
+## 18. Change control
 
 Same rule as the companion documents. **This document travels with them.** A change to a flow that alters what a screen must do is a change here; a change here that alters what a flow means is not allowed — the flow changes first.
 
@@ -1015,13 +1207,13 @@ The traceability that keeps that honest:
 
 | Section here | Governed by |
 |---|---|
-| §3 navigation | Flows §7 screen-to-flow map, U-1, U-4 |
-| §6 components | U-2, U-3, §6.5, §6.8, W-2, W-48 |
+| §3 navigation | FL §7 screen-to-flow map, U-1, U-4 |
+| §6 components | U-2, U-3, UC §6.5, UC §6.8, W-2, W-48 |
 | §7 flow specs | F-0 … F-10 |
 | §8 money | W-54, INV-20, `TECH_STACK.md` §6 |
-| §9.6 vocabulary | Flows §1.5, U-6 |
+| §9.6 vocabulary | FL §1.5, U-6 |
 | §11 reports | UC-70…UC-79, W-56 |
-| §12.4 capabilities | W-49, flows §2.3 |
+| §12.4 capabilities | W-49, FL §2.3 |
 
 ---
 
