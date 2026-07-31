@@ -1,0 +1,16 @@
+# The specification documents are the product. Prettier would reflow tables and
+# wrap prose that was written deliberately, producing a diff that is noise in a
+# review whose whole job is to notice small changes to numbers.
+docs/
+*.md
+
+node_modules/
+dist/
+build/
+coverage/
+.wrangler/
+package-lock.json
+
+# Hand-authored on an integer grid — reformatting moves the coordinates around
+# and makes a geometry change indistinguishable from a whitespace change.
+*.svg

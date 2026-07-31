@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 560" width="900" height="560">
+  <defs>
+    <g id="c" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64"/>
+      <path d="M 68 64 L 132 64"/><path d="M 78 35 L 138 35"/>
+      <circle cx="52" cy="64" r="11.5"/><circle cx="148" cy="64" r="11.5"/>
+    </g>
+    <g id="k" fill="none" stroke="currentColor" stroke-width="11" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64"/>
+      <path d="M 70 64 L 130 64"/>
+      <circle cx="52" cy="64" r="11"/><circle cx="148" cy="64" r="11"/>
+    </g>
+    <clipPath id="rc"><rect x="0" y="0" width="512" height="512" rx="114"/></clipPath>
+  </defs>
+  <rect width="900" height="560" fill="#F1F1EC"/>
+  <g font-family="system-ui,sans-serif" font-size="12" fill="#6E6C66">
+    <text x="24" y="20">icon 512 / 192 / 96 / 48</text>
+    <text x="520" y="20">maskable, circle mask applied</text>
+    <text x="24" y="250">favicon 32 and 16 (compact mark)</text>
+    <text x="220" y="250">lockup at app-bar size</text>
+    <text x="24" y="400">horizontal and stacked lockups</text>
+  </g>
+  <!-- icon at real sizes -->
+  <g transform="translate(24,32)">
+    <g transform="scale(0.36)"><rect width="512" height="512" rx="114" fill="#256ABF"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(200,0) scale(0.1875)"><rect width="512" height="512" rx="114" fill="#256ABF"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(310,0) scale(0.09375)"><rect width="512" height="512" rx="114" fill="#256ABF"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(370,0) scale(0.0469)"><rect width="512" height="512" rx="114" fill="#256ABF"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+  </g>
+  <!-- maskable with a circular mask to prove the safe zone -->
+  <g transform="translate(520,32) scale(0.36)">
+    <clipPath id="circ"><circle cx="256" cy="256" r="205"/></clipPath>
+    <g clip-path="url(#circ)"><rect width="512" height="512" fill="#256ABF"/><g color="#FBFBF8" transform="translate(76,175) scale(1.8)"><use href="#c"/></g></g>
+    <circle cx="256" cy="256" r="205" fill="none" stroke="#D03B3B" stroke-width="2" stroke-dasharray="8 8"/>
+  </g>
+  <!-- favicons -->
+  <g transform="translate(24,262)">
+    <g transform="scale(0.0625)"><rect width="512" height="512" rx="96" fill="#256ABF"/><g color="#FBFBF8" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
+    <g transform="translate(46,8) scale(0.03125)"><rect width="512" height="512" rx="96" fill="#256ABF"/><g color="#FBFBF8" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
+  </g>
+  <!-- app bar -->
+  <g transform="translate(220,258)">
+    <rect width="420" height="56" rx="10" fill="#FBFBF8" stroke="#DCDBD3"/>
+    <g color="#256ABF" transform="translate(16,14) scale(0.32)"><use href="#c"/></g>
+    <text x="86" y="35" font-family="system-ui,-apple-system,sans-serif" font-size="20" letter-spacing="-0.3" fill="#14140F"><tspan font-weight="450">Fleet</tspan><tspan font-weight="750">Settle</tspan></text>
+  </g>
+  <!-- lockups -->
+  <g transform="translate(24,412)">
+    <g color="#256ABF" transform="translate(0,11) scale(0.7)"><use href="#c"/></g>
+    <text x="150" y="54" font-family="system-ui,-apple-system,sans-serif" font-size="38" letter-spacing="-0.7" fill="#14140F"><tspan font-weight="450">Fleet</tspan><tspan font-weight="750">Settle</tspan></text>
+  </g>
+  <g transform="translate(500,400)">
+    <g color="#256ABF" transform="translate(34,0) scale(0.62)"><use href="#c"/></g>
+    <text x="100" y="104" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="30" letter-spacing="-0.5" fill="#14140F"><tspan font-weight="450">Fleet</tspan><tspan font-weight="750">Settle</tspan></text>
+  </g>
+</svg>

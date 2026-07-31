@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 91" width="200" height="91" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" color="#256ABF" role="img" aria-label="FleetSettle">
+  <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64"/>
+  <path d="M 68 64 L 132 64"/>
+  <path d="M 78 35 L 138 35"/>
+  <circle cx="52" cy="64" r="11.5"/>
+  <circle cx="148" cy="64" r="11.5"/>
+</svg>

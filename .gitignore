@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# dependencies
+node_modules/
+.npm/
+
+# build output
+dist/
+build/
+.vite/
+coverage/
+
+# Cloudflare
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# environment — secrets go through `wrangler secret put`, never a committed file
+.env
+.env.*
+!.env.example
+
+# editors
+.idea/
+*.swp
+
+# personal Claude overrides — .claude/settings.json and CLAUDE.md are shared
+.claude/settings.local.json
+CLAUDE.local.md
+
+# logs
+*.log
+npm-debug.log*
