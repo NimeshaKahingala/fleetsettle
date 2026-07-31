@@ -1,6 +1,6 @@
 # UI/UX Guidelines
 
-**Status:** v1.2 — review incorporated (§17); auth confirmed
+**Status:** v1.2.1 — second language closed (Sinhala); messaging resequenced (§15, §16)
 **Date:** 31 July 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
@@ -1144,8 +1144,9 @@ Aligned with UC §9.1. The design work that must exist before a flow can be buil
 | Phase | UI deliverables |
 |---|---|
 | **First** | Tokens and the design layer · `AppShell` + the Operate tab bar · `DayCard`, `AmountPad`, `MoneyField`, `AllocationPreview`, `TwoBalances` · home stack · F-2, F-3, F-4, F-5, F-6, F-7 screens · vehicle calendar · period close · `PhotoCapture` · offline queue · Review shell · phase-1 reports |
-| **Second** | Message log and failure strips · write-off and post-closure flows · ageing and utilisation reports · **Mine shell** · export · side-by-side condition comparison · Sinhala localisation pass |
+| **Second** | Write-off and post-closure flows · ageing and utilisation reports · **Mine shell** · export · side-by-side condition comparison · Sinhala localisation pass |
 | **Third** | Desktop analytical dashboard beyond §14's three changes · depreciation and disposal screens · offline capture of photos |
+| **Last** | Message log and failure strips — WhatsApp dispatch is sequenced last (UC §9.1) |
 
 **Build order within phase one is not arbitrary.** The tokens and the five load-bearing components come first, because every screen after them is assembly. The day card is the first *screen*, because it is the one that proves U-1 is achievable — and if it is not, that is worth knowing in week two rather than month four.
 
@@ -1153,11 +1154,12 @@ Aligned with UC §9.1. The design work that must exist before a flow can be buil
 
 ## 16. What is still open
 
-Two are blocking nothing but are mine to have proposed rather than yours to have chosen:
+**The second language is closed: Sinhala**, chosen by the owner on 31 July 2026. `Noto Sans Sinhala` is the subset that ships and `:lang(si)` is the rule that matters. The `:lang(ta)` row in §5.2 and §12.3 stays — it costs two lines, it documents that the line-height rule is about South-Asian glyph extents rather than about Sinhala specifically, and removing it would have to be undone the first time a Tamil-speaking customer appears.
+
+Both remaining items are blocking nothing and are mine to have proposed rather than yours to have chosen:
 
 | | |
 |---|---|
-| **The second language** | UC §8 leaves it open. The font stack, the line-height rule and the i18n plumbing here carry **both** Sinhala and Tamil (§5.2, §12.3), so the choice decides which subset ships and which templates get submitted — not the layout. Needed before the localisation pass and before Meta template submission, not before the build |
 | **Brand identity** | §5.1 derives the brand blue from the validated chart palette, so the two are one system. If you want a different brand colour, it must be re-validated against the surfaces (§11.2) — the palette is not a matter of taste, it is a script that passes or fails |
 | **The `＋` quick-add set** (M-4) | I chose fuel, expense, payment received, payment made, new trip. Worth a week of real use before fixing it |
 

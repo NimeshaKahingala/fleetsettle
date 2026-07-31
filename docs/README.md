@@ -62,12 +62,17 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.1 | 30 Jul 2026 |
-| user-flows | v1.1.1 | 30 Jul 2026 |
+| use-cases | v1.2.2 | 31 Jul 2026 |
+| user-flows | v1.1.2 | 31 Jul 2026 |
 | data-model | v1.0 | 30 Jul 2026 |
 | tech-stack | v1.1 | 31 Jul 2026 |
 | implementation-guidelines | v1.2 | 31 Jul 2026 |
-| ui-ux-guidelines | v1.2 | 31 Jul 2026 |
-| brand-guidelines | v1.0 | 30 Jul 2026 |
+| ui-ux-guidelines | v1.2.1 | 31 Jul 2026 |
+| brand-guidelines | v1.0.1 | 31 Jul 2026 |
 
-**One item is genuinely open across the whole suite:** the second template language — Sinhala or Tamil. It blocks nothing in the build, but Meta approves WhatsApp templates *per message per language*, so it gates Group I rather than phase one.
+**Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
+
+**Two owner decisions of 31 July 2026 that changed sequencing rather than behaviour:**
+
+- **WhatsApp dispatch is built last** (UC §9.1). Meta template approval leaves the critical path; the Queue binding and the kill switch are not needed at bootstrap. What messaging depends on — condition photo capture (W-30) and the message ↔ record link (UC §9.2) — stays in phase one, or it gets built twice.
+- **Auth is Asgardeo**, with the application registration owned by the business rather than by this repository (TS §2, IG §1.2).

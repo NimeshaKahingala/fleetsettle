@@ -1,7 +1,7 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2.1 — independent review incorporated
-**Date:** 30 July 2026
+**Status:** v1.2.2 — language closed (Sinhala); WhatsApp dispatch sequenced last (§9.1)
+**Date:** 31 July 2026
 **Companion:** `user-flows.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
 
@@ -1222,11 +1222,11 @@ You confirmed the proposed defaults, so these are no longer open:
 | Cover while you are away | Everything waits and is caught up later, per U-8. No second recorder |
 | Frequency assumption | Bus confirmed daily, a charter every week or two, car rents monthly, accidents a few times a year, new vehicles rarely. The home screen is ordered accordingly |
 
-### Two values to fill in, not decisions to make
+### Values to fill in, not decisions to make
 
 | | |
 |---|---|
-| **Local language** | Which second language the templates are submitted in. Needed before template submission, not before the build (W-22) |
+| **Local language** | **Closed 31 Jul 2026 — Sinhala.** The second language templates are submitted in, and the font subset that ships (W-22, UI §5.2) |
 | **Excess-mileage waive threshold** | The figure below which an excess never surfaces (§6.11). **A blank now means zero — waive nothing (W-43).** v1.1 left it with no default at all, and the dangerous reading was the other one: a system where forgetting to fill in a number silently forgives every excess charge |
 
 Everything else in this document is settled across the 56 logged decisions — the original 38, plus the 18 added in v1.2 and marked ⚑ proposed (§10).
@@ -1265,6 +1265,14 @@ Not everything specified here belongs in the first build. My suggested split, fo
 | **First** | The three arrangements, the daily card, expenses with funding source, rent schedules and collection, trips with trip P&L, driver balances both ways, partner capital and current accounts (UC-67), mileage limits and excess, adjustments and waivers, banking cash (UC-65), costs with no vehicle (UC-66), business setup and opening balances (UC-08, UC-09), the vehicle calendar (UC-95), corrections and the audit trail (UC-96, UC-97), **period close (UC-98)**, **paperwork expiry (UC-92)**, **condition photo capture (W-30)** |
 | **Second** | Notifications and the message log, write-offs (UC-90), post-closure charges (UC-91), receivables ageing (UC-78), utilisation and per-km reporting (UC-79), the driver's own view (UC-07), export (UC-99), side-by-side condition comparison |
 | **Third** | Depreciation and disposal, driver retainers and spare-vehicle reassignment (relevant once there is a spare vehicle), loan and lease schedules, tax if it applies, offline capture |
+
+**WhatsApp dispatch is built last** — decided by the owner, 31 July 2026. Sending (UC-80…UC-87, W-14/W-21) comes after everything else in this table, including the phase-three items. Three consequences, because deferring a feature is not the same as forgetting it:
+
+- **Meta template approval leaves the critical path.** It was the one item with an external lead time — minutes to about two days *per message per language*, and now in English and Sinhala. It still has to happen before the messaging build starts, but it no longer gates anything before it.
+- **What messaging depends on must still be captured from phase one.** Condition photos (W-30) and the message ↔ record link (§9.2) stay where they are. A message that cannot cite the day, due or trip it was about is the version that gets built twice.
+- **The Queue binding and the kill switch are not needed at bootstrap** (TS §8). Nothing before the messaging build reads them.
+
+The transport stays swappable regardless (W-14). Sequencing it last makes that easier to honour, not harder — nothing upstream will have grown a dependency on WhatsApp's particular shape.
 
 **Four things moved into the first phase in v1.2**, each because something already in phase one depends on it:
 

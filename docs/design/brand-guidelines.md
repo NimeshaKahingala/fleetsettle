@@ -1,7 +1,7 @@
 # Brand Guidelines
 
-**Status:** v1.0
-**Date:** 30 July 2026
+**Status:** v1.0.1 — second language closed (Sinhala); §7 reordered
+**Date:** 31 July 2026
 **Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 **Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
 
@@ -225,9 +225,9 @@ Short form: say deposit, advance, earned, received, waiver, write-off, lost day,
 
 The outbound surfaces are the ones your customers actually see, and they are **not** in this document yet:
 
-1. **The six Group I WhatsApp templates** (UC-80…UC-85), English and the second language, each as a fixed sentence with slots — Meta templates take variables, not prose. This is the item with a real lead time: approval runs from minutes to about two days *per message per language*, and W-21 only holds if the phrasing exists before the build needs it.
-2. **The document headers** for the customer statement (UC-19), the driver's printed slip (UC-57) and the export (UC-99) — all three use the flattened horizontal lockup and the formal tone from §6.3.
-3. **The second language** is still open (§16 of `ui-ux-guidelines.md`). It changes the templates and the font subset, nothing else.
+1. **The document headers** for the customer statement (UC-19), the driver's printed slip (UC-57) and the export (UC-99) — all three use the flattened horizontal lockup and the formal tone from §6.3. **This is now the only one of the three that phase one needs.**
+2. **The six Group I WhatsApp templates** (UC-80…UC-85), in **English and Sinhala**, each as a fixed sentence with slots — Meta templates take variables, not prose. Approval runs from minutes to about two days *per message per language*, so twelve submissions. This was the item with a real lead time; **UC §9.1 now sequences WhatsApp dispatch last**, so it has left the critical path. It still has to be done before the messaging build, and W-21 only holds if the phrasing exists before that build needs it.
+3. ~~The second language~~ — **closed 31 July 2026: Sinhala.** It decides the templates and the font subset, nothing else.
 
 ---
 

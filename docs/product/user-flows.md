@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.1 — independent review incorporated
-**Date:** 30 July 2026
+**Status:** v1.1.2 — OQ-6 closed (Sinhala)
+**Date:** 31 July 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -1088,12 +1088,12 @@ Every one carried a recommendation in v1.0. All nine were adopted as decisions i
 | **OQ-3** | F-2.4, day one | **W-43** — a blank threshold means **zero**, waive nothing |
 | **OQ-4** | Monthly reporting | **W-41** — trip income recognises on the closing date (INV-30) |
 | **OQ-5** | F-2.1, F-3.4 | **W-44** — customer deposits top up and part-apply like the driver's, with the top-up offered at the moment it is drawn down |
-| **OQ-6** | Template submission | Still yours to fill — **the language is a value, not a decision**, and it blocks nothing in the build (W-22) |
+| **OQ-6** | Template submission | **Closed 31 Jul 2026 — Sinhala.** The second template language, supplied by the owner (W-22) |
 | **OQ-7** | F-10.3 scope | **W-45** — replies out of scope, with an auto-reply saying so and giving a number that is monitored |
 | **OQ-8** | INV-1 | **W-46** — a lease ends the day before the next begins; a same-day handover belongs to the incoming lease (INV-29) |
 | **OQ-9** | F-5.1 | **W-47** — one driver per trip in v1. A second is paid as a driver payment with no trip attached |
 
-**One value remains outstanding, and it is genuinely yours:** the second language for message templates (OQ-6), needed before templates are submitted and not before. The excess-mileage threshold is no longer open — W-43 gives it a safe default of zero, so a forgotten setting waives nothing rather than everything.
+**Nothing is outstanding.** OQ-6 closed on 31 July 2026: the second language is **Sinhala**. The excess-mileage threshold was never open in the dangerous sense — W-43 gives it a safe default of zero, so a forgotten setting waives nothing rather than everything.
 
 ### 11.2 Phasing — corrections adopted
 
