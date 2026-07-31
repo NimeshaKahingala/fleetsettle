@@ -68,10 +68,12 @@ No product value. Everything depends on it. **Fully unblocked.**
 
 **Frontend**
 - `npm init -w web`; Vite + React 19 + TypeScript
-- Tailwind v4, `tokens.css` per UI §12.3 — palette constants, `@theme`, both dark selectors, `:lang(si)`
-- Vitest + Testing Library; Playwright with a 360 × 640 project
-- `vite-plugin-pwa`; manifest from BR §5.2, icons from `docs/design/brand/png/`
-- **Security headers on the assets Worker** — CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`. IG §10 calls this the highest value-to-effort item on its list
+- Tailwind v4, `tokens.css` per UI §12.3 — palette constants, `@theme`, both dark selectors, `:lang(si)`. A test compares the media-query dark block against the `[data-theme="dark"]` block declaration-by-declaration, per §12.3's own warning that a hand-diff is the cheaper alternative to the bug.
+- Vitest + Testing Library (a smoke render); Playwright with a 360 × 640 project (a smoke spec — no horizontal scroll at 360 or 320px). The full §12.6 test table (axe-core per route, the level-1-only save test, the reserved-vocabulary lint) needs screens and forms that don't exist before P2
+- `vite-plugin-pwa`; manifest from BR §5.2, icons copied from `docs/design/brand/png/`. Runtime caching (stale-while-revalidate reads, the paused mutation queue) is deferred to P12, which has the offline flows to prove it against — this is the shell precache only. iOS splash screens are deliberately not generated (BR §5.3's own recommendation)
+- **Security headers on the assets Worker** — CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`, via a native `public/_headers` file rather than Worker code (confirmed via Cloudflare's docs: `_headers`/`_redirects` are supported natively on Workers-with-assets). `connect-src` is `'self'`-only until P1 adds the real API and Asgardeo origins
+- Found in passing: `stylelint.config.js`'s `tokens.css` override pointed at `web/src/styles/`, not `web/src/design/` (UI §12.2) — fixed. Two guard/lint rules were false-positiving on Tailwind v4's own reserved syntax (`--text-*` is the font-size namespace, not an untokenised colour; `--text-*--line-height` is its sanctioned paired-property suffix, not a kebab-case violation) — narrowed rather than suppressed per-occurrence, in `scripts/check-forbidden.mjs` and `stylelint.config.js`
+- `eslint-plugin-jsx-a11y` deliberately not added yet — its published peer range caps at ESLint 8/9, and this repo is on ESLint 10; axe-core in Playwright (P2+) is the a11y gate until it catches up
 
 **Ops** — CI creates, seeds and **deletes** a per-PR Neon branch. Not optional on the free plan: branch creation starts failing around nine open PRs, and it fails on someone else's PR for a reason that looks unrelated (IG §9.2). Error monitoring wired at the same time, because structured logs nobody alerts on are forensics rather than monitoring.
 

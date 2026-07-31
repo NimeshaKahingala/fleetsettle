@@ -1,0 +1,137 @@
+@import "tailwindcss";
+
+/* 1 — palette constants. The only place a hex appears. */
+:root {
+  --l-page: #f1f1ec;
+  --l-surface: #fbfbf8;
+  --l-ink1: #14140f;
+  --l-ink2: #52514e;
+  --l-ink3: #6e6c66;
+  --l-faint: #898781;
+  --l-strong: #dcdbd3;
+  --l-brand: #256abf;
+  --l-brandink: #1c5cab;
+  --l-wash: #e6f0fc;
+  --l-payable: #eb6834;
+  --l-hair: rgb(20 20 15 / 10%);
+  --d-page: #0d0d0c;
+  --d-surface: #141413;
+  --d-ink1: #f5f5f0;
+  --d-ink2: #c3c2b7;
+  --d-ink3: #96948c;
+  --d-faint: #898781;
+  --d-strong: #2c2c2a;
+  --d-brand: #3987e5;
+  --d-brandink: #86b6ef;
+  --d-wash: #16283f;
+  --d-payable: #d95926;
+  --d-hair: rgb(255 255 255 / 10%);
+}
+
+/* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
+   is needed: the dark selectors simply never match. */
+@theme {
+  --color-page: var(--l-page);
+  --color-surface: var(--l-surface);
+  --color-ink-primary: var(--l-ink1);
+  --color-ink-secondary: var(--l-ink2);
+  --color-ink-muted: var(--l-ink3);
+  --color-ink-faint: var(--l-faint);
+  --color-line-hairline: var(--l-hair);
+  --color-line-strong: var(--l-strong);
+  --color-brand: var(--l-brand);
+  --color-brand-ink: var(--l-brandink);
+  --color-brand-wash: var(--l-wash);
+  --color-focus-ring: var(--l-brandink);
+  --color-direction-payable: var(--l-payable);
+
+  /* status — fixed, never themed except where the dark step differs */
+  --color-good: #0ca30c;
+  --color-good-ink: #006300;
+  --color-warning: #fab219;
+  --color-warning-ink: #7a4a00;
+  --color-serious: #ec835a;
+  --color-serious-ink: #8a3b12;
+  --color-critical: #d03b3b;
+  --color-critical-ink: #b3231f;
+  --spacing-tap: 44px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --text-hero: 2.25rem;
+  --text-hero--line-height: 2.5rem;
+  --text-title-lg: 1.375rem;
+  --text-title-lg--line-height: 1.75rem;
+  --text-title: 1.125rem;
+  --text-title--line-height: 1.5rem;
+  --text-body: 1rem;
+  --text-body--line-height: 1.5rem;
+  --text-body-sm: 0.875rem;
+  --text-body-sm--line-height: 1.25rem;
+  --text-label: 0.8125rem;
+  --text-label--line-height: 1rem;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+  --ease-micro: 120ms cubic-bezier(0, 0, 0.2, 1);
+  --ease-enter: 200ms cubic-bezier(0, 0, 0.2, 1);
+  --ease-exit: 160ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+/* 3 — dark. Two selectors, identical bodies: the media query covers the OS
+   setting, the attribute covers the in-app toggle, and the :not() guard lets a
+   manual light choice beat OS dark. */
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --color-page: var(--d-page);
+    --color-surface: var(--d-surface);
+    --color-ink-primary: var(--d-ink1);
+    --color-ink-secondary: var(--d-ink2);
+    --color-ink-muted: var(--d-ink3);
+    --color-ink-faint: var(--d-faint);
+    --color-line-hairline: var(--d-hair);
+    --color-line-strong: var(--d-strong);
+    --color-brand: var(--d-brand);
+    --color-brand-ink: var(--d-brandink);
+    --color-brand-wash: var(--d-wash);
+    --color-focus-ring: var(--d-brandink);
+    --color-direction-payable: var(--d-payable);
+    --color-good: #3fbf57;
+    --color-good-ink: #3fbf57;
+    --color-warning-ink: #fab219;
+    --color-serious-ink: #ec835a;
+    --color-critical: #f0736f;
+    --color-critical-ink: #f0736f;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-page: var(--d-page);
+  --color-surface: var(--d-surface);
+  --color-ink-primary: var(--d-ink1);
+  --color-ink-secondary: var(--d-ink2);
+  --color-ink-muted: var(--d-ink3);
+  --color-ink-faint: var(--d-faint);
+  --color-line-hairline: var(--d-hair);
+  --color-line-strong: var(--d-strong);
+  --color-brand: var(--d-brand);
+  --color-brand-ink: var(--d-brandink);
+  --color-brand-wash: var(--d-wash);
+  --color-focus-ring: var(--d-brandink);
+  --color-direction-payable: var(--d-payable);
+  --color-good: #3fbf57;
+  --color-good-ink: #3fbf57;
+  --color-warning-ink: #fab219;
+  --color-serious-ink: #ec835a;
+  --color-critical: #f0736f;
+  --color-critical-ink: #f0736f;
+}
+
+:lang(si) {
+  font-family: "Noto Sans Sinhala", system-ui, sans-serif;
+  line-height: 1.72;
+}
+
+:lang(ta) {
+  font-family: "Noto Sans Tamil", system-ui, sans-serif;
+  line-height: 1.72;
+}

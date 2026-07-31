@@ -139,7 +139,10 @@ const RULES = [
   {
     id: "css/untokenised-colour",
     when: isCss,
-    pattern: /^\s*--(ink|bg|surface|text|border|fg|accent|direction)-[a-z0-9-]+\s*:/gim,
+    // Not `text` — Tailwind v4's @theme reserves --text-* for the font-size
+    // scale (`text-xl`), not colour; UI §12.3's tokens.css defines
+    // --text-hero etc. for exactly that and would false-positive here.
+    pattern: /^\s*--(ink|bg|surface|border|fg|accent|direction)-[a-z0-9-]+\s*:/gim,
     message:
       "Tailwind v4's @theme only generates colour utilities from --color-*. A colour token without that prefix fails silently (UI §5.1).",
   },
