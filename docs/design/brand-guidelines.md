@@ -2,10 +2,10 @@
 
 **Status:** v1.0
 **Date:** 30 July 2026
-**Companions:** `UI_UX_GUIDELINES.md` (the design system this sits on) · `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics)
-**Assets:** `docs/brand/src/*.svg` (source) · `docs/brand/png/*` (generated)
+**Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
+**Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
 
-This document owns **identity**: the mark, the name, the lockups, and how the product sounds. It does not own colour, type scale or components — `UI_UX_GUIDELINES.md` §5 owns those, and this document deliberately adds **no new hues** (B-4).
+This document owns **identity**: the mark, the name, the lockups, and how the product sounds. It does not own colour, type scale or components — `ui-ux-guidelines.md` §5 owns those, and this document deliberately adds **no new hues** (B-4).
 
 Everything here is deliberately small. A three-vehicle business does not need a brand book; it needs an icon that survives 48px, a wordmark that fits an app bar, and a consistent way of writing about money. That is the whole scope.
 
@@ -18,7 +18,7 @@ Everything here is deliberately small. A three-vehicle business does not need a 
 | **B-1** | The mark is a **monoline car in side profile**, one uniform stroke weight, rounded caps and joins | Chosen from three explored directions. It says what the product is at a glance, which matters more than abstraction for a tool used by two people who already know what it is |
 | **B-2** | **Two mark variants, not one.** The full mark carries a belt line; the compact mark drops it and thickens the stroke | The belt line is what makes it read as a *car* rather than a lozenge, and it is also the first thing to mush below ~40px. Two variants is cheaper than a compromise that is wrong at both ends |
 | **B-3** | **The icon is a filled tile, not a bare mark** | A 2.5 : 1 mark alone in a square leaves two empty bands and looks unfinished at every size. The tile also gives the maskable variant something to bleed |
-| **B-4** | **No brand palette beyond the system palette.** Brand blue *is* `--brand` from `UI_UX_GUIDELINES.md` §5.1 | A separate marketing palette would be unvalidated, and the first place it would appear is next to a chart that was validated. One system or none |
+| **B-4** | **No brand palette beyond the system palette.** Brand blue *is* `--brand` from `ui-ux-guidelines.md` §5.1 | A separate marketing palette would be unvalidated, and the first place it would appear is next to a chart that was validated. One system or none |
 | **B-5** | **The wordmark is set in the system sans**, `Fleet` at weight 450 and `Settle` at 750 | The weight break gives the compound name a joint without a second colour, so it survives monochrome, print and a 16px favicon. No licensed display face to buy, embed or lose |
 | **B-6** | **No letters in the mark.** No monogram, no "FS" | The name is a lockup element. A letter mark plus a car mark is two identities competing at 48px |
 | **B-7** | **The mark never appears in a status colour** | Green, amber and red mean specific things in this product (§5.1). A green logo on the day a message failed is a mixed signal |
@@ -163,7 +163,7 @@ iOS needs an `apple-touch-startup-image` per device resolution, which is twenty-
 
 ### 5.4 Regenerating
 
-No design tool is required. From `docs/brand`:
+No design tool is required. From `docs/design/brand`:
 
 ```sh
 qlmanage -t -s 512 -o png src/icon-any.svg && mv png/icon-any.svg.png png/icon-512.png
@@ -194,7 +194,7 @@ The product's job is to be believed about money. Everything below follows from t
 
 ### 6.2 The vocabulary lock
 
-The reserved words in `user-flows-v1.md` §1.5 and the banned list in `UI_UX_GUIDELINES.md` §9.6 are **brand rules as much as UI rules**, because they leave the product — they appear in WhatsApp messages, statements and the driver's printed slip, and being inconsistent between the app and the message is exactly how a figure gets disputed.
+The reserved words in `user-flows.md` §1.5 and the banned list in `ui-ux-guidelines.md` §9.6 are **brand rules as much as UI rules**, because they leave the product — they appear in WhatsApp messages, statements and the driver's printed slip, and being inconsistent between the app and the message is exactly how a figure gets disputed.
 
 Short form: say deposit, advance, earned, received, waiver, write-off, lost day, borne by, paid by — each with one meaning. Never say accrual, current account, allocation, recognition, receivable, or abbreviate "daily lease amount" and "driver day fee" to "rate", since they are opposite directions of money (UC-04).
 
@@ -227,7 +227,7 @@ The outbound surfaces are the ones your customers actually see, and they are **n
 
 1. **The six Group I WhatsApp templates** (UC-80…UC-85), English and the second language, each as a fixed sentence with slots — Meta templates take variables, not prose. This is the item with a real lead time: approval runs from minutes to about two days *per message per language*, and W-21 only holds if the phrasing exists before the build needs it.
 2. **The document headers** for the customer statement (UC-19), the driver's printed slip (UC-57) and the export (UC-99) — all three use the flattened horizontal lockup and the formal tone from §6.3.
-3. **The second language** is still open (§16 of `UI_UX_GUIDELINES.md`). It changes the templates and the font subset, nothing else.
+3. **The second language** is still open (§16 of `ui-ux-guidelines.md`). It changes the templates and the font subset, nothing else.
 
 ---
 

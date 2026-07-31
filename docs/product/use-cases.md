@@ -2,7 +2,7 @@
 
 **Status:** v1.2.1 — independent review incorporated
 **Date:** 30 July 2026
-**Companion:** `user-flows-v1.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
+**Companion:** `user-flows.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
 
 > **What changed in v1.2.** Two contradictions that produced wrong numbers were resolved (§1.2), one word carrying two incompatible meanings was split apart (W-40), eighteen decisions were added, and sixteen use cases were written for behaviour the document already relied on but never specified. Entries marked **⚑ proposed** are my judgement, not yours — §10 lists them together so any can be reversed in one pass.

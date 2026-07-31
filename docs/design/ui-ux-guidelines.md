@@ -2,7 +2,7 @@
 
 **Status:** v1.2 — review incorporated (§17); auth confirmed
 **Date:** 31 July 2026
-**Companions:** `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics) · `DATA_MODEL.md` (schema) · `TECH_STACK.md` (platform) · `BRAND_GUIDELINES.md` (identity)
+**Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
 
@@ -29,10 +29,10 @@ It exists because the flows document ends with a screen-to-flow map (FL §7) and
 | Prefix | Means | Example |
 |---|---|---|
 | `§n` | **This document** | §5.1 is the colour tokens |
-| `UC §n` | `vehicle-rental-use-cases-v1.md` | UC §6.8 is earned-vs-received |
-| `FL §n` | `user-flows-v1.md` | FL §1.5 is the reserved vocabulary |
-| `DM §n` | `DATA_MODEL.md` | DM §15 is the report queries |
-| `TS §n` | `TECH_STACK.md` | TS §6 is money in TypeScript |
+| `UC §n` | `use-cases.md` | UC §6.8 is earned-vs-received |
+| `FL §n` | `user-flows.md` | FL §1.5 is the reserved vocabulary |
+| `DM §n` | `data-model.md` | DM §15 is the report queries |
+| `TS §n` | `tech-stack.md` | TS §6 is money in TypeScript |
 
 A bare `§` always means this document. This matters more than it looks: UC §6.7 (who bears a cost) and UC §6.8 (earned vs received) drive two of the most-used mobile interactions in the product, and an unprefixed `§6.7` sends the reader to §6 here, which is the component inventory.
 
@@ -926,7 +926,7 @@ W-56 says reports degrade to "not available", never to zero. On screen that mean
 | Sheets | `vaul` (shadcn `Drawer`) | Bottom sheet with drag, plus we add the visible close per M-23 |
 | Routing | **TanStack Router** | Typed params and loader integration with Query; the alternative, React Router 7, is fine and the migration cost is one week |
 | Server state | **TanStack Query v5** with persistence + paused mutations | Paused-and-resumed mutations are exactly M-12's queue, and they survive a reload via hydration ([offline mutations](https://tanstack.com/query/latest/docs/framework/react/guides/mutations)) |
-| Auth | **`@asgardeo/auth-react`** ^5.6.2 | OIDC + PKCE + refresh, per TS §1. Settled 31 July 2026 against Neon Auth — `TECH_STACK_GUIDELINES.md` §1.2 |
+| Auth | **`@asgardeo/auth-react`** ^5.6.2 | OIDC + PKCE + refresh, per TS §1. Settled 31 July 2026 against Neon Auth — `implementation-guidelines.md` §1.2 |
 | Forms | react-hook-form + zod, schemas shared with the Worker | One definition of a valid payload |
 | i18n | i18next + react-i18next | English + one local language (W-22) |
 | Charts | Recharts, lazy, Reports chunk only | Sparklines hand-written |
@@ -1085,7 +1085,7 @@ Installable, offline-capable, and deliberately modest about it:
 - **No background sync** — iOS does not have it, so the app never promises delivery while closed.
 - Storage is treated as evictable. The app warns while the queue is non-empty, and the queue is never the only copy of a money record.
 - iOS install has no prompt; a one-time "Add to Home Screen" hint on iOS Safari, dismissible forever.
-- **The manifest itself lives in `BRAND_GUIDELINES.md` §5.2**, with the icon set, because `theme_color`, `background_color` and the icons are identity decisions rather than layout ones. Two rules from here bind it: `background_color` is `--color-page` and never the brand colour — Android generates its splash from it, and a blue splash into a light-grey app is a visible flash on every cold start — and `orientation` is left unset per M-26.
+- **The manifest itself lives in `brand-guidelines.md` §5.2**, with the icon set, because `theme_color`, `background_color` and the icons are identity decisions rather than layout ones. Two rules from here bind it: `background_color` is `--color-page` and never the brand colour — Android generates its splash from it, and a blue splash into a light-grey app is a visible flash on every cold start — and `orientation` is left unset per M-26.
 
 ### 12.6 The tests that encode the rules
 
@@ -1215,7 +1215,7 @@ The traceability that keeps that honest:
 | §3 navigation | FL §7 screen-to-flow map, U-1, U-4 |
 | §6 components | U-2, U-3, UC §6.5, UC §6.8, W-2, W-48 |
 | §7 flow specs | F-0 … F-10 |
-| §8 money | W-54, INV-20, `TECH_STACK.md` §6 |
+| §8 money | W-54, INV-20, `tech-stack.md` §6 |
 | §9.6 vocabulary | FL §1.5, U-6 |
 | §11 reports | UC-70…UC-79, W-56 |
 | §12.4 capabilities | W-49, FL §2.3 |

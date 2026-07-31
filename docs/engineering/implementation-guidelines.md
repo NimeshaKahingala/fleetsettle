@@ -2,9 +2,9 @@
 
 **Status:** v1.1 — auth confirmed, §1.2 closed
 **Date:** 31 July 2026
-**Companions:** `TECH_STACK.md` (the stack) · `DATA_MODEL.md` (the schema) · `UI_UX_GUIDELINES.md` (the client) · `user-flows-v1.md` (the behaviour)
+**Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
-**This document is downstream of `TECH_STACK.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `TECH_STACK.md` wins and this document is wrong.
+**This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
 
 **Provenance, because it matters for how you read this.** The first draft was a blueprint imported from a different codebase on a neighbouring stack. Most of its architecture — the acyclic layer rule, the error hierarchy, the integration harness, the CI gate — is genuinely good and is kept. But it specified a **different database driver, a different auth provider, a different money type and a different tenancy key** from the ones FleetSettle has already settled. §1 records every one of those conflicts and how it was resolved, so nobody re-opens a decision by reading a stale paragraph.
 
@@ -12,7 +12,7 @@
 
 ## 1. Conflicts with the settled stack, and how each was resolved
 
-Seven, **all now settled.** Six are decided by `TECH_STACK.md`, and one is resolved in the imported document's favour. §1.2 was the last one open; it was confirmed on 31 July 2026.
+Seven, **all now settled.** Six are decided by `tech-stack.md`, and one is resolved in the imported document's favour. §1.2 was the last one open; it was confirmed on 31 July 2026.
 
 | # | Imported guidance | FleetSettle | Resolution |
 |---|---|---|---|
@@ -40,7 +40,7 @@ And it costs something specific: FleetSettle's writes are transactional by natur
 
 ### 1.2 Auth — settled: Asgardeo
 
-`TECH_STACK.md` §2 and §8 specify Asgardeo, and the imported blueprint proposed Neon Auth in its place. **Asgardeo confirmed, 31 July 2026.** Both would have worked; the trade was real and is recorded here so it is not re-litigated from a stale draft.
+`tech-stack.md` §2 and §8 specify Asgardeo, and the imported blueprint proposed Neon Auth in its place. **Asgardeo confirmed, 31 July 2026.** Both would have worked; the trade was real and is recorded here so it is not re-litigated from a stale draft.
 
 | | **Asgardeo** — chosen | **Neon Auth** — not chosen |
 |---|---|---|
@@ -80,9 +80,9 @@ What *is* worth keeping from the imported wrapper: dependency inversion for the 
 
 ### 1.6 Raw SQL migrations, Drizzle for queries only
 
-`TECH_STACK.md` §1 picks Drizzle and mentions "migrations in-repo". Sharpening that, because `DATA_MODEL.md` forces the issue: the schema leans on **exclusion constraints, partial unique indexes, deferred constraints, triggers and rules** (TS §7). A schema-diffing migration generator does not reliably round-trip those, and a money schema where the enforcement silently fails to migrate is the worst possible failure.
+`tech-stack.md` §1 picks Drizzle and mentions "migrations in-repo". Sharpening that, because `data-model.md` forces the issue: the schema leans on **exclusion constraints, partial unique indexes, deferred constraints, triggers and rules** (TS §7). A schema-diffing migration generator does not reliably round-trip those, and a money schema where the enforcement silently fails to migrate is the worst possible failure.
 
-**So: migrations are hand-written SQL, numbered, forward-only. Drizzle is the typed query layer and its schema file mirrors the DDL rather than generating it.** The DDL in `DATA_MODEL.md` §16.0 already executed against Postgres 17 — that is migration `0001`, near enough verbatim.
+**So: migrations are hand-written SQL, numbered, forward-only. Drizzle is the typed query layer and its schema file mirrors the DDL rather than generating it.** The DDL in `data-model.md` §16.0 already executed against Postgres 17 — that is migration `0001`, near enough verbatim.
 
 ---
 
@@ -96,9 +96,9 @@ What *is* worth keeping from the imported wrapper: dependency inversion for the 
 │   ├── scripts/migrate.ts      tsx, runs in Node — not in the Worker
 │   ├── tests/{unit,integration,support}/
 │   └── wrangler.jsonc
-├── web/                        Vite SPA — see UI_UX_GUIDELINES.md §12.2
+├── web/                        Vite SPA — see ui-ux-guidelines.md §12.2
 ├── packages/shared/            Zod schemas + the money codec, imported by both
-├── docs/
+├── docs/                       product/ · engineering/ · design/ — see docs/README.md
 ├── .github/workflows/
 └── package.json                npm workspaces
 ```
@@ -223,7 +223,7 @@ finally { client.release(); }
 Rules that follow from the schema rather than from taste:
 
 - **Nothing loops over rows issuing queries.** Bulk operations use `insert … select` and `update … from` (TS §7). The bulk-confirm flow (F-4.6) is one statement per table, not one per day.
-- **Aggregation happens in SQL, never in the Worker** — CPU time is bounded per invocation. The report queries in `DATA_MODEL.md` §15 are the implementations, not sketches.
+- **Aggregation happens in SQL, never in the Worker** — CPU time is bounded per invocation. The report queries in `data-model.md` §15 are the implementations, not sketches.
 - **A write into a closed period will be refused by a trigger**, not by your code (`assert_period_open()`). Catch it and map it to `PERIOD_CLOSED`; do not pre-check it in the application, because the pre-check and the trigger will eventually disagree.
 
 ### 4.3 Idempotency is a schema property
@@ -252,7 +252,7 @@ const businessDate = (tz: string) =>
   new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date()); // YYYY-MM-DD
 ```
 
-`new Date().toISOString().slice(0,10)` is wrong and will be off by one for five and a half hours a day (TS §5). The same rule applies in SQL: **pass the business date as a parameter, never `CURRENT_DATE`** — Postgres would evaluate it in the server's timezone. `DATA_MODEL.md` §15's ageing query does exactly this and says why.
+`new Date().toISOString().slice(0,10)` is wrong and will be off by one for five and a half hours a day (TS §5). The same rule applies in SQL: **pass the business date as a parameter, never `CURRENT_DATE`** — Postgres would evaluate it in the server's timezone. `data-model.md` §15's ageing query does exactly this and says why.
 
 Worth a lint rule too.
 
@@ -266,7 +266,7 @@ Worth a lint rule too.
 - **`CHECK` constraints for every bounded value.** Zod is the fast path; the database is the truth. Both.
 - **`created_at` / `updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`** plus the shared `trigger_set_updated_at()`.
 - **Never drop or rename a column** without explicit instruction. Add and backfill.
-- **A new money table is not finished until it is in the `assert_period_open()` trigger array.** `DATA_MODEL.md` §13 carries a CI assertion for exactly this, because the list is hand-maintained and drifted once already.
+- **A new money table is not finished until it is in the `assert_period_open()` trigger array.** `data-model.md` §13 carries a CI assertion for exactly this, because the list is hand-maintained and drifted once already.
 
 ### Migrations
 
@@ -335,7 +335,7 @@ The imported document's longest warning is worth heeding in advance: single-flig
 
 ### 8.2 The golden fixtures are the regression suite
 
-`user-flows-v1.md` §9.1 encodes the three worked walkthroughs as fixtures with real figures. They are already proven against Postgres 17 (`DATA_MODEL.md` §16.1, 39 of 39 assertions).
+`user-flows.md` §9.1 encodes the three worked walkthroughs as fixtures with real figures. They are already proven against Postgres 17 (`data-model.md` §16.1, 39 of 39 assertions).
 
 **Any change that moves `134,000`, `15,000` or `7,500` is a breaking change and must fail loudly.** Seed a preview branch with them and assert in CI.
 
@@ -376,7 +376,7 @@ if (devUrl && TEST_DATABASE_URL === devUrl) throw new Error("TEST_DATABASE_URL m
 
 ### 9.2 The Neon free-plan constraints are load-bearing
 
-`TECH_STACK.md` §10 records two limits that the branching strategy must respect, and both bite silently:
+`tech-stack.md` §10 records two limits that the branching strategy must respect, and both bite silently:
 
 - **10 branches per project.** The per-PR preview branch needs a **delete-on-merge/close step**, or branch creation starts failing at around nine open PRs — and it fails in CI, on someone else's PR, for a reason that looks unrelated.
 - **No protected branches.** Nothing at the platform level stops `main` being reset by a branch operation. That guardrail has to come from who holds Neon console access.
@@ -422,7 +422,7 @@ Each is cheap now and expensive to retrofit.
 
 | | |
 |---|---|
-| **The `audit_log` writer** | `DATA_MODEL.md` D-8 — the table exists with no writer. A generic `AFTER INSERT OR UPDATE` trigger, built **before any money table holds live data**. An audit trail with a gap at the beginning is the stretch someone eventually needs |
+| **The `audit_log` writer** | `data-model.md` D-8 — the table exists with no writer. A generic `AFTER INSERT OR UPDATE` trigger, built **before any money table holds live data**. An audit trail with a gap at the beginning is the stretch someone eventually needs |
 | **Generated API types** | `openapi-typescript` against the generated spec, or shared Zod from `packages/shared`. Run in CI so drift fails the build |
 | **Response schemas that actually parse** | `Schema.parse()` outside production. A cast is documentation the compiler trusts and never checks — which is how a money column ships the wrong shape |
 | **Advisory-locked, checksummed migrations** | §5 |
@@ -435,7 +435,7 @@ Each is cheap now and expensive to retrofit.
 ## 12. Bootstrap checklist
 
 1. `npm init -w api -w web -w packages/shared`; root scripts delegate.
-2. Apply `DATA_MODEL.md` §16.0 DDL as migration `0001` to the Neon `main` branch — it is currently and deliberately empty (TS §10).
+2. Apply `data-model.md` §16.0 DDL as migration `0001` to the Neon `main` branch — it is currently and deliberately empty (TS §10).
 3. The `audit_log` trigger as migration `0002`, before anything writes money.
 4. `api/`: Hono + `@hono/zod-openapi` + `@neondatabase/serverless` + Drizzle + `jose`. `wrangler.jsonc` with the KV, R2 and Queue bindings from TS §8, `workers_dev: false`, a local-only `name`.
 5. Layer directories (§3.1), including `domain/` and `auth/policy.ts`.
@@ -443,7 +443,7 @@ Each is cheap now and expensive to retrofit.
 7. `packages/shared`: the money codec and the first schemas.
 8. `tests/support/*` — all five, including the `TEST_DATABASE_URL` guard and the golden fixtures — **before** the first endpoint.
 9. First vertical slice end to end: **F-4.2, confirm the day.** It is the most-used path, it is transactional, and it exercises period enforcement, idempotency and the audit trigger in one go. If it is right, most of the rest is assembly.
-10. `web/`: per `UI_UX_GUIDELINES.md` §12 — tokens and the five load-bearing components before any screen.
+10. `web/`: per `ui-ux-guidelines.md` §12 — tokens and the five load-bearing components before any screen.
 11. CI: reusable gate, preview branch create/seed/**delete**, production promotion guard.
 12. `CLAUDE.md` at the root and in `api/`, codifying these rules for agents.
 
@@ -479,6 +479,6 @@ Each is cheap now and expensive to retrofit.
 
 ## 15. Change control
 
-This document is downstream of `TECH_STACK.md` and `DATA_MODEL.md`. A change to the stack changes this document; a change here that would alter the stack is not allowed — `TECH_STACK.md` changes first.
+This document is downstream of `tech-stack.md` and `data-model.md`. A change to the stack changes this document; a change here that would alter the stack is not allowed — `tech-stack.md` changes first.
 
 §1 is the record of which imported guidance was overruled and why. **Do not reintroduce Hyperdrive, Neon Auth, `NUMERIC` money, `user_id` tenancy or a hand-rolled fetch layer by copying from an older draft of this file.** If one of those decisions should change, change it in §1 with a reason, the way every other decision in this repository is recorded.

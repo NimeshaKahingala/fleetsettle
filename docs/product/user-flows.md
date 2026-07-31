@@ -733,7 +733,7 @@ One screen per vehicle: earned, spent, profit, my share. **60 seconds, no entry,
 · Uses the ownership share **in force for that month** (INV-16)
 · Below-the-line costs (INV-5) are visible but outside profit
 · A vehicle with patchy odometer data shows "not available", never a confident wrong number
-· **"Spent" is not one table.** A month's costs are the expenses borne by us **plus** the driver fees and management fees owed for that month, which are obligations rather than expenses. Reading only the expense table under-reports every month containing a charter by exactly the driver's fee — 9,000 of 46,000 in the §7.1 walkthrough, which would make the month read 9,000 more profitable than it was. The query is in `DATA_MODEL.md` §15 and is verified against that fixture.
+· **"Spent" is not one table.** A month's costs are the expenses borne by us **plus** the driver fees and management fees owed for that month, which are obligations rather than expenses. Reading only the expense table under-reports every month containing a charter by exactly the driver's fee — 9,000 of 46,000 in the §7.1 walkthrough, which would make the month read 9,000 more profitable than it was. The query is in `data-model.md` §15 and is verified against that fixture.
 
 #### F-7.2 Payouts and partner settlement
 *Actor:* Owner · *Source:* UC-63 · *Phase:* 1
@@ -1108,7 +1108,7 @@ The four corrections proposed in v1.0 were **adopted in use-cases v1.2 §9.1**. 
 
 ## 12. Change control
 
-This document and `vehicle-rental-use-cases-v1.md` move together. Any change to a **decision** (`W-nn`) or an **invariant** (`INV-n`) requires:
+This document and `use-cases.md` move together. Any change to a **decision** (`W-nn`) or an **invariant** (`INV-n`) requires:
 
 1. The decision updated in the use-case document with its rationale.
 2. The affected flows updated here.
@@ -1120,7 +1120,7 @@ The three walkthroughs exist to prove the model reconciles. They are the closest
 
 ## 13. What changed in v1.1
 
-Driven entirely by `vehicle-rental-use-cases-v1.md` reaching v1.2. Nothing here originates in this document.
+Driven entirely by `use-cases.md` reaching v1.2. Nothing here originates in this document.
 
 **Nine flows gained a real use case.** v1.0 marked them *(new)* because the behaviour existed only here:
 

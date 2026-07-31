@@ -2,8 +2,8 @@
 
 **Status:** v1.0
 **Date:** 30 July 2026
-**Derived from:** `vehicle-rental-use-cases-v1.md` v1.2 · `user-flows-v1.md` v1.1
-**Platform:** Neon Postgres — see `TECH_STACK.md` §7 for the four constraints that shaped this
+**Derived from:** `use-cases.md` v1.2 · `user-flows.md` v1.1
+**Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
 **Validation:** §9 checks every one of the 62 flows and 30 invariants against these tables. That section is the point of the document; the DDL is what it validates.
 
@@ -78,7 +78,7 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;  -- required by the exclusion constra
 
 ### 2.1 Glossary — flow-document names to tables
 
-`user-flows-v1.md` names entities in the language of the flow; the schema names them in the language of storage. Neither is wrong, but reading both without a map is confusing.
+`user-flows.md` names entities in the language of the flow; the schema names them in the language of storage. Neither is wrong, but reading both without a map is confusing.
 
 | Flow document says | Schema | Note |
 |---|---|---|
@@ -1318,7 +1318,7 @@ SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal;  -- expect 18
 
 ## 14. The invariant enforcement map
 
-Every invariant in `user-flows-v1.md` §5, and where it actually lives.
+Every invariant in `user-flows.md` §5, and where it actually lives.
 
 | INV | Enforced by | Level |
 |---|---|---|
@@ -1353,7 +1353,7 @@ Every invariant in `user-flows-v1.md` §5, and where it actually lives.
 | 29 lease boundary day | Falls out of INV-1's unique index | **DB** |
 | 30 trip in exactly one period | `CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))` | **DB** |
 
-**22 of 30 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows-v1.md` §9.
+**22 of 30 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
 
 ---
 
@@ -1414,7 +1414,7 @@ SELECT party_type, party_id, bucket, SUM(outstanding_minor) AS outstanding_minor
 
 `effective_due_on` rather than `due_on` is UC-78's other rule in one column: a driver who settles every Friday by agreement is not overdue on Thursday.
 
-`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and TECH_STACK.md §5 already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
+`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and tech-stack.md §5 already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
 
 **UC-56 the driver's two balances, unmerged**
 
@@ -1493,7 +1493,7 @@ The other four checklist items are the same shape: open trips, unsettled advance
 
 ## 16. Validation against the user flows
 
-Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow with no home in the schema is a schema defect.
+Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow with no home in the schema is a schema defect.
 
 | Flow | Tables |
 |---|---|
@@ -1606,7 +1606,7 @@ Every flow in `user-flows-v1.md` §6, and the tables it reads or writes. A flow 
 
 ### 16.1 Golden fixtures against real Postgres
 
-The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and assert against SQL, not a mock:
+The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and assert against SQL, not a mock:
 
 **All three have been run against the live schema. 39 of 39 assertions pass.**
 
@@ -1629,7 +1629,7 @@ The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and asse
 | # | Item | Recommendation |
 |---|---|---|
 | **D-1** | Should a posting ledger sit under the domain tables? | **Not yet.** The obligation/payment/deposit tables answer every question UC-70…UC-79 asks. Add a derived ledger when a real accountant needs a trial balance, not before |
-| **D-2** | Postgres RLS as a second line behind app-level `business_id` scoping | **Worth doing** — `SET LOCAL app.business_id` per transaction. Note Hyperdrive resets `SET` between queries (`TECH_STACK.md` §3), so this requires the Neon pool path |
+| **D-2** | Postgres RLS as a second line behind app-level `business_id` scoping | **Worth doing** — `SET LOCAL app.business_id` per transaction. Note Hyperdrive resets `SET` between queries (`tech-stack.md` §3), so this requires the Neon pool path |
 | **D-3** | `pattern_weekdays smallint[]` vs a child table | Array is fine at this scale; revisit if patterns need per-date exceptions beyond skipping |
 | **D-4** | Retention for `audit_log` and `message_event` | Both grow forever. Partition by month once either passes ~1M rows |
 | **D-5** | `obligation.effective_due_on` maintenance | Derived from `driver.settlement_rhythm` at creation. If the rhythm changes, existing rows keep their original value — deliberate, but worth confirming |
@@ -1641,6 +1641,6 @@ The three walkthroughs seed a Neon preview branch (`TECH_STACK.md` §9) and asse
 
 ## 18. Change control
 
-This document follows `vehicle-rental-use-cases-v1.md` and `user-flows-v1.md`, never the reverse. A schema change that is not traceable to a `W-nn` decision or an `INV-n` invariant is a schema change without a reason.
+This document follows `use-cases.md` and `user-flows.md`, never the reverse. A schema change that is not traceable to a `W-nn` decision or an `INV-n` invariant is a schema change without a reason.
 
 When a decision changes: update the use cases, update the flows, update §14 and §16 here, and re-run the §16.1 fixtures. **If a fixture number moves, stop** — that is the signal the model changed rather than the schema.

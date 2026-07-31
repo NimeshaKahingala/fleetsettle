@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git add*)",
+      "Bash(npm run *)",
+      "Bash(npm ci*)",
+      "Bash(npm install*)",
+      "Bash(npm test*)",
+      "Bash(npx vitest*)",
+      "Bash(npx tsc*)",
+      "Bash(npx wrangler dev*)",
+      "Bash(npx wrangler types*)",
+      "Bash(npx wrangler tail*)",
+      "Bash(node *)",
+      "Bash(python3 *)",
+      "Bash(rg *)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(wc *)",
+      "Bash(qlmanage *)",
+      "Bash(sips *)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(npx wrangler delete*)",
+      "Bash(npx wrangler secret delete*)",
+      "Bash(npx neonctl branches delete*)",
+      "Bash(neonctl branches delete*)",
+      "mcp__neon__delete_project",
+      "mcp__neon__delete_branch",
+      "mcp__neon__reset_from_parent"
+    ]
+  }
+}

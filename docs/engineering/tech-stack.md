@@ -2,7 +2,7 @@
 
 **Status:** v1.1 — auth reaffirmed (§2)
 **Date:** 31 July 2026
-**Companion:** `DATA_MODEL.md` (schema) · `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics)
+**Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
 This document exists for one reason beyond inventory: **four platform constraints change the data model**, and they are listed in §7. Read that section before reviewing the schema.
 
@@ -57,7 +57,7 @@ Worker
 
 **Reaffirmed 31 July 2026, against a specific alternative.** An imported implementation blueprint proposed replacing this with **Neon Auth** (Managed Better Auth) — users and sessions in a `neon_auth` schema in our own database, EdDSA tokens, one fewer vendor. It was evaluated and declined: Neon Auth is **beta**, **AWS-region only**, and incompatible with Neon IP Allow and Private Networking. A ledger whose entire promise is being believed about money is a poor place to carry a beta dependency on identity.
 
-*What makes the decision cheap to reverse, if that ever changes:* the identity provider is isolated behind two things — the JWKS verification in the Worker, and the `sub → app_user → business_member` lookup. Nothing downstream of `business_member` knows or cares who issued the token, which is the same separation §2 opens with. `TECH_STACK_GUIDELINES.md` §1.2 holds the full comparison.
+*What makes the decision cheap to reverse, if that ever changes:* the identity provider is isolated behind two things — the JWKS verification in the Worker, and the `sub → app_user → business_member` lookup. Nothing downstream of `business_member` knows or cares who issued the token, which is the same separation §2 opens with. `implementation-guidelines.md` §1.2 holds the full comparison.
 
 ---
 
@@ -69,7 +69,7 @@ src/
   auth/verify.ts        jose JWKS validation, sub → app_user
   auth/policy.ts        W-49 capability checks, one function per capability
   db/client.ts          neon() for reads, Pool for transactional writes
-  db/schema.ts          Drizzle schema — mirrors DATA_MODEL.md
+  db/schema.ts          Drizzle schema — mirrors data-model.md
   db/migrations/        SQL migrations, forward-only
   domain/…              one module per flow group (F-2 leases, F-4 daily, …)
 ```
@@ -125,7 +125,7 @@ Postgres `bigint` minor units (INV-20). The trap is the boundary: `pg` and Drizz
 
 ## 7. Platform constraints that shaped the data model
 
-The four that mattered, each with its consequence in `DATA_MODEL.md`:
+The four that mattered, each with its consequence in `data-model.md`:
 
 | Constraint | Consequence |
 |---|---|
@@ -163,7 +163,7 @@ Secrets via `wrangler secret put`, never in `wrangler.jsonc`.
 | Preview | any PR | Neon branch, seeded with the §9.1 golden fixtures |
 | Production | `main` | Neon primary |
 
-**Neon database branching is worth using deliberately here.** The golden fixtures in `user-flows-v1.md` §9.1 are the regression suite; a preview branch seeded with them means every PR can assert that §7.1's `134,000` and §7.3's `7,500` still come out right against real Postgres, not a mock.
+**Neon database branching is worth using deliberately here.** The golden fixtures in `user-flows.md` §9.1 are the regression suite; a preview branch seeded with them means every PR can assert that §7.1's `134,000` and §7.3's `7,500` still come out right against real Postgres, not a mock.
 
 Migrations are **forward-only**. A money system that rolls a migration backwards over live data has a worse problem than the migration.
 
@@ -174,7 +174,7 @@ Migrations are **forward-only**. A money system that rolls a migration backwards
 **Org:** `FleetSettle` (`org-cold-rice-64493165`), created 30 July 2026, **Free plan**.
 **Project:** `fleetsettle` (`spring-sunset-96946055`), Postgres 17, `main` branch `br-odd-cherry-afx5394i`, database `neondb`.
 
-`main` is **empty and deliberately so** — the schema in `DATA_MODEL.md` was validated on disposable branches (`DATA_MODEL.md` §16.0) and has not been applied to `main`. Applying it there is a migration, and migrations are forward-only (§9), so it waits until the schema is being built on rather than tested.
+`main` is **empty and deliberately so** — the schema in `data-model.md` was validated on disposable branches (`data-model.md` §16.0) and has not been applied to `main`. Applying it there is a migration, and migrations are forward-only (§9), so it waits until the schema is being built on rather than tested.
 
 Free-plan limits that bound the §9 branching strategy:
 
