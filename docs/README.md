@@ -66,7 +66,7 @@ Three rules that have already earned their place:
 | user-flows | v1.1.1 | 30 Jul 2026 |
 | data-model | v1.0 | 30 Jul 2026 |
 | tech-stack | v1.1 | 31 Jul 2026 |
-| implementation-guidelines | v1.1 | 31 Jul 2026 |
+| implementation-guidelines | v1.2 | 31 Jul 2026 |
 | ui-ux-guidelines | v1.2 | 31 Jul 2026 |
 | brand-guidelines | v1.0 | 30 Jul 2026 |
 

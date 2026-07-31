@@ -1,0 +1,46 @@
+name: checks
+
+# One gate, called by every workflow that deploys, so preview and production
+# clear a bit-identical bar (IG §9.3). Nothing here needs a database — the
+# integration suite runs separately against a seeded Neon branch.
+
+on:
+  workflow_call:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # First, because it is the fastest and it catches the errors that are
+      # invisible at runtime: a server-timezone date, an inexact money column,
+      # a business_id taken from a request body.
+      - name: Guard
+        run: npm run guard
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Lint CSS
+        run: npm run lint:css
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and component tests
+        run: npm test
+
+      - name: Build
+        run: npm run build

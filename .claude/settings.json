@@ -14,6 +14,9 @@
       "Bash(npm test*)",
       "Bash(npx vitest*)",
       "Bash(npx tsc*)",
+      "Bash(npx eslint*)",
+      "Bash(npx prettier*)",
+      "Bash(npx stylelint*)",
       "Bash(npx wrangler dev*)",
       "Bash(npx wrangler types*)",
       "Bash(npx wrangler tail*)",
@@ -37,6 +40,21 @@
       "mcp__neon__delete_project",
       "mcp__neon__delete_branch",
       "mcp__neon__reset_from_parent"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"",
+            "timeout": 45,
+            "statusMessage": "Checking the money and time rules"
+          }
+        ]
+      }
     ]
   }
 }

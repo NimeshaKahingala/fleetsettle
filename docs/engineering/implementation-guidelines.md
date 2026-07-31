@@ -1,6 +1,6 @@
 # Implementation Guidelines
 
-**Status:** v1.1 — auth confirmed, §1.2 closed
+**Status:** v1.2 — enforcement added (§16)
 **Date:** 31 July 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
@@ -105,7 +105,7 @@ What *is* worth keeping from the imported wrapper: dependency inversion for the 
 
 **`packages/shared` is not optional here.** The money codec must be byte-identical on both sides (§5.4), and the client's Zod schemas must be the same objects the Worker validates with — hand-mirrored types drift silently, and the thing that drifts is a money field.
 
-**Root scripts delegate, never implement:** `npm run lint` → `npm run lint --workspaces --if-present`. CI and humans use the same entry points.
+**Root scripts delegate, never implement.** `typecheck`, `test` and `build` fan out through `scripts/workspaces.mjs`, which runs the script in every workspace that defines it and skips the ones that do not yet exist — `npm run … --workspaces --if-present` fails outright when no workspace has a `package.json`, which is the state of the repository until §12.1. Lint is the exception and runs once at the root: ESLint's flat config is designed to cover a monorepo from a single file, and splitting it would mean maintaining the money and timezone rules in three places (§16). CI and humans use the same entry points.
 
 ---
 
@@ -482,3 +482,66 @@ Each is cheap now and expensive to retrofit.
 This document is downstream of `tech-stack.md` and `data-model.md`. A change to the stack changes this document; a change here that would alter the stack is not allowed — `tech-stack.md` changes first.
 
 §1 is the record of which imported guidance was overruled and why. **Do not reintroduce Hyperdrive, Neon Auth, `NUMERIC` money, `user_id` tenancy or a hand-rolled fetch layer by copying from an older draft of this file.** If one of those decisions should change, change it in §1 with a reason, the way every other decision in this repository is recorded.
+
+---
+
+## 16. Enforcement
+
+A rule written in prose is advisory. Every rule in this repository whose failure is *silent* — the code runs, the report renders, the number is wrong — is enforced by something that fails the build.
+
+### 16.1 Which mechanism catches what
+
+Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule sits at the leftmost mechanism that can actually see it.
+
+| Rule | Caught by | Where |
+|---|---|---|
+| Money becomes a `number` | ESLint | `Number()`, `parseInt/Float`, `toFixed`, `Math.*` |
+| Money crosses the wire as a number | ESLint | `z.number()` in `schemas/` |
+| Money column is an inexact type | Guard script | `numeric`/`decimal`/`real`/`float`/`money` in any `.sql` |
+| `toISOString().slice(0,10)` | ESLint | selector on the member chain |
+| Device-local date parts | ESLint | `new Date()`, `getMonth()` and friends |
+| `CURRENT_DATE` in SQL | Guard script | `.sql` and `api/**/*.ts` |
+| `business_id` from a request | ESLint + guard | `body.business_id` and its variants |
+| Layer violation | ESLint | `no-restricted-imports` per directory (§3.1) |
+| Money record deleted | ESLint | `db.delete(...)` |
+| Application-side period pre-check | ESLint | `isPeriodOpen`-shaped calls in `api/src` |
+| A missing figure defaulting to `0` | ESLint | `?? 0` / `\|\| 0` in `queries/`, `domain/`, reports |
+| Raw hex, `100vh` | ESLint + Stylelint | `web/**`, `.css` |
+| Colour token missing the `--color-` prefix | Guard script | `@theme`-bound names in `.css` |
+| Accounting vocabulary in the interface | Guard script | `web/**/locales/*.json` |
+| Destructive or misnumbered migration | Guard script | `api/migrations/` |
+| Secret in `vars`, tracked `.env` | Guard script | `wrangler.jsonc`, the git index |
+| `workers_dev` left on | Guard script | positive assertion |
+| Trigger-array drift | SQL assertion | DM §13, integration job |
+| Golden fixtures move | Integration tests | FL §9.1 |
+| Level-2 field required to save | Component test | UI §4, every create form |
+| Linked driver reaches another driver's data | Integration tests | §8.3, its own test class |
+| 44px targets, axe | Component test | UI §9 |
+
+The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
+
+### 16.2 The rules are disable-able, deliberately
+
+Every check takes an inline exemption that requires a reason:
+
+```ts
+// eslint-disable-next-line no-restricted-syntax -- odometer km, not money
+const km = Number(raw);
+```
+```sql
+rate numeric(5,4) NOT NULL,  -- allow: mileage multiplier, not an amount
+```
+
+The aim is not to make the pattern impossible. It is to make every occurrence deliberate and visible in a diff. A rule with no escape hatch gets deleted the first time it is inconvenient; a rule with a documented one survives.
+
+### 16.3 What runs where
+
+`npm run check` is the whole gate and is what CI runs (`.github/workflows/checks.yml`, called by every deploy workflow per §9.3). The guard runs first because it is the fastest and catches the highest-consequence errors.
+
+A `PostToolUse` hook (`.claude/hooks/guard.mjs`) runs the guard against each file as an agent writes it and **blocks with the reason** on a violation, so a money or timezone mistake is corrected while the reasoning is still in context rather than twenty minutes later in CI. Writing a migration additionally surfaces the money-table checklist — including the `assert_period_open()` array, which has already been missed once.
+
+### 16.4 Two decisions worth stating
+
+**ESLint rather than Biome.** Biome is faster and would replace both ESLint and Prettier. But the value here is almost entirely in ~20 project-specific `no-restricted-syntax` selectors and per-directory import boundaries, which Biome cannot express. Speed is not the constraint on a repository this size.
+
+**Prettier does not touch `docs/`.** The specification documents are the product. Reflowing their tables and prose produces diffs that are pure noise in a review whose entire job is to notice that a number changed.

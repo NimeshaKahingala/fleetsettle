@@ -92,6 +92,18 @@ Read [docs/README.md](docs/README.md) first — it maps the seven documents, giv
 
 ## Commands
 
-No build yet. When the workspaces land (`api/`, `web/`, `packages/shared`), root scripts delegate rather than implement — `npm run lint` → `npm run lint --workspaces --if-present` — so CI and humans use the same entry points.
+```
+npm run check        the whole gate — what CI runs
+npm run guard        the rules ESLint cannot see: SQL, migrations, interface copy
+npm run lint         eslint . (flat config at the root covers every workspace)
+npm run lint:css     stylelint
+npm run format       prettier — deliberately excludes docs/
+npm run typecheck    delegates per workspace
+npm test             delegates per workspace
+```
+
+The workspaces (`api/`, `web/`, `packages/shared`) do not exist yet; `typecheck`, `test` and `build` delegate through `scripts/workspaces.mjs`, which skips a workspace that has not been created rather than failing the gate. **`guard`, `lint`, `lint:css` and `format:check` work today and are wired into a `PostToolUse` hook**, so a violation blocks at the moment the file is written rather than in CI. IG §16 is the table of which rule is caught by which mechanism, and why five of them can only be caught by a test.
+
+Every check takes an inline exemption that requires a reason — `// eslint-disable-next-line … -- odometer km, not money`, or `-- allow: <reason>` in SQL. Use it rather than deleting a rule; the point is that the exception is visible in the diff.
 
 The first implementation tasks, in order, are in IG §12. The first two are not negotiable: apply the DM §16.0 DDL as migration `0001`, then the `audit_log` trigger as `0002`, **before any money table holds live data**.

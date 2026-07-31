@@ -1,0 +1,320 @@
+#!/usr/bin/env node
+/**
+ * The rules ESLint cannot see.
+ *
+ * ESLint parses TypeScript. It cannot read the inside of a SQL file, it cannot
+ * check that a migration is numbered correctly, and it cannot tell that a
+ * translation string used a word the interface has banned. Every rule below is
+ * one whose failure is silent: the code runs, the report renders, and the number
+ * is wrong in a way nobody notices until someone argues about it.
+ *
+ *   node scripts/check-forbidden.mjs               scan the whole repo
+ *   node scripts/check-forbidden.mjs <file> …      scan specific files
+ *   node scripts/check-forbidden.mjs --json <file> machine-readable (Claude hook)
+ *
+ * A single line may opt out, but must say why:
+ *
+ *   ALTER TABLE … ;  -- allow: column was added in 0007 and never populated
+ *   const pct = Number(raw);  // allow: mileage percentage, not money
+ */
+
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { relative, resolve } from "node:path";
+
+const ROOT = resolve(import.meta.dirname, "..");
+const args = process.argv.slice(2);
+const asJson = args.includes("--json");
+const explicit = args.filter((a) => !a.startsWith("--"));
+
+/** Files that legitimately contain the patterns they describe. */
+const NEVER_SCAN = [
+  "scripts/check-forbidden.mjs",
+  ".claude/hooks/",
+  "docs/",
+  "eslint.config.js",
+  "stylelint.config.js",
+  "package-lock.json",
+];
+
+const inApi = (p) => p.startsWith("api/");
+const isSql = (p) => p.endsWith(".sql");
+const isMigration = (p) => p.startsWith("api/migrations/") && isSql(p);
+const isLocale = (p) => /^web\/(src|public)\/locales\/.*\.json$/.test(p);
+const isCss = (p) => p.endsWith(".css");
+
+const RULES = [
+  // ── Time ───────────────────────────────────────────────────────────────────
+  {
+    id: "time/server-date",
+    when: (p) => isSql(p) || (inApi(p) && p.endsWith(".ts")),
+    pattern:
+      /\b(CURRENT_DATE|LOCALTIMESTAMP|LOCALTIME)\b|\b(now\(\)|current_timestamp)\s*::\s*date\b/gi,
+    message:
+      "Postgres evaluates this in the server's timezone, not Asia/Colombo. Pass the business date in as a parameter (CLAUDE.md → Time).",
+  },
+
+  // ── Money ──────────────────────────────────────────────────────────────────
+  {
+    id: "money/inexact-type",
+    when: isSql,
+    pattern: /\b(numeric|decimal|real|double\s+precision|money|float[48]?)\b/gi,
+    message:
+      "Money is bigint minor units. An inexact type is a rounding argument waiting to happen (CLAUDE.md → Money). If this column is genuinely not money, add `-- allow: <reason>`.",
+  },
+  {
+    id: "schema/serial-id",
+    when: isSql,
+    pattern: /\b(big)?serial\b/gi,
+    message:
+      "Ids appear in URLs — use uuid DEFAULT gen_random_uuid(), never serial (write-migration skill).",
+  },
+
+  // ── Forward-only ───────────────────────────────────────────────────────────
+  {
+    id: "migration/destructive",
+    when: isMigration,
+    pattern: /\b(DROP\s+(TABLE|COLUMN|CONSTRAINT|TYPE)|TRUNCATE|ALTER\s+COLUMN\s+\w+\s+TYPE)\b/gi,
+    message:
+      "Migrations are forward-only and never dropped or renamed without instruction. Add a new column and backfill (write-migration skill).",
+  },
+
+  // ── SQL safety ─────────────────────────────────────────────────────────────
+  {
+    id: "sql/raw-interpolation",
+    when: (p) => inApi(p) && p.endsWith(".ts"),
+    pattern: /\bsql\.raw\s*\(|\bexecute\s*\(\s*[`"'][^`"']*\$\{/g,
+    message: "Parameterised SQL exclusively — no string concatenation, ever (IG §10.3).",
+  },
+
+  // ── Tenancy ────────────────────────────────────────────────────────────────
+  {
+    id: "tenancy/from-request",
+    when: (p) => inApi(p) && p.endsWith(".ts"),
+    pattern: /\b(body|payload|input|query|params)\s*(\?\.|\.|\[["'])\s*business_?[iI]d/g,
+    message:
+      "business_id is resolved from the verified JWT sub via business_member — never from a request (CLAUDE.md → Tenancy).",
+  },
+
+  // ── Secrets ────────────────────────────────────────────────────────────────
+  {
+    id: "secret/connection-string",
+    when: (p) => !p.endsWith(".example") && !p.endsWith(".md"),
+    pattern: /postgres(ql)?:\/\/[^\s"'`]*:[^\s"'`@]+@/gi,
+    message:
+      "A connection string with credentials must never be committed. Use `wrangler secret put` (TS §8).",
+  },
+  {
+    id: "secret/in-vars",
+    when: (p) => /wrangler\.(jsonc?|toml)$/.test(p),
+    pattern:
+      /"(DATABASE_URL|WHATSAPP_TOKEN|WHATSAPP_PHONE_ID|[A-Z_]*(SECRET|TOKEN|PASSWORD|PRIVATE_KEY))"\s*:/g,
+    message:
+      "`vars` are plaintext in the deployed bundle. Secrets go through `wrangler secret put` (IG §9.4).",
+  },
+
+  // ── Interface ──────────────────────────────────────────────────────────────
+  {
+    id: "copy/accounting-vocabulary",
+    when: isLocale,
+    pattern:
+      /\b(accrual|accruals?|accrued|receivable|payables?\s+account|current\s+account|allocation|debtor|creditor|reconciliation)\b/gi,
+    message:
+      "No accounting vocabulary in the interface (U-6, FL §1.5). Say what happened, in the words the business uses.",
+  },
+  {
+    id: "copy/reserved-vocabulary",
+    when: isLocale,
+    pattern: /"[^"]*\brates?\b[^"]*"/gi,
+    message:
+      "'Daily lease amount' (he pays you) and 'driver day fee' (you pay him) are opposite directions of money and must never both shorten to 'rate' (U-6).",
+  },
+  {
+    id: "copy/vague-action",
+    when: isLocale,
+    pattern: /:\s*"(Submit|OK|Ok|Confirm|Done|Save)"/g,
+    message:
+      "One primary action per screen, stating what it does — never 'Submit' or 'OK' (add-screen skill, UI §6).",
+  },
+  {
+    id: "css/untokenised-colour",
+    when: isCss,
+    pattern: /^\s*--(ink|bg|surface|text|border|fg|accent|direction)-[a-z0-9-]+\s*:/gim,
+    message:
+      "Tailwind v4's @theme only generates colour utilities from --color-*. A colour token without that prefix fails silently (UI §5.1).",
+  },
+  {
+    id: "css/viewport-unit",
+    when: (p) => isCss(p) || /^web\/.*\.tsx?$/.test(p),
+    pattern: /\b100vh\b/g,
+    message: "100vh does not account for mobile browser chrome. Use 100svh (UI §5).",
+  },
+];
+
+// ── Scanning ─────────────────────────────────────────────────────────────────
+
+const OPT_OUT = /(?:--|\/\/|#|\/\*)\s*allow:\s*\S+/;
+
+function filesToScan() {
+  if (explicit.length) return explicit.map((f) => relative(ROOT, resolve(f)));
+  // --others picks up files that are new and not yet staged. Without it the
+  // scan is blind to precisely the file someone is in the middle of writing.
+  return execSync("git ls-files --cached --others --exclude-standard", {
+    cwd: ROOT,
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+}
+
+function scan(path) {
+  const findings = [];
+  if (NEVER_SCAN.some((skip) => path.startsWith(skip))) return findings;
+  const abs = resolve(ROOT, path);
+  if (!existsSync(abs)) return findings;
+
+  const applicable = RULES.filter((r) => r.when(path));
+  if (!applicable.length) return findings;
+
+  let lines;
+  try {
+    lines = readFileSync(abs, "utf8").split("\n");
+  } catch {
+    return findings; // binary, unreadable — not our business
+  }
+
+  for (const rule of applicable) {
+    for (const [i, line] of lines.entries()) {
+      if (OPT_OUT.test(line)) continue;
+      rule.pattern.lastIndex = 0;
+      const m = rule.pattern.exec(line);
+      if (m) {
+        findings.push({
+          file: path,
+          line: i + 1,
+          column: m.index + 1,
+          id: rule.id,
+          match: m[0].trim(),
+          message: rule.message,
+        });
+      }
+    }
+  }
+  return findings;
+}
+
+/** Whole-directory checks that no single line can express. */
+function checkMigrationSet() {
+  const findings = [];
+  const dir = resolve(ROOT, "api/migrations");
+  if (!existsSync(dir)) return findings;
+
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  const seen = new Map();
+
+  for (const f of files) {
+    const m = /^(\d{4})_[a-z0-9_]+\.sql$/.exec(f);
+    if (!m) {
+      findings.push({
+        file: `api/migrations/${f}`,
+        line: 1,
+        column: 1,
+        id: "migration/filename",
+        match: f,
+        message:
+          "Migrations are numbered NNNN_lower_snake_case.sql and applied in filename order (IG §5).",
+      });
+      continue;
+    }
+    const n = m[1];
+    if (seen.has(n)) {
+      findings.push({
+        file: `api/migrations/${f}`,
+        line: 1,
+        column: 1,
+        id: "migration/duplicate-number",
+        match: n,
+        message: `Number ${n} is already used by ${seen.get(n)}. Two migrations with one number apply in an order nobody chose.`,
+      });
+    }
+    seen.set(n, f);
+  }
+  return findings;
+}
+
+/** Positive assertions — things that must be present, not absent. */
+function checkRequired() {
+  const findings = [];
+  const wrangler = ["api/wrangler.jsonc", "api/wrangler.json", "api/wrangler.toml"]
+    .map((p) => resolve(ROOT, p))
+    .find(existsSync);
+
+  if (wrangler) {
+    const text = readFileSync(wrangler, "utf8");
+    if (!/workers_dev["\s]*[:=]\s*false/.test(text)) {
+      findings.push({
+        file: relative(ROOT, wrangler),
+        line: 1,
+        column: 1,
+        id: "deploy/workers-dev",
+        match: "workers_dev",
+        message:
+          'Set "workers_dev": false so a bare `wrangler deploy` cannot publish a live URL (IG §9.4).',
+      });
+    }
+  }
+
+  const tracked = execSync("git ls-files", { cwd: ROOT, encoding: "utf8" }).split("\n");
+  for (const f of tracked) {
+    if (/(^|\/)(\.env|\.dev\.vars)$/.test(f)) {
+      findings.push({
+        file: f,
+        line: 1,
+        column: 1,
+        id: "secret/tracked-env",
+        match: f,
+        message:
+          "This file holds secrets and is tracked by git. Remove it from the index and rotate what it held.",
+      });
+    }
+  }
+  return findings;
+}
+
+// ── Report ───────────────────────────────────────────────────────────────────
+
+const findings = [
+  ...filesToScan().flatMap(scan),
+  ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
+];
+
+if (asJson) {
+  console.log(JSON.stringify(findings));
+  process.exit(0); // the hook decides what to do with these
+}
+
+if (!findings.length) {
+  if (!explicit.length) console.log("guard: clean");
+  process.exit(0);
+}
+
+const byFile = new Map();
+for (const f of findings) {
+  if (!byFile.has(f.file)) byFile.set(f.file, []);
+  byFile.get(f.file).push(f);
+}
+
+for (const [file, list] of byFile) {
+  console.error(`\n${file}`);
+  for (const f of list) {
+    console.error(`  ${f.line}:${f.column}  ${f.id}  ${JSON.stringify(f.match)}`);
+    console.error(`    ${f.message}`);
+  }
+}
+console.error(
+  `\n${findings.length} violation${findings.length === 1 ? "" : "s"}. ` +
+    "Fix, or add `allow: <reason>` on the line if it is genuinely correct.\n",
+);
+process.exit(1);

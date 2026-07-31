@@ -26,6 +26,9 @@ coverage/
 .idea/
 *.swp
 
+# personal Claude overrides — .claude/settings.json is shared and committed
+.claude/settings.local.json
+
 # logs
 *.log
 npm-debug.log*
