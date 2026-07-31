@@ -1,7 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.0 — finalised for FleetSettle
-**Date:** 30 July 2026
+**Status:** v1.1 — auth confirmed, §1.2 closed
+**Date:** 31 July 2026
 **Companions:** `TECH_STACK.md` (the stack) · `DATA_MODEL.md` (the schema) · `UI_UX_GUIDELINES.md` (the client) · `user-flows-v1.md` (the behaviour)
 
 **This document is downstream of `TECH_STACK.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `TECH_STACK.md` wins and this document is wrong.
@@ -12,12 +12,12 @@
 
 ## 1. Conflicts with the settled stack, and how each was resolved
 
-Seven. Five are settled by `TECH_STACK.md` and were simply wrong for this project; one is a genuine open choice and is flagged; one is resolved in the imported document's favour.
+Seven, **all now settled.** Six are decided by `TECH_STACK.md`, and one is resolved in the imported document's favour. §1.2 was the last one open; it was confirmed on 31 July 2026.
 
 | # | Imported guidance | FleetSettle | Resolution |
 |---|---|---|---|
 | 1 | Cloudflare **Hyperdrive** + Postgres.js over TCP | `@neondatabase/serverless` — `neon()` HTTP for reads, `Pool` WebSocket for writes (TS §3) | **Keep the Neon driver.** §1.1 |
-| 2 | **Neon Auth** (Managed Better Auth), EdDSA | **Asgardeo** OIDC, verified with `jose` (TS §2) | **Keep Asgardeo**, but this is the one genuinely open item — §1.2 |
+| 2 | **Neon Auth** (Managed Better Auth), EdDSA | **Asgardeo** OIDC, verified with `jose` (TS §2) | **Asgardeo — confirmed 31 July 2026.** §1.2 |
 | 3 | Money as `NUMERIC(12,2)`, string at the boundary | Money as **`bigint` minor units** (INV-20, TS §6) | Imported guidance is simply wrong here. §1.3 |
 | 4 | Tenancy keyed by `user_id`, composite FKs to `users` | Tenancy keyed by **`business_id`**, resolved from `business_member` (TS §2, W-39) | Same technique, different key. §1.4 |
 | 5 | Frontend: hand-rolled `fetch`, **no React Query** | **TanStack Query**, because the offline mutation queue depends on it (UI §12.1, M-12) | Keep TanStack Query. §1.5 |
@@ -38,22 +38,25 @@ And it costs something specific: FleetSettle's writes are transactional by natur
 
 **Decision: keep `neon()` + `Pool`.** Revisit only if read traffic grows enough to want edge caching, at which point Hyperdrive can front the *read* path alone.
 
-### 1.2 Auth — the one genuinely open item ⚑
+### 1.2 Auth — settled: Asgardeo
 
-`TECH_STACK.md` §2 and §8 specify Asgardeo, with the config and bindings already written down. Nothing is built yet, so switching is cheap *today* and expensive in three months. Both options work; the trade is real:
+`TECH_STACK.md` §2 and §8 specify Asgardeo, and the imported blueprint proposed Neon Auth in its place. **Asgardeo confirmed, 31 July 2026.** Both would have worked; the trade was real and is recorded here so it is not re-litigated from a stale draft.
 
-| | **Asgardeo** (settled) | **Neon Auth** (the alternative) |
+| | **Asgardeo** — chosen | **Neon Auth** — not chosen |
 |---|---|---|
 | Status | Generally available | **Beta.** API surface not frozen |
 | Where users live | External IdP | `neon_auth` schema in your own database |
 | Region constraint | None | **AWS only**; incompatible with Neon IP Allow and Private Networking |
 | Token | RSA JWT, ~1h | EdDSA, 15 min, refresh handled by the client library |
-| Custom claims | Yes | **No** — irrelevant here, since authorisation lives in `business_member` either way (TS §2) |
-| Cost of the integration | The refresh choreography, if you build it badly | Lower — one library, JWKS handled |
+| Custom claims | Yes | No — irrelevant either way, since authorisation lives in `business_member` (TS §2) |
 
-**Recommendation: stay on Asgardeo**, because it is decided, documented, and a money ledger is a poor place to depend on a beta identity service. The refresh complexity the imported document warns about is avoidable by not building it in the first place (§7.3).
+**Why Asgardeo.** A ledger whose whole promise is being believed about money is a poor place to depend on a beta identity service, and the decision was already documented with its bindings written down. Neon Auth's genuine advantage — one less vendor and a simpler client — buys a convenience whose cost is a dependency that can change under you.
 
-*If you do switch*, three things change and nothing else: the JWKS algorithm (`EdDSA`, not RSA), the token lifetime, and `VITE_*` config. The `sub → app_user → business_member` resolution is provider-independent by design.
+**What the alternative would have bought, stated plainly** so nobody thinks it was dismissed cheaply: fewer moving parts, no second dashboard, JWKS handled for you, and users living in the same database as everything else. If Asgardeo becomes a burden in operation rather than in theory, that is the reason to revisit — not the token lifetime, which is not a real problem (§7.3).
+
+**What is now closed by this.** The client library is `@asgardeo/auth-react` ^5.6.2, the Worker verifies with `jose` against Asgardeo's JWKS cached in KV, and the four rules in §7.1 are fixed. `ASGARDEO_ISSUER`, `ASGARDEO_JWKS_URL` and `ASGARDEO_AUDIENCE` are the bindings (TS §8).
+
+*If it is ever reversed*, three things change and nothing else: the JWKS algorithm (`EdDSA`, not RSA), the token lifetime, and the client config. The `sub → app_user → business_member` resolution is provider-independent by design, which is what keeps the reversal cheap.
 
 ### 1.3 Money is `bigint`, not `NUMERIC`
 
@@ -466,6 +469,7 @@ Each is cheap now and expensive to retrofit.
 | `hono` | 4.x | |
 | `zod` | 4.x | |
 | `jose` | 5.x | JWKS on Workers WebCrypto |
+| `@asgardeo/auth-react` | 5.6.2 | Client-side OIDC, PKCE, refresh (§1.2) |
 | `wrangler` | 4.x | |
 | Node (CI/tooling) | 22 | |
 
@@ -477,4 +481,4 @@ Each is cheap now and expensive to retrofit.
 
 This document is downstream of `TECH_STACK.md` and `DATA_MODEL.md`. A change to the stack changes this document; a change here that would alter the stack is not allowed — `TECH_STACK.md` changes first.
 
-§1 is the record of which imported guidance was overruled and why. **Do not reintroduce Hyperdrive, `NUMERIC` money, `user_id` tenancy or a hand-rolled fetch layer by copying from an older draft of this file.** If one of those decisions should change, change it in §1 with a reason, the way every other decision in this repository is recorded.
+§1 is the record of which imported guidance was overruled and why. **Do not reintroduce Hyperdrive, Neon Auth, `NUMERIC` money, `user_id` tenancy or a hand-rolled fetch layer by copying from an older draft of this file.** If one of those decisions should change, change it in §1 with a reason, the way every other decision in this repository is recorded.

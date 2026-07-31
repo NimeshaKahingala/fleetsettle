@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.1 — independent review incorporated (§17)
-**Date:** 30 July 2026
+**Status:** v1.2 — review incorporated (§17); auth confirmed
+**Date:** 31 July 2026
 **Companions:** `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics) · `DATA_MODEL.md` (schema) · `TECH_STACK.md` (platform) · `BRAND_GUIDELINES.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -926,6 +926,7 @@ W-56 says reports degrade to "not available", never to zero. On screen that mean
 | Sheets | `vaul` (shadcn `Drawer`) | Bottom sheet with drag, plus we add the visible close per M-23 |
 | Routing | **TanStack Router** | Typed params and loader integration with Query; the alternative, React Router 7, is fine and the migration cost is one week |
 | Server state | **TanStack Query v5** with persistence + paused mutations | Paused-and-resumed mutations are exactly M-12's queue, and they survive a reload via hydration ([offline mutations](https://tanstack.com/query/latest/docs/framework/react/guides/mutations)) |
+| Auth | **`@asgardeo/auth-react`** ^5.6.2 | OIDC + PKCE + refresh, per TS §1. Settled 31 July 2026 against Neon Auth — `TECH_STACK_GUIDELINES.md` §1.2 |
 | Forms | react-hook-form + zod, schemas shared with the Worker | One definition of a valid payload |
 | i18n | i18next + react-i18next | English + one local language (W-22) |
 | Charts | Recharts, lazy, Reports chunk only | Sparklines hand-written |
@@ -933,6 +934,10 @@ W-56 says reports degrade to "not available", never to zero. On screen that mean
 | Testing | Vitest + Testing Library + Playwright (mobile viewport project) | §12.6 |
 
 **The client never talks to the database.** TS §1 names a driver and an ORM; both are Worker-side only. Every read and write goes through the Worker API, which is where `business_id` scoping and the W-49 capability checks live (TS §2). A frontend dependency on a database driver would put the multi-tenancy boundary in the browser, which is the one place it cannot be enforced.
+
+**Auth and the offline queue meet in one place, and it needs handling.** A mutation queued while offline (M-12) may replay hours later against an access token that expired in the meantime — a manager confirms four days on a Sunday with no signal and the app reconnects on Monday morning. So the queue's replay fetches a **fresh token per attempt** rather than capturing one when the mutation was created, and a 401 on replay pauses the queue and re-authenticates instead of discarding the write. Discarding is the failure that matters: those four days exist nowhere else, and losing them silently is worse than any error message.
+
+The token getter is injected rather than imported, so the API layer never depends on the auth SDK directly. That is what makes §1.2's reversal cheap on this side too.
 
 ### 12.2 Structure
 

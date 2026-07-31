@@ -1,7 +1,7 @@
 # Tech Stack
 
-**Status:** v1.0
-**Date:** 30 July 2026
+**Status:** v1.1 — auth reaffirmed (§2)
+**Date:** 31 July 2026
 **Companion:** `DATA_MODEL.md` (schema) · `vehicle-rental-use-cases-v1.md` (intent) · `user-flows-v1.md` (mechanics)
 
 This document exists for one reason beyond inventory: **four platform constraints change the data model**, and they are listed in §7. Read that section before reviewing the schema.
@@ -54,6 +54,10 @@ Worker
 4. **A linked driver's token is the same shape as anyone else's.** The read-only boundary (INV-25) is enforced in the data layer by `driver_id` scoping, not by trusting a claim.
 
 **Asgardeo config needed:** a Single-Page Application registered with the app's origin as an allowed redirect and CORS origin, and the Worker's audience value pinned in `jwtVerify`.
+
+**Reaffirmed 31 July 2026, against a specific alternative.** An imported implementation blueprint proposed replacing this with **Neon Auth** (Managed Better Auth) — users and sessions in a `neon_auth` schema in our own database, EdDSA tokens, one fewer vendor. It was evaluated and declined: Neon Auth is **beta**, **AWS-region only**, and incompatible with Neon IP Allow and Private Networking. A ledger whose entire promise is being believed about money is a poor place to carry a beta dependency on identity.
+
+*What makes the decision cheap to reverse, if that ever changes:* the identity provider is isolated behind two things — the JWKS verification in the Worker, and the `sub → app_user → business_member` lookup. Nothing downstream of `business_member` knows or cares who issued the token, which is the same separation §2 opens with. `TECH_STACK_GUIDELINES.md` §1.2 holds the full comparison.
 
 ---
 
