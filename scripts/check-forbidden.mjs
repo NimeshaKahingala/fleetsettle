@@ -67,7 +67,7 @@ const RULES = [
     when: isSql,
     pattern: /\b(big)?serial\b/gi,
     message:
-      "Ids appear in URLs — use uuid DEFAULT gen_random_uuid(), never serial (write-migration skill).",
+      "Ids appear in URLs — use uuid, generated in the app as UUIDv7 (DM §2), never serial (write-migration skill).",
   },
 
   // ── Forward-only ───────────────────────────────────────────────────────────
@@ -186,8 +186,9 @@ function scan(path) {
   for (const rule of applicable) {
     for (const [i, line] of lines.entries()) {
       if (OPT_OUT.test(line)) continue;
+      const subject = code(line, path);
       rule.pattern.lastIndex = 0;
-      const m = rule.pattern.exec(line);
+      const m = rule.pattern.exec(subject);
       if (m) {
         findings.push({
           file: path,
@@ -201,6 +202,23 @@ function scan(path) {
     }
   }
   return findings;
+}
+
+/**
+ * The code part of a line, with comments removed.
+ *
+ * A comment cannot declare a column type or evaluate a date, so matching inside
+ * one is always a false positive — and false positives are what get a check
+ * deleted. Prose about "money tables" in a migration header is the case that
+ * found this.
+ *
+ * CSS is left alone: there, `--` starts a custom property, not a comment, and
+ * `--ink-primary` is exactly what one rule is looking for.
+ */
+function code(line, path) {
+  if (path.endsWith(".sql")) return line.replace(/--.*$/, "");
+  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(path)) return line.replace(/\/\/.*$/, "");
+  return line;
 }
 
 /** Whole-directory checks that no single line can express. */

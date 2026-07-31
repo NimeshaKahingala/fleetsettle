@@ -1,0 +1,30 @@
+{
+  "name": "@fleetsettle/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "typecheck": "tsc --noEmit",
+    "migrate": "node scripts/migrate.mjs",
+    "migrate:status": "node scripts/migrate.mjs --status",
+    "check:drift": "node scripts/check-drift.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fleetsettle/shared": "*",
+    "@hono/swagger-ui": "^0.6.1",
+    "@hono/zod-openapi": "^1.5.1",
+    "@neondatabase/serverless": "^0.10.4",
+    "drizzle-orm": "^0.45.2",
+    "hono": "^4.12.33",
+    "jose": "^6.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260731.1",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.118.0",
+    "ws": "^8.18.0"
+  }
+}

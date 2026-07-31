@@ -1,0 +1,70 @@
+name: migrations
+
+# DM §13's drift check must run against a real Postgres, not be trusted to run
+# only on whoever's laptop remembers to type it. This provisions a throwaway
+# Neon branch per PR that touches migrations or the migration tooling, applies
+# every migration from scratch (proving forward-only, not just this diff),
+# runs the drift assertion, and always deletes the branch afterward — a
+# migration counts as verified once it has met ordinary Postgres, not once it
+# has been read.
+#
+# Requires two repository configuration values that are not committed here:
+#   secrets.NEON_API_KEY     a Neon API key scoped to this project
+#   vars.NEON_PROJECT_ID     the Neon project id (e.g. spring-sunset-96946055)
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "api/migrations/**"
+      - "api/scripts/migrate.mjs"
+      - "api/scripts/check-drift.mjs"
+      - "api/scripts/assert-no-trigger-drift.sql"
+
+concurrency:
+  group: migrations-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Create ephemeral branch
+        id: branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.pull_request.number }}-migrations-${{ github.run_id }}
+          suspend_timeout: 300
+
+      # Every migration in the repo, from empty, in order — the same path a
+      # brand new environment takes. This is what actually catches a migration
+      # that only worked because an earlier hand-run left the schema primed.
+      - name: Apply every migration from scratch
+        run: npm run migrate -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      - name: DM §13 drift check
+        run: npm run check:drift -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      - name: Delete ephemeral branch
+        if: always()
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ${{ steps.branch.outputs.branch_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}

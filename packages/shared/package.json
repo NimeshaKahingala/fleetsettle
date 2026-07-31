@@ -8,11 +8,15 @@
   "exports": {
     ".": "./src/index.ts",
     "./money": "./src/money.ts",
-    "./dates": "./src/dates.ts"
+    "./dates": "./src/dates.ts",
+    "./id": "./src/id.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
     "vitest": "^3.2.4"

@@ -63,7 +63,7 @@ No product value. Everything depends on it. **Fully unblocked.**
 - **Migration `0002`** — the `audit_log` trigger, *before any money table holds live data*
 - `/api/health` (no DB) and `/api/ready` (`SELECT 1`)
 - `/api/docs` returns 404 in production, **verified in CI** (IG §10.7)
-- `tests/support/*` — all five, including the `TEST_DATABASE_URL ≠ DATABASE_URL` guard
+- `tests/support/*` — `env`, `client`, `factories`, `auth` (user/role minting half) are built and proven against a real Neon branch; `fixtures.ts` (the §9.1 golden seeds) is deliberately deferred to P5/P8/P9, whichever a phase's own golden figure gates — writing it now would mean hand-seeding obligation/payment/incident rows with no domain code yet to exercise them. `auth.ts`'s verifier-mocking half is deferred to P1, for the same reason: nothing to mock before `auth/verify.ts` exists.
 - Response schemas that actually `.parse()` outside production (IG §11)
 
 **Frontend**

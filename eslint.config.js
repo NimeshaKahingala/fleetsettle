@@ -381,7 +381,7 @@ export default ts.config(
 
   // ── Tooling ────────────────────────────────────────────────────────────────
   {
-    files: ["scripts/**/*.{js,mjs,ts}", "*.config.{js,mjs,ts}", ".claude/hooks/**/*.mjs"],
+    files: ["**/scripts/**/*.{js,mjs,ts}", "*.config.{js,mjs,ts}", ".claude/hooks/**/*.mjs"],
     languageOptions: { globals: globals.node },
     rules: {
       "no-console": "off",

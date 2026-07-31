@@ -1,0 +1,35 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Differs from every deployed Worker name, so a bare `wrangler deploy`
+  // can never overwrite production (IG §9.4).
+  "name": "fleetsettle-api-local",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+
+  // DATABASE_URL, WHATSAPP_TOKEN and WHATSAPP_PHONE_ID are secrets
+  // (`wrangler secret put`), never vars — vars are plaintext in the deployed
+  // bundle (TS §8, IG §9.4). Local dev reads DATABASE_URL from .dev.vars,
+  // which is gitignored.
+  "vars": {
+    "ENVIRONMENT": "development",
+    "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
+    "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
+    "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+  },
+
+  // KV/R2/Queue bindings (TS §8). The ids below are placeholders — nothing in
+  // P0 reads or writes them yet (JWKS caching is P1, R2 attachments and the
+  // message queue are much later), and `wrangler dev`'s local persistence
+  // does not require them to name a real remote resource. They do before the
+  // first `wrangler deploy` — provisioning the real namespace/bucket/queue in
+  // Cloudflare is a deliberate step for whoever holds that account, not
+  // something to fabricate here.
+  "kv_namespaces": [{ "binding": "KV", "id": "todo-provision-before-deploy" }],
+  "r2_buckets": [{ "binding": "R2", "bucket_name": "todo-provision-before-deploy" }],
+  "queues": {
+    "producers": [{ "binding": "MESSAGE_QUEUE", "queue": "todo-provision-before-deploy" }],
+  },
+}

@@ -10,7 +10,7 @@ The full procedure is the `write-migration` skill. These are the facts that have
 
 - **Money is `bigint` minor units.** Never `numeric`, `decimal`, `real`, `float` or `money` for an amount.
 - **Never `CURRENT_DATE`.** Postgres evaluates it in the server's timezone, not `Asia/Colombo`. The business date is passed in as a parameter.
-- **UUID primary keys**, `DEFAULT gen_random_uuid()`. Never `serial` — ids appear in URLs.
+- **UUID primary keys, generated in the app as UUIDv7** (DM §2) — not `DEFAULT gen_random_uuid()` (that's v4). Never `serial` — ids appear in URLs.
 - **Forward-only.** No `DROP COLUMN`, no `DROP TABLE`, no `ALTER COLUMN … TYPE`. Add a new column and backfill. A wrong migration is fixed by another migration.
 - **Numbered `NNNN_lower_snake_case.sql`**, applied in filename order.
 
