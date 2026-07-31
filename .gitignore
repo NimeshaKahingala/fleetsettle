@@ -26,8 +26,9 @@ coverage/
 .idea/
 *.swp
 
-# personal Claude overrides — .claude/settings.json is shared and committed
+# personal Claude overrides — .claude/settings.json and CLAUDE.md are shared
 .claude/settings.local.json
+CLAUDE.local.md
 
 # logs
 *.log

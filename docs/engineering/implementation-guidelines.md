@@ -540,6 +540,10 @@ The aim is not to make the pattern impossible. It is to make every occurrence de
 
 A `PostToolUse` hook (`.claude/hooks/guard.mjs`) runs the guard against each file as an agent writes it and **blocks with the reason** on a violation, so a money or timezone mistake is corrected while the reasoning is still in context rather than twenty minutes later in CI. Writing a migration additionally surfaces the money-table checklist — including the `assert_period_open()` array, which has already been missed once.
 
+A `PreToolUse` hook (`.claude/hooks/protect-migrations.mjs`) covers the one rule that a post-write check structurally cannot. Editing a migration that has already been applied cannot be fixed by editing it again — the copy that ran is already in someone's database, and the checksum now disagrees with it forever. So an edit to a **committed** migration asks before it proceeds. It asks rather than denies: while a migration is being authored the file is legitimately rewritten many times, and a rule with no way through gets removed instead of respected.
+
+`.claude/rules/` carries the two path-scoped rule sets — `sql.md` loads whenever a `.sql` file is open, `docs.md` whenever a specification document is. They hold the few facts that have already cost something; the full procedures stay in the `write-migration` and `doc-change` skills, which load on invocation. The split matters: a rule that is always in context must be short enough to still be read.
+
 ### 16.4 Two decisions worth stating
 
 **ESLint rather than Biome.** Biome is faster and would replace both ESLint and Prettier. But the value here is almost entirely in ~20 project-specific `no-restricted-syntax` selectors and per-directory import boundaries, which Biome cannot express. Speed is not the constraint on a repository this size.
