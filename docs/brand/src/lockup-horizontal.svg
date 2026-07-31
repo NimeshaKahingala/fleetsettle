@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 92" width="460" height="92" role="img" aria-label="FleetSettle">
+  <g transform="translate(0,11)" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" color="#256ABF">
+    <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64"/>
+    <path d="M 68 64 L 132 64"/>
+    <path d="M 78 35 L 138 35"/>
+    <circle cx="52" cy="64" r="11.5"/>
+    <circle cx="148" cy="64" r="11.5"/>
+  </g>
+  <text x="210" y="62" font-family="system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="52" letter-spacing="-1" fill="#14140F">
+    <tspan font-weight="450">Fleet</tspan><tspan font-weight="750">Settle</tspan>
+  </text>
+</svg>
