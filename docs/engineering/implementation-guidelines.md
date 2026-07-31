@@ -1,6 +1,6 @@
 # Implementation Guidelines
 
-**Status:** v1.2 — enforcement added (§16)
+**Status:** v1.3 — access-token rule added (§7.3); refresh section renumbered to §7.4
 **Date:** 31 July 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
@@ -52,7 +52,7 @@ And it costs something specific: FleetSettle's writes are transactional by natur
 
 **Why Asgardeo.** A ledger whose whole promise is being believed about money is a poor place to depend on a beta identity service, and the decision was already documented with its bindings written down. Neon Auth's genuine advantage — one less vendor and a simpler client — buys a convenience whose cost is a dependency that can change under you.
 
-**What the alternative would have bought, stated plainly** so nobody thinks it was dismissed cheaply: fewer moving parts, no second dashboard, JWKS handled for you, and users living in the same database as everything else. If Asgardeo becomes a burden in operation rather than in theory, that is the reason to revisit — not the token lifetime, which is not a real problem (§7.3).
+**What the alternative would have bought, stated plainly** so nobody thinks it was dismissed cheaply: fewer moving parts, no second dashboard, JWKS handled for you, and users living in the same database as everything else. If Asgardeo becomes a burden in operation rather than in theory, that is the reason to revisit — not the token lifetime, which is not a real problem (§7.4).
 
 **What is now closed by this.** The client library is `@asgardeo/auth-react` ^5.6.2, the Worker verifies with `jose` against Asgardeo's JWKS cached in KV, and the four rules in §7.1 are fixed. `ASGARDEO_ISSUER`, `ASGARDEO_JWKS_URL` and `ASGARDEO_AUDIENCE` are the bindings (TS §8).
 
@@ -76,7 +76,7 @@ The linked-driver boundary is stricter still and is a security requirement, not 
 
 The imported document argues a ~100-line typed `fetch` wrapper beats React Query, and for that codebase it probably did. It does not here, for one reason: **M-12 requires writes to survive being offline.** TanStack Query's paused-and-persisted mutations are that mechanism — a hand-rolled wrapper would have to reimplement a durable mutation queue, replay, and rollback, which is materially more than 100 lines and is exactly the code you do not want to own on a money app.
 
-What *is* worth keeping from the imported wrapper: dependency inversion for the token getter (§7.3), `fieldErrors` extraction onto form fields, and the 401-retry-once backstop. All three sit underneath TanStack Query rather than instead of it.
+What *is* worth keeping from the imported wrapper: dependency inversion for the token getter (§7.4), `fieldErrors` extraction onto form fields, and the 401-retry-once backstop. All three sit underneath TanStack Query rather than instead of it.
 
 ### 1.6 Raw SQL migrations, Drizzle for queries only
 
@@ -320,7 +320,17 @@ Four rules, all from TS §2 and none negotiable:
 
 `auth/policy.ts`, one function per row of the W-49 matrix, called by handlers. The client has a copy for rendering (UI §12.4) and it is **convenience only** — every capability is re-checked here.
 
-### 7.3 Do not build the refresh choreography
+### 7.3 Send the access token, never the ID token
+
+`@asgardeo/auth-react` hands you both, and the wrong one works well enough to ship. `state.username` and `getBasicUserInfo()` read the **ID token** — it exists to tell *this application* who the user is, and it is the right source for a name in the header. The `Authorization: Bearer` header carries the **access token**, from `getAccessToken()`, because that is the credential minted for an API and the only one whose `aud` the Worker is pinning.
+
+Sending the ID token instead is a classic, and it fails in the least useful way possible: it verifies. Same issuer, same JWKS, same signature, and the same `aud` while the audience happens to be the client id. It would keep working right up until an API resource is registered — at which point every request 401s, and nothing in the change looks related.
+
+**Also confirm the access token is JWT rather than opaque**, on the application's Protocol tab. An opaque token is a database key at Asgardeo with nothing inside to verify; `jose` cannot check it, and the alternative is a network introspection call on every request — the exact round trip that running at the edge is meant to avoid.
+
+The Asgardeo React quickstart is a starting point and not a specification. Three of its instructions do not survive contact with this repository: it hardcodes the client id in `main.jsx` two lines under a heading telling you not to hardcode credentials (use `import.meta.env.VITE_ASGARDEO_CLIENT_ID` — public, but it must differ per environment), it is JavaScript where this project is TypeScript throughout, and it never mentions the access token at all, because it assumes an app with no backend of its own.
+
+### 7.4 Do not build the refresh choreography
 
 The imported document's longest warning is worth heeding in advance: single-flight refresh locks, proactive expiry checks, session rescue and `fetch` monkey-patches are the accumulated scar tissue of one IdP's rotating-refresh-token races. Start with the SDK's own refresh plus a **401-retry-once** backstop in the API client, and add nothing until a real failure justifies it.
 
@@ -451,7 +461,7 @@ Each is cheap now and expensive to retrofit.
 
 ## 13. What not to build
 
-- **A refresh-token state machine** (§7.3) until a real failure demands one.
+- **A refresh-token state machine** (§7.4) until a real failure demands one.
 - **Database-backed rate limiting.** Use the Workers rate-limiting binding; a token row per request is two round trips and unbounded growth.
 - **A runtime `GET /api/config`.** Build-time env vars are enough and it puts a round trip in front of first paint.
 - **An application-side period-open pre-check** (§4.2). The trigger is the truth; two implementations of one rule will diverge.

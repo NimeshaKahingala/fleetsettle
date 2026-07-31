@@ -1,6 +1,6 @@
 # Tech Stack
 
-**Status:** v1.1 — auth reaffirmed (§2)
+**Status:** v1.2 — Asgardeo application registered; concrete values recorded (§2.1, §8)
 **Date:** 31 July 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
@@ -52,6 +52,28 @@ Worker
 2. **The JWT is validated on every request.** No session table, no server-side session state — there is nowhere in Workers to keep it cheaply.
 3. **JWKS is cached** in KV with a TTL, and refetched on `kid` miss. Fetching Asgardeo's JWKS per request would add a round trip to every call.
 4. **A linked driver's token is the same shape as anyone else's.** The read-only boundary (INV-25) is enforced in the data layer by `driver_id` scoping, not by trusting a claim.
+
+### 2.1 The registered application
+
+Registered 31 July 2026. Every value here is public — the client id ships in the browser bundle by design, because a public PKCE client has no secret to keep.
+
+| | |
+|---|---|
+| **Organisation** | `fleetsettle` |
+| **Application** | FleetSettle — Single-Page Application, public client, PKCE |
+| **Client id** | `OEWdJbFmoc65GbQkr4WwuBlEfnUa` |
+| **Issuer** | `https://api.asgardeo.io/t/fleetsettle/oauth2/token` |
+| **JWKS** | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
+| **Authorize** | `https://api.asgardeo.io/t/fleetsettle/oauth2/authorize` |
+| **Logout** | `https://api.asgardeo.io/t/fleetsettle/oidc/logout` |
+| **Scopes** | `openid`, `profile` |
+| **Redirect / origin** | `http://localhost:5173` today; the production domain is added when it exists |
+
+**The issuer is the token endpoint URL, not the tenant root.** That is unusual, it is not a typo, and it was read from the discovery document rather than inferred. `jose` compares `iss` as an exact string, so a trailing slash or a guessed shape makes every request 401 with a message that says nothing useful. If it ever needs re-checking, the source of truth is `…/oauth2/token/.well-known/openid-configuration`.
+
+**Audience is the client id**, because no API resource is registered. If one is later — to get real OAuth scopes rather than roles from `business_member` — `ASGARDEO_AUDIENCE` becomes the API identifier and nothing else changes.
+
+**Sign-in is password plus TOTP, and self-registration is off** at the organisation level. The second factor is not ceremony: `audit_log` (DM D-8) records who did what, and that record is worth exactly as much as the authentication behind it. An entry reading "the manager confirmed this day" has to actually mean the manager — which is the moment you reach for it, in a disagreement about money. Both partners hold console admin, because with two users there is no help desk and a lost phone otherwise locks someone out permanently.
 
 **Asgardeo config needed:** a Single-Page Application registered with the app's origin as an allowed redirect and CORS origin, and the Worker's audience value pinned in `jwtVerify`.
 
@@ -143,9 +165,9 @@ One more that is a *choice* rather than a constraint: **Postgres does the enforc
 | Binding | Type | Holds |
 |---|---|---|
 | `DATABASE_URL` | Secret | Neon pooled connection string |
-| `ASGARDEO_ISSUER` | Var | e.g. `https://api.asgardeo.io/t/<org>/oauth2/token` |
-| `ASGARDEO_JWKS_URL` | Var | `…/oauth2/jwks` |
-| `ASGARDEO_AUDIENCE` | Var | The registered application's audience |
+| `ASGARDEO_ISSUER` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/token` (§2.1) |
+| `ASGARDEO_JWKS_URL` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
+| `ASGARDEO_AUDIENCE` | Var | `OEWdJbFmoc65GbQkr4WwuBlEfnUa` — the client id (§2.1) |
 | `WHATSAPP_TOKEN` | Secret | Business Cloud API token |
 | `WHATSAPP_PHONE_ID` | Secret | Sending number id |
 | `KV` | KV namespace | JWKS cache, kill switch |
