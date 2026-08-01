@@ -75,7 +75,9 @@ No product value. Everything depends on it. **Fully unblocked.**
 - Found in passing: `stylelint.config.js`'s `tokens.css` override pointed at `web/src/styles/`, not `web/src/design/` (UI §12.2) — fixed. Two guard/lint rules were false-positiving on Tailwind v4's own reserved syntax (`--text-*` is the font-size namespace, not an untokenised colour; `--text-*--line-height` is its sanctioned paired-property suffix, not a kebab-case violation) — narrowed rather than suppressed per-occurrence, in `scripts/check-forbidden.mjs` and `stylelint.config.js`
 - `eslint-plugin-jsx-a11y` deliberately not added yet — its published peer range caps at ESLint 8/9, and this repo is on ESLint 10; axe-core in Playwright (P2+) is the a11y gate until it catches up
 
-**Ops** — CI creates, seeds and **deletes** a per-PR Neon branch. Not optional on the free plan: branch creation starts failing around nine open PRs, and it fails on someone else's PR for a reason that looks unrelated (IG §9.2). Error monitoring wired at the same time, because structured logs nobody alerts on are forensics rather than monitoring.
+**Ops** — CI creates, seeds and **deletes** a per-PR Neon branch. Not optional on the free plan: branch creation starts failing around nine open PRs, and it fails on someone else's PR for a reason that looks unrelated (IG §9.2). One workflow (`integration.yml`) does this, applies both migrations, runs the DM §13 drift check, then the api integration suite — deliberately one branch per PR rather than two. Still blocked on `secrets.NEON_API_KEY` / `vars.NEON_PROJECT_ID`, which don't exist in the repo yet.
+
+Error monitoring — **deliberately deferred**, not wired. Asked: Tail Worker (no new vendor, but still needs a real alert destination — a webhook, Slack, email — that's a separate thing to provide) vs Sentry (needs an account and a DSN) vs defer. Decision: defer — Workers Logs (`observability.enabled`) stays the only observability until there's an actual on-call person and a channel to page; revisit then rather than build an alert that pages no one.
 
 **Depends on** — nothing.
 
