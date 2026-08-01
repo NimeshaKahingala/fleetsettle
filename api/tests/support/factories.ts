@@ -12,6 +12,8 @@ import {
   dailyLeaseRate,
   driver,
   lease,
+  openingBalanceBatch,
+  openingBalanceEntry,
   trip,
   vehicle,
   vehicleArrangement,
@@ -235,6 +237,14 @@ export class TestContext {
     this.track(async () => {
       await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, tripId));
       await this.#db.delete(trip).where(eq(trip.id, tripId));
+    });
+  }
+
+  /** F-0.2: `PUT /api/opening-balance` writes `opening_balance_batch` and its entries (domain/opening-balance.ts) — this is that write's teardown. */
+  trackCreatedOpeningBalance(batchId: string): void {
+    this.track(async () => {
+      await this.#db.delete(openingBalanceEntry).where(eq(openingBalanceEntry.batchId, batchId));
+      await this.#db.delete(openingBalanceBatch).where(eq(openingBalanceBatch.id, batchId));
     });
   }
 

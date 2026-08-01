@@ -118,7 +118,7 @@ The biggest phase, and deliberately so. Nothing can hold money until a business,
 **Backend**
 - CRUD for business, vehicle, driver, customer — done
 - The three arrangements and their terms, **with the original start date preserved** so billing periods land on the right day of the month — done. Scope drawn from DM §4.1's "how far ahead the calendar is materialised" table: a **trip's** `vehicle_day_allocation` is written in full at booking (bounded, INV-1 enforced now), but a **lease** or **daily lease's** calendar is a rolling-horizon cron responsibility (`generate-day-cards`, DM §4.1) — that's P13's, not this endpoint's, so INV-1 is not yet enforced for lease/daily-lease and a trip does not yet pause any `day_record` (P3's table). Recorded rather than silently skipped
-- Opening balances (UC-08, UC-09)
+- Opening balances (UC-08, UC-09) — done. `opening_balance_batch`/`opening_balance_entry` (DM §10.6) only — the vehicle/lease/daily-lease terms UC-09 also asks for go through F-1.1/F-2.1/F-1.7's own endpoints with a backdated `startDate`, not through this one. `PUT /api/opening-balance` fully replaces the one-per-business batch's entries (draft or, per the Alternates clause, a correction after commit); `POST /api/opening-balance/commit` flips it, idempotently. Gated by a new owners-only `manageOpeningBalances` capability, not the STAFF-wide `manageEntities` — getting the go-live numbers wrong has the same blast radius as closing a period. Not yet gated by "the first period has closed" (P9's territory; no business can reach that state yet, so nothing to enforce) — recorded rather than built against a state that can't occur
 - Paperwork expiry *dates* on the vehicle (UC-92) — the warning job is P13 — done
 - **Open the first accounting period.** The period trigger makes this a prerequisite for every later write — done (as part of business creation, F-0.1)
 
@@ -261,6 +261,7 @@ F-9.1, UC-96, UC-97, UC-98. **Gates G-1.**
 - Late facts — `belongs_to_period_id` distinct from `posted_period_id` (W-35)
 - **Void-and-replace corrections**, always referencing the original (W-50); `payment_correction`
 - The `audit_log` writer proven over every money table
+- **Once a business's first period can close, gate `PUT /api/opening-balance`** (P2, `domain/opening-balance.ts`) on it — F-0.2's Alternates clause allows a correction only "until the first period is closed, then it becomes an ordinary adjustment." P2 left this unenforced because no business could reach that state yet; it can once this phase lands
 
 **Frontend** — the close-the-month screen; correction flows; `Timeline`.
 

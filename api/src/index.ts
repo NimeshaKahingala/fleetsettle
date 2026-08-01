@@ -16,6 +16,7 @@ import { customer } from "./routes/customer.js";
 import { lease } from "./routes/lease.js";
 import { dailyLease } from "./routes/dailyLease.js";
 import { trip } from "./routes/trip.js";
+import { openingBalance } from "./routes/opening-balance.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -59,6 +60,9 @@ app.route("/api/daily-lease", dailyLease);
 
 app.use("/api/trip/*", dbMiddleware(), authMiddleware());
 app.route("/api/trip", trip);
+
+app.use("/api/opening-balance/*", dbMiddleware(), authMiddleware());
+app.route("/api/opening-balance", openingBalance);
 
 mountDocs(app);
 
