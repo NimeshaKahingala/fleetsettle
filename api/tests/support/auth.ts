@@ -1,6 +1,8 @@
 import { newId } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import { SignJWT } from "jose";
 import type { Writer } from "../../src/db/client.js";
+import { appUser, businessMember, driver as driverTable } from "../../src/db/schema.js";
 import { TEST_ENV } from "./env.js";
 import type { TestContext } from "./factories.js";
 import { TEST_ALG, TEST_KID, TEST_SIGNING_KEY } from "./jwks.js";
@@ -40,22 +42,15 @@ export async function mintUser(
 ): Promise<{ userId: string; asgardeoSub: string }> {
   const userId = newId();
   const asgardeoSub = `test-sub-${userId}`;
-  await db.query(`INSERT INTO app_user (id, asgardeo_sub, display_name) VALUES ($1, $2, $3)`, [
-    userId,
-    asgardeoSub,
-    `Test ${role}`,
-  ]);
+  await db.insert(appUser).values({ id: userId, asgardeoSub, displayName: `Test ${role}` });
   ctx.track(async () => {
-    await db.query(`DELETE FROM app_user WHERE id = $1`, [userId]);
+    await db.delete(appUser).where(eq(appUser.id, userId));
   });
 
   const memberId = newId();
-  await db.query(
-    `INSERT INTO business_member (id, business_id, user_id, role) VALUES ($1, $2, $3, $4)`,
-    [memberId, businessId, userId, role],
-  );
+  await db.insert(businessMember).values({ id: memberId, businessId, userId, role });
   ctx.track(async () => {
-    await db.query(`DELETE FROM business_member WHERE id = $1`, [memberId]);
+    await db.delete(businessMember).where(eq(businessMember.id, memberId));
   });
 
   return { userId, asgardeoSub };
@@ -73,18 +68,14 @@ export async function mintLinkedDriver(
 ): Promise<{ userId: string; asgardeoSub: string }> {
   const userId = newId();
   const asgardeoSub = `test-sub-driver-${userId}`;
-  await db.query(`INSERT INTO app_user (id, asgardeo_sub, display_name) VALUES ($1, $2, $3)`, [
-    userId,
-    asgardeoSub,
-    "Test Linked Driver",
-  ]);
+  await db.insert(appUser).values({ id: userId, asgardeoSub, displayName: "Test Linked Driver" });
   ctx.track(async () => {
-    await db.query(`DELETE FROM app_user WHERE id = $1`, [userId]);
+    await db.delete(appUser).where(eq(appUser.id, userId));
   });
 
-  await db.query(`UPDATE driver SET linked_user_id = $1 WHERE id = $2`, [userId, driverId]);
+  await db.update(driverTable).set({ linkedUserId: userId }).where(eq(driverTable.id, driverId));
   ctx.track(async () => {
-    await db.query(`UPDATE driver SET linked_user_id = NULL WHERE id = $1`, [driverId]);
+    await db.update(driverTable).set({ linkedUserId: null }).where(eq(driverTable.id, driverId));
   });
 
   return { userId, asgardeoSub };

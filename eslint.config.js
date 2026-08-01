@@ -379,6 +379,20 @@ export default ts.config(
     },
   },
 
+  // Test fixtures, not production writes: a TestContext only ever deletes
+  // rows the same test created moments earlier, on a disposable Neon branch
+  // (IG §8.3) — the append-only rule (W-50) is about a money record's whole
+  // lifecycle in the real system, which this isn't. Scoped to the two
+  // support files that ARE the sanctioned teardown helpers, not tests/ at
+  // large, so an actual test assertion still gets the same protection as
+  // application code.
+  {
+    files: ["api/tests/support/factories.ts", "api/tests/support/auth.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...money, ...time, ...tenancy],
+    },
+  },
+
   // ── Tooling ────────────────────────────────────────────────────────────────
   {
     files: ["**/scripts/**/*.{js,mjs,ts}", "*.config.{js,mjs,ts}", ".claude/hooks/**/*.mjs"],

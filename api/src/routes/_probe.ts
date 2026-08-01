@@ -1,5 +1,8 @@
+import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
+import { requireBusinessId, requireDriverId } from "../auth/context.js";
 import { can } from "../auth/policy.js";
+import { driver, vehicle } from "../db/schema.js";
 import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js";
 import type { Env } from "../types.js";
 
@@ -14,11 +17,14 @@ import type { Env } from "../types.js";
 export const probe = new Hono<Env>()
   // 404 cross-business: scoped by business_id, the same shape every P2+ read gets.
   .get("/vehicle/:id", async (c) => {
-    const rows = await c.get(
-      "reader",
-    )`SELECT id FROM vehicle WHERE id = ${c.req.param("id")} AND business_id = ${c.get("businessId")}`;
+    const rows = await c
+      .get("reader")
+      .select({ id: vehicle.id })
+      .from(vehicle)
+      .where(and(eq(vehicle.id, c.req.param("id")), eq(vehicle.businessId, requireBusinessId(c))))
+      .limit(1);
     if (!rows[0]) throw new NotFoundError();
-    return c.json({ id: rows[0]["id"] as string });
+    return c.json({ id: rows[0].id });
   })
 
   // 404 cross-driver: IG §7.1 rule 4 — a linked driver's boundary is
@@ -28,16 +34,19 @@ export const probe = new Hono<Env>()
   .get("/driver/:id", async (c) => {
     const role = c.get("role");
     const id = c.req.param("id");
-    const rows =
+    const scope =
       role === "driver"
-        ? await c.get(
-            "reader",
-          )`SELECT id FROM driver WHERE id = ${id} AND id = ${c.get("driverId")}`
-        : await c.get(
-            "reader",
-          )`SELECT id FROM driver WHERE id = ${id} AND business_id = ${c.get("businessId")}`;
+        ? eq(driver.id, requireDriverId(c))
+        : eq(driver.businessId, requireBusinessId(c));
+
+    const rows = await c
+      .get("reader")
+      .select({ id: driver.id })
+      .from(driver)
+      .where(and(eq(driver.id, id), scope))
+      .limit(1);
     if (!rows[0]) throw new NotFoundError();
-    return c.json({ id: rows[0]["id"] as string });
+    return c.json({ id: rows[0].id });
   })
 
   // 403 capability: proves the gate only. Real period-close is P9.

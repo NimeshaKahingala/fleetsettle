@@ -13,10 +13,12 @@ import { reader, writer } from "../db/client.js";
  */
 export const dbMiddleware = (): MiddlewareHandler<Env> => async (c, next) => {
   c.set("reader", reader(c.env.DATABASE_URL));
-  const pool = writer(c.env.DATABASE_URL);
-  c.set("writer", pool);
+  const db = writer(c.env.DATABASE_URL);
+  c.set("writer", db);
 
   await next();
 
-  c.executionCtx.waitUntil(pool.end());
+  // `writer()` wraps the Pool in Drizzle (IG §1.6); `$client` is Drizzle's
+  // handle back to it for teardown.
+  c.executionCtx.waitUntil(db.$client.end());
 };

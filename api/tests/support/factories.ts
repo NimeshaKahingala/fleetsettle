@@ -1,5 +1,14 @@
 import { newId } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
+import {
+  accountingPeriod,
+  business,
+  customer,
+  driver,
+  lease,
+  vehicle,
+} from "../../src/db/schema.js";
 
 interface BusinessOverrides {
   name?: string;
@@ -58,71 +67,72 @@ export class TestContext {
 
   async createBusiness(overrides: BusinessOverrides = {}): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO business (id, name, currency_code, timezone) VALUES ($1, $2, $3, $4)`,
-      [
-        id,
-        overrides.name ?? "Test Fleet",
-        overrides.currencyCode ?? "LKR",
-        overrides.timezone ?? "Asia/Colombo",
-      ],
-    );
+    await this.#db.insert(business).values({
+      id,
+      name: overrides.name ?? "Test Fleet",
+      currencyCode: overrides.currencyCode ?? "LKR",
+      timezone: overrides.timezone ?? "Asia/Colombo",
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM business WHERE id = $1`, [id]);
+      await this.#db.delete(business).where(eq(business.id, id));
     });
     return id;
   }
 
   async createOpenPeriod(businessId: string, overrides: OpenPeriodOverrides = {}): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO accounting_period (id, business_id, period_start, period_end, status)
-       VALUES ($1, $2, $3, $4, 'open')`,
-      [id, businessId, overrides.periodStart ?? "2026-07-01", overrides.periodEnd ?? "2026-07-31"],
-    );
+    await this.#db.insert(accountingPeriod).values({
+      id,
+      businessId,
+      periodStart: overrides.periodStart ?? "2026-07-01",
+      periodEnd: overrides.periodEnd ?? "2026-07-31",
+      status: "open",
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM accounting_period WHERE id = $1`, [id]);
+      await this.#db.delete(accountingPeriod).where(eq(accountingPeriod.id, id));
     });
     return id;
   }
 
   async createVehicle(businessId: string, overrides: VehicleOverrides = {}): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO vehicle (id, business_id, registration, vehicle_type) VALUES ($1, $2, $3, $4)`,
-      [
-        id,
-        businessId,
-        overrides.registration ?? `TEST-${id.slice(0, 8)}`,
-        overrides.vehicleType ?? "car",
-      ],
-    );
+    await this.#db.insert(vehicle).values({
+      id,
+      businessId,
+      registration: overrides.registration ?? `TEST-${id.slice(0, 8)}`,
+      vehicleType: overrides.vehicleType ?? "car",
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM vehicle WHERE id = $1`, [id]);
+      await this.#db.delete(vehicle).where(eq(vehicle.id, id));
     });
     return id;
   }
 
   async createDriver(businessId: string, overrides: DriverOverrides = {}): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO driver (id, business_id, name, driver_day_fee_minor) VALUES ($1, $2, $3, $4)`,
-      [id, businessId, overrides.name ?? "Test Driver", overrides.dailyFeeMinor ?? 100_00n],
-    );
+    await this.#db.insert(driver).values({
+      id,
+      businessId,
+      name: overrides.name ?? "Test Driver",
+      driverDayFeeMinor: overrides.dailyFeeMinor ?? 100_00n,
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM driver WHERE id = $1`, [id]);
+      await this.#db.delete(driver).where(eq(driver.id, id));
     });
     return id;
   }
 
   async createCustomer(businessId: string, overrides: CustomerOverrides = {}): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO customer (id, business_id, customer_type, name, mobile) VALUES ($1, $2, 'person', $3, $4)`,
-      [id, businessId, overrides.name ?? "Test Customer", overrides.mobile ?? "0770000000"],
-    );
+    await this.#db.insert(customer).values({
+      id,
+      businessId,
+      customerType: "person",
+      name: overrides.name ?? "Test Customer",
+      mobile: overrides.mobile ?? "0770000000",
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM customer WHERE id = $1`, [id]);
+      await this.#db.delete(customer).where(eq(customer.id, id));
     });
     return id;
   }
@@ -134,21 +144,17 @@ export class TestContext {
     overrides: LeaseOverrides = {},
   ): Promise<string> {
     const id = newId();
-    await this.#db.query(
-      `INSERT INTO lease (id, business_id, vehicle_id, customer_id, start_date, billing_day, rent_amount_minor)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        id,
-        businessId,
-        vehicleId,
-        customerId,
-        overrides.startDate ?? "2026-07-01",
-        overrides.billingDay ?? 1,
-        overrides.rentAmountMinor ?? 50_000_00n,
-      ],
-    );
+    await this.#db.insert(lease).values({
+      id,
+      businessId,
+      vehicleId,
+      customerId,
+      startDate: overrides.startDate ?? "2026-07-01",
+      billingDay: overrides.billingDay ?? 1,
+      rentAmountMinor: overrides.rentAmountMinor ?? 50_000_00n,
+    });
     this.track(async () => {
-      await this.#db.query(`DELETE FROM lease WHERE id = $1`, [id]);
+      await this.#db.delete(lease).where(eq(lease.id, id));
     });
     return id;
   }

@@ -16,7 +16,7 @@ const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}`
 describe("auth boundary (P1)", () => {
   const db = writer(TEST_DATABASE_URL);
   afterAll(async () => {
-    await db.end();
+    await db.$client.end();
   });
 
   it("happy path — a verified owner resolves to their business", async () => {

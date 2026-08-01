@@ -1,16 +1,12 @@
+import { and, eq, isNull } from "drizzle-orm";
 import type { Reader } from "../db/client.js";
+import { appUser, businessMember, driver } from "../db/schema.js";
 
 export type Membership =
   | { userId: string; businessId: string; role: "owner" | "owner_manager" | "manager" }
   | { userId: string; businessId: string; role: "driver"; driverId: string };
 
-interface MembershipRow {
-  user_id: string;
-  member_business_id: string | null;
-  member_role: "owner" | "owner_manager" | "manager" | null;
-  driver_id: string | null;
-  driver_business_id: string | null;
-}
+const MEMBER_ROLES = new Set(["owner", "owner_manager", "manager"]);
 
 /**
  * The one query behind IG §7.1's chain: `sub → app_user → business_member`,
@@ -33,32 +29,39 @@ interface MembershipRow {
  * ever wrong rather than adding a selector nothing in the product has.
  */
 export async function resolveMembership(reader: Reader, sub: string): Promise<Membership | null> {
-  const rows = (await reader`
-    SELECT
-      au.id AS user_id,
-      bm.business_id AS member_business_id,
-      bm.role AS member_role,
-      d.id AS driver_id,
-      d.business_id AS driver_business_id
-    FROM app_user au
-    LEFT JOIN business_member bm ON bm.user_id = au.id AND bm.revoked_at IS NULL
-    LEFT JOIN driver d ON d.linked_user_id = au.id
-    WHERE au.asgardeo_sub = ${sub}
-    LIMIT 1
-  `) as MembershipRow[];
+  const rows = await reader
+    .select({
+      userId: appUser.id,
+      memberBusinessId: businessMember.businessId,
+      memberRole: businessMember.role,
+      driverId: driver.id,
+      driverBusinessId: driver.businessId,
+    })
+    .from(appUser)
+    .leftJoin(
+      businessMember,
+      and(eq(businessMember.userId, appUser.id), isNull(businessMember.revokedAt)),
+    )
+    .leftJoin(driver, eq(driver.linkedUserId, appUser.id))
+    .where(eq(appUser.asgardeoSub, sub))
+    .limit(1);
 
   const row = rows[0];
   if (!row) return null;
 
-  if (row.member_business_id && row.member_role) {
-    return { userId: row.user_id, businessId: row.member_business_id, role: row.member_role };
-  }
-  if (row.driver_id && row.driver_business_id) {
+  if (row.memberBusinessId && row.memberRole && MEMBER_ROLES.has(row.memberRole)) {
     return {
-      userId: row.user_id,
-      businessId: row.driver_business_id,
+      userId: row.userId,
+      businessId: row.memberBusinessId,
+      role: row.memberRole as "owner" | "owner_manager" | "manager",
+    };
+  }
+  if (row.driverId && row.driverBusinessId) {
+    return {
+      userId: row.userId,
+      businessId: row.driverBusinessId,
       role: "driver",
-      driverId: row.driver_id,
+      driverId: row.driverId,
     };
   }
   return null;

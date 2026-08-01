@@ -1,4 +1,4 @@
-import type { NeonQueryFunction, Pool } from "@neondatabase/serverless";
+import type { Reader, Writer } from "./db/client.js";
 import type { Role } from "./auth/policy.js";
 
 /** Wrangler bindings (TS §8). Secrets and vars both arrive here — Workers have no process.env. */
@@ -18,8 +18,8 @@ export interface Bindings {
 /** Populated by middleware, per request. */
 export interface Variables {
   requestId: string;
-  reader: NeonQueryFunction<false, false>;
-  writer: Pool;
+  reader: Reader;
+  writer: Writer;
   // Set by auth/middleware.ts (P1) once the token is verified and the sub
   // resolves to either a business_member or a linked driver (queries/identity.ts).
   businessId?: string;

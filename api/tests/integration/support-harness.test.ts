@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { business, businessMember, driver } from "../../src/db/schema.js";
+import { mintLinkedDriver, mintUser } from "../support/auth.js";
+import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
-import { mintUser, mintLinkedDriver } from "../support/auth.js";
-import { request } from "../support/client.js";
 
 /**
  * Proves the harness itself, before any endpoint leans on it (IG §8.3): a
@@ -15,7 +17,7 @@ describe("tests/support harness", () => {
   const db = writer(TEST_DATABASE_URL);
 
   afterAll(async () => {
-    await db.end();
+    await db.$client.end();
   });
 
   it("creates a full fixture across every factory and tears it down again", async () => {
@@ -31,31 +33,31 @@ describe("tests/support harness", () => {
     const owner = await mintUser(db, ctx, businessId, "owner");
     await mintLinkedDriver(db, ctx, driverId);
 
-    const before = await db.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM business WHERE id = $1",
-      [businessId],
-    );
-    expect(before.rows[0]?.n).toBe(1);
+    const before = await db
+      .select({ id: business.id })
+      .from(business)
+      .where(eq(business.id, businessId));
+    expect(before).toHaveLength(1);
 
-    const member = await db.query<{ role: string }>(
-      "SELECT role FROM business_member WHERE user_id = $1",
-      [owner.userId],
-    );
-    expect(member.rows[0]?.role).toBe("owner");
+    const member = await db
+      .select({ role: businessMember.role })
+      .from(businessMember)
+      .where(eq(businessMember.userId, owner.userId));
+    expect(member[0]?.role).toBe("owner");
 
-    const linked = await db.query<{ linked_user_id: string }>(
-      "SELECT linked_user_id FROM driver WHERE id = $1",
-      [driverId],
-    );
-    expect(linked.rows[0]?.linked_user_id).toBeTruthy();
+    const linked = await db
+      .select({ linkedUserId: driver.linkedUserId })
+      .from(driver)
+      .where(eq(driver.id, driverId));
+    expect(linked[0]?.linkedUserId).toBeTruthy();
 
     await ctx.cleanup();
 
-    const after = await db.query<{ n: number }>(
-      "SELECT count(*)::int AS n FROM business WHERE id = $1",
-      [businessId],
-    );
-    expect(after.rows[0]?.n).toBe(0);
+    const after = await db
+      .select({ id: business.id })
+      .from(business)
+      .where(eq(business.id, businessId));
+    expect(after).toHaveLength(0);
   });
 
   it("app.request() reaches the same real database via /api/ready", async () => {

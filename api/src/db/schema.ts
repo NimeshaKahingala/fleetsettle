@@ -1,0 +1,250 @@
+import {
+  bigint,
+  boolean,
+  char,
+  date,
+  integer,
+  pgTable,
+  smallint,
+  text,
+  time,
+  timestamp,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+/**
+ * Mirrors `migrations/0001_initial_schema.sql`, which mirrors `data-model.md`
+ * — that document owns the schema; this file exists only so `queries/` gets
+ * typed query building (IG §1.6, §3.1). It is not the source of truth and it
+ * does not generate migrations: the exclusion constraints, partial unique
+ * indexes and CHECKs that carry the real invariants live in the migration
+ * SQL and are not re-declared here.
+ *
+ * Grows one table at a time, as the phase that needs it is built — not a
+ * transcription of all fifty-some tables up front.
+ */
+
+export const business = pgTable("business", {
+  id: uuid("id").primaryKey(),
+  name: text("name").notNull(),
+  currencyCode: char("currency_code", { length: 3 }).notNull(),
+  timezone: text("timezone").notNull(),
+  goLiveDate: date("go_live_date", { mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const businessSettings = pgTable("business_settings", {
+  businessId: uuid("business_id").primaryKey(),
+  autoWaiveThresholdMinor: bigint("auto_waive_threshold_minor", { mode: "bigint" })
+    .notNull()
+    .default(0n),
+  depositHoldDays: integer("deposit_hold_days").notNull().default(30),
+  paperworkWarnDays: integer("paperwork_warn_days").notNull().default(30),
+  secondLanguage: text("second_language"),
+  messagingKillSwitch: boolean("messaging_kill_switch").notNull().default(false),
+  sendWindowStart: time("send_window_start").notNull().default("08:00:00"),
+  sendWindowEnd: time("send_window_end").notNull().default("20:00:00"),
+});
+
+export const accountingPeriod = pgTable("accounting_period", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  periodStart: date("period_start", { mode: "string" }).notNull(),
+  periodEnd: date("period_end", { mode: "string" }).notNull(),
+  status: text("status").notNull().default("open"),
+  closedAt: timestamp("closed_at", { withTimezone: true, mode: "string" }),
+  closedBy: uuid("closed_by"),
+});
+
+export const appUser = pgTable("app_user", {
+  id: uuid("id").primaryKey(),
+  asgardeoSub: text("asgardeo_sub").notNull(),
+  email: text("email"),
+  displayName: text("display_name"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const businessMember = pgTable("business_member", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  role: text("role").notNull(),
+  grantedAt: timestamp("granted_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+});
+
+export const vehicle = pgTable("vehicle", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  registration: text("registration").notNull(),
+  vehicleType: text("vehicle_type").notNull(),
+  lifecycle: text("lifecycle").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const vehicleArrangement = pgTable("vehicle_arrangement", {
+  id: uuid("id").primaryKey(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  arrangement: char("arrangement", { length: 1 }).notNull(),
+  effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+  effectiveTo: date("effective_to", { mode: "string" }),
+});
+
+export const vehicleDocument = pgTable("vehicle_document", {
+  id: uuid("id").primaryKey(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  docType: text("doc_type").notNull(),
+  expiryDate: date("expiry_date", { mode: "string" }).notNull(),
+  reference: text("reference"),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull(),
+});
+
+export const customer = pgTable("customer", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  customerType: text("customer_type").notNull(),
+  name: text("name").notNull(),
+  nic: text("nic"),
+  registrationNo: text("registration_no"),
+  contactPerson: text("contact_person"),
+  mobile: text("mobile"),
+  address: text("address"),
+  language: text("language").notNull().default("en"),
+  optedInAt: timestamp("opted_in_at", { withTimezone: true, mode: "string" }),
+  numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const driver = pgTable("driver", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  name: text("name").notNull(),
+  mobile: text("mobile"),
+  driverDayFeeMinor: bigint("driver_day_fee_minor", { mode: "bigint" }),
+  driverTripFeeMinor: bigint("driver_trip_fee_minor", { mode: "bigint" }),
+  licenceExpiry: date("licence_expiry", { mode: "string" }),
+  linkedUserId: uuid("linked_user_id"),
+  language: text("language").notNull().default("en"),
+  optedInAt: timestamp("opted_in_at", { withTimezone: true, mode: "string" }),
+  numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
+  settlementRhythm: text("settlement_rhythm").notNull().default("daily"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const mileagePackage = pgTable("mileage_package", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  name: text("name").notNull(),
+  dailyLimitKm: integer("daily_limit_km").notNull(),
+  excessRateMinorPerKm: bigint("excess_rate_minor_per_km", { mode: "bigint" }).notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true, mode: "string" }),
+});
+
+export const lease = pgTable("lease", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  customerId: uuid("customer_id").notNull(),
+  status: text("status").notNull().default("draft"),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  endDate: date("end_date", { mode: "string" }),
+  billingDay: integer("billing_day").notNull(),
+  rentAmountMinor: bigint("rent_amount_minor", { mode: "bigint" }).notNull(),
+  mileageDailyLimitKm: integer("mileage_daily_limit_km"),
+  mileageExcessRateMinor: bigint("mileage_excess_rate_minor", { mode: "bigint" }),
+  reminderDaysBefore: integer("reminder_days_before").notNull().default(3),
+  closingDate: date("closing_date", { mode: "string" }),
+  finalPeriodTreatment: text("final_period_treatment"),
+  closureSummaryShownAt: timestamp("closure_summary_shown_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  closedAt: timestamp("closed_at", { withTimezone: true, mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const billingPeriod = pgTable("billing_period", {
+  id: uuid("id").primaryKey(),
+  leaseId: uuid("lease_id").notNull(),
+  seq: integer("seq").notNull(),
+  periodStart: date("period_start", { mode: "string" }).notNull(),
+  periodEnd: date("period_end", { mode: "string" }).notNull(),
+  // GENERATED ALWAYS AS (period_end - period_start + 1) STORED — the DB
+  // computes this; not part of P2, first written by P5, which is a better
+  // point to model Drizzle's generated-column support against a real insert.
+  daysCount: integer("days_count"),
+  rentAmountMinor: bigint("rent_amount_minor", { mode: "bigint" }).notNull(),
+  allowanceKm: integer("allowance_km"),
+});
+
+export const dailyLease = pgTable("daily_lease", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  driverId: uuid("driver_id").notNull(),
+  patternType: text("pattern_type").notNull(),
+  patternWeekdays: smallint("pattern_weekdays").array(),
+  effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+  effectiveTo: date("effective_to", { mode: "string" }),
+});
+
+export const dailyLeaseRate = pgTable("daily_lease_rate", {
+  id: uuid("id").primaryKey(),
+  dailyLeaseId: uuid("daily_lease_id").notNull(),
+  dailyLeaseAmountMinor: bigint("daily_lease_amount_minor", { mode: "bigint" }).notNull(),
+  effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+  effectiveTo: date("effective_to", { mode: "string" }),
+});
+
+export const trip = pgTable("trip", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  customerId: uuid("customer_id"),
+  driverId: uuid("driver_id"),
+  status: text("status").notNull().default("hold"),
+  startDate: date("start_date", { mode: "string" }).notNull(),
+  endDate: date("end_date", { mode: "string" }).notNull(),
+  destination: text("destination"),
+  agreedAmountMinor: bigint("agreed_amount_minor", { mode: "bigint" }).notNull().default(0n),
+  driverFeeMinor: bigint("driver_fee_minor", { mode: "bigint" }).notNull().default(0n),
+  openingOdometerId: uuid("opening_odometer_id"),
+  closingOdometerId: uuid("closing_odometer_id"),
+  closingDate: date("closing_date", { mode: "string" }),
+  cancelReason: text("cancel_reason"),
+  advanceDisposition: text("advance_disposition"),
+  postedPeriodId: uuid("posted_period_id"),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const vehicleDayAllocation = pgTable("vehicle_day_allocation", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  businessDate: date("business_date", { mode: "string" }).notNull(),
+  arrangement: char("arrangement", { length: 1 }).notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: uuid("source_id").notNull(),
+  isHold: boolean("is_hold").notNull().default(false),
+});
+
+export const openingBalanceBatch = pgTable("opening_balance_batch", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  goLiveDate: date("go_live_date", { mode: "string" }).notNull(),
+  status: text("status").notNull().default("draft"),
+  committedAt: timestamp("committed_at", { withTimezone: true, mode: "string" }),
+});
+
+export const openingBalanceEntry = pgTable("opening_balance_entry", {
+  id: uuid("id").primaryKey(),
+  batchId: uuid("batch_id").notNull(),
+  kind: text("kind").notNull(),
+  partyCustomerId: uuid("party_customer_id"),
+  partyDriverId: uuid("party_driver_id"),
+  partyUserId: uuid("party_user_id"),
+  vehicleId: uuid("vehicle_id"),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  originalDueDate: date("original_due_date", { mode: "string" }),
+});
