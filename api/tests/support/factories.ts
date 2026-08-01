@@ -197,6 +197,13 @@ export class TestContext {
     });
   }
 
+  /** F-1.6: `POST /api/driver` writes a single row — this is that write's teardown, for tests that go through the endpoint rather than `createDriver()` above. */
+  trackCreatedDriver(driverId: string): void {
+    this.track(async () => {
+      await this.#db.delete(driver).where(eq(driver.id, driverId));
+    });
+  }
+
   /** Unwinds every tracked row, most-recently-created first. */
   async cleanup(): Promise<void> {
     for (const fn of this.#cleanups.reverse()) {
