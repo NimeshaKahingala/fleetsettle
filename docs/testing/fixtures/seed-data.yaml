@@ -1,0 +1,147 @@
+# FleetSettle — Common Seed Data
+# ================================
+# Shared test data used across all suites.
+# Load this before any suite that depends on suite-00-setup.
+
+business:
+  name: "FleetSettle Test Business"
+  timezone: "Asia/Colombo"  # UTC+05:30
+  currency: "LKR"
+  settings:
+    auto_waive_threshold: 0  # W-43: blank means zero
+    send_window_start: "08:00"
+    send_window_end: "20:00"
+    paperwork_warning_days: 30
+  first_accounting_period:
+    start: "2026-07-01"
+    end: "2026-07-31"
+    status: "open"
+
+users:
+  - id: user-owner
+    name: "Nimesha Perera"
+    role: owner
+    email: "nimesha@test.local"
+
+  - id: user-owner-manager
+    name: "Chaminda Silva"
+    role: owner_manager
+    email: "chaminda@test.local"
+
+  - id: user-manager
+    name: "Kamal Fernando"
+    role: manager
+    email: "kamal@test.local"
+
+vehicles:
+  - id: vehicle-bus-001
+    registration: "BUS-5678"
+    type: bus
+    default_arrangement: daily_lease  # Arrangement B
+    insurance_expiry: "2027-03-15"
+    registration_expiry: "2027-01-10"
+
+  - id: vehicle-car-001
+    registration: "CAR-1234"
+    type: car
+    default_arrangement: lease_out  # Arrangement A
+    insurance_expiry: "2027-06-30"
+    registration_expiry: "2027-02-28"
+
+  - id: vehicle-car-002
+    registration: "CAR-5678"
+    type: car
+    default_arrangement: lease_out  # Arrangement A
+    insurance_expiry: "2027-04-15"
+    registration_expiry: "2027-05-01"
+
+  - id: vehicle-car-003
+    registration: "CAR-9012"
+    type: car
+    default_arrangement: operated  # Arrangement C
+    insurance_expiry: "2027-08-01"
+    registration_expiry: "2027-09-15"
+
+ownership:
+  - vehicle_id: vehicle-car-001
+    shares:
+      - { user_id: user-owner, percentage: 60, effective_from: "2026-01-01" }
+      - { user_id: user-owner-manager, percentage: 40, effective_from: "2026-01-01" }
+    contributions:
+      - { user_id: user-owner, amount: 1800000 }  # LKR in minor units conceptually, but shown as whole
+      - { user_id: user-owner-manager, amount: 1200000 }
+
+  - vehicle_id: vehicle-car-002
+    shares:
+      - { user_id: user-owner, percentage: 100, effective_from: "2026-01-01" }
+
+  - vehicle_id: vehicle-bus-001
+    shares:
+      - { user_id: user-owner-manager, percentage: 100, effective_from: "2026-01-01" }
+
+drivers:
+  - id: driver-001
+    name: "Ruwan Jayasinghe"
+    phone: "+94771234567"
+    driver_day_fee: 3000     # money WE pay HIM per day (trips)
+    driver_trip_fee: 9000    # money WE pay HIM per trip
+    licence_expiry: "2027-12-31"
+    deposit: 25000
+    assigned_vehicle: vehicle-bus-001
+    assignment_start: "2026-01-01"
+
+  - id: driver-002
+    name: "Saman Kumara"
+    phone: "+94779876543"
+    driver_day_fee: 2500
+    driver_trip_fee: 7000
+    licence_expiry: "2027-06-30"
+    deposit: 0
+    assigned_vehicle: null
+
+customers:
+  - id: customer-person-001
+    type: person
+    name: "Anil Rajapaksa"
+    nic: "199812345678"
+    mobile: "+94761111111"
+    address: "45 Temple Road, Colombo 6"
+
+  - id: customer-person-002
+    type: person
+    name: "Priya Mendis"
+    nic: "200298765432"
+    mobile: "+94762222222"
+    address: "12 Galle Road, Colombo 3"
+
+  - id: customer-org-001
+    type: organisation
+    name: "Royal College"
+    registration_number: "ORG-2026-001"
+    contact_person: "Mr. Bandara"
+    mobile: "+94763333333"
+    address: "Reid Avenue, Colombo 7"
+
+daily_lease_arrangements:
+  - vehicle_id: vehicle-bus-001
+    driver_id: driver-001
+    daily_lease_amount: 5000  # money HE pays US per operating day
+    pattern: every_day
+    effective_from: "2026-07-01"
+    end_date: null  # open-ended
+
+mileage_packages:
+  - id: pkg-standard
+    name: "Standard 100km"
+    daily_km_limit: 100
+    excess_rate_per_km: 25
+
+  - id: pkg-premium
+    name: "Premium 150km"
+    daily_km_limit: 150
+    excess_rate_per_km: 20
+
+  - id: pkg-economy
+    name: "Economy 75km"
+    daily_km_limit: 75
+    excess_rate_per_km: 30
