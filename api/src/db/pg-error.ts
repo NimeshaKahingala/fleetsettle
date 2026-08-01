@@ -8,6 +8,7 @@
  */
 
 const UNIQUE_VIOLATION = "23505";
+const EXCLUSION_VIOLATION = "23P01";
 
 interface PostgresError {
   code?: string;
@@ -34,4 +35,10 @@ function pgErrorOf(err: unknown): PostgresError | undefined {
 export function isUniqueViolation(err: unknown, constraintName: string): boolean {
   const pgError = pgErrorOf(err);
   return pgError?.code === UNIQUE_VIOLATION && pgError.constraint === constraintName;
+}
+
+/** True if `err` (or the query error wrapping it) is a violation of the named `EXCLUDE` constraint (e.g. `daily_lease_vehicle_id_daterange_excl`). */
+export function isExclusionViolation(err: unknown, constraintName: string): boolean {
+  const pgError = pgErrorOf(err);
+  return pgError?.code === EXCLUSION_VIOLATION && pgError.constraint === constraintName;
 }

@@ -116,11 +116,11 @@ The biggest phase, and deliberately so. Nothing can hold money until a business,
 **Shared** — schemas for business, vehicle, driver, customer, arrangement, `accounting_period`.
 
 **Backend**
-- CRUD for business, vehicle, driver, customer
-- The three arrangements and their terms, **with the original start date preserved** so billing periods land on the right day of the month
+- CRUD for business, vehicle, driver, customer — done
+- The three arrangements and their terms, **with the original start date preserved** so billing periods land on the right day of the month — done. Scope drawn from DM §4.1's "how far ahead the calendar is materialised" table: a **trip's** `vehicle_day_allocation` is written in full at booking (bounded, INV-1 enforced now), but a **lease** or **daily lease's** calendar is a rolling-horizon cron responsibility (`generate-day-cards`, DM §4.1) — that's P13's, not this endpoint's, so INV-1 is not yet enforced for lease/daily-lease and a trip does not yet pause any `day_record` (P3's table). Recorded rather than silently skipped
 - Opening balances (UC-08, UC-09)
-- Paperwork expiry *dates* on the vehicle (UC-92) — the warning job is P13
-- **Open the first accounting period.** The period trigger makes this a prerequisite for every later write
+- Paperwork expiry *dates* on the vehicle (UC-92) — the warning job is P13 — done
+- **Open the first accounting period.** The period trigger makes this a prerequisite for every later write — done (as part of business creation, F-0.1)
 
 **Frontend** — UI §15's build order binds here: **tokens and the five load-bearing components come before any screen**, because every screen after them is assembly.
 - shadcn primitives copied in and resized to 44px
@@ -210,7 +210,7 @@ F-2.x. **Gates G-3.**
 
 F-5.x, F-1.5.
 
-**Backend** — trip lifecycle and trip P&L; **INV-17** (closing a trip with an unreconciled advance returns 409); **INV-1** (vehicle double-booking returns 409); the vehicle calendar query (UC-95).
+**Backend** — trip lifecycle and trip P&L; **INV-17** (closing a trip with an unreconciled advance returns 409); the vehicle calendar query (UC-95). **INV-1** (vehicle double-booking returns 409) already done in P2 — booking a trip writes its full-range `vehicle_day_allocation` at booking (DM §4.1), so the invariant existed as soon as the booking endpoint did. What's still missing here: pausing existing `day_record` rows to `paused_for_trip` when a trip is booked inside the horizon (F-5.1) — P2 had no `day_record` table yet (P3's), so a trip booked against a vehicle with daily cards already generated does not yet pause them.
 
 **Frontend** — the trip screen serving two arrangements; the vehicle calendar.
 
@@ -317,6 +317,8 @@ UC-90, UC-91. Both are **product-phase Second** (UC §9.1) and both depend on cl
 # P13 · Scheduled work
 
 Cron Triggers: due generation, day-card generation, paperwork expiry warnings (UC-92).
+
+**Also carries two things P2 deliberately left undone** (DM §4.1): `generate-day-cards` is what materialises `vehicle_day_allocation` on a rolling 90-day horizon for a **lease** (through `end_date`, or the horizon if open-ended) and for a **daily lease** (alongside each `day_record` it creates) — P2's lease/daily-lease endpoints write only the arrangement's own row(s), so INV-1 is not enforced for either until this job exists.
 
 **Every job is a no-op on a second run** — idempotency lives in the constraints, and a unique violation on a cron path is success, not a page. **No job is a prerequisite for a user action**; a job that failed overnight must be invisible.
 

@@ -86,3 +86,22 @@ export class VehicleAlreadyExistsError extends AppError {
     super(409, "VEHICLE_ALREADY_EXISTS", message);
   }
 }
+
+// INV-1 (UC-20: "the car cannot also be on a monthly rental for those dates,
+// and it says so before you can create the conflict"). DM §4.1's
+// `one_arrangement_per_vehicle_day` unique index is the truth — this class
+// exists so a caught violation maps to one code, the same pattern as
+// PeriodClosedError.
+export class VehicleDoubleBookedError extends AppError {
+  constructor(message = "This vehicle is already allocated for one or more of these dates") {
+    super(409, "VEHICLE_DOUBLE_BOOKED", message);
+  }
+}
+
+// DM §7's `daily_lease_vehicle_id_daterange_excl` exclusion constraint — a
+// second daily lease for the same vehicle over an overlapping date range.
+export class DailyLeaseOverlapsError extends AppError {
+  constructor(message = "This vehicle already has a daily lease over one or more of these dates") {
+    super(409, "DAILY_LEASE_OVERLAPS", message);
+  }
+}

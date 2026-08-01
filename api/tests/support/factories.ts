@@ -8,10 +8,14 @@ import {
   businessMember,
   businessSettings,
   customer,
+  dailyLease,
+  dailyLeaseRate,
   driver,
   lease,
+  trip,
   vehicle,
   vehicleArrangement,
+  vehicleDayAllocation,
   vehicleDocument,
 } from "../../src/db/schema.js";
 
@@ -208,6 +212,29 @@ export class TestContext {
   trackCreatedCustomer(customerId: string): void {
     this.track(async () => {
       await this.#db.delete(customer).where(eq(customer.id, customerId));
+    });
+  }
+
+  /** F-2.1: `POST /api/lease` writes a single row — this is that write's teardown, for tests that go through the endpoint rather than `createLease()` above. */
+  trackCreatedLease(leaseId: string): void {
+    this.track(async () => {
+      await this.#db.delete(lease).where(eq(lease.id, leaseId));
+    });
+  }
+
+  /** F-1.7: `POST /api/daily-lease` writes `daily_lease` and its first `daily_lease_rate` (domain/dailyLease.ts) — this is that write's teardown. */
+  trackCreatedDailyLease(dailyLeaseId: string): void {
+    this.track(async () => {
+      await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId));
+      await this.#db.delete(dailyLease).where(eq(dailyLease.id, dailyLeaseId));
+    });
+  }
+
+  /** F-5.1: `POST /api/trip` writes `trip` and its full-range `vehicle_day_allocation` (domain/trip.ts) — this is that write's teardown. */
+  trackCreatedTrip(tripId: string): void {
+    this.track(async () => {
+      await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, tripId));
+      await this.#db.delete(trip).where(eq(trip.id, tripId));
     });
   }
 

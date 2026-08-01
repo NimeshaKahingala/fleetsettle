@@ -53,14 +53,67 @@ export type StartDailyLeaseRequest = z.infer<typeof startDailyLeaseRequestSchema
  * non-occupying, ST-5) state, which is a UI affordance this phase does not
  * build a screen for yet.
  */
-export const bookTripRequestSchema = z.object({
-  vehicleId: uuidSchema,
-  customerId: uuidSchema.optional(),
-  driverId: uuidSchema.optional(),
-  startDate: businessDateSchema,
-  endDate: businessDateSchema,
-  destination: z.string().trim().max(200).optional(),
-  agreedAmountMinor: moneyWireSchema.optional(),
-  driverFeeMinor: moneyWireSchema.optional(),
-});
+export const bookTripRequestSchema = z
+  .object({
+    vehicleId: uuidSchema,
+    customerId: uuidSchema.optional(),
+    driverId: uuidSchema.optional(),
+    startDate: businessDateSchema,
+    endDate: businessDateSchema,
+    destination: z.string().trim().max(200).optional(),
+    agreedAmountMinor: moneyWireSchema.optional(),
+    driverFeeMinor: moneyWireSchema.optional(),
+  })
+  .refine((value) => value.endDate >= value.startDate, {
+    message: "endDate must not be before startDate",
+    path: ["endDate"],
+  });
 export type BookTripRequest = z.infer<typeof bookTripRequestSchema>;
+
+/** F-2.1: what starting a lease produces. */
+export const leaseResponseSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  customerId: z.string().uuid(),
+  status: z.enum(["draft", "active", "closing", "closed"]),
+  startDate: z.string(),
+  endDate: z.string().nullable(),
+  // eslint-disable-next-line no-restricted-syntax -- day-of-month, not money
+  billingDay: z.number(),
+  rentAmountMinor: z.string(),
+  // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
+  mileageDailyLimitKm: z.number().nullable(),
+  mileageExcessRateMinor: z.string().nullable(),
+  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+  reminderDaysBefore: z.number(),
+});
+export type LeaseResponse = z.infer<typeof leaseResponseSchema>;
+
+/** F-1.7: what setting up the daily lease produces. */
+export const dailyLeaseResponseSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  driverId: z.string().uuid(),
+  patternType: z.enum(["every_day", "alternate", "weekdays"]),
+  // eslint-disable-next-line no-restricted-syntax -- weekday indices 0–6, not money
+  patternWeekdays: z.array(z.number()).nullable(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+  dailyLeaseAmountMinor: z.string(),
+});
+export type DailyLeaseResponse = z.infer<typeof dailyLeaseResponseSchema>;
+
+/** F-5.1: what booking a trip produces. */
+export const tripResponseSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  customerId: z.string().uuid().nullable(),
+  driverId: z.string().uuid().nullable(),
+  status: z.enum(["hold", "booked", "in_progress", "closed", "cancelled"]),
+  startDate: z.string(),
+  endDate: z.string(),
+  destination: z.string().nullable(),
+  agreedAmountMinor: z.string(),
+  driverFeeMinor: z.string(),
+});
+export type TripResponse = z.infer<typeof tripResponseSchema>;

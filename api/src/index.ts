@@ -13,6 +13,9 @@ import { business } from "./routes/business.js";
 import { vehicle } from "./routes/vehicle.js";
 import { driver } from "./routes/driver.js";
 import { customer } from "./routes/customer.js";
+import { lease } from "./routes/lease.js";
+import { dailyLease } from "./routes/dailyLease.js";
+import { trip } from "./routes/trip.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -47,6 +50,15 @@ app.route("/api/driver", driver);
 
 app.use("/api/customer/*", dbMiddleware(), authMiddleware());
 app.route("/api/customer", customer);
+
+app.use("/api/lease/*", dbMiddleware(), authMiddleware());
+app.route("/api/lease", lease);
+
+app.use("/api/daily-lease/*", dbMiddleware(), authMiddleware());
+app.route("/api/daily-lease", dailyLease);
+
+app.use("/api/trip/*", dbMiddleware(), authMiddleware());
+app.route("/api/trip", trip);
 
 mountDocs(app);
 
