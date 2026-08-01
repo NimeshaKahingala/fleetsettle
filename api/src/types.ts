@@ -23,6 +23,9 @@ export interface Variables {
   // Set by auth/middleware.ts (P1) once the token is verified and the sub
   // resolves to either a business_member or a linked driver (queries/identity.ts).
   businessId?: string;
+  // The business's own configured timezone (W-54) — every domain write that
+  // computes "today" reads this, never a hardcoded default (CLAUDE.md → Time).
+  businessTimezone?: string;
   userId?: string;
   role?: Role;
   // Only set when role is "driver" — the boundary in IG §7.1 rule 4 is

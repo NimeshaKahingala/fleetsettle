@@ -26,6 +26,7 @@ export const authMiddleware = (): MiddlewareHandler<Env> => {
 
     c.set("userId", membership.userId);
     c.set("businessId", membership.businessId);
+    c.set("businessTimezone", membership.businessTimezone);
     c.set("role", membership.role);
     if (membership.role === "driver") c.set("driverId", membership.driverId);
 

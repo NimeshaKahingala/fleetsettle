@@ -11,6 +11,8 @@ import {
   driver,
   lease,
   vehicle,
+  vehicleArrangement,
+  vehicleDocument,
 } from "../../src/db/schema.js";
 
 interface BusinessOverrides {
@@ -177,6 +179,21 @@ export class TestContext {
       await this.#db.delete(businessMember).where(eq(businessMember.businessId, businessId));
       await this.#db.delete(business).where(eq(business.id, businessId));
       await this.#db.delete(appUser).where(eq(appUser.id, userId));
+    });
+  }
+
+  /**
+   * F-1.1: `POST /api/vehicle` writes `vehicle`, `vehicle_arrangement` and
+   * (optionally) `vehicle_document` rows (domain/vehicles.ts) — this is that
+   * write's teardown, for tests that go through the endpoint rather than
+   * `createVehicle()` above (which makes a bare `vehicle` row only, with no
+   * arrangement, for tests that don't care which arrangement it's in).
+   */
+  trackCreatedVehicle(vehicleId: string): void {
+    this.track(async () => {
+      await this.#db.delete(vehicleDocument).where(eq(vehicleDocument.vehicleId, vehicleId));
+      await this.#db.delete(vehicleArrangement).where(eq(vehicleArrangement.vehicleId, vehicleId));
+      await this.#db.delete(vehicle).where(eq(vehicle.id, vehicleId));
     });
   }
 

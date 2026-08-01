@@ -96,7 +96,7 @@ export const vehicleDocument = pgTable("vehicle_document", {
   docType: text("doc_type").notNull(),
   expiryDate: date("expiry_date", { mode: "string" }).notNull(),
   reference: text("reference"),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
 export const customer = pgTable("customer", {

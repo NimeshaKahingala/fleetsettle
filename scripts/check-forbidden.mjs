@@ -42,6 +42,15 @@ const isSql = (p) => p.endsWith(".sql");
 const isMigration = (p) => p.startsWith("api/migrations/") && isSql(p);
 const isLocale = (p) => /^web\/(src|public)\/locales\/.*\.json$/.test(p);
 const isCss = (p) => p.endsWith(".css");
+// api/CLAUDE.md: "`queries/` takes `(db, …)` and has never heard of HTTP" —
+// domain/ is the same, one layer up (IG §3.1). Neither ever sees `c` or a
+// request body, so a `.businessId` read off a same-named local variable
+// (routinely called `input` for a domain function's own typed parameter
+// struct) cannot be the request-body read this rule exists to catch — that
+// provenance is only checkable where the request is actually read, i.e.
+// handlers/ and routes/.
+const isDomainOrQueries = (p) =>
+  p.startsWith("api/src/domain/") || p.startsWith("api/src/queries/");
 
 const RULES = [
   // ── Time ───────────────────────────────────────────────────────────────────
@@ -90,7 +99,7 @@ const RULES = [
   // ── Tenancy ────────────────────────────────────────────────────────────────
   {
     id: "tenancy/from-request",
-    when: (p) => inApi(p) && p.endsWith(".ts"),
+    when: (p) => inApi(p) && p.endsWith(".ts") && !isDomainOrQueries(p),
     pattern: /\b(body|payload|input|query|params)\s*(\?\.|\.|\[["'])\s*business_?[iI]d/g,
     message:
       "business_id is resolved from the verified JWT sub via business_member — never from a request (CLAUDE.md → Tenancy).",

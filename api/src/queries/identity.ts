@@ -1,10 +1,21 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import type { Reader } from "../db/client.js";
-import { appUser, businessMember, driver } from "../db/schema.js";
+import { appUser, business, businessMember, driver } from "../db/schema.js";
 
 export type Membership =
-  | { userId: string; businessId: string; role: "owner" | "owner_manager" | "manager" }
-  | { userId: string; businessId: string; role: "driver"; driverId: string };
+  | {
+      userId: string;
+      businessId: string;
+      businessTimezone: string;
+      role: "owner" | "owner_manager" | "manager";
+    }
+  | {
+      userId: string;
+      businessId: string;
+      businessTimezone: string;
+      role: "driver";
+      driverId: string;
+    };
 
 const MEMBER_ROLES = new Set(["owner", "owner_manager", "manager"]);
 
@@ -36,6 +47,10 @@ export async function resolveMembership(reader: Reader, sub: string): Promise<Me
       memberRole: businessMember.role,
       driverId: driver.id,
       driverBusinessId: driver.businessId,
+      // Every domain write that needs "today" needs the business's own
+      // configured timezone, never a hardcoded default (CLAUDE.md → Time) —
+      // resolved here, once, rather than a second round trip per write.
+      businessTimezone: business.timezone,
     })
     .from(appUser)
     .leftJoin(
@@ -43,23 +58,34 @@ export async function resolveMembership(reader: Reader, sub: string): Promise<Me
       and(eq(businessMember.userId, appUser.id), isNull(businessMember.revokedAt)),
     )
     .leftJoin(driver, eq(driver.linkedUserId, appUser.id))
+    .leftJoin(
+      business,
+      or(eq(business.id, businessMember.businessId), eq(business.id, driver.businessId)),
+    )
     .where(eq(appUser.asgardeoSub, sub))
     .limit(1);
 
   const row = rows[0];
   if (!row) return null;
 
-  if (row.memberBusinessId && row.memberRole && MEMBER_ROLES.has(row.memberRole)) {
+  if (
+    row.memberBusinessId &&
+    row.memberRole &&
+    MEMBER_ROLES.has(row.memberRole) &&
+    row.businessTimezone
+  ) {
     return {
       userId: row.userId,
       businessId: row.memberBusinessId,
+      businessTimezone: row.businessTimezone,
       role: row.memberRole as "owner" | "owner_manager" | "manager",
     };
   }
-  if (row.driverId && row.driverBusinessId) {
+  if (row.driverId && row.driverBusinessId && row.businessTimezone) {
     return {
       userId: row.userId,
       businessId: row.driverBusinessId,
+      businessTimezone: row.businessTimezone,
       role: "driver",
       driverId: row.driverId,
     };

@@ -78,3 +78,11 @@ export class BusinessAlreadyExistsError extends AppError {
     super(409, "BUSINESS_ALREADY_EXISTS", message);
   }
 }
+
+// F-1.1: DM §4's `UNIQUE(business_id, registration)` — the same registration
+// entered twice for the same business, most plausibly a double-submit.
+export class VehicleAlreadyExistsError extends AppError {
+  constructor(message = "A vehicle with this registration already exists") {
+    super(409, "VEHICLE_ALREADY_EXISTS", message);
+  }
+}

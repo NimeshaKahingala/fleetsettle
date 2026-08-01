@@ -26,6 +26,7 @@ const OWNERS: readonly Role[] = ["owner", "owner_manager"];
 export type Capability =
   | "dailyOperations" // daily cards, trips, expenses, collections
   | "leaseAndTripLifecycle" // start/close a lease, close a trip
+  | "manageEntities" // F-1.1/F-1.6/F-2.1: add and read vehicles, drivers, customers — setup, not money
   | "writeOffOrWaiveAboveThreshold"
   | "reverseReceipt" // F-8.2
   | "closePeriod" // F-9.1
@@ -35,6 +36,7 @@ export type Capability =
 const MATRIX: Record<Capability, readonly Role[]> = {
   dailyOperations: STAFF,
   leaseAndTripLifecycle: STAFF,
+  manageEntities: STAFF,
   writeOffOrWaiveAboveThreshold: OWNERS,
   reverseReceipt: OWNERS,
   closePeriod: OWNERS,

@@ -1,5 +1,7 @@
 import type { Context } from "hono";
 import type { Env } from "../types.js";
+import { ForbiddenCapabilityError } from "../errors/app-error.js";
+import { can, type Capability } from "./policy.js";
 
 /**
  * `businessId`/`driverId` are optional on `Variables` because they are
@@ -21,6 +23,20 @@ export function requireDriverId(c: Context<Env>): string {
   if (!driverId)
     throw new Error("driverId is not set — this route is not scoped to a linked driver");
   return driverId;
+}
+
+/** W-54: the business's own configured timezone, never a hardcoded default (CLAUDE.md → Time). */
+export function requireBusinessTimezone(c: Context<Env>): string {
+  const businessTimezone = c.get("businessTimezone");
+  if (!businessTimezone)
+    throw new Error("businessTimezone is not set — is authMiddleware mounted on this route?");
+  return businessTimezone;
+}
+
+/** W-49: the one place a capability is decided (IG §7.2) — every handler that needs a gate calls this instead of re-deriving the `!role || !can(...)` check inline. */
+export function requireCapability(c: Context<Env>, capability: Capability): void {
+  const role = c.get("role");
+  if (!role || !can(role, capability)) throw new ForbiddenCapabilityError();
 }
 
 /** F-0.1 only — set by `verifyTokenMiddleware`, never by `authMiddleware`. */

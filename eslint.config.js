@@ -330,8 +330,23 @@ export default ts.config(
   },
 
   // ── Reports ────────────────────────────────────────────────────────────────
+  // No `...tenancy` for api/src/{queries,domain}: both layers are forbidden
+  // from importing hono/handlers/routes at all (the no-restricted-imports
+  // rules above), so neither ever holds a request, body, params or query —
+  // the shapes this check matches on. A domain function's own typed input
+  // struct is routinely named `input` and routinely carries a `businessId`
+  // field (handler-supplied, from `c.get("businessId")`); flagging that
+  // identifier collision doesn't catch a real violation, since the one that
+  // matters — a handler reading business_id off the request — is still
+  // caught by the Worker-wide block above, which does apply to handlers/.
   {
-    files: ["api/src/{queries,domain}/**/*.ts", "web/src/**/report*/**/*.{ts,tsx}"],
+    files: ["api/src/{queries,domain}/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...money, ...time, ...appendOnly, ...notZero],
+    },
+  },
+  {
+    files: ["web/src/**/report*/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...money, ...time, ...tenancy, ...appendOnly, ...notZero],
     },
