@@ -139,6 +139,8 @@ The biggest phase, and deliberately so. Nothing can hold money until a business,
 
 **Done means** — a business with a bus, two cars, a driver and an open July period is created end to end, from the browser, at 360 × 640. Every component in UI §6 exists in a fixture-driven story, passes the 44px pass, and renders in both themes. `Rs 0` and `NotAvailable` are visibly different things.
 
+**Verification pass** — done. `npm run check` clean across `api`/`web`/`packages/shared` (179 tests). The 44px targets are asserted per-component in Vitest (`toHaveClass("min-h-tap"/"size-tap")`, per IG §16.1's table — real layout isn't available under jsdom, so this is the leftmost mechanism that can see it). For the both-themes/360px-no-scroll pass, temporarily mounted the new screens behind `AppShell` in place of the placeholder `App` and drove Chromium via Playwright at 360×640 (`colorScheme: "light"|"dark"`) — `PeopleListScreen`, `VehicleListScreen`, `CreateVehicleForm`, the `Add` `ActionSheet`, and a nested `CreateDriverForm` `Sheet`, all correct in both themes, no horizontal scroll. One near-bug surfaced and was chased down: dark mode looked broken (page background stayed light) when a screen was mounted without its real `AppShell` wrapper — `AppShell` is what sets `bg-page` on the root, so that was the harness omitting it, not a token or component defect (confirmed via `getComputedStyle`, which showed the color tokens were already correct). The harness itself was scratch-only and was not committed; `App.tsx` stays the placeholder until P1 unblocks real assembly. The existing Playwright smoke spec (`e2e/smoke.spec.ts`, 360 and 320px reflow) still passes unchanged.
+
 ---
 
 # P3 · The daily loop
