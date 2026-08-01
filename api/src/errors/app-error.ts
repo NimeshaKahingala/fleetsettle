@@ -68,3 +68,13 @@ export class RateLimitedError extends AppError {
     super(429, "RATE_LIMITED", message);
   }
 }
+
+// F-0.1: this product has no multi-business membership (DM §3's
+// `one_active_business_per_user` index). A second "create business" call
+// for the same identity — a double-submit, a client retry — is a conflict
+// with the caller's own existing business, not a validation error.
+export class BusinessAlreadyExistsError extends AppError {
+  constructor(message = "This account already belongs to a business") {
+    super(409, "BUSINESS_ALREADY_EXISTS", message);
+  }
+}

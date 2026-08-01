@@ -28,6 +28,12 @@ export interface Variables {
   // Only set when role is "driver" — the boundary in IG §7.1 rule 4 is
   // enforced by scoping queries to this id, never by trusting a token claim.
   driverId?: string;
+  // Set by verifyTokenMiddleware only (middleware/auth.ts) — F-0.1's business
+  // creation route, the one route with no business yet to resolve. Never set
+  // alongside businessId; the two middlewares are mutually exclusive per route.
+  authSub?: string;
+  authEmail?: string;
+  authName?: string;
   // Set by the global error handler so the request logger does not emit a
   // second, duplicate line for a request it has already logged with a stack.
   errorLogged?: boolean;

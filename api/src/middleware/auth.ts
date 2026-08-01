@@ -32,3 +32,25 @@ export const authMiddleware = (): MiddlewareHandler<Env> => {
     await next();
   };
 };
+
+/**
+ * F-0.1's one exception to `authMiddleware`: creating the very first business
+ * for an identity that has no `business_member` row yet, so there is nothing
+ * for `resolveMembership` to resolve — every other route needs a business to
+ * scope by, this is the one that creates it. Verifies the token and nothing
+ * else; `c.get("businessId")` stays unset all the way through this route.
+ */
+export const verifyTokenMiddleware = (): MiddlewareHandler<Env> => {
+  return async (c, next) => {
+    const token = extractBearerToken(c.req.header("Authorization"));
+    const payload = await verifyAccessToken(token, c.env);
+
+    if (typeof payload.sub !== "string" || !payload.sub) throw new InvalidTokenError();
+
+    c.set("authSub", payload.sub);
+    c.set("authEmail", typeof payload["email"] === "string" ? payload["email"] : undefined);
+    c.set("authName", typeof payload["name"] === "string" ? payload["name"] : undefined);
+
+    await next();
+  };
+};

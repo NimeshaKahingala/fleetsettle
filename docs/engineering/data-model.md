@@ -128,6 +128,18 @@ CREATE TABLE business_member (
   UNIQUE (business_id, user_id)
 );
 
+-- This product has no multi-business membership (nothing in use-cases.md or
+-- user-flows.md describes one user across two businesses, or a switcher) —
+-- the sub → app_user → business_member resolution (IG §7.1) assumes at most
+-- one active row per user and takes it on faith. The plain
+-- UNIQUE above only stops the same (business, user) pair twice; it does not
+-- stop the same user acquiring a second business_id, which a double-submitted
+-- "create business" request or a client retry after a timeout can otherwise
+-- do. Revoked rows are excluded so a revoked manager (F-1.4) can be
+-- re-granted, or someone start a second business after leaving the first,
+-- without this index in the way.
+CREATE UNIQUE INDEX one_active_business_per_user ON business_member (user_id) WHERE revoked_at IS NULL;
+
 CREATE TABLE business_settings (
   business_id             uuid PRIMARY KEY REFERENCES business(id),
   auto_waive_threshold_minor bigint NOT NULL DEFAULT 0 CHECK (auto_waive_threshold_minor >= 0),

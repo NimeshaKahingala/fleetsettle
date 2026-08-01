@@ -22,3 +22,11 @@ export function requireDriverId(c: Context<Env>): string {
     throw new Error("driverId is not set — this route is not scoped to a linked driver");
   return driverId;
 }
+
+/** F-0.1 only — set by `verifyTokenMiddleware`, never by `authMiddleware`. */
+export function requireAuthSub(c: Context<Env>): string {
+  const authSub = c.get("authSub");
+  if (!authSub)
+    throw new Error("authSub is not set — is verifyTokenMiddleware mounted on this route?");
+  return authSub;
+}

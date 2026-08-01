@@ -20,3 +20,13 @@ export const writer = (url: string) => drizzlePool(new Pool({ connectionString: 
 
 export type Reader = ReturnType<typeof reader>;
 export type Writer = ReturnType<typeof writer>;
+
+/**
+ * The type Drizzle passes into a `writer.transaction(async (tx) => …)`
+ * callback — the same `.insert`/`.select`/… surface as `Writer`, scoped to
+ * one transaction. `queries/` functions that a domain module runs inside a
+ * transaction accept `Writer | Tx` so the same query works standalone or
+ * transactionally, without importing `drizzle-orm/pg-core`'s transaction
+ * type by hand.
+ */
+export type Tx = Parameters<Parameters<Writer["transaction"]>[0]>[0];

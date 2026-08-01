@@ -3,7 +3,10 @@ import { eq } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
 import {
   accountingPeriod,
+  appUser,
   business,
+  businessMember,
+  businessSettings,
   customer,
   driver,
   lease,
@@ -157,6 +160,24 @@ export class TestContext {
       await this.#db.delete(lease).where(eq(lease.id, id));
     });
     return id;
+  }
+
+  /**
+   * F-0.1: `POST /api/business` writes `app_user`, `business`,
+   * `business_member`, `business_settings` and `accounting_period` in one
+   * transaction (domain/setup.ts) — this is that write's teardown, one
+   * `track()`ed function so it stays FK-safe (children before parents)
+   * without depending on where it falls relative to a test's other
+   * `track()` calls.
+   */
+  trackCreatedBusiness(businessId: string, userId: string): void {
+    this.track(async () => {
+      await this.#db.delete(accountingPeriod).where(eq(accountingPeriod.businessId, businessId));
+      await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
+      await this.#db.delete(businessMember).where(eq(businessMember.businessId, businessId));
+      await this.#db.delete(business).where(eq(business.id, businessId));
+      await this.#db.delete(appUser).where(eq(appUser.id, userId));
+    });
   }
 
   /** Unwinds every tracked row, most-recently-created first. */
