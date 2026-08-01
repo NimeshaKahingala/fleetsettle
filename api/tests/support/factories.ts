@@ -204,6 +204,13 @@ export class TestContext {
     });
   }
 
+  /** F-2.1: `POST /api/customer` writes a single row — this is that write's teardown, for tests that go through the endpoint rather than `createCustomer()` above. */
+  trackCreatedCustomer(customerId: string): void {
+    this.track(async () => {
+      await this.#db.delete(customer).where(eq(customer.id, customerId));
+    });
+  }
+
   /** Unwinds every tracked row, most-recently-created first. */
   async cleanup(): Promise<void> {
     for (const fn of this.#cleanups.reverse()) {

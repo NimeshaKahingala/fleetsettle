@@ -12,6 +12,7 @@ import { probe } from "./routes/_probe.js";
 import { business } from "./routes/business.js";
 import { vehicle } from "./routes/vehicle.js";
 import { driver } from "./routes/driver.js";
+import { customer } from "./routes/customer.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -43,6 +44,9 @@ app.route("/api/vehicle", vehicle);
 
 app.use("/api/driver/*", dbMiddleware(), authMiddleware());
 app.route("/api/driver", driver);
+
+app.use("/api/customer/*", dbMiddleware(), authMiddleware());
+app.route("/api/customer", customer);
 
 mountDocs(app);
 
