@@ -1,7 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { KV_KEY } from "../../src/auth/jwks.js";
 import type { Bindings } from "../../src/types.js";
+import { TEST_JWKS } from "./jwks.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -55,13 +57,45 @@ function unavailableBinding<T>(name: string): T {
 }
 
 /**
+ * An in-memory KV, real enough for auth/jwks.ts: `get`/`put` with the same
+ * "json" round trip. Not the full KVNamespace surface (no `list`, no
+ * metadata) — nothing here exercises those yet.
+ */
+function fakeKV(): KVNamespace {
+  const store = new Map<string, string>();
+
+  const get = ((key: string, type?: unknown) => {
+    const raw = store.get(key);
+    if (raw === undefined) return Promise.resolve(null);
+    return Promise.resolve(type === "json" ? (JSON.parse(raw) as unknown) : raw);
+  }) as KVNamespace["get"];
+
+  const put = ((key: string, value: string) => {
+    store.set(key, value);
+    return Promise.resolve();
+  }) as KVNamespace["put"];
+
+  return { get, put } as unknown as KVNamespace;
+}
+
+/** Always allows — rate limiting (IG §13) is a production concern, not this suite's. */
+function permissiveRateLimiter(): RateLimit {
+  return { limit: () => Promise.resolve({ success: true }) };
+}
+
+const testKV = fakeKV();
+// Pre-seeded so auth/verify.ts's cache-hit path runs for real without a
+// network call — the cache-miss/refetch-on-kid-miss paths are exercised
+// directly in src/auth/jwks.test.ts (the "unit" project), not here.
+await testKV.put(KV_KEY, JSON.stringify(TEST_JWKS));
+
+/**
  * Passed as the third argument to `app.request(path, init, TEST_ENV)`
  * (support/client.ts) — the full middleware chain, no server (IG §8.3).
  *
- * KV/R2/MESSAGE_QUEUE are unavailable-by-default stubs: nothing exercises them
- * yet (JWKS caching is P1, R2 attachments and the message queue are later),
- * and a stub that throws on first use is more honest than one that silently
- * no-ops.
+ * R2/MESSAGE_QUEUE are still unavailable-by-default stubs: nothing exercises
+ * them yet (attachments and the message queue are much later), and a stub
+ * that throws on first use is more honest than one that silently no-ops.
  */
 export const TEST_ENV: Bindings = {
   DATABASE_URL: TEST_DATABASE_URL,
@@ -70,7 +104,8 @@ export const TEST_ENV: Bindings = {
   ASGARDEO_JWKS_URL:
     read("ASGARDEO_JWKS_URL") ?? "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
   ASGARDEO_AUDIENCE: read("ASGARDEO_AUDIENCE") ?? "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
-  KV: unavailableBinding<KVNamespace>("KV"),
+  KV: testKV,
   R2: unavailableBinding<R2Bucket>("R2"),
   MESSAGE_QUEUE: unavailableBinding<Queue>("MESSAGE_QUEUE"),
+  RATE_LIMITER: permissiveRateLimiter(),
 };

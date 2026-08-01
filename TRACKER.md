@@ -89,13 +89,14 @@ Error monitoring — **deliberately deferred**, not wired. Asked: Tail Worker (n
 
 The one phase where a mistake is a security bug rather than a wrong number.
 
-**Backend**
-- `jose` — `createRemoteJWKSet` + `jwtVerify`, JWKS cached in KV, refetch on `kid` miss
-- `sub → app_user → business_member`, then `c.set("businessId", …)`
-- `auth/policy.ts` — one function per row of the W-49 matrix
-- The status rule wired once: cross-tenant **404**, lacked capability **403**
-- The linked-driver test class, as a harness later phases extend
-- Rate limiting via the Workers binding — never a token row per request (IG §13)
+**Backend** — done.
+- `jose` — `jwtVerify` against a **local** JWKS (`createLocalJWKSet`) fetched through KV rather than `createRemoteJWKSet`'s in-memory cache, which only helps the isolate that populated it — refetch-once on a `kid` the cached set doesn't have, then one undifferentiated 401 for every other failure (bad signature, wrong issuer/audience, expired), since none of those distinctions are the caller's to learn from
+- `sub → app_user → business_member` **or** `driver.linked_user_id` in one query (`queries/identity.ts`), not three round trips — a linked driver never gets a `business_member` row (DM §3's CHECK constraint), so this is a real second path, not a variation of the first. No membership at all resolves to the same 404 a foreign business would; nothing in the product supports one user across multiple businesses, so this doesn't build a selector for a case that can't happen
+- `auth/policy.ts` — one function per row of the W-49 matrix that *is* a flat role check. Two rows aren't: "ownership shares… (own vehicles)" needs P2's ownership records, and "see another driver's data" is `driver_id` scoping in the data layer, not a capability — both noted in the file rather than faked
+- The status rule wired once: cross-tenant **404**, lacked capability **403** — proven by `NotFoundError`/`ForbiddenCapabilityError` through the real middleware chain, not asserted in isolation
+- The linked-driver test class, exercised against real `vehicle`/`driver` rows via temporary `/api/_probe/*` routes (no CRUD exists before P2) — `GET /api/me` is the one permanent route this phase adds, and doubles as the frontend's role→shell signal
+- Rate limiting via the Workers `ratelimit` binding, keyed by `CF-Connecting-IP`, mounted globally — confirmed locally via `wrangler dev` that `namespace_id` needs no separate provisioning step, unlike KV/R2/Queue
+- Both Vitest projects (IG §8.1) now have real content: `unit` covers JWKS cache-hit/miss/kid-miss/refetch and the rate-limit middleware with a mocked `fetch`/fake KV, no Postgres; `integration` covers the full matrix above through `app.request()` against the real Neon branch, using a real ES256 keypair (`tests/support/jwks.ts`) to sign test tokens — `auth/verify.ts` is not mocked, only the IdP is
 
 **Frontend**
 - `@asgardeo/auth-react` provider, PKCE, refresh — **blocked on the console changes**

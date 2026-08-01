@@ -1,19 +1,36 @@
 import { newId } from "@fleetsettle/shared";
+import { SignJWT } from "jose";
 import type { Writer } from "../../src/db/client.js";
+import { TEST_ENV } from "./env.js";
 import type { TestContext } from "./factories.js";
+import { TEST_ALG, TEST_KID, TEST_SIGNING_KEY } from "./jwks.js";
 
 /** The W-49 roles a `business_member` row can hold. */
 export type Role = "owner" | "owner_manager" | "manager";
 
 /**
+ * A real access token for `sub`, signed by the test keypair (support/jwks.ts)
+ * and shaped like Asgardeo's: same issuer/audience `auth/verify.ts` checks,
+ * same header `kid`. `auth/verify.ts` is not mocked — only the IdP is.
+ */
+export async function signAccessToken(
+  sub: string,
+  overrides: { issuer?: string; audience?: string; expiresIn?: string } = {},
+): Promise<string> {
+  return new SignJWT({})
+    .setProtectedHeader({ alg: TEST_ALG, kid: TEST_KID })
+    .setSubject(sub)
+    .setIssuer(overrides.issuer ?? TEST_ENV.ASGARDEO_ISSUER)
+    .setAudience(overrides.audience ?? TEST_ENV.ASGARDEO_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(overrides.expiresIn ?? "1h")
+    .sign(TEST_SIGNING_KEY);
+}
+
+/**
  * Mints a real `app_user` + `business_member` row in the given role, tracked
  * on the same `TestContext` used for the rest of the fixture so `cleanup()`
  * unwinds it too.
- *
- * This does not yet mock `jose`'s verifier — there is nothing to mock until
- * P1's `auth/verify.ts` exists. What this gives P1 for free: real rows in
- * every role and a real linked driver, so its test class starts from actual
- * data rather than fixtures invented twice.
  */
 export async function mintUser(
   db: Writer,

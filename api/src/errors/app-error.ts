@@ -59,3 +59,12 @@ export class PeriodClosedError extends AppError {
     super(409, "PERIOD_CLOSED", message);
   }
 }
+
+// IG §13: the Workers rate-limiting binding, never a database row per
+// request — that is two round trips and unbounded growth for the one thing
+// rate limiting exists to bound.
+export class RateLimitedError extends AppError {
+  constructor(message = "Too many requests") {
+    super(429, "RATE_LIMITED", message);
+  }
+}
