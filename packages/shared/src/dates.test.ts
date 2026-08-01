@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { addDays, asBusinessDate, businessDateAt, inclusiveDays } from "./dates.js";
+import {
+  addDays,
+  asBusinessDate,
+  businessDateAt,
+  inclusiveDays,
+  monthEnd,
+  monthStart,
+} from "./dates.js";
 
 describe("the business date is Asia/Colombo's date", () => {
   it("is already tomorrow in Colombo while UTC still says today", () => {
@@ -72,5 +79,21 @@ describe("addDays", () => {
     const start = asBusinessDate("2026-01-12");
     const end = addDays(start, 30);
     expect(inclusiveDays(start, end)).toBe(31);
+  });
+});
+
+describe("monthStart / monthEnd (UC-08)", () => {
+  it("finds the first and last day of the month, including February in a non-leap year", () => {
+    expect(monthStart(asBusinessDate("2026-07-17"))).toBe("2026-07-01");
+    expect(monthEnd(asBusinessDate("2026-07-17"))).toBe("2026-07-31");
+    expect(monthEnd(asBusinessDate("2026-02-01"))).toBe("2026-02-28");
+    expect(monthEnd(asBusinessDate("2026-04-01"))).toBe("2026-04-30");
+  });
+
+  it("reproduces the §7.3 31/28/31/30 run", () => {
+    expect(monthEnd(asBusinessDate("2026-01-01"))).toBe("2026-01-31");
+    expect(monthEnd(asBusinessDate("2026-02-01"))).toBe("2026-02-28");
+    expect(monthEnd(asBusinessDate("2026-03-01"))).toBe("2026-03-31");
+    expect(monthEnd(asBusinessDate("2026-04-01"))).toBe("2026-04-30");
   });
 });

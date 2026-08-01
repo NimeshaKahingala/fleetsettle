@@ -83,3 +83,23 @@ export function addDays(date: BusinessDate, days: number): BusinessDate {
   const shifted = new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS);
   return utc.format(shifted) as BusinessDate;
 }
+
+/** The first day of `date`'s calendar month (UC-08: the period a new business opens into). */
+export function monthStart(date: BusinessDate): BusinessDate {
+  return `${date.slice(0, 7)}-01` as BusinessDate;
+}
+
+/**
+ * The last day of `date`'s calendar month — the arithmetic behind §7.3's
+ * 31 / 28 / 31 / 30, done once here rather than reproduced at every call
+ * site. Day 0 of the following month is the last day of this one; both ends
+ * are UTC midnights, so there is no timezone in the subtraction.
+ */
+export function monthEnd(date: BusinessDate): BusinessDate {
+  // eslint-disable-next-line no-restricted-syntax -- a calendar year, not money
+  const year = Number(date.slice(0, 4));
+  // eslint-disable-next-line no-restricted-syntax -- a calendar month, not money
+  const month = Number(date.slice(5, 7));
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${date.slice(0, 7)}-${String(lastDay).padStart(2, "0")}` as BusinessDate;
+}
