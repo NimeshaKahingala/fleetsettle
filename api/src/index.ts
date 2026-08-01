@@ -15,6 +15,7 @@ import { driver } from "./routes/driver.js";
 import { customer } from "./routes/customer.js";
 import { lease } from "./routes/lease.js";
 import { dailyLease } from "./routes/dailyLease.js";
+import { dayRecord } from "./routes/day-record.js";
 import { trip } from "./routes/trip.js";
 import { openingBalance } from "./routes/opening-balance.js";
 import { mountDocs } from "./routes/docs.js";
@@ -60,6 +61,9 @@ app.route("/api/daily-lease", dailyLease);
 
 app.use("/api/trip/*", dbMiddleware(), authMiddleware());
 app.route("/api/trip", trip);
+
+app.use("/api/day-record/*", dbMiddleware(), authMiddleware());
+app.route("/api/day-record", dayRecord);
 
 app.use("/api/opening-balance/*", dbMiddleware(), authMiddleware());
 app.route("/api/opening-balance", openingBalance);

@@ -1,5 +1,5 @@
 import { newId } from "@fleetsettle/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
 import {
   accountingPeriod,
@@ -10,10 +10,14 @@ import {
   customer,
   dailyLease,
   dailyLeaseRate,
+  dayRecord,
   driver,
   lease,
+  obligation,
   openingBalanceBatch,
   openingBalanceEntry,
+  payment,
+  paymentAllocation,
   trip,
   vehicle,
   vehicleArrangement,
@@ -51,6 +55,12 @@ interface LeaseOverrides {
   startDate?: string;
   billingDay?: number;
   rentAmountMinor?: bigint;
+}
+
+interface DailyLeaseOverrides {
+  patternType?: "every_day" | "alternate" | "weekdays";
+  effectiveFrom?: string;
+  dailyLeaseAmountMinor?: bigint;
 }
 
 /**
@@ -170,6 +180,47 @@ export class TestContext {
     return id;
   }
 
+  /** Bare `daily_lease` + its first `daily_lease_rate` — for tests that need arrangement B in place without going through `POST /api/daily-lease`. */
+  async createDailyLease(
+    businessId: string,
+    vehicleId: string,
+    driverId: string,
+    overrides: DailyLeaseOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(dailyLease).values({
+      id,
+      businessId,
+      vehicleId,
+      driverId,
+      patternType: overrides.patternType ?? "every_day",
+      effectiveFrom: overrides.effectiveFrom ?? "2026-07-01",
+    });
+    this.track(async () => {
+      await this.#db.delete(dailyLease).where(eq(dailyLease.id, id));
+    });
+
+    await this.#db.insert(dailyLeaseRate).values({
+      id: newId(),
+      dailyLeaseId: id,
+      dailyLeaseAmountMinor: overrides.dailyLeaseAmountMinor ?? 5_000_00n,
+      effectiveFrom: overrides.effectiveFrom ?? "2026-07-01",
+    });
+    this.track(async () => {
+      await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, id));
+    });
+
+    return id;
+  }
+
+  /** Flips a period straight to `closed` — there is no close endpoint yet (P9); this is only how a test reaches the trigger's rejection path. */
+  async closePeriod(periodId: string): Promise<void> {
+    await this.#db
+      .update(accountingPeriod)
+      .set({ status: "closed" })
+      .where(eq(accountingPeriod.id, periodId));
+  }
+
   /**
    * F-0.1: `POST /api/business` writes `app_user`, `business`,
    * `business_member`, `business_settings` and `accounting_period` in one
@@ -229,6 +280,39 @@ export class TestContext {
     this.track(async () => {
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId));
       await this.#db.delete(dailyLease).where(eq(dailyLease.id, dailyLeaseId));
+    });
+  }
+
+  /**
+   * F-4.2/F-4.4: `POST /api/day-record/confirm` writes `day_record`, its
+   * `obligation`, and — when anything was received — a `payment` and its
+   * `payment_allocation` (domain/confirmDay.ts). A `did_not_run` day has no
+   * obligation at all, so this looks each child up rather than assuming a
+   * fixed shape, then unwinds child-before-parent.
+   */
+  trackCreatedDayRecord(dayRecordId: string): void {
+    this.track(async () => {
+      const obligationRows = await this.#db
+        .select({ id: obligation.id })
+        .from(obligation)
+        .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, dayRecordId)));
+
+      for (const { id: obligationId } of obligationRows) {
+        const allocationRows = await this.#db
+          .select({ paymentId: paymentAllocation.paymentId })
+          .from(paymentAllocation)
+          .where(eq(paymentAllocation.obligationId, obligationId));
+
+        await this.#db
+          .delete(paymentAllocation)
+          .where(eq(paymentAllocation.obligationId, obligationId));
+        for (const { paymentId } of allocationRows) {
+          await this.#db.delete(payment).where(eq(payment.id, paymentId));
+        }
+        await this.#db.delete(obligation).where(eq(obligation.id, obligationId));
+      }
+
+      await this.#db.delete(dayRecord).where(eq(dayRecord.id, dayRecordId));
     });
   }
 

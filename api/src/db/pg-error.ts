@@ -9,10 +9,12 @@
 
 const UNIQUE_VIOLATION = "23505";
 const EXCLUSION_VIOLATION = "23P01";
+const RAISE_EXCEPTION = "P0001";
 
 interface PostgresError {
   code?: string;
   constraint?: string;
+  message?: string;
 }
 
 function isPostgresError(err: unknown): err is PostgresError {
@@ -41,4 +43,17 @@ export function isUniqueViolation(err: unknown, constraintName: string): boolean
 export function isExclusionViolation(err: unknown, constraintName: string): boolean {
   const pgError = pgErrorOf(err);
   return pgError?.code === EXCLUSION_VIOLATION && pgError.constraint === constraintName;
+}
+
+/**
+ * True if `err` is `assert_period_open()`'s `RAISE EXCEPTION` (DM §13,
+ * migrations/0001 §"INV-10"). Every `plpgsql RAISE EXCEPTION` with no
+ * explicit `ERRCODE` shares the same generic `P0001` code, so the message —
+ * fixed, deliberate text the trigger itself raises — is what disambiguates
+ * this one from `assert_shares_total`/`assert_advances_settled`/`assert_split_sums`,
+ * the same way a constraint name disambiguates a unique violation.
+ */
+export function isPeriodClosedViolation(err: unknown): boolean {
+  const pgError = pgErrorOf(err);
+  return pgError?.code === RAISE_EXCEPTION && (pgError.message?.includes("is closed") ?? false);
 }

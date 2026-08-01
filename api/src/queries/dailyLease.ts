@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, lte, or, gte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dailyLease, dailyLeaseRate } from "../db/schema.js";
 
@@ -74,6 +74,31 @@ export async function findCurrentDailyLeaseRate(
     .select({ dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor })
     .from(dailyLeaseRate)
     .where(and(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId), isNull(dailyLeaseRate.effectiveTo)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * The rate in force on a specific date — F-4.3's effective-dated rates mean
+ * a catch-up day's rate can differ from today's. DM §7's exclusion
+ * constraint (no two rates overlap on the same daily lease) guarantees at
+ * most one match.
+ */
+export async function findDailyLeaseRateForDate(
+  db: ReadDb,
+  dailyLeaseId: string,
+  businessDate: string,
+): Promise<{ dailyLeaseAmountMinor: bigint } | undefined> {
+  const rows = await db
+    .select({ dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor })
+    .from(dailyLeaseRate)
+    .where(
+      and(
+        eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId),
+        lte(dailyLeaseRate.effectiveFrom, businessDate),
+        or(isNull(dailyLeaseRate.effectiveTo), gte(dailyLeaseRate.effectiveTo, businessDate)),
+      ),
+    )
     .limit(1);
   return rows[0];
 }

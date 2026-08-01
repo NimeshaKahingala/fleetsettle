@@ -18,6 +18,13 @@ export function requireBusinessId(c: Context<Env>): string {
   return businessId;
 }
 
+/** The `app_user` row for whoever is making the request — who held the cash for a payment (DM §10.2, UC-61/UC-75). */
+export function requireUserId(c: Context<Env>): string {
+  const userId = c.get("userId");
+  if (!userId) throw new Error("userId is not set — is authMiddleware mounted on this route?");
+  return userId;
+}
+
 export function requireDriverId(c: Context<Env>): string {
   const driverId = c.get("driverId");
   if (!driverId)
