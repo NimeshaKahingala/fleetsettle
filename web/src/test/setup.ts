@@ -39,3 +39,13 @@ if (typeof Element !== "undefined" && !Element.prototype.setPointerCapture) {
   Element.prototype.releasePointerCapture = () => undefined;
   Element.prototype.hasPointerCapture = () => false;
 }
+
+// jsdom has no Blob URL registry — PhotoCapture (and anything else that
+// previews a captured Blob) calls URL.createObjectURL/revokeObjectURL.
+// createImageBitmap/OffscreenCanvas (the actual decode/encode pipeline)
+// still don't exist under jsdom; tests that reach them mock
+// lib/photo-pipeline.ts's downscaleAndEncode instead of stubbing those.
+if (typeof URL !== "undefined" && !URL.createObjectURL) {
+  URL.createObjectURL = () => "blob:mock-url";
+  URL.revokeObjectURL = () => undefined;
+}
