@@ -3,6 +3,9 @@ import { and, eq } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
 import {
   accountingPeriod,
+  adjustment,
+  advance,
+  advanceSettlement,
   appUser,
   business,
   businessMember,
@@ -11,9 +14,14 @@ import {
   dailyLease,
   dailyLeaseRate,
   dayRecord,
+  deposit,
+  depositMovement,
   driver,
+  expense,
   lease,
   obligation,
+  offsetAllocation,
+  offsetRecord,
   openingBalanceBatch,
   openingBalanceEntry,
   payment,
@@ -55,6 +63,7 @@ interface LeaseOverrides {
   startDate?: string;
   billingDay?: number;
   rentAmountMinor?: bigint;
+  status?: "draft" | "active" | "closing" | "closed";
 }
 
 interface DailyLeaseOverrides {
@@ -129,6 +138,20 @@ export class TestContext {
     return id;
   }
 
+  /** §6.7's borne-by default is keyed on the vehicle's current arrangement — `createVehicle()` alone leaves it unset (P2's own bare factory does not assume any particular test needs one). */
+  async setVehicleArrangement(vehicleId: string, arrangement: "A" | "B" | "C"): Promise<void> {
+    const id = newId();
+    await this.#db.insert(vehicleArrangement).values({
+      id,
+      vehicleId,
+      arrangement,
+      effectiveFrom: "2026-01-01",
+    });
+    this.track(async () => {
+      await this.#db.delete(vehicleArrangement).where(eq(vehicleArrangement.id, id));
+    });
+  }
+
   async createDriver(businessId: string, overrides: DriverOverrides = {}): Promise<string> {
     const id = newId();
     await this.#db.insert(driver).values({
@@ -173,6 +196,7 @@ export class TestContext {
       startDate: overrides.startDate ?? "2026-07-01",
       billingDay: overrides.billingDay ?? 1,
       rentAmountMinor: overrides.rentAmountMinor ?? 50_000_00n,
+      status: overrides.status ?? "draft",
     });
     this.track(async () => {
       await this.#db.delete(lease).where(eq(lease.id, id));
@@ -219,6 +243,45 @@ export class TestContext {
       .update(accountingPeriod)
       .set({ status: "closed" })
       .where(eq(accountingPeriod.id, periodId));
+  }
+
+  /** A bare `obligation` row — for tests exercising adjustment/offset against a fact that didn't arrive via `confirmDay` (P3) or a later phase's own writer. */
+  async createObligation(
+    businessId: string,
+    periodId: string,
+    overrides: {
+      direction?: "owed_to_us" | "owed_by_us";
+      driverId?: string;
+      amountMinor?: bigint;
+      settledMinor?: bigint;
+      waivedMinor?: bigint;
+      dueOn?: string;
+      status?: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+    } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(obligation).values({
+      id,
+      businessId,
+      direction: overrides.direction ?? "owed_to_us",
+      partyType: "driver",
+      partyDriverId: overrides.driverId,
+      kind: "other",
+      sourceType: "test_fixture",
+      amountMinor: overrides.amountMinor ?? 100_000n,
+      settledMinor: overrides.settledMinor ?? 0n,
+      waivedMinor: overrides.waivedMinor ?? 0n,
+      dueOn: overrides.dueOn ?? "2026-07-15",
+      effectiveDueOn: overrides.dueOn ?? "2026-07-15",
+      status: overrides.status ?? "pending",
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(adjustment).where(eq(adjustment.obligationId, id));
+      await this.#db.delete(offsetAllocation).where(eq(offsetAllocation.obligationId, id));
+      await this.#db.delete(obligation).where(eq(obligation.id, id));
+    });
+    return id;
   }
 
   /**
@@ -329,6 +392,37 @@ export class TestContext {
     this.track(async () => {
       await this.#db.delete(openingBalanceEntry).where(eq(openingBalanceEntry.batchId, batchId));
       await this.#db.delete(openingBalanceBatch).where(eq(openingBalanceBatch.id, batchId));
+    });
+  }
+
+  /** F-3.1/F-3.2/F-3.3: `POST /api/expense` writes a single row — this is that write's teardown. */
+  trackCreatedExpense(expenseId: string): void {
+    this.track(async () => {
+      await this.#db.delete(expense).where(eq(expense.id, expenseId));
+    });
+  }
+
+  /** F-6.3/UC-53: `POST /api/advance` + `.../settle` write `advance` and its settlements (domain/advance.ts) — this is that write's teardown. */
+  trackCreatedAdvance(advanceId: string): void {
+    this.track(async () => {
+      await this.#db.delete(advanceSettlement).where(eq(advanceSettlement.advanceId, advanceId));
+      await this.#db.delete(advance).where(eq(advance.id, advanceId));
+    });
+  }
+
+  /** F-6.7/UC-58: `POST /api/deposit` + `.../movement` write `deposit` and its movements (domain/deposit.ts) — this is that write's teardown. */
+  trackCreatedDeposit(depositId: string): void {
+    this.track(async () => {
+      await this.#db.delete(depositMovement).where(eq(depositMovement.depositId, depositId));
+      await this.#db.delete(deposit).where(eq(deposit.id, depositId));
+    });
+  }
+
+  /** F-6.4/UC-56: `POST /api/offset` writes `offset_record` and its allocations on both sides (domain/offset.ts) — this is that write's teardown. */
+  trackCreatedOffset(offsetId: string): void {
+    this.track(async () => {
+      await this.#db.delete(offsetAllocation).where(eq(offsetAllocation.offsetId, offsetId));
+      await this.#db.delete(offsetRecord).where(eq(offsetRecord.id, offsetId));
     });
   }
 

@@ -18,6 +18,11 @@ import { dailyLease } from "./routes/dailyLease.js";
 import { dayRecord } from "./routes/day-record.js";
 import { trip } from "./routes/trip.js";
 import { openingBalance } from "./routes/opening-balance.js";
+import { expense } from "./routes/expense.js";
+import { adjustment } from "./routes/adjustment.js";
+import { advance } from "./routes/advance.js";
+import { deposit } from "./routes/deposit.js";
+import { offset } from "./routes/offset.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -67,6 +72,21 @@ app.route("/api/day-record", dayRecord);
 
 app.use("/api/opening-balance/*", dbMiddleware(), authMiddleware());
 app.route("/api/opening-balance", openingBalance);
+
+app.use("/api/expense/*", dbMiddleware(), authMiddleware());
+app.route("/api/expense", expense);
+
+app.use("/api/adjustment/*", dbMiddleware(), authMiddleware());
+app.route("/api/adjustment", adjustment);
+
+app.use("/api/advance/*", dbMiddleware(), authMiddleware());
+app.route("/api/advance", advance);
+
+app.use("/api/deposit/*", dbMiddleware(), authMiddleware());
+app.route("/api/deposit", deposit);
+
+app.use("/api/offset/*", dbMiddleware(), authMiddleware());
+app.route("/api/offset", offset);
 
 mountDocs(app);
 

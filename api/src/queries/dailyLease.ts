@@ -51,6 +51,19 @@ const COLUMNS = {
   effectiveTo: dailyLease.effectiveTo,
 };
 
+/** §6.7's borne-by default for arrangement B — "the driver" is whoever currently holds the vehicle's daily lease; none found falls back to `us`, the same as arrangement A with no active lease. */
+export async function findCurrentDailyLeaseForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<{ driverId: string } | undefined> {
+  const rows = await db
+    .select({ driverId: dailyLease.driverId })
+    .from(dailyLease)
+    .where(and(eq(dailyLease.vehicleId, vehicleId), isNull(dailyLease.effectiveTo)))
+    .limit(1);
+  return rows[0];
+}
+
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
 export async function findDailyLeaseForBusiness(
   db: ReadDb,

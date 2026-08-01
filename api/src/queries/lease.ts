@@ -65,3 +65,16 @@ export async function findLeaseForBusiness(
     .limit(1);
   return rows[0] as LeaseRow | undefined;
 }
+
+/** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */
+export async function findActiveLeaseForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<{ customerId: string } | undefined> {
+  const rows = await db
+    .select({ customerId: lease.customerId })
+    .from(lease)
+    .where(and(eq(lease.vehicleId, vehicleId), eq(lease.status, "active")))
+    .limit(1);
+  return rows[0];
+}

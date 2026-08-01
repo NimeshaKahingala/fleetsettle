@@ -1,5 +1,9 @@
 import { createRoute } from "@hono/zod-openapi";
-import { createDriverRequestSchema, driverResponseSchema } from "@fleetsettle/shared/schemas";
+import {
+  createDriverRequestSchema,
+  driverBalancesResponseSchema,
+  driverResponseSchema,
+} from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const driverIdParams = z.object({ id: z.string().uuid() });
@@ -48,5 +52,21 @@ export const listDriversRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read drivers" },
+  },
+});
+
+/** W-2/INV-3: two figures, never netted — the net a manager sees is computed and displayed, never stored or returned as its own field. */
+export const getDriverBalancesRoute = createRoute({
+  method: "get",
+  path: "/{id}/balances",
+  request: { params: driverIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: driverBalancesResponseSchema } },
+      description: "What this driver owes, and is owed, as two separate figures",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read driver balances" },
+    404: { description: "No such driver in this business" },
   },
 });

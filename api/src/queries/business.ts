@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Tx, Writer } from "../db/client.js";
+import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
   appUser,
@@ -9,6 +9,7 @@ import {
 } from "../db/schema.js";
 
 type Db = Writer | Tx;
+type ReadDb = Reader | Writer | Tx;
 
 export interface NewAppUser {
   id: string;
@@ -60,6 +61,19 @@ export async function insertBusinessMember(db: Db, values: NewBusinessMember): P
 /** No fields beyond `businessId` — DM §3's column defaults are F-0.1's "defaults applied" row (zero auto-waive, 08:00–20:00, 30-day paperwork warning). */
 export async function insertBusinessSettings(db: Db, businessId: string): Promise<void> {
   await db.insert(businessSettings).values({ businessId });
+}
+
+/** OQ-3: a blank threshold means zero (waive nothing), never unbounded — `businessSettings.autoWaiveThresholdMinor` defaults to `0n`, never null. */
+export async function findBusinessSettings(
+  db: ReadDb,
+  businessId: string,
+): Promise<{ autoWaiveThresholdMinor: bigint } | undefined> {
+  const rows = await db
+    .select({ autoWaiveThresholdMinor: businessSettings.autoWaiveThresholdMinor })
+    .from(businessSettings)
+    .where(eq(businessSettings.businessId, businessId))
+    .limit(1);
+  return rows[0];
 }
 
 export interface NewAccountingPeriod {

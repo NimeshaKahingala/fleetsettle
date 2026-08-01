@@ -10,6 +10,7 @@ import {
 } from "../queries/day-record.js";
 import { findObligationBySource, insertObligation } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
+import { computeObligationStatus } from "./obligation-status.js";
 import type { LostReason } from "@fleetsettle/shared/schemas";
 
 export type ConfirmDayAction =
@@ -126,8 +127,7 @@ export async function confirmDay(
           : receivedMinor < earnedMinor
             ? "ran_paid_short"
             : "ran_paid_full";
-      const obligationStatus: "pending" | "part_paid" | "paid" =
-        receivedMinor === 0n ? "pending" : receivedMinor < earnedMinor ? "part_paid" : "paid";
+      const obligationStatus = computeObligationStatus(earnedMinor, receivedMinor, 0n);
 
       await insertDayRecord(tx, {
         id: dayRecordId,

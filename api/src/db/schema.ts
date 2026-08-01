@@ -4,6 +4,7 @@ import {
   char,
   date,
   integer,
+  numeric,
   pgTable,
   smallint,
   text,
@@ -318,4 +319,130 @@ export const paymentAllocation = pgTable("payment_allocation", {
   obligationId: uuid("obligation_id").notNull(),
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   allocatedOn: date("allocated_on", { mode: "string" }).notNull(),
+});
+
+export const expense = pgTable("expense", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id"),
+  tripId: uuid("trip_id"),
+  incidentId: uuid("incident_id"),
+  category: text("category").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  spentOn: date("spent_on", { mode: "string" }).notNull(),
+  borneBy: text("borne_by").notNull(),
+  borneByDriverId: uuid("borne_by_driver_id"),
+  borneByCustomerId: uuid("borne_by_customer_id"),
+  paidByUserId: uuid("paid_by_user_id"),
+  litres: numeric("litres", { precision: 8, scale: 2, mode: "number" }),
+  odometerReadingId: uuid("odometer_reading_id"),
+  attachmentId: uuid("attachment_id"),
+  note: text("note"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const adjustment = pgTable("adjustment", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  obligationId: uuid("obligation_id").notNull(),
+  adjustmentType: text("adjustment_type").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  sign: smallint("sign").notNull(),
+  reason: text("reason"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+export const offsetRecord = pgTable("offset_record", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  driverId: uuid("driver_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+  note: text("note"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+export const offsetAllocation = pgTable("offset_allocation", {
+  id: uuid("id").primaryKey(),
+  offsetId: uuid("offset_id").notNull(),
+  obligationId: uuid("obligation_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+});
+
+export const deposit = pgTable("deposit", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  partyType: text("party_type").notNull(),
+  partyCustomerId: uuid("party_customer_id"),
+  partyDriverId: uuid("party_driver_id"),
+  leaseId: uuid("lease_id"),
+  dailyLeaseId: uuid("daily_lease_id"),
+  status: text("status").notNull().default("held"),
+  holdReleaseDate: date("hold_release_date", { mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const depositMovement = pgTable("deposit_movement", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  depositId: uuid("deposit_id").notNull(),
+  movementType: text("movement_type").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+  reason: text("reason"),
+  obligationId: uuid("obligation_id"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+export const advance = pgTable("advance", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  driverId: uuid("driver_id").notNull(),
+  tripId: uuid("trip_id"),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  issuedOn: date("issued_on", { mode: "string" }).notNull(),
+  issuedByUserId: uuid("issued_by_user_id"),
+  status: text("status").notNull().default("open"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+export const advanceSettlement = pgTable("advance_settlement", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  advanceId: uuid("advance_id").notNull(),
+  kind: text("kind").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+  expenseId: uuid("expense_id"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });

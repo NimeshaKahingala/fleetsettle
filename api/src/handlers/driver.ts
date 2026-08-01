@@ -8,7 +8,13 @@ import {
   listDriversForBusiness,
   type DriverRow,
 } from "../queries/driver.js";
-import type { createDriverRoute, getDriverRoute, listDriversRoute } from "../route-defs/driver.js";
+import { sumOutstandingByDirectionForDriver } from "../queries/obligation.js";
+import type {
+  createDriverRoute,
+  getDriverBalancesRoute,
+  getDriverRoute,
+  listDriversRoute,
+} from "../route-defs/driver.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: DriverRow) {
@@ -78,4 +84,28 @@ export const listDriversHandler: RouteHandler<typeof listDriversRoute, Env> = as
   const rows = await listDriversForBusiness(c.get("reader"), businessId);
 
   return c.json(rows.map(toResponse), 200);
+};
+
+/** W-2/INV-3. `dailyOperations` (STAFF) — checking a driver's position is routine, not a setup action. */
+export const getDriverBalancesHandler: RouteHandler<typeof getDriverBalancesRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const driver = await findDriverForBusiness(reader, businessId, id);
+  if (!driver) throw new NotFoundError();
+
+  const balances = await sumOutstandingByDirectionForDriver(reader, businessId, id);
+  return c.json(
+    {
+      driverId: id,
+      owedToUsMinor: toWire(balances.owedToUsMinor as Minor),
+      owedByUsMinor: toWire(balances.owedByUsMinor as Minor),
+    },
+    200,
+  );
 };
