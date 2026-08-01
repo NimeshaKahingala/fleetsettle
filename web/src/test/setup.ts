@@ -9,3 +9,33 @@ import { afterEach } from "vitest";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom does not implement matchMedia at all — any component that reads a
+// media query (dark-mode detection, useMobileHistoryDismiss's `pointer:
+// coarse` check) throws under test without this. Defaults to "no match"
+// (a mouse-and-keyboard desktop, no dark-mode override); a test that needs
+// the opposite overrides `window.matchMedia` itself, as
+// useMobileHistoryDismiss.test.tsx does.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      dispatchEvent: () => false,
+    }) satisfies MediaQueryList;
+}
+
+// jsdom also has no Pointer Events capture API — vaul's (and Radix's) drag
+// handling calls setPointerCapture/releasePointerCapture/hasPointerCapture
+// on every pointerdown, which otherwise throws and fails the test file even
+// when every assertion in it passed.
+if (typeof Element !== "undefined" && !Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => undefined;
+  Element.prototype.releasePointerCapture = () => undefined;
+  Element.prototype.hasPointerCapture = () => false;
+}

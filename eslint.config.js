@@ -1,6 +1,8 @@
 import js from "@eslint/js";
 import ts from "typescript-eslint";
 import prettier from "eslint-config-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 
 /**
@@ -356,7 +358,18 @@ export default ts.config(
   {
     files: ["web/src/**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },
+    // `eslint-plugin-react-hooks` and `-react-refresh` were dependencies
+    // without ever being wired into this config — added here rather than
+    // pulling in v7's full "React Compiler" rule set (purity, immutability,
+    // static-components, ...), which is a separate adoption decision nobody
+    // has made yet. `rules-of-hooks` and `exhaustive-deps` are the
+    // long-stable pair; a wrong dependency array is exactly the class of
+    // bug `useMobileHistoryDismiss.ts` needs guarded.
+    plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+      "react-refresh/only-export-components": "warn",
       "no-restricted-syntax": [
         "error",
         ...money,
