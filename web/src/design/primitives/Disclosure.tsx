@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "../../lib/cn.js";
 
 export interface DisclosureProps {
@@ -7,6 +7,14 @@ export interface DisclosureProps {
   sectionName: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  /**
+   * Forces the section open — for a validation error on a field this
+   * section hides. Without this, a collapsed level-2 section can swallow
+   * the only feedback a failed submit produced (§9.2's validation-timing
+   * rules exist precisely so a rejected save is never silent); pass
+   * `errors.someHiddenField !== undefined` from the form.
+   */
+  forceOpen?: boolean;
 }
 
 /**
@@ -18,8 +26,18 @@ export interface DisclosureProps {
  * fresh visit to the form is the form's own state to lift, not this
  * component's.
  */
-export function Disclosure({ sectionName, children, defaultOpen = false }: DisclosureProps) {
-  const [open, setOpen] = useState(defaultOpen);
+export function Disclosure({
+  sectionName,
+  children,
+  defaultOpen = false,
+  forceOpen = false,
+}: DisclosureProps) {
+  const [open, setOpen] = useState(defaultOpen || forceOpen);
+
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
+
   return (
     <div>
       <button

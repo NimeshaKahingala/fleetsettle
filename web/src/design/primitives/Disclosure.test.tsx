@@ -3,6 +3,22 @@ import userEvent from "@testing-library/user-event";
 import { expect, test } from "vitest";
 import { Disclosure } from "./Disclosure.js";
 
+test("forceOpen reveals a hidden field's validation error rather than swallowing it (§9.2)", () => {
+  const { rerender } = render(
+    <Disclosure sectionName="Contact details" forceOpen={false}>
+      <p>NIC is required</p>
+    </Disclosure>,
+  );
+  expect(screen.queryByText("NIC is required")).not.toBeInTheDocument();
+
+  rerender(
+    <Disclosure sectionName="Contact details" forceOpen>
+      <p>NIC is required</p>
+    </Disclosure>,
+  );
+  expect(screen.getByText("NIC is required")).toBeInTheDocument();
+});
+
 test('labelled "More" on first use, then the section name once opened (U-2/M-6)', async () => {
   const user = userEvent.setup();
   render(

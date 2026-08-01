@@ -7,7 +7,8 @@ export interface FieldProps {
   htmlFor: string;
   /** Placeholder is never the label (§6.3) — this marks the label itself, not a hint inside the control. */
   optional?: boolean;
-  error?: string;
+  /** Typed to accept an explicit `undefined` (not just an absent key) — `error={errors.x?.message}` is the common calling pattern, and exactOptionalPropertyTypes distinguishes the two. */
+  error?: string | undefined;
   children: React.ReactNode;
 }
 
