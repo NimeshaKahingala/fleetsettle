@@ -648,3 +648,37 @@ export const paymentCorrection = pgTable("payment_correction", {
   belongsToPeriodId: uuid("belongs_to_period_id"),
   createdBy: uuid("created_by"),
 });
+
+/** F-8.3/UC-90/W-28: a loss you were handed, never pooled with a waiver (INV-14). `obligation_id` is nullable — most write-offs clear a specific outstanding due, but a standalone loss with no matching obligation row is real too (an opening-balance-derived figure, for one). */
+export const writeOff = pgTable("write_off", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  obligationId: uuid("obligation_id"),
+  partyType: text("party_type").notNull(),
+  partyCustomerId: uuid("party_customer_id"),
+  partyDriverId: uuid("party_driver_id"),
+  vehicleId: uuid("vehicle_id"),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  reason: text("reason").notNull(),
+  writtenOffOn: date("written_off_on", { mode: "string" }).notNull(),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** INV-15: a later payment nets against the write-off it recovers — never fresh income. `paymentId` is the actual money arriving (recorded through the ordinary payment mechanism, deliberately never allocated against any obligation — see domain/write-off.ts); this row is what marks that payment as a recovery rather than new revenue. `businessId` added by migration 0004, same reason as several of P8's tables. */
+export const writeOffRecovery = pgTable("write_off_recovery", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  writeOffId: uuid("write_off_id").notNull(),
+  paymentId: uuid("payment_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});

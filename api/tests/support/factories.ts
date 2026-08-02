@@ -44,6 +44,8 @@ import {
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
+  writeOff,
+  writeOffRecovery,
 } from "../../src/db/schema.js";
 
 interface BusinessOverrides {
@@ -718,6 +720,35 @@ export class TestContext {
   trackCreatedPartnerPayout(payoutId: string): void {
     this.track(async () => {
       await this.#db.delete(partnerPayout).where(eq(partnerPayout.id, payoutId));
+    });
+  }
+
+  /**
+   * F-8.3/UC-90: `POST /api/write-off` writes a single row; `.../recovery`
+   * adds a `write_off_recovery` row and the `payment` it was recorded
+   * through (domain/write-off.ts, deliberately never allocated against any
+   * obligation). This one teardown re-queries by `writeOffId` at cleanup
+   * time, catching whatever recoveries the test added along the way — the
+   * same convention `trackCreatedIncident` already uses.
+   */
+  trackCreatedWriteOff(writeOffId: string): void {
+    this.track(async () => {
+      const recoveries = await this.#db
+        .select({ paymentId: writeOffRecovery.paymentId })
+        .from(writeOffRecovery)
+        .where(eq(writeOffRecovery.writeOffId, writeOffId));
+      await this.#db.delete(writeOffRecovery).where(eq(writeOffRecovery.writeOffId, writeOffId));
+      for (const { paymentId } of recoveries) {
+        await this.#db.delete(payment).where(eq(payment.id, paymentId));
+      }
+      await this.#db.delete(writeOff).where(eq(writeOff.id, writeOffId));
+    });
+  }
+
+  /** F-8.4/UC-91: `POST /api/post-closure-charge` writes a single `obligation` row (`kind='post_closure_charge'`) — this is that write's teardown. */
+  trackCreatedPostClosureCharge(obligationId: string): void {
+    this.track(async () => {
+      await this.#db.delete(obligation).where(eq(obligation.id, obligationId));
     });
   }
 

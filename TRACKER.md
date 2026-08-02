@@ -351,13 +351,20 @@ F-9.1, UC-96, UC-97, UC-98. **Gates G-1.**
 
 UC-90, UC-91. Both are **product-phase Second** (UC §9.1) and both depend on close existing.
 
-**Shared** — `write_off`, `write_off_recovery` schemas.
+**Shared** — `write-off.ts` (`writeOffRequestSchema`/`writeOffResponseSchema`, `recordWriteOffRecoveryRequestSchema`/`writeOffRecoveryResponseSchema`) and `post-closure-charge.ts` (`recordPostClosureChargeRequestSchema`/`postClosureChargeResponseSchema`). `write_off` and `write_off_recovery` both existed in the DB since migration 0001 (`write_off_recovery` also carries `business_id` per migration 0004, same reason as several of P8's and P9's tables) but had no Drizzle model yet — added to `db/schema.ts`.
 
-**Backend** — write-off, and recovery **against that write-off** rather than as fresh income. Without the link the two appear as a loss and an unrelated windfall in different months, and both figures mislead. Post-closure charges against a settled period.
+**Backend**
+- **Write off** — done (F-8.3/UC-90/W-28). `domain/write-off.ts`'s `recordWriteOff`: clears the balance from receivables by flipping the obligation straight to `written_off` — a state that has sat in `obligation.status`'s own CHECK enum since P3/P4, unused until now — never touching `settled_minor`/`waived_minor`, which is what keeps this bucket entirely separate from a waiver (INV-14: never pooled, never one report line). `obligationId` is optional: most write-offs clear a specific outstanding due, but a standalone loss with nothing to point at (an old opening-balance figure, say) is real too. `POST /api/write-off`, gated by `writeOffOrWaiveAboveThreshold` (owners only — the exact capability UC-90's own actor line names, already defined in `auth/policy.ts` since P4 and unused until now)
+- **Write-off recovery** — done (INV-15). `recordWriteOffRecovery`: the money is recorded as an ordinary `payment` (direction='received', the write-off's own party) but deliberately never allocated against any obligation — the one this recovers is already `written_off` and excluded from every outstanding-obligation query (§6.5's allocation discipline), so a generic allocator would find nothing to match and the money would otherwise vanish into `unallocatedMinor` with no link back to the loss it offsets. The `write_off_recovery` row is what marks this specific payment as a recovery rather than fresh income — the same "record the fact as a row/field, not a guess" convention P7's banking discrepancy and P8's incident recoveries both already use. `POST /api/write-off/{id}/recovery`, `dailyOperations` (STAFF) — recording money that arrived is an ordinary operational entry
+- **Post-closure charge** — done (F-8.4/UC-91/W-29). `domain/post-closure-charge.ts`'s `recordPostClosureCharge` reuses `insertObligation` directly — `kind = 'post_closure_charge'` has existed in the enum since P3/P4's own schema, and this is the first write path to actually use it. Deliberately never checks whether the referenced lease or trip (`sourceType`/`sourceId`) is itself closed — the handler confirms it belongs to this business, and being closed already is exactly the point of the flow, not a reason to refuse it. Posts to the *currently open* period (F-8.1's general late-fact rule), since the lease or trip's own period is routinely long settled by the time a fine or toll like this arrives. `POST /api/post-closure-charge`, `dailyOperations` (STAFF) — "Manager," UC-91's own actor
 
-**Frontend** — write-off and post-closure flows.
+**Not built this pass, recorded rather than guessed at**: the charter's own "deduct it from his fee" option (F-8.4's alternate wording) is not a separate code path — it is the existing `POST /api/offset` (P4) applied afterward, netting the new `owed_to_us` charge against the driver's existing `owed_by_us` fee balance. Building a combined one-tap "charge and deduct" endpoint is real, separate UI-shaped work this pass did not do.
+
+**Frontend** — **not built this pass**, joining the prior phases' gaps: write-off and post-closure-charge flows.
 
 **Depends on** — P9.
+
+**Verification** — 13 new integration tests across two new files (`write-off.test.ts`, `post-closure-charge.test.ts`), run via `test:integration` against the live Neon test DB; `npm run check` clean across all three workspaces; the full `test:integration` suite (now 23 files, 227 tests) passes with no regressions.
 
 ---
 
