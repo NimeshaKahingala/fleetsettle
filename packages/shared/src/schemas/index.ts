@@ -15,6 +15,7 @@ export * from "./opening-balance.js";
 export * from "./partner.js";
 export * from "./payment-correction.js";
 export * from "./post-closure-charge.js";
+export * from "./reports.js";
 export * from "./trip-lifecycle.js";
 export * from "./vehicle.js";
 export * from "./write-off.js";

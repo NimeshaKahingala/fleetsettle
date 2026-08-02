@@ -37,6 +37,7 @@ import { auditLogRoutes } from "./routes/audit-log.js";
 import { accountingPeriodRoutes } from "./routes/accounting-period.js";
 import { writeOff } from "./routes/write-off.js";
 import { postClosureCharge } from "./routes/post-closure-charge.js";
+import { reports } from "./routes/reports.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -137,6 +138,9 @@ app.route("/api/write-off", writeOff);
 
 app.use("/api/post-closure-charge/*", dbMiddleware(), authMiddleware());
 app.route("/api/post-closure-charge", postClosureCharge);
+
+app.use("/api/reports/*", dbMiddleware(), authMiddleware());
+app.route("/api/reports", reports);
 
 mountDocs(app);
 

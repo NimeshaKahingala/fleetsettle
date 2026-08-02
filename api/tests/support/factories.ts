@@ -107,6 +107,9 @@ interface DayRecordOverrides {
   state?:
     "open" | "ran_paid_full" | "ran_paid_short" | "ran_unpaid" | "did_not_run" | "paused_for_trip";
   expectedMinor?: bigint;
+  // `day_record_check2`: a `did_not_run` row requires one (§1.2 A: 'on_charter' deliberately absent).
+  lostReason?:
+    "breakdown" | "driver_day_off" | "driver_ill" | "public_holiday" | "no_passengers" | "other";
 }
 
 /**
@@ -358,6 +361,7 @@ export class TestContext {
       businessDate,
       state: overrides.state ?? "open",
       expectedMinor: overrides.expectedMinor ?? 5_000_00n,
+      lostReason: overrides.lostReason,
       postedPeriodId: periodId,
     });
     this.track(async () => {
@@ -383,6 +387,16 @@ export class TestContext {
       partyType?: "customer" | "driver";
       driverId?: string;
       customerId?: string;
+      vehicleId?: string;
+      kind?:
+        | "rent"
+        | "mileage_excess"
+        | "daily_amount"
+        | "driver_fee"
+        | "post_closure_charge"
+        | "customer_contribution"
+        | "management_fee"
+        | "other";
       amountMinor?: bigint;
       settledMinor?: bigint;
       waivedMinor?: bigint;
@@ -397,11 +411,12 @@ export class TestContext {
     await this.#db.insert(obligation).values({
       id,
       businessId,
+      vehicleId: overrides.vehicleId,
       direction: overrides.direction ?? "owed_to_us",
       partyType,
       partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
       partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
-      kind: "other",
+      kind: overrides.kind ?? "other",
       sourceType: overrides.sourceType ?? "test_fixture",
       sourceId: overrides.sourceId,
       amountMinor: overrides.amountMinor ?? 100_000n,
@@ -416,6 +431,143 @@ export class TestContext {
       await this.#db.delete(adjustment).where(eq(adjustment.obligationId, id));
       await this.#db.delete(offsetAllocation).where(eq(offsetAllocation.obligationId, id));
       await this.#db.delete(obligation).where(eq(obligation.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `adjustment` row — for report tests (P11/UC-77) that need a waiver/goodwill figure without going through `POST /api/adjustment`. */
+  async createAdjustment(
+    businessId: string,
+    periodId: string,
+    obligationId: string,
+    overrides: {
+      adjustmentType?:
+        | "waiver"
+        | "auto_waiver"
+        | "goodwill"
+        | "rounding"
+        | "agreed_discount"
+        | "late_fee"
+        | "extra_charge";
+      amountMinor?: bigint;
+      sign?: 1 | -1;
+    } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(adjustment).values({
+      id,
+      businessId,
+      obligationId,
+      adjustmentType: overrides.adjustmentType ?? "waiver",
+      amountMinor: overrides.amountMinor ?? 1_000n,
+      sign: overrides.sign ?? -1,
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(adjustment).where(eq(adjustment.id, id));
+    });
+    return id;
+  }
+
+  /** A bare, already-closed `trip` row — for report tests (P11/UC-71) that need a closed trip's own figures without a real book/close round trip. */
+  async createTrip(
+    businessId: string,
+    vehicleId: string,
+    periodId: string,
+    overrides: {
+      agreedAmountMinor?: bigint;
+      driverFeeMinor?: bigint;
+      startDate?: string;
+      endDate?: string;
+      closingDate?: string;
+      openingOdometerId?: string;
+      closingOdometerId?: string;
+    } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(trip).values({
+      id,
+      businessId,
+      vehicleId,
+      status: "closed",
+      startDate: overrides.startDate ?? "2026-07-01",
+      endDate: overrides.endDate ?? "2026-07-03",
+      closingDate: overrides.closingDate ?? overrides.endDate ?? "2026-07-03",
+      agreedAmountMinor: overrides.agreedAmountMinor ?? 60_000n,
+      driverFeeMinor: overrides.driverFeeMinor ?? 9_000n,
+      openingOdometerId: overrides.openingOdometerId,
+      closingOdometerId: overrides.closingOdometerId,
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(trip).where(eq(trip.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `deposit` row, held — for report tests (P11/UC-75) needing a deposits-held liability figure. */
+  async createDeposit(
+    businessId: string,
+    overrides: { partyType?: "customer" | "driver"; customerId?: string; driverId?: string } = {},
+  ): Promise<string> {
+    const id = newId();
+    const partyType = overrides.partyType ?? "customer";
+    await this.#db.insert(deposit).values({
+      id,
+      businessId,
+      partyType,
+      partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
+      partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
+      status: "held",
+    });
+    this.track(async () => {
+      await this.#db.delete(depositMovement).where(eq(depositMovement.depositId, id));
+      await this.#db.delete(deposit).where(eq(deposit.id, id));
+    });
+    return id;
+  }
+
+  /** A movement against an existing `createDeposit()` row — `sumDepositMovements`'s own `taken`/`topped_up` add, everything else subtracts. */
+  async createDepositMovement(
+    businessId: string,
+    periodId: string,
+    depositId: string,
+    overrides: { movementType?: string; amountMinor?: bigint; occurredOn?: string } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(depositMovement).values({
+      id,
+      businessId,
+      depositId,
+      movementType: overrides.movementType ?? "taken",
+      amountMinor: overrides.amountMinor ?? 5_000n,
+      occurredOn: overrides.occurredOn ?? "2026-07-05",
+      postedPeriodId: periodId,
+    });
+    // Cleanup rides on the parent `createDeposit()`'s own tracked teardown.
+    return id;
+  }
+
+  /** A bare `vehicle_day_allocation` row — for report tests (P11/UC-79) needing lease/trip occupancy without a real lease or trip. `sourceId` carries no FK (DM §2: polymorphic), so an arbitrary id satisfies the `source_type` CHECK without a real source row. */
+  async createVehicleDayAllocation(
+    businessId: string,
+    vehicleId: string,
+    businessDate: string,
+    arrangement: "A" | "B" | "C",
+  ): Promise<string> {
+    const id = newId();
+    const sourceType = arrangement === "A" ? "lease" : arrangement === "B" ? "daily_lease" : "trip";
+    await this.#db.insert(vehicleDayAllocation).values({
+      id,
+      businessId,
+      vehicleId,
+      businessDate,
+      arrangement,
+      sourceType,
+      sourceId: newId(),
+    });
+    this.track(async () => {
+      await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.id, id));
     });
     return id;
   }

@@ -22,6 +22,12 @@
  * scoping on top of it — and the harder question of which table (ownership
  * vs. management) decides "his" vehicles for which action — is real design
  * work this pass did not do, recorded rather than guessed at.
+ *
+ * `viewReports` is the same flat stand-in a second time: UC-70/71/72 name a
+ * `manager` as seeing only "shared vehicles," but every report in P11 reads
+ * across the whole business regardless of role, for the identical reason —
+ * the per-vehicle WHERE clause this would need is the same undone work as
+ * `managePartnerCapital`'s, not a new gap.
  */
 
 export type Role = "owner" | "owner_manager" | "manager" | "driver";
@@ -38,6 +44,8 @@ export type Capability =
   | "writeOffOrWaiveAboveThreshold"
   | "reverseReceipt" // F-8.2
   | "closePeriod" // F-9.1
+  | "viewReports" // P11/UC-70/71/72/74/75/76/78: "owner, owner-manager, manager" — every report that doesn't say owners-only
+  | "viewOwnerOnlyReports" // P11/UC-77/79 (and UC-73/99 when built): "Sees: owner, owner-manager" only
   | "messagingKillSwitch"
   | "messagingConfig"; // full config, not just the kill switch
 
@@ -50,6 +58,8 @@ const MATRIX: Record<Capability, readonly Role[]> = {
   writeOffOrWaiveAboveThreshold: OWNERS,
   reverseReceipt: OWNERS,
   closePeriod: OWNERS,
+  viewReports: STAFF,
+  viewOwnerOnlyReports: OWNERS,
   messagingKillSwitch: STAFF,
   messagingConfig: OWNERS,
 };
