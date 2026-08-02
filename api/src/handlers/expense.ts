@@ -5,6 +5,7 @@ import { createExpense, resolveBorneByDefault } from "../domain/expense.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
+import { findIncidentForBusiness } from "../queries/incident.js";
 import { findTripForBusiness } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type { createExpenseRoute } from "../route-defs/expense.js";
@@ -28,6 +29,11 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   if (body.tripId !== undefined) {
     const trip = await findTripForBusiness(reader, businessId, body.tripId);
     if (!trip) throw new NotFoundError("No such trip in this business");
+  }
+
+  if (body.incidentId !== undefined) {
+    const incidentRow = await findIncidentForBusiness(reader, businessId, body.incidentId);
+    if (!incidentRow) throw new NotFoundError("No such incident in this business");
   }
 
   if (body.borneByDriverId !== undefined) {
@@ -55,6 +61,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   const { expenseId } = await createExpense(c.get("writer"), {
     ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
     ...(body.tripId !== undefined ? { tripId: body.tripId } : {}),
+    ...(body.incidentId !== undefined ? { incidentId: body.incidentId } : {}),
     businessId,
     category: body.category,
     amountMinor: body.amountMinor,
@@ -70,6 +77,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
       id: expenseId,
       vehicleId: body.vehicleId ?? null,
       tripId: body.tripId ?? null,
+      incidentId: body.incidentId ?? null,
       category: body.category,
       amountMinor: toWire(body.amountMinor),
       spentOn: body.spentOn,

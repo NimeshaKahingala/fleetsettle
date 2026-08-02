@@ -10,6 +10,7 @@ export interface NewExpense {
   businessId: string;
   vehicleId?: string;
   tripId?: string;
+  incidentId?: string;
   category: string;
   amountMinor: bigint;
   spentOn: string;
@@ -59,4 +60,13 @@ export async function sumTripFuelLitres(db: ReadDb, tripId: string): Promise<num
   const total = rows[0]?.litres;
   // eslint-disable-next-line no-restricted-syntax -- litres, a fuel volume, not money
   return total === null || total === undefined ? null : Number(total);
+}
+
+/** F-3.4/UC-12 step 6, "total repair cost" — every cost attached to the incident, not filtered by `borne_by`: an accident repair is (almost) always the business's own cost, and the container's bottom line is what was spent, not a profit-eligibility sum (that is INV-5's job on `expense_profit`). Zero (not "not available") is a real total here — no cost has been logged yet, not a gap in the data (W-56 governs the reverse case). */
+export async function sumIncidentCostMinor(db: ReadDb, incidentId: string): Promise<bigint> {
+  const rows = await db
+    .select({ amountMinor: expense.amountMinor })
+    .from(expense)
+    .where(and(eq(expense.incidentId, incidentId), isNull(expense.voidedAt)));
+  return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
 }

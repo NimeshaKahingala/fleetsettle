@@ -90,6 +90,15 @@ export async function updateLeaseTerms(
     .where(eq(lease.id, leaseId));
 }
 
+/** F-3.4/UC-12/D-7: rent_treatment='extend' pushes the term out — the `lease_extension` row is the audit trail for why; this is the plain field update it accompanies. */
+export async function updateLeaseEndDate(
+  db: WriteDb,
+  leaseId: string,
+  endDate: string,
+): Promise<void> {
+  await db.update(lease).set({ endDate }).where(eq(lease.id, leaseId));
+}
+
 /** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */
 export async function findActiveLeaseForVehicle(
   db: ReadDb,

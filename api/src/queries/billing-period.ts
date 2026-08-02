@@ -82,6 +82,26 @@ export async function findBillingPeriodsForLease(
   return rows as BillingPeriodRow[];
 }
 
+/** F-3.4/UC-12/W-9 'credit_days': the one billing period whose range actually contains `onDate` — the pro-rata rent credit is computed against this period's own rent and day count. */
+export async function findBillingPeriodCoveringDate(
+  db: ReadDb,
+  leaseId: string,
+  onDate: string,
+): Promise<BillingPeriodRow | undefined> {
+  const rows = await db
+    .select(COLUMNS)
+    .from(billingPeriod)
+    .where(
+      and(
+        eq(billingPeriod.leaseId, leaseId),
+        lte(billingPeriod.periodStart, onDate),
+        gte(billingPeriod.periodEnd, onDate),
+      ),
+    )
+    .limit(1);
+  return rows[0] as BillingPeriodRow | undefined;
+}
+
 /** F-2.3: every period fully contained in `[fromDate, toDate]` — the ones a mileage assessment between two readings can possibly span. */
 export async function findBillingPeriodsInRange(
   db: ReadDb,

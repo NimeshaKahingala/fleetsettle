@@ -21,7 +21,11 @@ import {
   depositMovement,
   driver,
   expense,
+  incident,
+  incidentRecovery,
+  insuranceClaim,
   lease,
+  leaseExtension,
   managementFeeAgreement,
   mileageAssessment,
   mileageAssessmentSplit,
@@ -70,6 +74,7 @@ interface CustomerOverrides {
 
 interface LeaseOverrides {
   startDate?: string;
+  endDate?: string;
   billingDay?: number;
   rentAmountMinor?: bigint;
   status?: "draft" | "active" | "closing" | "closed";
@@ -234,6 +239,7 @@ export class TestContext {
       vehicleId,
       customerId,
       startDate: overrides.startDate ?? "2026-07-01",
+      endDate: overrides.endDate,
       billingDay: overrides.billingDay ?? 1,
       rentAmountMinor: overrides.rentAmountMinor ?? 50_000_00n,
       status: overrides.status ?? "draft",
@@ -380,6 +386,8 @@ export class TestContext {
       waivedMinor?: bigint;
       dueOn?: string;
       status?: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+      sourceType?: string;
+      sourceId?: string;
     } = {},
   ): Promise<string> {
     const id = newId();
@@ -392,7 +400,8 @@ export class TestContext {
       partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
       partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
       kind: "other",
-      sourceType: "test_fixture",
+      sourceType: overrides.sourceType ?? "test_fixture",
+      sourceId: overrides.sourceId,
       amountMinor: overrides.amountMinor ?? 100_000n,
       settledMinor: overrides.settledMinor ?? 0n,
       waivedMinor: overrides.waivedMinor ?? 0n,
@@ -688,6 +697,27 @@ export class TestContext {
   trackCreatedPartnerPayout(payoutId: string): void {
     this.track(async () => {
       await this.#db.delete(partnerPayout).where(eq(partnerPayout.id, payoutId));
+    });
+  }
+
+  /**
+   * F-3.4/UC-12: `POST /api/incident` opens the container; every later edit
+   * (off-road/extend, a customer contribution, an insurance claim) adds a
+   * `lease_extension`, `incident_recovery` or `insurance_claim` row against
+   * the same `incidentId`, days or weeks apart. This one teardown re-queries
+   * by `incidentId` at cleanup time rather than capturing a fixed set of
+   * child ids up front, so it catches whatever the test added along the way,
+   * child rows before the incident itself (all three carry a `NOT NULL
+   * REFERENCES incident(id)`; `expense.incident_id` does not, so an
+   * incident-tagged expense is still that test's own `trackCreatedExpense`
+   * to clean up).
+   */
+  trackCreatedIncident(incidentId: string): void {
+    this.track(async () => {
+      await this.#db.delete(incidentRecovery).where(eq(incidentRecovery.incidentId, incidentId));
+      await this.#db.delete(insuranceClaim).where(eq(insuranceClaim.incidentId, incidentId));
+      await this.#db.delete(leaseExtension).where(eq(leaseExtension.incidentId, incidentId));
+      await this.#db.delete(incident).where(eq(incident.id, incidentId));
     });
   }
 

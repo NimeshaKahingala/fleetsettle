@@ -66,6 +66,7 @@ export interface CreateExpenseInput {
   businessId: string;
   vehicleId?: string;
   tripId?: string;
+  incidentId?: string;
   category: ExpenseCategory;
   amountMinor: Minor;
   spentOn: BusinessDate;
@@ -102,6 +103,7 @@ export async function createExpense(
       businessId: input.businessId,
       ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
       ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
+      ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
       category: input.category,
       amountMinor: input.amountMinor,
       spentOn: input.spentOn,

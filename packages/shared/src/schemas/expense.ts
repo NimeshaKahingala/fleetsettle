@@ -38,6 +38,10 @@ export const createExpenseRequestSchema = z
     // P&L (UC-44) rather than only the vehicle's month — the trip and the
     // vehicle are not exclusive, so both may be set.
     tripId: uuidSchema.optional(),
+    // F-3.4/UC-12: a repair cost attached to the incident container — entered
+    // "as invoices arrive over following weeks" against an already-open
+    // incident, not exclusive with tripId or vehicleId.
+    incidentId: uuidSchema.optional(),
     category: expenseCategorySchema,
     amountMinor: moneyWireSchema,
     spentOn: businessDateSchema,
@@ -63,6 +67,7 @@ export const expenseResponseSchema = z.object({
   id: z.string().uuid(),
   vehicleId: z.string().uuid().nullable(),
   tripId: z.string().uuid().nullable(),
+  incidentId: z.string().uuid().nullable(),
   category: expenseCategorySchema,
   amountMinor: z.string(),
   spentOn: z.string(),

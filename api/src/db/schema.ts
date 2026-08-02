@@ -558,3 +558,62 @@ export const partnerPayout = pgTable("partner_payout", {
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
 });
+
+/** F-3.4/UC-12/§6.6: the container. No `posted_period_id` of its own — it is not money, the `expense`/`incident_recovery` rows attached to it are. */
+export const incident = pgTable("incident", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  leaseId: uuid("lease_id"),
+  status: text("status").notNull().default("open"),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+  description: text("description"),
+  offRoadFrom: date("off_road_from", { mode: "string" }),
+  offRoadTo: date("off_road_to", { mode: "string" }),
+  rentTreatment: text("rent_treatment"),
+  closedAt: timestamp("closed_at", { withTimezone: true, mode: "string" }),
+});
+
+/** D-7/W-9 'extend': its own record rather than inferred from two timestamps — "why does this lease run 12 days long" needs exactly one answer. */
+export const leaseExtension = pgTable("lease_extension", {
+  id: uuid("id").primaryKey(),
+  leaseId: uuid("lease_id").notNull(),
+  incidentId: uuid("incident_id").notNull(),
+  daysAdded: integer("days_added").notNull(),
+  appliedOn: date("applied_on", { mode: "string" }).notNull(),
+  previousEndDate: date("previous_end_date", { mode: "string" }),
+  newEndDate: date("new_end_date", { mode: "string" }).notNull(),
+  createdBy: uuid("created_by"),
+});
+
+/** W-11: optional, off by default. `businessId` added by migration 0004 — `write_audit_log()` reads `NEW.business_id` unconditionally on every table carrying `posted_period_id`. */
+export const insuranceClaim = pgTable("insurance_claim", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  incidentId: uuid("incident_id").notNull(),
+  claimedAmountMinor: bigint("claimed_amount_minor", { mode: "bigint" }).notNull(),
+  excessBorneMinor: bigint("excess_borne_minor", { mode: "bigint" }).notNull().default(0n),
+  status: text("status").notNull(),
+  receivedAmountMinor: bigint("received_amount_minor", { mode: "bigint" }).default(0n),
+  receivedOn: date("received_on", { mode: "string" }),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  receivedPeriodId: uuid("received_period_id"),
+});
+
+/** W-10/W-11: money EXPECTED until it arrives, never earned. Two period columns (`posted`/`received`) because the month agreed and the month it lands routinely differ (§7.2) — one column cannot say both. `businessId` added by migration 0004, same reason as `insurance_claim`. */
+export const incidentRecovery = pgTable("incident_recovery", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  incidentId: uuid("incident_id").notNull(),
+  source: text("source").notNull(),
+  agreedAmountMinor: bigint("agreed_amount_minor", { mode: "bigint" }).notNull(),
+  receivedAmountMinor: bigint("received_amount_minor", { mode: "bigint" }).notNull().default(0n),
+  obligationId: uuid("obligation_id"),
+  note: text("note"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  receivedPeriodId: uuid("received_period_id"),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});

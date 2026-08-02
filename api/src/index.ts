@@ -32,6 +32,7 @@ import {
   ownershipShare,
   partnerPayout,
 } from "./routes/partner.js";
+import { incident } from "./routes/incident.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -117,6 +118,9 @@ app.route("/api/banking-event", bankingEvent);
 
 app.use("/api/partner-payout/*", dbMiddleware(), authMiddleware());
 app.route("/api/partner-payout", partnerPayout);
+
+app.use("/api/incident/*", dbMiddleware(), authMiddleware());
+app.route("/api/incident", incident);
 
 mountDocs(app);
 

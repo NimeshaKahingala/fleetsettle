@@ -137,3 +137,12 @@ export class ManagementAgreementOverlapsError extends AppError {
     super(409, "MANAGEMENT_AGREEMENT_OVERLAPS", message);
   }
 }
+
+// F-3.4/UC-12/W-11: one insurer recovery per incident — an app-level guard
+// (there is no exclusion constraint for it) against submitting a second claim
+// for the same accident.
+export class InsuranceClaimAlreadyExistsError extends AppError {
+  constructor(message = "An insurance claim has already been submitted for this incident") {
+    super(409, "INSURANCE_CLAIM_ALREADY_EXISTS", message);
+  }
+}
