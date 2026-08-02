@@ -106,6 +106,11 @@ export function addCalendarMonths(date: BusinessDate, months: number): BusinessD
   return utc.format(new Date(Date.UTC(year, targetMonthIndex0, clampedDay))) as BusinessDate;
 }
 
+/** 0 (Sunday) through 6 (Saturday), matching Postgres's own `EXTRACT(dow FROM ...)` (queries/reports.ts's UC-76). `getUTCDay` reads the UTC instant, not the device timezone — both ends of the string are already a UTC midnight, so there is no timezone question here at all. */
+export function weekdayOf(date: BusinessDate): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
 /** The first day of `date`'s calendar month (UC-08: the period a new business opens into). */
 export function monthStart(date: BusinessDate): BusinessDate {
   return `${date.slice(0, 7)}-01` as BusinessDate;

@@ -1,5 +1,6 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Env } from "./types.js";
+import { scheduled } from "./scheduled.js";
 import { requestLogger } from "./middleware/logger.js";
 import { dbMiddleware } from "./middleware/db.js";
 import { authMiddleware, verifyTokenMiddleware } from "./middleware/auth.js";
@@ -148,4 +149,9 @@ app.route("/api/driver-view", driverView);
 
 mountDocs(app);
 
-export default app;
+// TS §4: Cron Triggers call `scheduled`, never `fetch` — Hono's own `app`
+// instance already satisfies Workers' `fetch` shape, so `scheduled` is added
+// onto the same object rather than replacing it with a plain `{fetch,
+// scheduled}` wrapper, which would lose `app.request()` — the exact method
+// `tests/support/client.ts` calls against this same default export.
+export default Object.assign(app, { scheduled });

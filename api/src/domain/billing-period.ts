@@ -17,6 +17,7 @@ import {
 } from "../queries/billing-period.js";
 import { findLeaseForBusiness } from "../queries/lease.js";
 import { findObligationBySource, insertObligation } from "../queries/obligation.js";
+import { listLeasesDueForNextBillingPeriod } from "../queries/scheduled.js";
 
 export interface GenerateNextBillingPeriodInput {
   businessId: string;
@@ -138,4 +139,53 @@ export async function generateNextBillingPeriod(
     }
     throw err;
   }
+}
+
+export interface RolledBillingPeriod {
+  leaseId: string;
+  billingPeriodId: string;
+  seq: number;
+}
+
+/**
+ * `generate-billing-periods` (TS §4): every active lease whose latest period
+ * has already ended, caught up via the same `generateNextBillingPeriod` a
+ * manual `POST .../billing-period` call already uses — one function, two
+ * callers, never a second implementation of the period-boundary arithmetic.
+ * A lease more than one period behind (the cron missed several days) rolls
+ * forward repeatedly here, bounded at 24 periods (two years) so a genuine
+ * data problem on one lease loops finitely rather than forever; one lease
+ * failing is collected rather than aborting every other lease's own catch-up.
+ */
+export async function rollDueBillingPeriods(
+  writer: Writer,
+  today: string,
+): Promise<{ rolled: RolledBillingPeriod[]; errors: { leaseId: string; message: string }[] }> {
+  const due = await listLeasesDueForNextBillingPeriod(writer, today);
+  const rolled: RolledBillingPeriod[] = [];
+  const errors: { leaseId: string; message: string }[] = [];
+
+  for (const l of due) {
+    try {
+      let periodEnd = "";
+      let guard = 0;
+      while (periodEnd < today && guard < 24) {
+        const result = await generateNextBillingPeriod(writer, {
+          businessId: l.businessId,
+          leaseId: l.id,
+        });
+        rolled.push({
+          leaseId: l.id,
+          billingPeriodId: result.billingPeriod.id,
+          seq: result.billingPeriod.seq,
+        });
+        periodEnd = result.billingPeriod.periodEnd;
+        guard += 1;
+      }
+    } catch (err) {
+      errors.push({ leaseId: l.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  return { rolled, errors };
 }

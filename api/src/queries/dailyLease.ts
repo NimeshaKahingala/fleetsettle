@@ -91,6 +91,28 @@ export async function findCurrentDailyLeaseRate(
   return rows[0];
 }
 
+export interface DailyLeaseRateRow {
+  dailyLeaseAmountMinor: bigint;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+/** P13's `generate-day-cards`: every rate this lease has ever had, fetched once per lease rather than once per candidate date (IG §2) — the caller resolves each date's own rate from this list in JS. */
+export async function listDailyLeaseRatesForLease(
+  db: ReadDb,
+  dailyLeaseId: string,
+): Promise<DailyLeaseRateRow[]> {
+  const rows = await db
+    .select({
+      dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor,
+      effectiveFrom: dailyLeaseRate.effectiveFrom,
+      effectiveTo: dailyLeaseRate.effectiveTo,
+    })
+    .from(dailyLeaseRate)
+    .where(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId));
+  return rows;
+}
+
 /**
  * The rate in force on a specific date — F-4.3's effective-dated rates mean
  * a catch-up day's rate can differ from today's. DM §7's exclusion

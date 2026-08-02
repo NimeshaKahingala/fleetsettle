@@ -7,6 +7,7 @@ import {
   inclusiveDays,
   monthEnd,
   monthStart,
+  weekdayOf,
 } from "./dates.js";
 
 describe("the business date is Asia/Colombo's date", () => {
@@ -102,6 +103,20 @@ describe("addCalendarMonths — §7.3's billing-period boundaries", () => {
 
   it("crosses a year boundary", () => {
     expect(addCalendarMonths(asBusinessDate("2026-12-12"), 1)).toBe("2027-01-12");
+  });
+});
+
+describe("weekdayOf — matches Postgres's own EXTRACT(dow) (UC-76/UC-79)", () => {
+  it("0 is Sunday, 6 is Saturday", () => {
+    expect(weekdayOf(asBusinessDate("2026-08-02"))).toBe(0);
+    expect(weekdayOf(asBusinessDate("2026-08-08"))).toBe(6);
+  });
+
+  it("agrees across a full week", () => {
+    const week = [0, 1, 2, 3, 4, 5, 6].map((n) =>
+      weekdayOf(addDays(asBusinessDate("2026-08-02"), n)),
+    );
+    expect(week).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 });
 

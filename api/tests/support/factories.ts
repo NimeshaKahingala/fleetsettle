@@ -99,7 +99,9 @@ interface OdometerReadingOverrides {
 
 interface DailyLeaseOverrides {
   patternType?: "every_day" | "alternate" | "weekdays";
+  patternWeekdays?: number[];
   effectiveFrom?: string;
+  effectiveTo?: string;
   dailyLeaseAmountMinor?: bigint;
 }
 
@@ -317,7 +319,9 @@ export class TestContext {
       vehicleId,
       driverId,
       patternType: overrides.patternType ?? "every_day",
+      patternWeekdays: overrides.patternWeekdays,
       effectiveFrom: overrides.effectiveFrom ?? "2026-07-01",
+      effectiveTo: overrides.effectiveTo,
     });
     this.track(async () => {
       await this.#db.delete(dailyLease).where(eq(dailyLease.id, id));
@@ -822,6 +826,23 @@ export class TestContext {
       }
 
       await this.#db.delete(dayRecord).where(eq(dayRecord.id, dayRecordId));
+    });
+  }
+
+  /** P13/`generate-day-cards`: the cron's own bulk writes for one daily lease — pre-generated `day_record` rows (still `open`, no obligation to unwind yet) plus their `vehicle_day_allocation` counterparts. */
+  trackGeneratedDailyLeaseCards(dailyLeaseId: string): void {
+    this.track(async () => {
+      await this.#db.delete(dayRecord).where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
+      await this.#db
+        .delete(vehicleDayAllocation)
+        .where(eq(vehicleDayAllocation.sourceId, dailyLeaseId));
+    });
+  }
+
+  /** P13/`generate-day-cards`: the cron's own bulk `vehicle_day_allocation` writes for one lease — arrangement A has no `day_record` to unwind alongside it. */
+  trackGeneratedLeaseCalendar(leaseId: string): void {
+    this.track(async () => {
+      await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, leaseId));
     });
   }
 
