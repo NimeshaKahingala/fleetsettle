@@ -34,6 +34,7 @@ export type Role = "owner" | "owner_manager" | "manager" | "driver";
 
 const STAFF: readonly Role[] = ["owner", "owner_manager", "manager"];
 const OWNERS: readonly Role[] = ["owner", "owner_manager"];
+const LINKED_DRIVER: readonly Role[] = ["driver"];
 
 export type Capability =
   | "dailyOperations" // daily cards, trips, expenses, collections
@@ -46,6 +47,7 @@ export type Capability =
   | "closePeriod" // F-9.1
   | "viewReports" // P11/UC-70/71/72/74/75/76/78: "owner, owner-manager, manager" — every report that doesn't say owners-only
   | "viewOwnerOnlyReports" // P11/UC-77/79 (and UC-73/99 when built): "Sees: owner, owner-manager" only
+  | "viewOwnData" // F-6.8/UC-59, P12: the linked driver's own read-only view — no other role has any use for it
   | "messagingKillSwitch"
   | "messagingConfig"; // full config, not just the kill switch
 
@@ -60,6 +62,7 @@ const MATRIX: Record<Capability, readonly Role[]> = {
   closePeriod: OWNERS,
   viewReports: STAFF,
   viewOwnerOnlyReports: OWNERS,
+  viewOwnData: LINKED_DRIVER,
   messagingKillSwitch: STAFF,
   messagingConfig: OWNERS,
 };

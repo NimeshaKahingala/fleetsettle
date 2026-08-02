@@ -1,6 +1,6 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { dayRecord } from "../db/schema.js";
+import { dayRecord, obligation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -100,4 +100,65 @@ export async function resumeDayRecordsForTrip(db: WriteDb, tripId: string): Prom
     .update(dayRecord)
     .set({ state: "open", tripId: null })
     .where(and(eq(dayRecord.tripId, tripId), eq(dayRecord.state, "paused_for_trip")));
+}
+
+export interface DriverViewDayRow {
+  businessDate: string;
+  state: DayRecordRow["state"];
+  earnedMinor: bigint;
+  receivedMinor: bigint;
+  lostReason: string | null;
+}
+
+/**
+ * F-6.8/UC-59: the linked driver's own days, including excused ones (§7.9).
+ * `earned_minor` lives on `day_record` itself; `received` is assembled from
+ * each day's own `obligation` (source `day_record`/its id, P3's own join),
+ * bulk-fetched in one query rather than one round trip per day (IG §2). A
+ * `did_not_run` day has no obligation at all (INV-6) — a real zero, not a
+ * missing figure (W-56).
+ */
+export async function listDayRecordsForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+  from: string,
+  to: string,
+): Promise<DriverViewDayRow[]> {
+  const rows = await db
+    .select({
+      id: dayRecord.id,
+      businessDate: dayRecord.businessDate,
+      state: dayRecord.state,
+      earnedMinor: dayRecord.earnedMinor,
+      lostReason: dayRecord.lostReason,
+    })
+    .from(dayRecord)
+    .where(
+      and(
+        eq(dayRecord.businessId, businessId),
+        eq(dayRecord.driverId, driverId),
+        gte(dayRecord.businessDate, from),
+        lte(dayRecord.businessDate, to),
+      ),
+    );
+  if (rows.length === 0) return [];
+
+  const dayRecordIds = rows.map((r) => r.id);
+  const obligationRows = await db
+    .select({ sourceId: obligation.sourceId, settledMinor: obligation.settledMinor })
+    .from(obligation)
+    .where(
+      and(eq(obligation.sourceType, "day_record"), inArray(obligation.sourceId, dayRecordIds)),
+    );
+  const settledByDayRecord = new Map(obligationRows.map((r) => [r.sourceId, r.settledMinor]));
+
+  return rows.map((r) => ({
+    businessDate: r.businessDate,
+    state: r.state as DayRecordRow["state"],
+    earnedMinor: r.earnedMinor,
+    // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
+    receivedMinor: settledByDayRecord.get(r.id) ?? 0n,
+    lostReason: r.lostReason,
+  }));
 }

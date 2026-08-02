@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, ne } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   advance,
@@ -82,6 +82,38 @@ export async function findUnsettledAdvancesForTrip(
     .from(advance)
     .where(
       and(eq(advance.tripId, tripId), ne(advance.status, "settled"), isNull(advance.voidedAt)),
+    );
+  return rows as AdvanceRow[];
+}
+
+/** F-6.8/UC-59: the linked driver's own advances, windowed by `issuedOn` — never voided ones, which are a correction, not a fact he still owes against. */
+export async function listAdvancesForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+  from: string,
+  to: string,
+): Promise<AdvanceRow[]> {
+  const rows = await db
+    .select({
+      id: advance.id,
+      businessId: advance.businessId,
+      driverId: advance.driverId,
+      tripId: advance.tripId,
+      amountMinor: advance.amountMinor,
+      issuedOn: advance.issuedOn,
+      status: advance.status,
+      voidedAt: advance.voidedAt,
+    })
+    .from(advance)
+    .where(
+      and(
+        eq(advance.businessId, businessId),
+        eq(advance.driverId, driverId),
+        isNull(advance.voidedAt),
+        gte(advance.issuedOn, from),
+        lte(advance.issuedOn, to),
+      ),
     );
   return rows as AdvanceRow[];
 }
@@ -244,6 +276,38 @@ export interface NewOffsetRecord {
 /** W-2/UC-56: the ONLY thing that moves both driver balances (INV-3). */
 export async function insertOffsetRecord(db: WriteDb, values: NewOffsetRecord): Promise<void> {
   await db.insert(offsetRecord).values(values);
+}
+
+export interface OffsetRecordRow {
+  id: string;
+  amountMinor: bigint;
+  occurredOn: string;
+}
+
+/** F-6.8/UC-59: the linked driver's own offsets, windowed by `occurredOn`. */
+export async function listOffsetsForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+  from: string,
+  to: string,
+): Promise<OffsetRecordRow[]> {
+  const rows = await db
+    .select({
+      id: offsetRecord.id,
+      amountMinor: offsetRecord.amountMinor,
+      occurredOn: offsetRecord.occurredOn,
+    })
+    .from(offsetRecord)
+    .where(
+      and(
+        eq(offsetRecord.businessId, businessId),
+        eq(offsetRecord.driverId, driverId),
+        gte(offsetRecord.occurredOn, from),
+        lte(offsetRecord.occurredOn, to),
+      ),
+    );
+  return rows;
 }
 
 export interface NewOffsetAllocation {

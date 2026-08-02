@@ -106,6 +106,7 @@ interface DailyLeaseOverrides {
 interface DayRecordOverrides {
   state?:
     "open" | "ran_paid_full" | "ran_paid_short" | "ran_unpaid" | "did_not_run" | "paused_for_trip";
+  earnedMinor?: bigint;
   expectedMinor?: bigint;
   // `day_record_check2`: a `did_not_run` row requires one (§1.2 A: 'on_charter' deliberately absent).
   lostReason?:
@@ -360,6 +361,7 @@ export class TestContext {
       driverId,
       businessDate,
       state: overrides.state ?? "open",
+      earnedMinor: overrides.earnedMinor,
       expectedMinor: overrides.expectedMinor ?? 5_000_00n,
       lostReason: overrides.lostReason,
       postedPeriodId: periodId,
@@ -475,6 +477,7 @@ export class TestContext {
     vehicleId: string,
     periodId: string,
     overrides: {
+      driverId?: string;
       agreedAmountMinor?: bigint;
       driverFeeMinor?: bigint;
       startDate?: string;
@@ -489,6 +492,7 @@ export class TestContext {
       id,
       businessId,
       vehicleId,
+      driverId: overrides.driverId,
       status: "closed",
       startDate: overrides.startDate ?? "2026-07-01",
       endDate: overrides.endDate ?? "2026-07-03",
@@ -501,6 +505,59 @@ export class TestContext {
     });
     this.track(async () => {
       await this.#db.delete(trip).where(eq(trip.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `advance` row — for driver-view tests (P12/F-6.8) needing a road-expense advance without a real book/close round trip. */
+  async createAdvance(
+    businessId: string,
+    periodId: string,
+    driverId: string,
+    overrides: {
+      amountMinor?: bigint;
+      issuedOn?: string;
+      status?: "open" | "part_settled" | "settled";
+    } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(advance).values({
+      id,
+      businessId,
+      driverId,
+      amountMinor: overrides.amountMinor ?? 5_000n,
+      issuedOn: overrides.issuedOn ?? "2026-07-05",
+      status: overrides.status ?? "open",
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(advanceSettlement).where(eq(advanceSettlement.advanceId, id));
+      await this.#db.delete(advance).where(eq(advance.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `offset_record` row — for driver-view tests (P12/F-6.8) needing an offset without going through `POST /api/offset`. */
+  async createOffsetRecord(
+    businessId: string,
+    periodId: string,
+    driverId: string,
+    createdByUserId: string,
+    overrides: { amountMinor?: bigint; occurredOn?: string } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(offsetRecord).values({
+      id,
+      businessId,
+      driverId,
+      amountMinor: overrides.amountMinor ?? 1_000n,
+      occurredOn: overrides.occurredOn ?? "2026-07-05",
+      postedPeriodId: periodId,
+      createdBy: createdByUserId,
+    });
+    this.track(async () => {
+      await this.#db.delete(offsetAllocation).where(eq(offsetAllocation.offsetId, id));
+      await this.#db.delete(offsetRecord).where(eq(offsetRecord.id, id));
     });
     return id;
   }

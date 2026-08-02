@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { trip, vehicleDayAllocation } from "../db/schema.js";
 
@@ -109,6 +109,43 @@ export async function findTripForBusiness(
     .where(and(eq(trip.id, tripId), eq(trip.businessId, businessId)))
     .limit(1);
   return rows[0] as TripRow | undefined;
+}
+
+export interface DriverViewTripRow {
+  id: string;
+  vehicleId: string;
+  closingDate: string | null;
+  agreedAmountMinor: bigint;
+  driverFeeMinor: bigint;
+}
+
+/** F-6.8/UC-59: the linked driver's own closed trips and fees, scoped to the window the caller asked for (never the server's own idea of "recent"). */
+export async function listClosedTripsForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+  from: string,
+  to: string,
+): Promise<DriverViewTripRow[]> {
+  const rows = await db
+    .select({
+      id: trip.id,
+      vehicleId: trip.vehicleId,
+      closingDate: trip.closingDate,
+      agreedAmountMinor: trip.agreedAmountMinor,
+      driverFeeMinor: trip.driverFeeMinor,
+    })
+    .from(trip)
+    .where(
+      and(
+        eq(trip.businessId, businessId),
+        eq(trip.driverId, driverId),
+        eq(trip.status, "closed"),
+        gte(trip.closingDate, from),
+        lte(trip.closingDate, to),
+      ),
+    );
+  return rows;
 }
 
 export interface CloseTripValues {

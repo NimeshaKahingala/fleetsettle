@@ -8,6 +8,7 @@ export * from "./customer.js";
 export * from "./day-record.js";
 export * from "./driver.js";
 export * from "./driver-money.js";
+export * from "./driver-view.js";
 export * from "./expense.js";
 export * from "./incident.js";
 export * from "./lease-billing.js";

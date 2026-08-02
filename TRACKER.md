@@ -398,17 +398,27 @@ UC-70 through UC-79. **Phase-one reports built in full, plus UC-78 (ageing) and 
 
 # P12 · Offline, the PWA and the Mine shell
 
-**Frontend**
-- TanStack Query persistence and paused mutations — the M-12 queue
-- Replay fetches a **fresh token per attempt**; a 401 pauses and re-authenticates rather than discarding
-- Eviction warning while the queue is non-empty; the iOS "Add to Home Screen" hint, dismissible forever
-- The Mine shell — the driver's own view (UC-07); side-by-side condition comparison
+**Backend done this pass — F-6.8's own endpoint, the thing the Mine shell needs to render at all.**
 
-**Backend** — the linked-driver boundary tested across **reports and exports**, not only direct routes.
+**Shared** — `driver-view.ts`: `driverViewResponseSchema` and its five row schemas (`driverViewDaySchema`, `-TripSchema`, `-AdvanceSchema`, `-OffsetSchema`, `-DepositSchema`), all money as `z.string()`, same convention as every other resource.
+
+**Backend**
+- **`GET /api/driver-view`** (F-6.8/UC-59/W-13) — done. Both balances (reusing P4's own `sumOutstandingByDirectionForDriver`, never netted), every day in the caller's own window **including excused ones** (§7.9 — "the thing he would otherwise argue about"), closed trips and fees, advances, offsets, and the currently-held deposit. Three new bulk reads back it: `listDayRecordsForDriver` (`day_record` joined against its own `obligation` — bulk-fetched in one query, IG §2 — for the `received` half day-record itself doesn't store), `listClosedTripsForDriver`, `listAdvancesForDriver`/`listOffsetsForDriver`
+- **INV-25, the entire point of this endpoint** — done, and it is structural rather than checked: `driverId` is never a request parameter anywhere in this route. `requireDriverId(c)` resolves it from the verified identity (the same mechanism P1 proved through `/api/_probe/*` and P11 proved returns 403 for every report) — there is no shape of request that could ask this endpoint for a different driver's data, because the data never has a slot for a caller-supplied driver id to go
+- **A new capability, `viewOwnData`, restricted to the `driver` role alone** (`auth/policy.ts`) — the first capability in the matrix with exactly one row, since no other role has any legitimate reason to call this route (staff already has `GET /api/driver/{id}/balances` and P11's reports for oversight)
+- **The linked-driver boundary across reports** (this bullet's other half, from the original stub) — already proven in P11: all nine report endpoints 403 a linked-driver token outright, since `viewReports`/`viewOwnerOnlyReports` have no `driver` row in their matrix. Nothing further to add; recorded here since this phase's own stub asked for it
+
+**Not built this pass, recorded rather than guessed at — all frontend, joining the gap every phase since P3 has left**:
+- TanStack Query persistence and the paused-mutation queue (M-12); replay with a fresh token per attempt; a 401 on replay pausing and re-authenticating rather than discarding
+- The eviction warning while the queue is non-empty; the iOS "Add to Home Screen" hint
+- **The Mine shell itself** — the screen consuming `GET /api/driver-view` (`TwoBalances`, his days, trips and fees, advances, deposit, a "Statement" link) — the backend contract now exists for it to be built against, per this tracker's own rule that the schema lands before the two tracks separate
+- Side-by-side condition comparison (photo capture already exists from P2; the comparison view itself does not)
 
 **Depends on** — P11.
 
-**Done means** — four days confirmed on a Sunday with no signal replay on Monday. Nothing is discarded silently: those days exist nowhere else.
+**Verification** — 4 new integration tests in `tests/integration/driver-view.test.ts` (happy path reproducing every field, INV-25 proven directly with two drivers on two vehicles, 401, 403 for a staff role), run via `test:integration` against the live Neon test DB; `npm run check` clean across all three workspaces; `npm run guard` clean; the full `test:integration` suite (25 files, 248 tests) passes with no regressions.
+
+**Done means, backend half** — a linked driver's token returns exactly his own days (including excused ones), trips, advances, offsets and deposit, and no request shape exists that could return anyone else's. **The frontend half of this phase's original "done means"** (four days confirmed on a Sunday replaying silently on Monday) **is not met** — there is no queue yet to replay from; that half of the phase remains open.
 
 ---
 
