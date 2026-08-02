@@ -23,6 +23,8 @@ import { adjustment } from "./routes/adjustment.js";
 import { advance } from "./routes/advance.js";
 import { deposit } from "./routes/deposit.js";
 import { offset } from "./routes/offset.js";
+import { mileageAssessment } from "./routes/mileage-assessment.js";
+import { payment } from "./routes/payment.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -87,6 +89,12 @@ app.route("/api/deposit", deposit);
 
 app.use("/api/offset/*", dbMiddleware(), authMiddleware());
 app.route("/api/offset", offset);
+
+app.use("/api/mileage-assessment/*", dbMiddleware(), authMiddleware());
+app.route("/api/mileage-assessment", mileageAssessment);
+
+app.use("/api/payment/*", dbMiddleware(), authMiddleware());
+app.route("/api/payment", payment);
 
 mountDocs(app);
 

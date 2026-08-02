@@ -19,10 +19,28 @@ async function getLease(token: string, id: string) {
   return request(`/api/lease/${id}`, bearer(token));
 }
 
+async function renewLease(token: string, id: string, body: unknown) {
+  return request(`/api/lease/${id}/renew`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function generateBillingPeriod(token: string, id: string) {
+  return request(`/api/lease/${id}/billing-period`, {
+    method: "POST",
+    headers: bearer(token).headers,
+  });
+}
+
 /**
- * F-2.1 / UC-10 test matrix. Only the `lease` row is written in P2 —
- * DM §4.1 attributes arrangement A's vehicle_day_allocation calendar to a
- * rolling-horizon cron (P13), so there is no INV-1 case here yet (see
+ * F-2.1 / UC-10 test matrix. Since P5, starting a lease also writes the
+ * handover odometer reading (when a mileage limit is set) and generates the
+ * first billing period, raising its rent due — domain/lease.ts — so it now
+ * requires an open accounting period the way every other money write does.
+ * DM §4.1 still attributes arrangement A's vehicle_day_allocation calendar
+ * to a rolling-horizon cron (P13), so there is no INV-1 case here yet (see
  * route-defs/lease.ts).
  */
 describe("start a lease (P2, F-2.1/UC-10)", () => {
@@ -34,6 +52,7 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
   it("happy path — a 12th-of-the-month lease keeps its start date exactly", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
@@ -48,6 +67,8 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
       mileageDailyLimitKm: 100,
       mileageExcessRateMinor: "5000",
       reminderDaysBefore: 3,
+      odometerReadingKm: 0,
+      odometerSource: "in_person",
     });
     expect(res.status).toBe(201);
     const body: { id: string } = await res.json();
@@ -142,6 +163,175 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
       billingDay: 1,
       rentAmountMinor: "5000000",
     });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — no accounting period open yet rejects the first rent due", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-01",
+      billingDay: 1,
+      rentAmountMinor: "5000000",
+    });
+    expect(res.status).toBe(409);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** F-2.5/UC-17. Old periods keep their old figure — only the next generated period picks up a renewal. */
+describe("renew a lease (P5, F-2.5/UC-17)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a new rent applies only to periods generated from now on", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "70000",
+    });
+    const { id: leaseId }: { id: string } = await leaseRes.json();
+    ctx.trackCreatedLease(leaseId);
+
+    const renewRes = await renewLease(token, leaseId, { rentAmountMinor: "80000" });
+    expect(renewRes.status).toBe(200);
+    expect(await renewRes.json()).toMatchObject({ id: leaseId, rentAmountMinor: "80000" });
+
+    const period1Res = await request(`/api/lease/${leaseId}/billing-period`, bearer(token));
+    const periods: Array<{ seq: number; rentAmountMinor: string }> = await period1Res.json();
+    expect(periods).toHaveLength(1);
+    expect(periods[0]).toMatchObject({ seq: 1, rentAmountMinor: "70000" });
+
+    const period2Res = await generateBillingPeriod(token, leaseId);
+    expect(period2Res.status).toBe(201);
+    expect(await period2Res.json()).toMatchObject({ seq: 2, rentAmountMinor: "80000" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the lease belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    const otherLeaseId = await ctx.createLease(otherBusinessId, otherVehicleId, otherCustomerId, {
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await renewLease(token, otherLeaseId, { rentAmountMinor: "80000" });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * F-2.1's invisible step, made callable — one call advances the schedule by
+ * exactly one period (this endpoint has no notion of "today"; deciding
+ * *when* to call it is P13's cron's job once it exists, not this domain
+ * function's). The idempotency `generateNextBillingPeriodTx` actually
+ * provides is DB-level: two *concurrent* calls racing for the same next
+ * `seq` collide on `billing_period_lease_id_seq_key`, and the loser reads
+ * back the winner's row rather than erroring — not re-tested here, since
+ * forcing a real race deterministically through the HTTP layer is not
+ * reliable; confirmDay's identical pattern (P3) already exercises the same
+ * catch-and-replay mechanics against a natural key.
+ */
+describe("generate the next billing period (P5)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("advances the schedule by one period per call — seq 2, then seq 3", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "70000",
+    });
+    const { id: leaseId }: { id: string } = await leaseRes.json();
+    ctx.trackCreatedLease(leaseId);
+
+    const first = await generateBillingPeriod(token, leaseId);
+    expect(first.status).toBe(201);
+    const firstBody: { id: string; seq: number } = await first.json();
+    expect(firstBody.seq).toBe(2);
+
+    const second = await generateBillingPeriod(token, leaseId);
+    expect(second.status).toBe(201);
+    const secondBody: { id: string; seq: number } = await second.json();
+    expect(secondBody.seq).toBe(3);
+    expect(secondBody.id).not.toBe(firstBody.id);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — a draft lease generates no billing periods", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "draft" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await generateBillingPeriod(token, leaseId);
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the lease belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    const otherLeaseId = await ctx.createLease(otherBusinessId, otherVehicleId, otherCustomerId, {
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await generateBillingPeriod(token, otherLeaseId);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

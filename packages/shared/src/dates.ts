@@ -84,6 +84,28 @@ export function addDays(date: BusinessDate, days: number): BusinessDate {
   return utc.format(shifted) as BusinessDate;
 }
 
+/**
+ * Shift by whole calendar months, day-of-month preserved and clamped to the
+ * target month's length (31 Jan + 1 month = 28/29 Feb, never rolling into
+ * March). This is DM §6's billing-period arithmetic: a lease that starts on
+ * the 12th keeps billing on the 12th every month (§7.3, W-40) — period N's
+ * start is the anchor shifted by `N - 1` months, and its end is one day
+ * before the anchor shifted by `N` months.
+ */
+export function addCalendarMonths(date: BusinessDate, months: number): BusinessDate {
+  // eslint-disable-next-line no-restricted-syntax -- a calendar year, not money
+  const year = Number(date.slice(0, 4));
+  // eslint-disable-next-line no-restricted-syntax -- a calendar month index, not money
+  const month = Number(date.slice(5, 7));
+  // eslint-disable-next-line no-restricted-syntax -- a day-of-month, not money
+  const day = Number(date.slice(8, 10));
+
+  const targetMonthIndex0 = month - 1 + months;
+  const lastDayOfTargetMonth = new Date(Date.UTC(year, targetMonthIndex0 + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(day, lastDayOfTargetMonth);
+  return utc.format(new Date(Date.UTC(year, targetMonthIndex0, clampedDay))) as BusinessDate;
+}
+
 /** The first day of `date`'s calendar month (UC-08: the period a new business opens into). */
 export function monthStart(date: BusinessDate): BusinessDate {
   return `${date.slice(0, 7)}-01` as BusinessDate;

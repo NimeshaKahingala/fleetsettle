@@ -178,6 +178,45 @@ export const billingPeriod = pgTable("billing_period", {
   allowanceKm: integer("allowance_km"),
 });
 
+export const odometerReading = pgTable("odometer_reading", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  readingKm: integer("reading_km").notNull(),
+  readOn: date("read_on", { mode: "string" }).notNull(),
+  source: text("source").notNull(),
+  leaseId: uuid("lease_id"),
+  tripId: uuid("trip_id"),
+  attachmentId: uuid("attachment_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+export const mileageAssessment = pgTable("mileage_assessment", {
+  id: uuid("id").primaryKey(),
+  leaseId: uuid("lease_id").notNull(),
+  businessId: uuid("business_id").notNull(),
+  fromReadingId: uuid("from_reading_id"),
+  toReadingId: uuid("to_reading_id").notNull(),
+  drivenKm: integer("driven_km").notNull(),
+  combinedAllowanceKm: integer("combined_allowance_km").notNull(),
+  excessKm: integer("excess_km").notNull(),
+  excessAmountMinor: bigint("excess_amount_minor", { mode: "bigint" }).notNull(),
+  isEstimated: boolean("is_estimated").notNull().default(false),
+  status: text("status").notNull().default("final"),
+  supersededById: uuid("superseded_by_id"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+});
+
+export const mileageAssessmentSplit = pgTable("mileage_assessment_split", {
+  id: uuid("id").primaryKey(),
+  assessmentId: uuid("assessment_id").notNull(),
+  billingPeriodId: uuid("billing_period_id").notNull(),
+  apportionedKm: integer("apportioned_km").notNull(),
+  apportionedExcessMinor: bigint("apportioned_excess_minor", { mode: "bigint" }).notNull(),
+});
+
 export const dailyLease = pgTable("daily_lease", {
   id: uuid("id").primaryKey(),
   businessId: uuid("business_id").notNull(),

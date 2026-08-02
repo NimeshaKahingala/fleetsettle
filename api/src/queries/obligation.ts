@@ -153,6 +153,43 @@ export async function findOutstandingObligationsForDriver(
   return rows;
 }
 
+/** §6.5's allocation discipline, generalised to any party — F-2.2's generic payment collection draws down a customer's `owed_to_us` obligations the same oldest-first way the driver-scoped query above already does. */
+export async function findOutstandingObligationsForParty(
+  db: ReadDb,
+  businessId: string,
+  partyType: "customer" | "driver" | "partner",
+  partyId: string,
+  direction: "owed_to_us" | "owed_by_us",
+): Promise<OutstandingObligation[]> {
+  const partyColumn =
+    partyType === "customer"
+      ? obligation.partyCustomerId
+      : partyType === "driver"
+        ? obligation.partyDriverId
+        : obligation.partyUserId;
+
+  const rows = await db
+    .select({
+      id: obligation.id,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+    })
+    .from(obligation)
+    .where(
+      and(
+        eq(obligation.businessId, businessId),
+        eq(obligation.partyType, partyType),
+        eq(partyColumn, partyId),
+        eq(obligation.direction, direction),
+        sql`${obligation.status} IN ('pending', 'part_paid')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .orderBy(asc(obligation.dueOn));
+  return rows;
+}
+
 /** Settling further against an obligation an offset (or a payment) already touched — never a fresh row. */
 export async function updateObligationSettled(
   db: WriteDb,

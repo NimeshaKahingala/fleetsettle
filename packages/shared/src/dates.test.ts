@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCalendarMonths,
   addDays,
   asBusinessDate,
   businessDateAt,
@@ -79,6 +80,28 @@ describe("addDays", () => {
     const start = asBusinessDate("2026-01-12");
     const end = addDays(start, 30);
     expect(inclusiveDays(start, end)).toBe(31);
+  });
+});
+
+describe("addCalendarMonths — §7.3's billing-period boundaries", () => {
+  it("keeps billing on the 12th every month, giving periods of 31/28/31/30", () => {
+    const anchor = asBusinessDate("2026-01-12");
+    const starts = [0, 1, 2, 3].map((n) => addCalendarMonths(anchor, n));
+    expect(starts).toEqual(["2026-01-12", "2026-02-12", "2026-03-12", "2026-04-12"]);
+
+    const ends = [1, 2, 3, 4].map((n) => addDays(addCalendarMonths(anchor, n), -1));
+    expect(ends).toEqual(["2026-02-11", "2026-03-11", "2026-04-11", "2026-05-11"]);
+
+    const days = starts.map((start, i) => inclusiveDays(start, ends[i]!));
+    expect(days).toEqual([31, 28, 31, 30]);
+  });
+
+  it("clamps day-of-month rather than rolling over — 31 Jan + 1 month is 28 Feb", () => {
+    expect(addCalendarMonths(asBusinessDate("2026-01-31"), 1)).toBe("2026-02-28");
+  });
+
+  it("crosses a year boundary", () => {
+    expect(addCalendarMonths(asBusinessDate("2026-12-12"), 1)).toBe("2027-01-12");
   });
 });
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import { odometerSourceSchema } from "./lease-billing.js";
 
 /**
  * UC-10 / UC-09: starting arrangement A. `startDate` is preserved exactly as
@@ -7,20 +8,34 @@ import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
  * go-live so a lease that began on the 12th keeps billing on the 12th
  * (§7.3). `endDate` absent means open-ended (DM §6).
  */
-export const startLeaseRequestSchema = z.object({
-  vehicleId: uuidSchema,
-  customerId: uuidSchema,
-  startDate: businessDateSchema,
-  endDate: businessDateSchema.optional(),
-  // eslint-disable-next-line no-restricted-syntax -- day-of-month, not money
-  billingDay: z.number().int().min(1).max(31),
-  rentAmountMinor: moneyWireSchema,
-  // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
-  mileageDailyLimitKm: z.number().int().positive().optional(),
-  mileageExcessRateMinor: moneyWireSchema.optional(),
-  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
-  reminderDaysBefore: z.number().int().min(0).optional(),
-});
+export const startLeaseRequestSchema = z
+  .object({
+    vehicleId: uuidSchema,
+    customerId: uuidSchema,
+    startDate: businessDateSchema,
+    endDate: businessDateSchema.optional(),
+    // eslint-disable-next-line no-restricted-syntax -- day-of-month, not money
+    billingDay: z.number().int().min(1).max(31),
+    rentAmountMinor: moneyWireSchema,
+    // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
+    mileageDailyLimitKm: z.number().int().positive().optional(),
+    mileageExcessRateMinor: moneyWireSchema.optional(),
+    // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+    reminderDaysBefore: z.number().int().min(0).optional(),
+    // F-2.1 step 4: odometer at handover (INV-19) — required whenever a
+    // mileage limit is set, since every later excess is measured from it.
+    // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+    odometerReadingKm: z.number().int().nonnegative().optional(),
+    odometerSource: odometerSourceSchema.optional(),
+  })
+  .refine((v) => v.mileageDailyLimitKm === undefined || v.odometerReadingKm !== undefined, {
+    message: "odometerReadingKm is required when a mileage limit is set",
+    path: ["odometerReadingKm"],
+  })
+  .refine((v) => v.mileageDailyLimitKm === undefined || v.odometerSource !== undefined, {
+    message: "odometerSource is required when a mileage limit is set",
+    path: ["odometerSource"],
+  });
 export type StartLeaseRequest = z.infer<typeof startLeaseRequestSchema>;
 
 /** UC-05: starting arrangement B — the recurring pattern, not a single day. */

@@ -66,6 +66,30 @@ export async function findLeaseForBusiness(
   return rows[0] as LeaseRow | undefined;
 }
 
+/** F-2.5/UC-17: old periods keep their old figure (already frozen onto `billing_period` at generation time) — this only changes what the *next* generated period picks up. */
+export async function updateLeaseTerms(
+  db: WriteDb,
+  leaseId: string,
+  values: {
+    rentAmountMinor: bigint;
+    mileageDailyLimitKm?: number;
+    mileageExcessRateMinor?: bigint;
+  },
+): Promise<void> {
+  await db
+    .update(lease)
+    .set({
+      rentAmountMinor: values.rentAmountMinor,
+      ...(values.mileageDailyLimitKm !== undefined
+        ? { mileageDailyLimitKm: values.mileageDailyLimitKm }
+        : {}),
+      ...(values.mileageExcessRateMinor !== undefined
+        ? { mileageExcessRateMinor: values.mileageExcessRateMinor }
+        : {}),
+    })
+    .where(eq(lease.id, leaseId));
+}
+
 /** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */
 export async function findActiveLeaseForVehicle(
   db: ReadDb,

@@ -1,5 +1,5 @@
 import { newId } from "@fleetsettle/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
 import {
   accountingPeriod,
@@ -7,6 +7,7 @@ import {
   advance,
   advanceSettlement,
   appUser,
+  billingPeriod,
   business,
   businessMember,
   businessSettings,
@@ -19,7 +20,10 @@ import {
   driver,
   expense,
   lease,
+  mileageAssessment,
+  mileageAssessmentSplit,
   obligation,
+  odometerReading,
   offsetAllocation,
   offsetRecord,
   openingBalanceBatch,
@@ -64,6 +68,21 @@ interface LeaseOverrides {
   billingDay?: number;
   rentAmountMinor?: bigint;
   status?: "draft" | "active" | "closing" | "closed";
+  mileageDailyLimitKm?: number;
+  mileageExcessRateMinor?: bigint;
+}
+
+interface BillingPeriodOverrides {
+  seq?: number;
+  periodStart?: string;
+  periodEnd?: string;
+  rentAmountMinor?: bigint;
+  allowanceKm?: number;
+}
+
+interface OdometerReadingOverrides {
+  leaseId?: string;
+  source?: "photo" | "in_person" | "reported" | "at_return";
 }
 
 interface DailyLeaseOverrides {
@@ -107,6 +126,16 @@ export class TestContext {
       await this.#db.delete(business).where(eq(business.id, id));
     });
     return id;
+  }
+
+  /** OQ-3/W-43: the bare `createBusiness()` factory writes no `business_settings` row, so `findBusinessSettings` sees `undefined` and every threshold defaults to zero (waive nothing) — this is for tests that need a specific auto-waive threshold instead. */
+  async setAutoWaiveThreshold(businessId: string, amountMinor: bigint): Promise<void> {
+    await this.#db
+      .insert(businessSettings)
+      .values({ businessId, autoWaiveThresholdMinor: amountMinor });
+    this.track(async () => {
+      await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
+    });
   }
 
   async createOpenPeriod(businessId: string, overrides: OpenPeriodOverrides = {}): Promise<string> {
@@ -197,9 +226,56 @@ export class TestContext {
       billingDay: overrides.billingDay ?? 1,
       rentAmountMinor: overrides.rentAmountMinor ?? 50_000_00n,
       status: overrides.status ?? "draft",
+      mileageDailyLimitKm: overrides.mileageDailyLimitKm,
+      mileageExcessRateMinor: overrides.mileageExcessRateMinor,
     });
     this.track(async () => {
       await this.#db.delete(lease).where(eq(lease.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `billing_period` row — for tests that want a period's numbers under their own control rather than derived from `generateNextBillingPeriod`'s calendar arithmetic. */
+  async createBillingPeriod(
+    leaseId: string,
+    overrides: BillingPeriodOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(billingPeriod).values({
+      id,
+      leaseId,
+      seq: overrides.seq ?? 1,
+      periodStart: overrides.periodStart ?? "2026-07-01",
+      periodEnd: overrides.periodEnd ?? "2026-07-31",
+      rentAmountMinor: overrides.rentAmountMinor ?? 50_000_00n,
+      allowanceKm: overrides.allowanceKm,
+    });
+    this.track(async () => {
+      await this.#db.delete(billingPeriod).where(eq(billingPeriod.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `odometer_reading` — for tests setting up the "previous reading" a mileage assessment starts from, without going through lease creation's own handover write. */
+  async createOdometerReading(
+    businessId: string,
+    vehicleId: string,
+    readingKm: number,
+    readOn: string,
+    overrides: OdometerReadingOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(odometerReading).values({
+      id,
+      businessId,
+      vehicleId,
+      readingKm,
+      readOn,
+      source: overrides.source ?? "in_person",
+      leaseId: overrides.leaseId,
+    });
+    this.track(async () => {
+      await this.#db.delete(odometerReading).where(eq(odometerReading.id, id));
     });
     return id;
   }
@@ -245,13 +321,15 @@ export class TestContext {
       .where(eq(accountingPeriod.id, periodId));
   }
 
-  /** A bare `obligation` row — for tests exercising adjustment/offset against a fact that didn't arrive via `confirmDay` (P3) or a later phase's own writer. */
+  /** A bare `obligation` row — for tests exercising adjustment/offset/payment against a fact that didn't arrive via `confirmDay` (P3), `generateNextBillingPeriod` (P5) or a later phase's own writer. */
   async createObligation(
     businessId: string,
     periodId: string,
     overrides: {
       direction?: "owed_to_us" | "owed_by_us";
+      partyType?: "customer" | "driver";
       driverId?: string;
+      customerId?: string;
       amountMinor?: bigint;
       settledMinor?: bigint;
       waivedMinor?: bigint;
@@ -260,12 +338,14 @@ export class TestContext {
     } = {},
   ): Promise<string> {
     const id = newId();
+    const partyType = overrides.partyType ?? "driver";
     await this.#db.insert(obligation).values({
       id,
       businessId,
       direction: overrides.direction ?? "owed_to_us",
-      partyType: "driver",
-      partyDriverId: overrides.driverId,
+      partyType,
+      partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
+      partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
       kind: "other",
       sourceType: "test_fixture",
       amountMinor: overrides.amountMinor ?? 100_000n,
@@ -331,10 +411,90 @@ export class TestContext {
     });
   }
 
-  /** F-2.1: `POST /api/lease` writes a single row — this is that write's teardown, for tests that go through the endpoint rather than `createLease()` above. */
+  /**
+   * F-2.1/F-2.3/UC-10/UC-14: `POST /api/lease` writes the lease, its handover
+   * `odometer_reading` and its first `billing_period` (plus the rent
+   * obligation that raises) in one transaction (domain/lease.ts); later
+   * calls to `POST /api/lease/{id}/billing-period` and
+   * `POST /api/mileage-assessment` add more of each, plus mileage
+   * assessments, their splits, and an `auto_waiver` adjustment when one
+   * applied. This is the one teardown for all of it, child-before-parent —
+   * for tests that go through the endpoints rather than `createLease()`.
+   */
   trackCreatedLease(leaseId: string): void {
     this.track(async () => {
+      const assessments = await this.#db
+        .select({ id: mileageAssessment.id })
+        .from(mileageAssessment)
+        .where(eq(mileageAssessment.leaseId, leaseId));
+      const assessmentIds = assessments.map((a) => a.id);
+
+      const periods = await this.#db
+        .select({ id: billingPeriod.id })
+        .from(billingPeriod)
+        .where(eq(billingPeriod.leaseId, leaseId));
+      const periodIds = periods.map((p) => p.id);
+
+      if (assessmentIds.length > 0) {
+        await this.#db
+          .delete(mileageAssessmentSplit)
+          .where(inArray(mileageAssessmentSplit.assessmentId, assessmentIds));
+      }
+
+      const sourcedObligationIds: string[] = [];
+      if (assessmentIds.length > 0) {
+        const rows = await this.#db
+          .select({ id: obligation.id })
+          .from(obligation)
+          .where(
+            and(
+              eq(obligation.sourceType, "mileage_assessment"),
+              inArray(obligation.sourceId, assessmentIds),
+            ),
+          );
+        sourcedObligationIds.push(...rows.map((r) => r.id));
+      }
+      if (periodIds.length > 0) {
+        const rows = await this.#db
+          .select({ id: obligation.id })
+          .from(obligation)
+          .where(
+            and(
+              eq(obligation.sourceType, "billing_period"),
+              inArray(obligation.sourceId, periodIds),
+            ),
+          );
+        sourcedObligationIds.push(...rows.map((r) => r.id));
+      }
+
+      if (sourcedObligationIds.length > 0) {
+        await this.#db
+          .delete(adjustment)
+          .where(inArray(adjustment.obligationId, sourcedObligationIds));
+        await this.#db
+          .delete(paymentAllocation)
+          .where(inArray(paymentAllocation.obligationId, sourcedObligationIds));
+        await this.#db.delete(obligation).where(inArray(obligation.id, sourcedObligationIds));
+      }
+
+      if (assessmentIds.length > 0) {
+        await this.#db
+          .delete(mileageAssessment)
+          .where(inArray(mileageAssessment.id, assessmentIds));
+      }
+      await this.#db.delete(odometerReading).where(eq(odometerReading.leaseId, leaseId));
+      if (periodIds.length > 0) {
+        await this.#db.delete(billingPeriod).where(inArray(billingPeriod.id, periodIds));
+      }
       await this.#db.delete(lease).where(eq(lease.id, leaseId));
+    });
+  }
+
+  /** F-2.2/UC-11: `POST /api/payment` writes `payment` and its allocations (domain/payment.ts) — this is that write's teardown. It does not touch the obligations it settled; a caller that created those with `createObligation()` (or its own lease/day-record teardown) still owns tearing them down. */
+  trackCreatedPayment(paymentId: string): void {
+    this.track(async () => {
+      await this.#db.delete(paymentAllocation).where(eq(paymentAllocation.paymentId, paymentId));
+      await this.#db.delete(payment).where(eq(payment.id, paymentId));
     });
   }
 
