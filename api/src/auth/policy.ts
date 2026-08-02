@@ -8,14 +8,20 @@
  * manager). It is a role in this type only, assigned by which row the
  * identity-resolution query matched (queries/identity.ts).
  *
- * Two rows of the matrix are deliberately not functions here:
- * - "Ownership shares, capital, payouts" restricts owner_manager to vehicles
- *   he owns/manages — a per-vehicle fact that doesn't exist until P2's
- *   ownership records do. That scoping is a data-layer WHERE clause then,
- *   the same way the driver boundary below is, not a flat role check now.
- * - "See another driver's data" is not a capability a role either has or
- *   lacks — it is enforced by driver_id scoping in the data layer (IG
- *   §7.1 rule 4), never by trusting a claim in the token.
+ * One row of the matrix is deliberately not a function here: "See another
+ * driver's data" is not a capability a role either has or lacks — it is
+ * enforced by driver_id scoping in the data layer (IG §7.1 rule 4), never by
+ * trusting a claim in the token.
+ *
+ * `managePartnerCapital` (P7: `ownership_share`, `capital_contribution`,
+ * `management_fee_agreement`, `partner_payout`) is, for now, the same flat
+ * OWNERS check as `manageOpeningBalances` — not yet the per-vehicle
+ * restriction that should eventually confine an `owner_manager` to vehicles
+ * he actually owns or manages. That data (`ownership_share` itself) now
+ * exists as of P7, which is what was missing before; the WHERE-clause
+ * scoping on top of it — and the harder question of which table (ownership
+ * vs. management) decides "his" vehicles for which action — is real design
+ * work this pass did not do, recorded rather than guessed at.
  */
 
 export type Role = "owner" | "owner_manager" | "manager" | "driver";
@@ -28,6 +34,7 @@ export type Capability =
   | "leaseAndTripLifecycle" // start/close a lease, close a trip
   | "manageEntities" // F-1.1/F-1.6/F-2.1: add and read vehicles, drivers, customers — setup, not money
   | "manageOpeningBalances" // F-0.2/UC-09: the go-live starting position — owners only, like closePeriod below
+  | "managePartnerCapital" // F-1.3/F-1.4/F-7.2: ownership shares, capital contributions, management agreements, partner payouts
   | "writeOffOrWaiveAboveThreshold"
   | "reverseReceipt" // F-8.2
   | "closePeriod" // F-9.1
@@ -39,6 +46,7 @@ const MATRIX: Record<Capability, readonly Role[]> = {
   leaseAndTripLifecycle: STAFF,
   manageEntities: STAFF,
   manageOpeningBalances: OWNERS,
+  managePartnerCapital: OWNERS,
   writeOffOrWaiveAboveThreshold: OWNERS,
   reverseReceipt: OWNERS,
   closePeriod: OWNERS,

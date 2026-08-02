@@ -116,3 +116,24 @@ export class TripAdvanceUnsettledError extends AppError {
     super(409, "TRIP_ADVANCE_UNSETTLED", message);
   }
 }
+
+// INV-16 (UC-02: shares must total exactly 100% on any date they are in
+// force). `assert_shares_total()`'s deferred constraint trigger is the
+// truth; this class exists so a caught violation maps to one code, the same
+// pattern as PeriodClosedError.
+export class OwnershipSharesInvalidError extends AppError {
+  constructor(message = "Ownership shares for this vehicle and date must total exactly 100%") {
+    super(400, "OWNERSHIP_SHARES_INVALID", message);
+  }
+}
+
+// DM §6.1's `management_fee_agreement_vehicle_id_manager_user_id_datera_excl`
+// exclusion constraint — a second agreement for the same vehicle and manager
+// over an overlapping date range.
+export class ManagementAgreementOverlapsError extends AppError {
+  constructor(
+    message = "This vehicle already has a management agreement with this manager over one or more of these dates",
+  ) {
+    super(409, "MANAGEMENT_AGREEMENT_OVERLAPS", message);
+  }
+}

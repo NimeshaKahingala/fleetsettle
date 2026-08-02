@@ -25,6 +25,13 @@ import { deposit } from "./routes/deposit.js";
 import { offset } from "./routes/offset.js";
 import { mileageAssessment } from "./routes/mileage-assessment.js";
 import { payment } from "./routes/payment.js";
+import {
+  bankingEvent,
+  capitalContribution,
+  managementFeeAgreement,
+  ownershipShare,
+  partnerPayout,
+} from "./routes/partner.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -95,6 +102,21 @@ app.route("/api/mileage-assessment", mileageAssessment);
 
 app.use("/api/payment/*", dbMiddleware(), authMiddleware());
 app.route("/api/payment", payment);
+
+app.use("/api/ownership-share/*", dbMiddleware(), authMiddleware());
+app.route("/api/ownership-share", ownershipShare);
+
+app.use("/api/capital-contribution/*", dbMiddleware(), authMiddleware());
+app.route("/api/capital-contribution", capitalContribution);
+
+app.use("/api/management-fee-agreement/*", dbMiddleware(), authMiddleware());
+app.route("/api/management-fee-agreement", managementFeeAgreement);
+
+app.use("/api/banking-event/*", dbMiddleware(), authMiddleware());
+app.route("/api/banking-event", bankingEvent);
+
+app.use("/api/partner-payout/*", dbMiddleware(), authMiddleware());
+app.route("/api/partner-payout", partnerPayout);
 
 mountDocs(app);
 

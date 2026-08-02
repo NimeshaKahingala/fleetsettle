@@ -250,15 +250,29 @@ F-5.x, F-1.5.
 
 # P7 · Partners, banking and cash
 
-F-7.x.
+F-1.3, F-1.4, F-7.x.
 
-**Shared** — `banking_event`, `partner_payout`, `capital_contribution` schemas.
+**Shared** — `partner` schemas: `setOwnershipSharesRequestSchema`/`ownershipSharesResponseSchema`, `recordCapitalContributionRequestSchema`/`capitalContributionResponseSchema`, `grantManagementRequestSchema`/`managementFeeAgreementResponseSchema`, `recordBankingEventRequestSchema`/`bankingEventResponseSchema`, `recordPartnerPayoutRequestSchema`/`partnerPayoutResponseSchema`. `ownership_share`, `capital_contribution`, `management_fee_agreement`, `banking_event` and `partner_payout` all existed in the DB since migration 0001 (DM's schema was executed whole) but none had a Drizzle model yet — added to `db/schema.ts`, one table at a time, the same way every prior phase has grown it.
 
-**Backend** — banking with a pooled discrepancy attached to the **banking event**, not a guessed receipt (UC-65); partner capital and current accounts (UC-67); costs with no vehicle (UC-66).
+**Backend**
+- Ownership shares, effective-dated and INV-16-checked — done (F-1.3/UC-02). `domain/partner.ts`'s `setOwnershipShares`: one bulk insert, one row per owner, all sharing the same `effectiveFrom` — `assert_shares_total()` (migration 0001) is a **deferred** constraint trigger, so it fires once every row in the call exists, which is exactly why a 60/40 split lands as one legal multi-row change instead of the first row rejecting for summing to less than 100% on its own. A violation is caught and mapped to 400 `OWNERSHIP_SHARES_INVALID`, never pre-checked in application code. `POST /api/ownership-share`
+- Capital contributions — done (F-1.3/UC-02/W-52): what a partner paid, recorded distinct from `ownership_share` (what he owns); the gap between the two is P11's read, not resolved here. `POST /api/capital-contribution`
+- Sharing a vehicle with a manager, with an optional monthly fee — done (F-1.4/UC-03/W-53). `domain/partner.ts`'s `grantManagement`/`revokeManagement`: the `EXCLUDE` constraint (`management_fee_agreement_vehicle_id_manager_user_id_datera_excl`) is the truth that two agreements for the same vehicle and manager can't overlap, caught and mapped to 409 `MANAGEMENT_AGREEMENT_OVERLAPS`; revoke sets `effective_to` rather than deleting the row (F-1.4: "a revoked manager's records remain attributed to them"). `POST /api/management-fee-agreement` + `.../{id}/revoke`
+- Banking with a pooled discrepancy attached to the **event itself**, never guessed onto a receipt — done (F-7.4/UC-65/INV-23). The request schema only ever offers `absorbed`/`unattributed` as the bearer, never the DB CHECK's third value `attributed_to_receipt` — that value means the shortfall was traced to one identifiable receipt and corrected there instead (F-8.2, P9), so by the time it reaches this endpoint there is nothing left to attach here; recorded as a deliberate narrowing, not an oversight. `discrepancy_minor` stays a DB-generated column (`recorded − counted`); the domain function computes the same figure only to shape the response without a second round trip, never writes it. `POST /api/banking-event`
+- Partner payouts and settlements, never a vehicle cost — done (F-7.2/UC-63). `POST /api/partner-payout`
+- Costs with no vehicle (UC-66) — **already done in P4**: `expense.vehicleId` has been nullable since P4's own schema (INV-24); nothing changed here
 
-**Frontend** — cash screens (F-7.4, F-7.5); partner screen (F-7.6).
+**Found and fixed along the way**:
+- `auth/policy.ts` had an explicit, long-standing note that "ownership shares, capital, payouts" needed per-vehicle scoping (restricting an `owner_manager` to vehicles he actually owns or manages) once P2's ownership records existed — this phase is what makes them exist. The flat `managePartnerCapital` (OWNERS) capability added here is a deliberate stand-in, not the fix: the real per-vehicle WHERE-clause scoping, and the harder question of which table (`ownership_share` vs. `management_fee_agreement`) decides "his" vehicles for which action, is real design work this pass did not do — recorded in the policy file itself rather than silently dropped.
+- Running the full `test:integration` suite (this phase grew it to 17 files) started intermittently timing out mid-run — not in `partner.test.ts` itself, but scattered across older, untouched files (`adjustment.test.ts`, `day-record.test.ts`, `lease.test.ts`, …), always at exactly the 20s test timeout. Every file opens its own connection `Pool` and holds it until its own `afterAll`, so Vitest's default file-level parallelism opens all 17 at once — past a Neon connection-limit threshold this phase's file count crossed. Confirmed by running the whole suite sequentially (`--fileParallelism=false`): 174/174 pass, every time. Fixed at the root, in `vitest.config.ts`, rather than leaving it to be rediscovered as a flaky CI run.
+
+**Not built this pass, recorded rather than guessed at**: F-7.1 (vehicle month P&L + share), F-7.3 (owned vs. managed), F-7.5 (cash position) and F-7.6 (partner current account) are all **reads** — P11's job ("the DM §15 report queries as written, not re-derived"), not this phase's. P7 lays the writes down; P11 depends on P5 through P10 precisely so it has real data to report on.
+
+**Frontend** — **not built this pass**, joining the prior phases' gaps: F-1.3's ownership/contribution form, F-1.4's share-with-a-manager form, the cash screens (F-7.4/F-7.5), the partner screen (F-7.6).
 
 **Depends on** — P4.
+
+**Verification** — 27 new integration tests (`partner.test.ts`, run via `test:integration` against the live Neon test DB) covering ownership shares (happy path, the INV-16 400, and its own "no partial row left behind" check), capital contributions, management agreements (grant, revoke, the EXCLUDE-constraint 409), banking events (no-discrepancy and absorbed-discrepancy happy paths, the "bearer required exactly when amounts differ" 400) and partner payouts; `npm run check` clean across all three workspaces; the full `test:integration` suite (now 174 tests across 17 files) passes with no regressions.
 
 ---
 

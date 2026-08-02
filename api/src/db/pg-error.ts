@@ -57,3 +57,9 @@ export function isPeriodClosedViolation(err: unknown): boolean {
   const pgError = pgErrorOf(err);
   return pgError?.code === RAISE_EXCEPTION && (pgError.message?.includes("is closed") ?? false);
 }
+
+/** True if `err` is `assert_shares_total()`'s `RAISE EXCEPTION` (INV-16, migrations/0001) — disambiguated from the other `P0001` raisers by its fixed message text, the same way `isPeriodClosedViolation` is. */
+export function isSharesNotFullViolation(err: unknown): boolean {
+  const pgError = pgErrorOf(err);
+  return pgError?.code === RAISE_EXCEPTION && (pgError.message?.includes("must be 10000") ?? false);
+}

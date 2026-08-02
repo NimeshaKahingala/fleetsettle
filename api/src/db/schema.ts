@@ -485,3 +485,76 @@ export const advanceSettlement = pgTable("advance_settlement", {
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
 });
+
+/** UC-02/INV-16: no `business_id` — scoped via `vehicle_id` → `vehicle.business_id`, the same as `vehicle_arrangement`. Effective-dated; `assert_shares_total()` (a deferred constraint trigger, migration 0001) is the truth that every date's shares sum to 10000 bp, not application code. */
+export const ownershipShare = pgTable("ownership_share", {
+  id: uuid("id").primaryKey(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  shareBp: integer("share_bp").notNull(),
+  effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+  effectiveTo: date("effective_to", { mode: "string" }),
+});
+
+/** UC-02/W-52: what a partner PAID, distinct from what he OWNS (`ownership_share`) — the gap between the two is a claim, never a bigger slice. */
+export const capitalContribution = pgTable("capital_contribution", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id"),
+  userId: uuid("user_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  contributedOn: date("contributed_on", { mode: "string" }).notNull(),
+  note: text("note"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** UC-03/W-53: a vehicle cost to the owner, income to the manager. No `business_id` — scoped via `vehicle_id`, the same as `ownership_share`. Effective-dated; revoke sets `effective_to` rather than deleting the row (F-1.4: "a revoked manager's records remain attributed to them"). */
+export const managementFeeAgreement = pgTable("management_fee_agreement", {
+  id: uuid("id").primaryKey(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  managerUserId: uuid("manager_user_id").notNull(),
+  monthlyAmountMinor: bigint("monthly_amount_minor", { mode: "bigint" }).notNull(),
+  effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+  effectiveTo: date("effective_to", { mode: "string" }),
+});
+
+/** F-7.4/UC-65/INV-23: `discrepancy_minor` is a generated column (`recorded - counted`) — never computed twice. A pooled shortfall belongs here, on the banking event itself, never guessed onto a specific receipt. */
+export const bankingEvent = pgTable("banking_event", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  fromUserId: uuid("from_user_id").notNull(),
+  amountRecordedMinor: bigint("amount_recorded_minor", { mode: "bigint" }).notNull(),
+  amountCountedMinor: bigint("amount_counted_minor", { mode: "bigint" }).notNull(),
+  bankedOn: date("banked_on", { mode: "string" }).notNull(),
+  destination: text("destination").notNull(),
+  reference: text("reference"),
+  // GENERATED ALWAYS AS (amount_recorded_minor - amount_counted_minor) STORED
+  // (migration 0001) — read-only; never set through an insert/update here.
+  discrepancyMinor: bigint("discrepancy_minor", { mode: "bigint" }),
+  discrepancyBearer: text("discrepancy_bearer"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** F-7.2/UC-63: never a cost of the vehicle — a payout to a partner, or a settlement between them. */
+export const partnerPayout = pgTable("partner_payout", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  kind: text("kind").notNull(),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});

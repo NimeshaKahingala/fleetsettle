@@ -7,10 +7,12 @@ import {
   advance,
   advanceSettlement,
   appUser,
+  bankingEvent,
   billingPeriod,
   business,
   businessMember,
   businessSettings,
+  capitalContribution,
   customer,
   dailyLease,
   dailyLeaseRate,
@@ -20,6 +22,7 @@ import {
   driver,
   expense,
   lease,
+  managementFeeAgreement,
   mileageAssessment,
   mileageAssessmentSplit,
   obligation,
@@ -28,6 +31,8 @@ import {
   offsetRecord,
   openingBalanceBatch,
   openingBalanceEntry,
+  ownershipShare,
+  partnerPayout,
   payment,
   paymentAllocation,
   trip,
@@ -645,6 +650,44 @@ export class TestContext {
     this.track(async () => {
       await this.#db.delete(offsetAllocation).where(eq(offsetAllocation.offsetId, offsetId));
       await this.#db.delete(offsetRecord).where(eq(offsetRecord.id, offsetId));
+    });
+  }
+
+  /** F-1.3/UC-02: `POST /api/ownership-share` writes one row per owner (domain/partner.ts) — this is that write's teardown, for every share a test created in one call. */
+  trackCreatedOwnershipShares(shareIds: string[]): void {
+    this.track(async () => {
+      if (shareIds.length === 0) return;
+      await this.#db.delete(ownershipShare).where(inArray(ownershipShare.id, shareIds));
+    });
+  }
+
+  /** F-1.3/UC-02: `POST /api/capital-contribution` writes a single row — this is that write's teardown. */
+  trackCreatedCapitalContribution(contributionId: string): void {
+    this.track(async () => {
+      await this.#db.delete(capitalContribution).where(eq(capitalContribution.id, contributionId));
+    });
+  }
+
+  /** F-1.4/UC-03: `POST /api/management-fee-agreement` (+ `.../revoke`) writes a single row, revoked in place — this is that write's teardown. */
+  trackCreatedManagementFeeAgreement(agreementId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(managementFeeAgreement)
+        .where(eq(managementFeeAgreement.id, agreementId));
+    });
+  }
+
+  /** F-7.4/UC-65: `POST /api/banking-event` writes a single row — this is that write's teardown. */
+  trackCreatedBankingEvent(bankingEventId: string): void {
+    this.track(async () => {
+      await this.#db.delete(bankingEvent).where(eq(bankingEvent.id, bankingEventId));
+    });
+  }
+
+  /** F-7.2/UC-63: `POST /api/partner-payout` writes a single row — this is that write's teardown. */
+  trackCreatedPartnerPayout(payoutId: string): void {
+    this.track(async () => {
+      await this.#db.delete(partnerPayout).where(eq(partnerPayout.id, payoutId));
     });
   }
 

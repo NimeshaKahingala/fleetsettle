@@ -9,5 +9,6 @@ export * from "./driver-money.js";
 export * from "./expense.js";
 export * from "./lease-billing.js";
 export * from "./opening-balance.js";
+export * from "./partner.js";
 export * from "./trip-lifecycle.js";
 export * from "./vehicle.js";
