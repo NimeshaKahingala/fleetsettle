@@ -10,6 +10,7 @@ export * from "./driver.js";
 export * from "./driver-money.js";
 export * from "./driver-view.js";
 export * from "./expense.js";
+export * from "./home.js";
 export * from "./incident.js";
 export * from "./lease-billing.js";
 export * from "./opening-balance.js";

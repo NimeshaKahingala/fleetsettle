@@ -40,6 +40,7 @@ import { writeOff } from "./routes/write-off.js";
 import { postClosureCharge } from "./routes/post-closure-charge.js";
 import { reports } from "./routes/reports.js";
 import { driverView } from "./routes/driver-view.js";
+import { home } from "./routes/home.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -146,6 +147,9 @@ app.route("/api/reports", reports);
 
 app.use("/api/driver-view/*", dbMiddleware(), authMiddleware());
 app.route("/api/driver-view", driverView);
+
+app.use("/api/home/*", dbMiddleware(), authMiddleware());
+app.route("/api/home", home);
 
 mountDocs(app);
 

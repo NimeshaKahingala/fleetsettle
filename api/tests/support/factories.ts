@@ -67,6 +67,7 @@ interface VehicleOverrides {
 interface DriverOverrides {
   name?: string;
   dailyFeeMinor?: bigint;
+  licenceExpiry?: string;
 }
 
 interface CustomerOverrides {
@@ -162,6 +163,14 @@ export class TestContext {
     });
   }
 
+  /** UC-92: same reasoning as `setAutoWaiveThreshold` above, for a test that needs a paperwork-warning window narrower than the 30-day default. */
+  async setPaperworkWarnDays(businessId: string, days: number): Promise<void> {
+    await this.#db.insert(businessSettings).values({ businessId, paperworkWarnDays: days });
+    this.track(async () => {
+      await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
+    });
+  }
+
   async createOpenPeriod(businessId: string, overrides: OpenPeriodOverrides = {}): Promise<string> {
     const id = newId();
     await this.#db.insert(accountingPeriod).values({
@@ -212,9 +221,28 @@ export class TestContext {
       businessId,
       name: overrides.name ?? "Test Driver",
       driverDayFeeMinor: overrides.dailyFeeMinor ?? 100_00n,
+      licenceExpiry: overrides.licenceExpiry,
     });
     this.track(async () => {
       await this.#db.delete(driver).where(eq(driver.id, id));
+    });
+    return id;
+  }
+
+  /** UC-92: one row per `(vehicle_id, doc_type)`, mirroring `upsertVehicleDocument`'s own unique target — for paperwork-warning tests that need a document row without going through the vehicle-setup endpoint. */
+  async createVehicleDocument(
+    vehicleId: string,
+    overrides: { docType?: string; expiryDate?: string } = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(vehicleDocument).values({
+      id,
+      vehicleId,
+      docType: overrides.docType ?? "insurance",
+      expiryDate: overrides.expiryDate ?? "2026-08-01",
+    });
+    this.track(async () => {
+      await this.#db.delete(vehicleDocument).where(eq(vehicleDocument.id, id));
     });
     return id;
   }
@@ -566,10 +594,16 @@ export class TestContext {
     return id;
   }
 
-  /** A bare `deposit` row, held — for report tests (P11/UC-75) needing a deposits-held liability figure. */
+  /** A bare `deposit` row, held by default — for report tests (P11/UC-75) needing a deposits-held liability figure, and for F-2.7/P13 tests that need one already in `hold_window` with a release date. */
   async createDeposit(
     businessId: string,
-    overrides: { partyType?: "customer" | "driver"; customerId?: string; driverId?: string } = {},
+    overrides: {
+      partyType?: "customer" | "driver";
+      customerId?: string;
+      driverId?: string;
+      status?: "held" | "hold_window" | "released" | "applied" | "retained";
+      holdReleaseDate?: string;
+    } = {},
   ): Promise<string> {
     const id = newId();
     const partyType = overrides.partyType ?? "customer";
@@ -579,7 +613,8 @@ export class TestContext {
       partyType,
       partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
       partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
-      status: "held",
+      status: overrides.status ?? "held",
+      holdReleaseDate: overrides.holdReleaseDate,
     });
     this.track(async () => {
       await this.#db.delete(depositMovement).where(eq(depositMovement.depositId, id));
