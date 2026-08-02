@@ -146,3 +146,31 @@ export class InsuranceClaimAlreadyExistsError extends AppError {
     super(409, "INSURANCE_CLAIM_ALREADY_EXISTS", message);
   }
 }
+
+// F-8.2/UC-93: `payment.status = 'reversed'` means the whole amount has
+// already been undone — nothing left for a further correction to touch.
+export class PaymentAlreadyReversedError extends AppError {
+  constructor(message = "This payment has already been fully reversed") {
+    super(409, "PAYMENT_ALREADY_REVERSED", message);
+  }
+}
+
+// F-8.5/UC-96: an expense already carrying `voided_at` — a second void would
+// silently overwrite the first correction's own reason and actor.
+export class ExpenseAlreadyVoidedError extends AppError {
+  constructor(message = "This expense has already been voided") {
+    super(409, "EXPENSE_ALREADY_VOIDED", message);
+  }
+}
+
+// F-0.2's own Alternates clause: "an opening figure stays editable until the
+// first accounting period is closed... after that it is an ordinary
+// adjustment like any other" (UC-09). P2 left this unenforced because no
+// business could reach that state; P9 is what makes it reachable.
+export class OpeningBalanceLockedError extends AppError {
+  constructor(
+    message = "The first accounting period has closed; correct this through an ordinary adjustment instead",
+  ) {
+    super(409, "OPENING_BALANCE_LOCKED", message);
+  }
+}

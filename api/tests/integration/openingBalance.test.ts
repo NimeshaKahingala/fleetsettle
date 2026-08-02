@@ -236,4 +236,27 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
 
     await ctx.cleanup();
   });
+
+  it("409 — once the first accounting period has closed, this is an ordinary adjustment instead (P9/F-0.2 Alternates)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    await ctx.closePeriod(periodId);
+
+    const res = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [],
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "OPENING_BALANCE_LOCKED" });
+
+    await ctx.cleanup();
+  });
 });

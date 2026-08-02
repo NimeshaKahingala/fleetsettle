@@ -25,6 +25,9 @@ export const ERROR_CODES = [
   "OWNERSHIP_SHARES_INVALID",
   "MANAGEMENT_AGREEMENT_OVERLAPS",
   "INSURANCE_CLAIM_ALREADY_EXISTS",
+  "PAYMENT_ALREADY_REVERSED",
+  "EXPENSE_ALREADY_VOIDED",
+  "OPENING_BALANCE_LOCKED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

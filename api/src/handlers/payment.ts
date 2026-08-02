@@ -1,11 +1,12 @@
-import { toWire } from "@fleetsettle/shared";
+import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { recordPayment } from "../domain/payment.js";
+import { correctPayment } from "../domain/payment-correction.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
-import type { recordPaymentRoute } from "../route-defs/payment.js";
+import type { correctPaymentRoute, recordPaymentRoute } from "../route-defs/payment.js";
 import type { Env } from "../types.js";
 
 /**
@@ -50,5 +51,39 @@ export const recordPaymentHandler: RouteHandler<typeof recordPaymentRoute, Env> 
       unallocatedMinor: toWire(result.unallocatedMinor),
     },
     201,
+  );
+};
+
+/** F-8.2/UC-93. `reverseReceipt` — owner/owner-manager only, the same capability row as closing a period. */
+export const correctPaymentHandler: RouteHandler<typeof correctPaymentRoute, Env> = async (c) => {
+  requireCapability(c, "reverseReceipt");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await correctPayment(c.get("writer"), {
+    businessId,
+    paymentId: id,
+    differenceMinor: body.differenceMinor,
+    bearer: body.bearer,
+    reason: body.reason,
+    correctedOn: body.correctedOn,
+    userId,
+  });
+
+  return c.json(
+    {
+      correctionId: result.correctionId,
+      paymentId: result.paymentId,
+      differenceMinor: toWire(result.differenceMinor),
+      bearer: result.bearer,
+      payment: {
+        id: result.payment.id,
+        amountMinor: toWire(result.payment.amountMinor as Minor),
+        status: result.payment.status,
+      },
+    },
+    200,
   );
 };

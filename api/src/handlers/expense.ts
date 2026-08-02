@@ -1,14 +1,14 @@
 import { asBusinessDate, toWire } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
-import { createExpense, resolveBorneByDefault } from "../domain/expense.js";
+import { createExpense, resolveBorneByDefault, voidExpense } from "../domain/expense.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findIncidentForBusiness } from "../queries/incident.js";
 import { findTripForBusiness } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
-import type { createExpenseRoute } from "../route-defs/expense.js";
+import type { createExpenseRoute, voidExpenseRoute } from "../route-defs/expense.js";
 import type { Env } from "../types.js";
 
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
@@ -90,4 +90,22 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     },
     201,
   );
+};
+
+/** F-8.5/UC-96. `dailyOperations` (STAFF) — same actor as F-3.1 itself ("Manager"). */
+export const voidExpenseHandler: RouteHandler<typeof voidExpenseRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidExpense(c.get("writer"), {
+    businessId,
+    expenseId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(result, 200);
 };

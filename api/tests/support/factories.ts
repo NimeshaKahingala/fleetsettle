@@ -6,7 +6,6 @@ import {
   adjustment,
   advance,
   advanceSettlement,
-  appUser,
   bankingEvent,
   billingPeriod,
   business,
@@ -39,6 +38,7 @@ import {
   partnerPayout,
   payment,
   paymentAllocation,
+  paymentCorrection,
   trip,
   vehicle,
   vehicleArrangement,
@@ -425,14 +425,21 @@ export class TestContext {
    * `track()`ed function so it stays FK-safe (children before parents)
    * without depending on where it falls relative to a test's other
    * `track()` calls.
+   *
+   * `app_user` itself is never deleted here — see `mintUser`'s own comment
+   * in `support/auth.ts`: once this user's writes are attributed in
+   * `audit_log.changed_by`, that row is permanent (the table's own `DO
+   * INSTEAD NOTHING` delete rule, W-50/INV-28), so the referencing
+   * `app_user` row is too. `userId` is accepted for the caller's own
+   * bookkeeping symmetry with `mintUser`, but unused here.
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- userId kept for call-site symmetry with mintUser; see the comment above for why it's no longer torn down
   trackCreatedBusiness(businessId: string, userId: string): void {
     this.track(async () => {
       await this.#db.delete(accountingPeriod).where(eq(accountingPeriod.businessId, businessId));
       await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
       await this.#db.delete(businessMember).where(eq(businessMember.businessId, businessId));
       await this.#db.delete(business).where(eq(business.id, businessId));
-      await this.#db.delete(appUser).where(eq(appUser.id, userId));
     });
   }
 
@@ -549,6 +556,20 @@ export class TestContext {
     this.track(async () => {
       await this.#db.delete(paymentAllocation).where(eq(paymentAllocation.paymentId, paymentId));
       await this.#db.delete(payment).where(eq(payment.id, paymentId));
+    });
+  }
+
+  /** F-8.2/UC-93: `POST /api/payment/{id}/correct` writes a single row against an already-existing payment — this is that write's own teardown, registered after (so it unwinds before) the payment's own `trackCreatedPayment`. */
+  trackCreatedPaymentCorrection(correctionId: string): void {
+    this.track(async () => {
+      await this.#db.delete(paymentCorrection).where(eq(paymentCorrection.id, correctionId));
+    });
+  }
+
+  /** F-9.1/UC-98: `POST /api/accounting-period/close` opens a successor period that a test's own `ctx.createOpenPeriod()` never created — this is that row's own teardown. */
+  trackCreatedPeriod(periodId: string): void {
+    this.track(async () => {
+      await this.#db.delete(accountingPeriod).where(eq(accountingPeriod.id, periodId));
     });
   }
 

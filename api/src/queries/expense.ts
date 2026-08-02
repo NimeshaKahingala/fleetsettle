@@ -30,6 +30,55 @@ export async function insertExpense(db: WriteDb, values: NewExpense): Promise<vo
   await db.insert(expense).values(values);
 }
 
+export interface ExpenseRow {
+  id: string;
+  amountMinor: bigint;
+  postedPeriodId: string;
+  voidedAt: string | null;
+}
+
+/** F-8.5/UC-96. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+export async function findExpenseForBusiness(
+  db: ReadDb,
+  businessId: string,
+  expenseId: string,
+): Promise<ExpenseRow | undefined> {
+  const rows = await db
+    .select({
+      id: expense.id,
+      amountMinor: expense.amountMinor,
+      postedPeriodId: expense.postedPeriodId,
+      voidedAt: expense.voidedAt,
+    })
+    .from(expense)
+    .where(and(eq(expense.id, expenseId), eq(expense.businessId, businessId)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * F-8.5/UC-96/W-50: void, never delete — `posted_period_id` is deliberately
+ * untouched, which is what lets this land even after the expense's own
+ * period has closed (migration 0006's "an update that never touches
+ * `posted_period_id` succeeds"). "Replace" is simply recording a fresh,
+ * correct expense afterward through the ordinary create endpoint — this
+ * schema carries no `replaces_id` column to link the two formally (DM §9's
+ * own DDL has none), so there is nothing further to wire.
+ */
+export async function voidExpenseRow(
+  db: WriteDb,
+  expenseId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string }> {
+  const rows = await db
+    .update(expense)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(eq(expense.id, expenseId))
+    .returning({ voidedAt: expense.voidedAt });
+  // `voidedAt` is written by the SET above, in the same statement — never null on the row this WHERE just matched.
+  return rows[0] as { voidedAt: string };
+}
+
 export interface TripCostByCategory {
   category: string;
   amountMinor: bigint;

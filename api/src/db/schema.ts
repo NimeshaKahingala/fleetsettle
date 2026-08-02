@@ -1,9 +1,11 @@
 import {
   bigint,
+  bigserial,
   boolean,
   char,
   date,
   integer,
+  jsonb,
   numeric,
   pgTable,
   smallint,
@@ -381,6 +383,7 @@ export const expense = pgTable("expense", {
   belongsToPeriodId: uuid("belongs_to_period_id"),
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
@@ -616,4 +619,32 @@ export const incidentRecovery = pgTable("incident_recovery", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+});
+
+/** W-50/INV-28/UC-97, migration 0002's writer. Read-only from the app's side — every row is written by `write_audit_log()`, never by a query in this codebase. `id` is `bigserial`, the one place this schema uses it rather than a uuid, since an audit row never appears in a URL (DM §12). */
+export const auditLog = pgTable("audit_log", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  tableName: text("table_name").notNull(),
+  recordId: uuid("record_id").notNull(),
+  action: text("action").notNull(),
+  changedBy: uuid("changed_by"),
+  changedAt: timestamp("changed_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  beforeJson: jsonb("before_json"),
+  afterJson: jsonb("after_json"),
+});
+
+/** UC-93/W-36/W-37: a correction references the original payment; it never edits it away (INV-21) — `payment.amount_minor`/`status` are what actually change (see `updatePaymentAfterCorrection`), this row is the recorded reason and decision behind that change. */
+export const paymentCorrection = pgTable("payment_correction", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  paymentId: uuid("payment_id").notNull(),
+  differenceMinor: bigint("difference_minor", { mode: "bigint" }).notNull(),
+  bearer: text("bearer").notNull(),
+  reason: text("reason").notNull(),
+  receiptMessageId: uuid("receipt_message_id"),
+  correctedOn: date("corrected_on", { mode: "string" }).notNull(),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  createdBy: uuid("created_by"),
 });

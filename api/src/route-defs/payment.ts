@@ -1,5 +1,13 @@
 import { createRoute } from "@hono/zod-openapi";
-import { paymentResponseSchema, recordPaymentRequestSchema } from "@fleetsettle/shared/schemas";
+import {
+  correctPaymentRequestSchema,
+  paymentCorrectionResponseSchema,
+  paymentResponseSchema,
+  recordPaymentRequestSchema,
+} from "@fleetsettle/shared/schemas";
+import { z } from "zod";
+
+const paymentIdParams = z.object({ id: z.string().uuid() });
 
 /**
  * F-2.2/UC-11: a generic payment against a party's outstanding `owed_to_us`
@@ -22,5 +30,26 @@ export const recordPaymentRoute = createRoute({
     403: { description: "This role cannot record a payment" },
     404: { description: "No such customer or driver in this business" },
     409: { description: "That accounting period is closed" },
+  },
+});
+
+/** F-8.2/UC-93/W-36/W-37: a payment that turned out not to have (fully) arrived. Partial is the norm; `bearer` decides whether the difference goes back to the party's arrears or is absorbed as a cash-handling loss. */
+export const correctPaymentRoute = createRoute({
+  method: "post",
+  path: "/{id}/correct",
+  request: {
+    params: paymentIdParams,
+    body: { content: { "application/json": { schema: correctPaymentRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: paymentCorrectionResponseSchema } },
+      description: "The correction, and the payment's corrected amount and status",
+    },
+    400: { description: "differenceMinor exceeds the payment's current recorded amount" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot reverse a receipt" },
+    404: { description: "No such payment in this business" },
+    409: { description: "This payment has already been fully reversed, or PERIOD_CLOSED" },
   },
 });

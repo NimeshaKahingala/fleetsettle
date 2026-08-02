@@ -48,7 +48,10 @@ export async function setOwnershipShares(
   }));
 
   try {
-    await insertOwnershipShares(writer, rows);
+    // withActor (db/client.ts) only attributes writes inside a real
+    // transaction — wrapped here for that reason as much as for the
+    // deferred constraint trigger, which already needed one implicitly.
+    await writer.transaction((tx) => insertOwnershipShares(tx, rows));
   } catch (err) {
     if (isSharesNotFullViolation(err)) throw new OwnershipSharesInvalidError();
     throw err;
@@ -80,19 +83,23 @@ export async function recordCapitalContribution(
 
   const contributionId = newId();
   try {
-    await insertCapitalContribution(writer, {
-      id: contributionId,
-      businessId: input.businessId,
-      ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
-      userId: input.userId,
-      amountMinor: input.amountMinor,
-      contributedOn: input.contributedOn,
-      ...(input.note !== undefined ? { note: input.note } : {}),
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-    });
+    // See setOwnershipShares's own comment — withActor only attributes
+    // writes inside a real transaction.
+    await writer.transaction((tx) =>
+      insertCapitalContribution(tx, {
+        id: contributionId,
+        businessId: input.businessId,
+        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+        userId: input.userId,
+        amountMinor: input.amountMinor,
+        contributedOn: input.contributedOn,
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -119,14 +126,17 @@ export async function grantManagement(
 ): Promise<GrantedManagement> {
   const agreementId = newId();
   try {
-    await insertManagementFeeAgreement(writer, {
-      id: agreementId,
-      vehicleId: input.vehicleId,
-      managerUserId: input.managerUserId,
-      // eslint-disable-next-line no-restricted-syntax -- allow: a genuine zero fee ("manage it for me, no charge") is the fact, not a stand-in for a missing one
-      monthlyAmountMinor: input.monthlyFeeMinor ?? 0n,
-      effectiveFrom: input.effectiveFrom,
-    });
+    // See setOwnershipShares's own comment.
+    await writer.transaction((tx) =>
+      insertManagementFeeAgreement(tx, {
+        id: agreementId,
+        vehicleId: input.vehicleId,
+        managerUserId: input.managerUserId,
+        // eslint-disable-next-line no-restricted-syntax -- allow: a genuine zero fee ("manage it for me, no charge") is the fact, not a stand-in for a missing one
+        monthlyAmountMinor: input.monthlyFeeMinor ?? 0n,
+        effectiveFrom: input.effectiveFrom,
+      }),
+    );
   } catch (err) {
     if (
       isExclusionViolation(err, "management_fee_agreement_vehicle_id_manager_user_id_datera_excl")
@@ -145,7 +155,8 @@ export async function revokeManagement(
   agreementId: string,
   effectiveTo: BusinessDate,
 ): Promise<void> {
-  await revokeManagementFeeAgreement(writer, agreementId, effectiveTo);
+  // See setOwnershipShares's own comment.
+  await writer.transaction((tx) => revokeManagementFeeAgreement(tx, agreementId, effectiveTo));
 }
 
 export interface RecordBankingEventInput {
@@ -175,24 +186,27 @@ export async function recordBankingEvent(
 
   const bankingEventId = newId();
   try {
-    await insertBankingEvent(writer, {
-      id: bankingEventId,
-      businessId: input.businessId,
-      fromUserId: input.fromUserId,
-      amountRecordedMinor: input.amountRecordedMinor,
-      amountCountedMinor: input.amountCountedMinor,
-      bankedOn: input.bankedOn,
-      destination: input.destination,
-      ...(input.reference !== undefined ? { reference: input.reference } : {}),
-      ...(input.discrepancyBearer !== undefined
-        ? { discrepancyBearer: input.discrepancyBearer }
-        : {}),
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-      createdBy: input.createdBy,
-    });
+    // See setOwnershipShares's own comment.
+    await writer.transaction((tx) =>
+      insertBankingEvent(tx, {
+        id: bankingEventId,
+        businessId: input.businessId,
+        fromUserId: input.fromUserId,
+        amountRecordedMinor: input.amountRecordedMinor,
+        amountCountedMinor: input.amountCountedMinor,
+        bankedOn: input.bankedOn,
+        destination: input.destination,
+        ...(input.reference !== undefined ? { reference: input.reference } : {}),
+        ...(input.discrepancyBearer !== undefined
+          ? { discrepancyBearer: input.discrepancyBearer }
+          : {}),
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+        createdBy: input.createdBy,
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -226,18 +240,21 @@ export async function recordPartnerPayout(
 
   const payoutId = newId();
   try {
-    await insertPartnerPayout(writer, {
-      id: payoutId,
-      businessId: input.businessId,
-      userId: input.userId,
-      amountMinor: input.amountMinor,
-      kind: input.kind,
-      occurredOn: input.occurredOn,
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-    });
+    // See setOwnershipShares's own comment.
+    await writer.transaction((tx) =>
+      insertPartnerPayout(tx, {
+        id: payoutId,
+        businessId: input.businessId,
+        userId: input.userId,
+        amountMinor: input.amountMinor,
+        kind: input.kind,
+        occurredOn: input.occurredOn,
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;

@@ -33,6 +33,18 @@ export async function signAccessToken(
  * Mints a real `app_user` + `business_member` row in the given role, tracked
  * on the same `TestContext` used for the rest of the fixture so `cleanup()`
  * unwinds it too.
+ *
+ * The `app_user` row itself is deliberately never torn down. Once this user
+ * makes any real write, `withActor` (db/client.ts) attributes it to them in
+ * `audit_log.changed_by` — and `audit_log` carries its own `DO INSTEAD
+ * NOTHING` rules on UPDATE and DELETE (migration 0001, W-50/INV-28: the
+ * trail is tamper-proof at the database level, not by convention). A `DELETE
+ * FROM audit_log` silently does nothing, so `app_user` — FK-referenced from
+ * a row that can never be removed — becomes permanent from that moment on.
+ * This is correct, not a leak to route around: it is the same reason
+ * production never deletes an `app_user` either (only `business_member` is
+ * revoked). Left in the disposable test branch (IG §8.3), same as the
+ * `audit_log` rows themselves.
  */
 export async function mintUser(
   db: Writer,
@@ -43,9 +55,6 @@ export async function mintUser(
   const userId = newId();
   const asgardeoSub = `test-sub-${userId}`;
   await db.insert(appUser).values({ id: userId, asgardeoSub, displayName: `Test ${role}` });
-  ctx.track(async () => {
-    await db.delete(appUser).where(eq(appUser.id, userId));
-  });
 
   const memberId = newId();
   await db.insert(businessMember).values({ id: memberId, businessId, userId, role });
@@ -68,10 +77,8 @@ export async function mintLinkedDriver(
 ): Promise<{ userId: string; asgardeoSub: string }> {
   const userId = newId();
   const asgardeoSub = `test-sub-driver-${userId}`;
+  // `app_user` is never torn down here either — see `mintUser`'s own comment.
   await db.insert(appUser).values({ id: userId, asgardeoSub, displayName: "Test Linked Driver" });
-  ctx.track(async () => {
-    await db.delete(appUser).where(eq(appUser.id, userId));
-  });
 
   await db.update(driverTable).set({ linkedUserId: userId }).where(eq(driverTable.id, driverId));
   ctx.track(async () => {

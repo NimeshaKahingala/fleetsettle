@@ -26,6 +26,9 @@ export const saveOpeningBalanceRoute = createRoute({
     404: {
       description: "An entry names a vehicle, driver, customer or partner outside this business",
     },
+    409: {
+      description: "The first accounting period has closed — this is now an ordinary adjustment",
+    },
   },
 });
 

@@ -33,6 +33,8 @@ import {
   partnerPayout,
 } from "./routes/partner.js";
 import { incident } from "./routes/incident.js";
+import { auditLogRoutes } from "./routes/audit-log.js";
+import { accountingPeriodRoutes } from "./routes/accounting-period.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -121,6 +123,12 @@ app.route("/api/partner-payout", partnerPayout);
 
 app.use("/api/incident/*", dbMiddleware(), authMiddleware());
 app.route("/api/incident", incident);
+
+app.use("/api/audit-log/*", dbMiddleware(), authMiddleware());
+app.route("/api/audit-log", auditLogRoutes);
+
+app.use("/api/accounting-period/*", dbMiddleware(), authMiddleware());
+app.route("/api/accounting-period", accountingPeriodRoutes);
 
 mountDocs(app);
 

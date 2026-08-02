@@ -35,19 +35,23 @@ export async function issueAdvance(
 
   const advanceId = newId();
   try {
-    await insertAdvance(writer, {
-      id: advanceId,
-      businessId: input.businessId,
-      driverId: input.driverId,
-      ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
-      amountMinor: input.amountMinor,
-      issuedOn: input.issuedOn,
-      issuedByUserId: input.issuedByUserId,
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-    });
+    // withActor (db/client.ts) only attributes writes inside a real
+    // transaction — wrapped here for that reason (F-8.6).
+    await writer.transaction((tx) =>
+      insertAdvance(tx, {
+        id: advanceId,
+        businessId: input.businessId,
+        driverId: input.driverId,
+        ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
+        amountMinor: input.amountMinor,
+        issuedOn: input.issuedOn,
+        issuedByUserId: input.issuedByUserId,
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;

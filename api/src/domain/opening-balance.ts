@@ -1,6 +1,7 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { findFirstPeriodStatus } from "../queries/accounting-period.js";
+import { NotFoundError, OpeningBalanceLockedError } from "../errors/app-error.js";
 import {
   deleteEntriesForBatch,
   findBatchForBusiness,
@@ -57,16 +58,21 @@ export interface SavedOpeningBalance {
  * commit, before the first period closes" (the other Alternates clause): no
  * separate code path for a pre- vs. post-commit save.
  *
- * P2 does not yet gate this by "has the first period closed" — P9 builds
- * period close, and until then no business can reach a closed first period
- * at all. Recorded here rather than building an enforcement path for a
- * state nothing can yet produce.
+ * P9/F-0.2's own Alternates clause: once the business's first accounting
+ * period has closed, this endpoint refuses — the opening figures become an
+ * ordinary adjustment like any other from that point on, never a batch
+ * this call can still rewrite wholesale. P2 left this unenforced because no
+ * business could reach a closed first period yet; P9's period close is what
+ * makes it reachable.
  */
 export async function saveOpeningBalance(
   writer: Writer,
   input: SaveOpeningBalanceInput,
 ): Promise<SavedOpeningBalance> {
   return await writer.transaction(async (tx) => {
+    const firstPeriod = await findFirstPeriodStatus(tx, input.businessId);
+    if (firstPeriod?.status === "closed") throw new OpeningBalanceLockedError();
+
     const existing = await findBatchForBusiness(tx, input.businessId);
     const batchId = existing?.id ?? newId();
 

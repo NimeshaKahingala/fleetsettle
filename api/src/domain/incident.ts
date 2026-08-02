@@ -223,18 +223,23 @@ export async function recordCustomerContribution(
 
   const recoveryId = newId();
   try {
-    await insertIncidentRecovery(writer, {
-      id: recoveryId,
-      businessId: input.businessId,
-      incidentId: input.incidentId,
-      source: "customer",
-      agreedAmountMinor: input.agreedAmountMinor,
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-      ...(input.note !== undefined ? { note: input.note } : {}),
-    });
+    // withActor (db/client.ts) only attributes writes inside a real
+    // transaction — wrapped here for that reason (F-8.6): incident_recovery
+    // carries posted_period_id and is audited.
+    await writer.transaction((tx) =>
+      insertIncidentRecovery(tx, {
+        id: recoveryId,
+        businessId: input.businessId,
+        incidentId: input.incidentId,
+        source: "customer",
+        agreedAmountMinor: input.agreedAmountMinor,
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -278,10 +283,13 @@ export async function recordRecoveryReceived(
 
   const receivedPeriod = await findPeriodForDate(writer, input.businessId, input.receivedOn);
 
-  await recordIncidentRecoveryReceived(writer, input.recoveryId, {
-    receivedAmountMinor: input.receivedAmountMinor,
-    ...(receivedPeriod ? { receivedPeriodId: receivedPeriod.id } : {}),
-  });
+  // See recordCustomerContribution's own comment.
+  await writer.transaction((tx) =>
+    recordIncidentRecoveryReceived(tx, input.recoveryId, {
+      receivedAmountMinor: input.receivedAmountMinor,
+      ...(receivedPeriod ? { receivedPeriodId: receivedPeriod.id } : {}),
+    }),
+  );
 
   return {
     recovery: {

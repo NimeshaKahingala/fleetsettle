@@ -15,6 +15,14 @@ async function postExpense(token: string, body: unknown) {
   });
 }
 
+async function postVoidExpense(token: string, id: string, body: unknown) {
+  return request(`/api/expense/${id}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 /**
  * F-3.1/F-3.2/F-3.3, UC-60/UC-66. §6.7's default-owner matrix, `borne_by`/
  * `paid_by` as two separate fields (W-48/INV-27), and the overhead case
@@ -209,6 +217,142 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
     expect(res.status).toBe(409);
     const responseBody: { code: string } = await res.json();
     expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * F-8.5/UC-96/W-50. "Wrong vehicle... fuel logged against the wrong trip" —
+ * voided, never deleted, and a fresh one recorded through the create
+ * endpoint above.
+ */
+describe("void an expense (P9, F-8.5/UC-96)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — voids the row and returns voidedAt", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+
+    const res = await postVoidExpense(token, createdBody.id, { reason: "wrong vehicle" });
+    expect(res.status).toBe(200);
+    const body: { id: string; voidedAt: string } = await res.json();
+    expect(body.id).toBe(createdBody.id);
+    expect(body.voidedAt).toBeTruthy();
+
+    await ctx.cleanup();
+  });
+
+  it("409 — an already-voided expense cannot be voided again", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+    await postVoidExpense(token, createdBody.id, { reason: "first void" });
+
+    const res = await postVoidExpense(token, createdBody.id, { reason: "second void" });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "EXPENSE_ALREADY_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the expense belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    await other.createOpenPeriod(otherBusinessId);
+    const otherOwner = await mintUser(db, other, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherExpense = await postExpense(otherToken, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const otherExpenseBody: { id: string } = await otherExpense.json();
+    other.trackCreatedExpense(otherExpenseBody.id);
+
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postVoidExpense(token, otherExpenseBody.id, { reason: "x" });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+
+  it("succeeds even after the expense's own period has closed (migration 0006)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+
+    await ctx.closePeriod(periodId);
+
+    const res = await postVoidExpense(token, createdBody.id, { reason: "found after close" });
+    expect(res.status).toBe(200);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await postVoidExpense("", "11111111-1111-4111-8111-111111111111", {
+      reason: "x",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot void an expense", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await postVoidExpense(token, "11111111-1111-4111-8111-111111111111", {
+      reason: "x",
+    });
+    expect(res.status).toBe(403);
 
     await ctx.cleanup();
   });

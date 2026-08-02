@@ -1,5 +1,7 @@
+export * from "./accounting-period.js";
 export * from "./adjustment.js";
 export * from "./arrangement.js";
+export * from "./audit-log.js";
 export * from "./business.js";
 export * from "./common.js";
 export * from "./customer.js";
@@ -11,5 +13,6 @@ export * from "./incident.js";
 export * from "./lease-billing.js";
 export * from "./opening-balance.js";
 export * from "./partner.js";
+export * from "./payment-correction.js";
 export * from "./trip-lifecycle.js";
 export * from "./vehicle.js";

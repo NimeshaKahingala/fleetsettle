@@ -4,9 +4,13 @@ import type { Reader, Writer } from "../db/client.js";
 import { findActiveLeaseForVehicle } from "../queries/lease.js";
 import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { insertExpense } from "../queries/expense.js";
+import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { PeriodClosedError } from "../errors/app-error.js";
+import {
+  ExpenseAlreadyVoidedError,
+  NotFoundError,
+  PeriodClosedError,
+} from "../errors/app-error.js";
 
 /**
  * UC §6.7's default-owner matrix: every cost has a default, derived from the
@@ -98,33 +102,77 @@ export async function createExpense(
 
   const expenseId = newId();
   try {
-    await insertExpense(writer, {
-      id: expenseId,
-      businessId: input.businessId,
-      ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
-      ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
-      ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
-      category: input.category,
-      amountMinor: input.amountMinor,
-      spentOn: input.spentOn,
-      borneBy: input.borneBy,
-      ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
-      ...(input.borneByCustomerId !== undefined
-        ? { borneByCustomerId: input.borneByCustomerId }
-        : {}),
-      paidByUserId: input.paidByUserId,
-      ...(input.litres !== undefined ? { litres: input.litres } : {}),
-      ...(input.note !== undefined ? { note: input.note } : {}),
-      postedPeriodId: linkage.postedPeriodId,
-      ...(linkage.belongsToPeriodId !== null
-        ? { belongsToPeriodId: linkage.belongsToPeriodId }
-        : {}),
-      createdBy: input.paidByUserId,
-    });
+    // withActor (db/client.ts) only attributes writes that open a real
+    // transaction — a bare top-level insert never runs one, and its own
+    // audit_log row would silently carry a NULL changed_by (found while
+    // proving F-8.6 against this exact write). Wrapped here even though
+    // nothing else needs the atomicity.
+    await writer.transaction((tx) =>
+      insertExpense(tx, {
+        id: expenseId,
+        businessId: input.businessId,
+        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+        ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
+        ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
+        category: input.category,
+        amountMinor: input.amountMinor,
+        spentOn: input.spentOn,
+        borneBy: input.borneBy,
+        ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
+        ...(input.borneByCustomerId !== undefined
+          ? { borneByCustomerId: input.borneByCustomerId }
+          : {}),
+        paidByUserId: input.paidByUserId,
+        ...(input.litres !== undefined ? { litres: input.litres } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+        createdBy: input.paidByUserId,
+      }),
+    );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
   }
 
   return { expenseId };
+}
+
+export interface VoidExpenseInput {
+  businessId: string;
+  expenseId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedExpense {
+  id: string;
+  voidedAt: string;
+}
+
+/**
+ * F-8.5/UC-96/W-50: "wrong vehicle... fuel logged against the wrong trip" —
+ * void it, with a reason, then record the corrected version through the
+ * ordinary create endpoint. Void, never delete, and `posted_period_id` stays
+ * untouched, which is what lets this succeed even after the expense's own
+ * period has closed (migration 0006) — exactly the kind of later-discovered
+ * mistake F-8.5 exists for.
+ */
+export async function voidExpense(writer: Writer, input: VoidExpenseInput): Promise<VoidedExpense> {
+  const existing = await findExpenseForBusiness(writer, input.businessId, input.expenseId);
+  if (!existing) throw new NotFoundError("No such expense in this business");
+  if (existing.voidedAt !== null) throw new ExpenseAlreadyVoidedError();
+
+  // See createExpense's own comment — withActor only attributes writes
+  // inside a real transaction.
+  const voided = await writer.transaction((tx) =>
+    voidExpenseRow(tx, input.expenseId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+
+  return { id: input.expenseId, voidedAt: voided.voidedAt };
 }
