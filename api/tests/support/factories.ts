@@ -650,6 +650,7 @@ export class TestContext {
     vehicleId: string,
     businessDate: string,
     arrangement: "A" | "B" | "C",
+    sourceId?: string,
   ): Promise<string> {
     const id = newId();
     const sourceType = arrangement === "A" ? "lease" : arrangement === "B" ? "daily_lease" : "trip";
@@ -660,7 +661,7 @@ export class TestContext {
       businessDate,
       arrangement,
       sourceType,
-      sourceId: newId(),
+      sourceId: sourceId ?? newId(),
     });
     this.track(async () => {
       await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.id, id));
@@ -797,6 +798,22 @@ export class TestContext {
       if (periodIds.length > 0) {
         await this.#db.delete(billingPeriod).where(inArray(billingPeriod.id, periodIds));
       }
+
+      // F-2.1/F-2.6: a deposit taken at handover (`deposit.lease_id`) — not
+      // every lease takes one, but `deposit_lease_id_fkey` blocks deleting
+      // the lease first when one exists.
+      const deposits = await this.#db
+        .select({ id: deposit.id })
+        .from(deposit)
+        .where(eq(deposit.leaseId, leaseId));
+      const depositIds = deposits.map((d) => d.id);
+      if (depositIds.length > 0) {
+        await this.#db
+          .delete(depositMovement)
+          .where(inArray(depositMovement.depositId, depositIds));
+        await this.#db.delete(deposit).where(inArray(deposit.id, depositIds));
+      }
+
       await this.#db.delete(lease).where(eq(lease.id, leaseId));
     });
   }

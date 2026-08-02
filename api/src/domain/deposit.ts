@@ -1,5 +1,5 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
+import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
 import { NotFoundError, PeriodClosedError, ValidationError } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -38,6 +38,7 @@ export async function takeDriverDeposit(
       await insertDeposit(tx, {
         id: depositId,
         businessId: input.businessId,
+        partyType: "driver",
         partyDriverId: input.driverId,
       });
       await insertDepositMovement(tx, {
@@ -141,4 +142,65 @@ export async function recordDepositMovement(
       heldMinor: newHeld as Minor,
     };
   });
+}
+
+export interface TakeCustomerDepositInput {
+  businessId: string;
+  leaseId: string;
+  customerId: string;
+  amountMinor: Minor;
+  occurredOn: BusinessDate;
+  userId: string;
+}
+
+/**
+ * F-2.1/UC-16: the lease-side counterpart to `takeDriverDeposit` above — a
+ * `deposit` row plus its first `taken` movement, INV-4 never income. Split
+ * into a `tx`-taking core and a `writer`-wrapping caller (the same shape
+ * `generateNextBillingPeriodTx`/`generateNextBillingPeriod` already uses) so
+ * `startLease` can take the handover deposit inside its own single
+ * transaction rather than opening a second one.
+ */
+export async function takeCustomerDepositTx(
+  tx: Tx,
+  input: TakeCustomerDepositInput,
+): Promise<TakenDeposit> {
+  const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
+  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  const depositId = newId();
+  try {
+    await insertDeposit(tx, {
+      id: depositId,
+      businessId: input.businessId,
+      partyType: "customer",
+      partyCustomerId: input.customerId,
+      leaseId: input.leaseId,
+    });
+    await insertDepositMovement(tx, {
+      id: newId(),
+      businessId: input.businessId,
+      depositId,
+      movementType: "taken",
+      amountMinor: input.amountMinor,
+      occurredOn: input.occurredOn,
+      postedPeriodId: linkage.postedPeriodId,
+      ...(linkage.belongsToPeriodId !== null
+        ? { belongsToPeriodId: linkage.belongsToPeriodId }
+        : {}),
+      createdBy: input.userId,
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
+
+  return { depositId };
+}
+
+export async function takeCustomerDeposit(
+  writer: Writer,
+  input: TakeCustomerDepositInput,
+): Promise<TakenDeposit> {
+  return writer.transaction((tx) => takeCustomerDepositTx(tx, input));
 }

@@ -1,6 +1,6 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { lease } from "../db/schema.js";
+import { lease, vehicleDayAllocation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -97,6 +97,37 @@ export async function updateLeaseEndDate(
   endDate: string,
 ): Promise<void> {
   await db.update(lease).set({ endDate }).where(eq(lease.id, leaseId));
+}
+
+/** F-2.6/UC-16 step 1: "stop the clock" — no further billing periods generate once status leaves `active` (`generateNextBillingPeriodTx`'s own guard), so this single update is the entire step. */
+export async function updateLeaseStatus(
+  db: WriteDb,
+  leaseId: string,
+  status: LeaseRow["status"],
+  endDate?: string,
+): Promise<void> {
+  await db
+    .update(lease)
+    .set({ status, ...(endDate !== undefined ? { endDate } : {}) })
+    .where(eq(lease.id, leaseId));
+}
+
+/** F-2.6/UC-16 step 7: "car marked available" — this lease's own future occupancy, beyond the day it actually closed on, freed the same way F-5.5 frees a cancelled trip's (`deleteAllocationDaysForTrip`). Days up to and including the closing date stay — they happened. */
+export async function deleteLeaseAllocationAfter(
+  db: WriteDb,
+  leaseId: string,
+  afterDate: string,
+): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- allow: vehicle_day_allocation is occupancy, not money — no voided_at column exists to correct-in-place (DM §4.1)
+  await db
+    .delete(vehicleDayAllocation)
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "lease"),
+        eq(vehicleDayAllocation.sourceId, leaseId),
+        gt(vehicleDayAllocation.businessDate, afterDate),
+      ),
+    );
 }
 
 /** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */

@@ -41,7 +41,16 @@ export const takeDriverDepositHandler: RouteHandler<typeof takeDriverDepositRout
 
   return c.json(
     toResponse(
-      { id: depositId, businessId, partyDriverId: body.driverId, status: "held" },
+      {
+        id: depositId,
+        businessId,
+        partyType: "driver",
+        partyCustomerId: null,
+        partyDriverId: body.driverId,
+        leaseId: null,
+        status: "held",
+        holdReleaseDate: null,
+      },
       body.driverId,
       body.amountMinor,
     ),

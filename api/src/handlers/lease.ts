@@ -2,6 +2,12 @@ import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { generateNextBillingPeriod } from "../domain/billing-period.js";
+import {
+  closeLease,
+  closeOutLease,
+  getLeaseClosureSummary,
+  settleLeaseDeposit,
+} from "../domain/lease-closure.js";
 import { renewLease, startLease } from "../domain/lease.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findBillingPeriodsForLease, type BillingPeriodRow } from "../queries/billing-period.js";
@@ -9,10 +15,14 @@ import { findCustomerForBusiness } from "../queries/customer.js";
 import { findLeaseForBusiness, type LeaseRow } from "../queries/lease.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
+  closeLeaseRoute,
+  closeOutLeaseRoute,
   generateBillingPeriodRoute,
+  getLeaseClosureSummaryRoute,
   getLeaseRoute,
   listBillingPeriodsRoute,
   renewLeaseRoute,
+  settleLeaseDepositRoute,
   startLeaseRoute,
 } from "../route-defs/lease.js";
 import type { Env } from "../types.js";
@@ -56,6 +66,7 @@ function billingPeriodToResponse(row: BillingPeriodRow) {
  */
 export const startLeaseHandler: RouteHandler<typeof startLeaseRoute, Env> = async (c) => {
   requireCapability(c, "leaseAndTripLifecycle");
+  const userId = requireUserId(c);
 
   const businessId = requireBusinessId(c);
   const body = c.req.valid("json");
@@ -66,7 +77,7 @@ export const startLeaseHandler: RouteHandler<typeof startLeaseRoute, Env> = asyn
   const customer = await findCustomerForBusiness(reader, businessId, body.customerId);
   if (!customer) throw new NotFoundError("No such customer in this business");
 
-  const { lease } = await startLease(c.get("writer"), {
+  const { lease, depositId } = await startLease(c.get("writer"), {
     businessId,
     vehicleId: body.vehicleId,
     customerId: body.customerId,
@@ -85,9 +96,13 @@ export const startLeaseHandler: RouteHandler<typeof startLeaseRoute, Env> = asyn
       : {}),
     ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
     ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
+    ...(body.depositAmountMinor !== undefined
+      ? { depositAmountMinor: body.depositAmountMinor }
+      : {}),
+    userId,
   });
 
-  return c.json(toResponse(lease), 201);
+  return c.json({ ...toResponse(lease), depositId }, 201);
 };
 
 export const getLeaseHandler: RouteHandler<typeof getLeaseRoute, Env> = async (c) => {
@@ -174,4 +189,125 @@ export const listBillingPeriodsHandler: RouteHandler<typeof listBillingPeriodsRo
     rows.map((row) => billingPeriodToResponse(row)),
     200,
   );
+};
+
+/** F-2.6/UC-16 steps 1–3. `leaseAndTripLifecycle` — the same capability that gates starting one. */
+export const closeLeaseHandler: RouteHandler<typeof closeLeaseRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+  const userId = requireUserId(c);
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  const { finalPeriod } = await closeLease(c.get("writer"), {
+    businessId,
+    leaseId: id,
+    closingDate: body.closingDate,
+    finalPeriodMode: body.finalPeriodMode,
+    ...(body.agreedAmountMinor !== undefined ? { agreedAmountMinor: body.agreedAmountMinor } : {}),
+    ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.closingOdometerKm !== undefined ? { closingOdometerKm: body.closingOdometerKm } : {}),
+    ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
+    userId,
+  });
+
+  return c.json(
+    {
+      finalPeriod: {
+        billingPeriodId: finalPeriod.billingPeriodId,
+        obligationId: finalPeriod.obligationId,
+        periodEnd: finalPeriod.periodEnd,
+        daysCount: finalPeriod.daysCount,
+        allowanceKm: finalPeriod.allowanceKm,
+        amountMinor: toWire(finalPeriod.amountMinor),
+      },
+    },
+    200,
+  );
+};
+
+/** F-2.6 step 4/INV-18. Same read-only gate as `getLeaseHandler`. */
+export const getLeaseClosureSummaryHandler: RouteHandler<
+  typeof getLeaseClosureSummaryRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const summary = await getLeaseClosureSummary(c.get("reader"), businessId, id);
+
+  return c.json(
+    {
+      unpaidObligations: summary.unpaidObligations.map((o) => ({
+        id: o.id,
+        kind: o.kind,
+        dueOn: o.dueOn,
+        amountMinor: toWire(o.amountMinor as Minor),
+        settledMinor: toWire(o.settledMinor as Minor),
+        waivedMinor: toWire(o.waivedMinor as Minor),
+      })),
+      totalUnpaidMinor: toWire(summary.totalUnpaidMinor),
+      openIncidents: summary.openIncidents,
+    },
+    200,
+  );
+};
+
+/** F-2.6 step 6/W-29/W-44. */
+export const settleLeaseDepositHandler: RouteHandler<typeof settleLeaseDepositRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+  const userId = requireUserId(c);
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  const result = await settleLeaseDeposit(c.get("writer"), {
+    businessId,
+    leaseId: id,
+    action: body.action,
+    ...(body.amountMinor !== undefined ? { amountMinor: body.amountMinor } : {}),
+    ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    occurredOn: body.occurredOn,
+    userId,
+  });
+
+  return c.json(
+    {
+      depositId: result.depositId,
+      status: result.status,
+      heldMinor: toWire(result.heldMinor),
+      holdReleaseDate: result.holdReleaseDate,
+    },
+    200,
+  );
+};
+
+/** F-2.6 step 7. The closing WhatsApp message needs P14 and is not sent here. */
+export const closeOutLeaseHandler: RouteHandler<typeof closeOutLeaseRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  await closeOutLease(c.get("writer"), { businessId, leaseId: id });
+
+  const closed = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!closed) throw new NotFoundError();
+
+  return c.json(toResponse(closed), 200);
 };

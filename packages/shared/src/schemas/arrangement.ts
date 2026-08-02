@@ -27,6 +27,10 @@ export const startLeaseRequestSchema = z
     // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
     odometerReadingKm: z.number().int().nonnegative().optional(),
     odometerSource: odometerSourceSchema.optional(),
+    // F-2.1's own condition/handover step (W-30, W-38): a deposit taken from
+    // the customer at handover — optional, since not every lease takes one,
+    // and this is the row F-2.6's closure flow later settles.
+    depositAmountMinor: moneyWireSchema.optional(),
   })
   .refine((v) => v.mileageDailyLimitKm === undefined || v.odometerReadingKm !== undefined, {
     message: "odometerReadingKm is required when a mileage limit is set",
@@ -113,6 +117,12 @@ export const leaseResponseSchema = z.object({
   reminderDaysBefore: z.number(),
 });
 export type LeaseResponse = z.infer<typeof leaseResponseSchema>;
+
+/** F-2.1: the same lease, plus the deposit taken at handover, if any — only the start endpoint has one to report; `getLease`/`renewLease` reuse the plain `leaseResponseSchema` above. */
+export const startLeaseResponseSchema = leaseResponseSchema.extend({
+  depositId: z.string().uuid().nullable(),
+});
+export type StartLeaseResponse = z.infer<typeof startLeaseResponseSchema>;
 
 /** F-1.7: what setting up the daily lease produces. */
 export const dailyLeaseResponseSchema = z.object({

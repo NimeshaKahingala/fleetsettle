@@ -102,6 +102,26 @@ export async function findBillingPeriodCoveringDate(
   return rows[0] as BillingPeriodRow | undefined;
 }
 
+/**
+ * F-2.6/UC-16 step 3: shortens the covering billing period's own `period_end`
+ * (and its allowance, recomputed for the days actually covered) to the
+ * closing date. `days_count` is a generated column (DM §6) and updates
+ * itself; `rent_amount_minor` is deliberately untouched here (W-25: "fixed,
+ * regardless of days") — the final period's own charge is a separate
+ * adjustment against the obligation, never a change to this stored figure.
+ */
+export async function truncateBillingPeriodForClosure(
+  db: WriteDb,
+  billingPeriodId: string,
+  periodEnd: string,
+  allowanceKm?: number,
+): Promise<void> {
+  await db
+    .update(billingPeriod)
+    .set({ periodEnd, ...(allowanceKm !== undefined ? { allowanceKm } : {}) })
+    .where(eq(billingPeriod.id, billingPeriodId));
+}
+
 /** F-2.3: every period fully contained in `[fromDate, toDate]` — the ones a mileage assessment between two readings can possibly span. */
 export async function findBillingPeriodsInRange(
   db: ReadDb,

@@ -156,20 +156,39 @@ export async function updateAdvanceStatus(
 export interface NewDeposit {
   id: string;
   businessId: string;
-  partyDriverId: string;
+  partyType: "customer" | "driver";
+  partyCustomerId?: string;
+  partyDriverId?: string;
+  leaseId?: string;
+  dailyLeaseId?: string;
 }
 
-/** F-6.7/UC-58/W-8. One `deposit` row per driver arrangement — the balance is the SUM of its movements (DM §10.4), never a stored figure to drift. */
+/** F-6.7/UC-58/W-8, F-2.1/UC-16: one `deposit` row per driver arrangement or lease — the balance is the SUM of its movements (DM §10.4), never a stored figure to drift. */
 export async function insertDeposit(db: WriteDb, values: NewDeposit): Promise<void> {
-  await db.insert(deposit).values({ ...values, partyType: "driver", status: "held" });
+  await db.insert(deposit).values({ ...values, status: "held" });
 }
 
 export interface DepositRow {
   id: string;
   businessId: string;
+  partyType: "customer" | "driver";
+  partyCustomerId: string | null;
   partyDriverId: string | null;
+  leaseId: string | null;
   status: "held" | "hold_window" | "released" | "applied" | "retained";
+  holdReleaseDate: string | null;
 }
+
+const DEPOSIT_COLUMNS = {
+  id: deposit.id,
+  businessId: deposit.businessId,
+  partyType: deposit.partyType,
+  partyCustomerId: deposit.partyCustomerId,
+  partyDriverId: deposit.partyDriverId,
+  leaseId: deposit.leaseId,
+  status: deposit.status,
+  holdReleaseDate: deposit.holdReleaseDate,
+};
 
 /** The one deposit currently held for this driver — DM §10.4 makes no promise there's ever more than one live at a time; this reads whichever isn't yet released or retained. */
 export async function findHeldDepositForDriver(
@@ -178,12 +197,7 @@ export async function findHeldDepositForDriver(
   driverId: string,
 ): Promise<DepositRow | undefined> {
   const rows = await db
-    .select({
-      id: deposit.id,
-      businessId: deposit.businessId,
-      partyDriverId: deposit.partyDriverId,
-      status: deposit.status,
-    })
+    .select(DEPOSIT_COLUMNS)
     .from(deposit)
     .where(
       and(
@@ -203,14 +217,24 @@ export async function findDepositForBusiness(
   depositId: string,
 ): Promise<DepositRow | undefined> {
   const rows = await db
-    .select({
-      id: deposit.id,
-      businessId: deposit.businessId,
-      partyDriverId: deposit.partyDriverId,
-      status: deposit.status,
-    })
+    .select(DEPOSIT_COLUMNS)
     .from(deposit)
     .where(and(eq(deposit.id, depositId), eq(deposit.businessId, businessId)))
+    .limit(1);
+  return rows[0] as DepositRow | undefined;
+}
+
+/** F-2.6/UC-16 step 6: the deposit currently attached to this lease, whatever its status — the closure flow needs to find it (not only a `held` one) so it can also read one already in `hold_window`. */
+export async function findDepositForLease(
+  db: ReadDb,
+  businessId: string,
+  leaseId: string,
+): Promise<DepositRow | undefined> {
+  const rows = await db
+    .select(DEPOSIT_COLUMNS)
+    .from(deposit)
+    .where(and(eq(deposit.businessId, businessId), eq(deposit.leaseId, leaseId)))
+    .orderBy(desc(deposit.createdAt))
     .limit(1);
   return rows[0] as DepositRow | undefined;
 }
@@ -257,8 +281,12 @@ export async function updateDepositStatus(
   db: WriteDb,
   depositId: string,
   status: DepositRow["status"],
+  holdReleaseDate?: string,
 ): Promise<void> {
-  await db.update(deposit).set({ status }).where(eq(deposit.id, depositId));
+  await db
+    .update(deposit)
+    .set({ status, ...(holdReleaseDate !== undefined ? { holdReleaseDate } : {}) })
+    .where(eq(deposit.id, depositId));
 }
 
 export interface NewOffsetRecord {

@@ -2,6 +2,7 @@ import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { OdometerSource } from "@fleetsettle/shared/schemas";
 import type { Writer } from "../db/client.js";
 import { generateNextBillingPeriodTx, type GeneratedBillingPeriod } from "./billing-period.js";
+import { takeCustomerDepositTx } from "./deposit.js";
 import { insertLease, updateLeaseTerms, type LeaseRow } from "../queries/lease.js";
 import { insertOdometerReading } from "../queries/odometer-reading.js";
 
@@ -18,22 +19,28 @@ export interface StartLeaseInput {
   reminderDaysBefore?: number;
   odometerReadingKm?: number;
   odometerSource?: OdometerSource;
+  depositAmountMinor?: Minor;
+  userId: string;
 }
 
 export interface StartedLease {
   lease: LeaseRow;
   firstBillingPeriod: GeneratedBillingPeriod;
+  depositId: string | null;
 }
 
 /**
  * F-2.1/UC-10, one transaction: the `lease` itself, the handover
- * `odometer_reading` (INV-19, when a mileage limit is set), and the first
+ * `odometer_reading` (INV-19, when a mileage limit is set), the first
  * `billing_period` it generates — "a billing period on its own owes nobody
  * anything," so the first rent due is raised here rather than left for a
  * cron that has not run yet (CLAUDE.md → Writes: no cron is a prerequisite
- * for a user action). Every period after this one is P13's cron calling
- * `generateNextBillingPeriod` on a schedule, or the same endpoint tapped
- * manually — the identical idempotent function, not a second implementation.
+ * for a user action) — and, when a deposit is taken at handover, the
+ * `deposit` row F-2.6's own closure flow will later settle (`takeCustomerDepositTx`,
+ * composed into this same transaction rather than opened as its own). Every
+ * period after the first is P13's cron calling `generateNextBillingPeriod`
+ * on a schedule, or the same endpoint tapped manually — the identical
+ * idempotent function, not a second implementation.
  */
 export async function startLease(writer: Writer, input: StartLeaseInput): Promise<StartedLease> {
   return writer.transaction(async (tx) => {
@@ -76,6 +83,19 @@ export async function startLease(writer: Writer, input: StartLeaseInput): Promis
       leaseId,
     });
 
+    let depositId: string | null = null;
+    if (input.depositAmountMinor !== undefined) {
+      const taken = await takeCustomerDepositTx(tx, {
+        businessId: input.businessId,
+        leaseId,
+        customerId: input.customerId,
+        amountMinor: input.depositAmountMinor,
+        occurredOn: input.startDate,
+        userId: input.userId,
+      });
+      depositId = taken.depositId;
+    }
+
     return {
       lease: {
         id: leaseId,
@@ -91,6 +111,7 @@ export async function startLease(writer: Writer, input: StartLeaseInput): Promis
         reminderDaysBefore: input.reminderDaysBefore ?? 3,
       },
       firstBillingPeriod,
+      depositId,
     };
   });
 }

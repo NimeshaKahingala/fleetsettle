@@ -1,17 +1,25 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
+  closeLeaseHandler,
+  closeOutLeaseHandler,
   generateBillingPeriodHandler,
+  getLeaseClosureSummaryHandler,
   getLeaseHandler,
   listBillingPeriodsHandler,
   renewLeaseHandler,
+  settleLeaseDepositHandler,
   startLeaseHandler,
 } from "../handlers/lease.js";
 import {
+  closeLeaseRoute,
+  closeOutLeaseRoute,
   generateBillingPeriodRoute,
+  getLeaseClosureSummaryRoute,
   getLeaseRoute,
   listBillingPeriodsRoute,
   renewLeaseRoute,
+  settleLeaseDepositRoute,
   startLeaseRoute,
 } from "../route-defs/lease.js";
 import type { Env } from "../types.js";
@@ -22,4 +30,8 @@ export const lease = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(getLeaseRoute, getLeaseHandler)
   .openapi(renewLeaseRoute, renewLeaseHandler)
   .openapi(generateBillingPeriodRoute, generateBillingPeriodHandler)
-  .openapi(listBillingPeriodsRoute, listBillingPeriodsHandler);
+  .openapi(listBillingPeriodsRoute, listBillingPeriodsHandler)
+  .openapi(closeLeaseRoute, closeLeaseHandler)
+  .openapi(getLeaseClosureSummaryRoute, getLeaseClosureSummaryHandler)
+  .openapi(settleLeaseDepositRoute, settleLeaseDepositHandler)
+  .openapi(closeOutLeaseRoute, closeOutLeaseHandler);

@@ -119,6 +119,8 @@ export async function applyAdjustmentToObligation(
 
 export interface OutstandingObligation {
   id: string;
+  kind: string;
+  dueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
@@ -134,6 +136,8 @@ export async function findOutstandingObligationsForDriver(
   const rows = await db
     .select({
       id: obligation.id,
+      kind: obligation.kind,
+      dueOn: obligation.dueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
@@ -171,6 +175,8 @@ export async function findOutstandingObligationsForParty(
   const rows = await db
     .select({
       id: obligation.id,
+      kind: obligation.kind,
+      dueOn: obligation.dueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,

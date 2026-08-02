@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { incident, incidentRecovery, insuranceClaim, leaseExtension } from "../db/schema.js";
 
@@ -84,6 +84,25 @@ export async function closeIncidentRow(
   closedAt: string,
 ): Promise<void> {
   await db.update(incident).set({ status: "closed", closedAt }).where(eq(incident.id, incidentId));
+}
+
+/** F-2.6/UC-16 step 4: "any open incident still awaiting a repair bill or recovery" — the closure summary's own line, scoped to this lease directly rather than the whole vehicle's history. */
+export async function listOpenIncidentsForLease(
+  db: ReadDb,
+  businessId: string,
+  leaseId: string,
+): Promise<IncidentRow[]> {
+  const rows = await db
+    .select(INCIDENT_COLUMNS)
+    .from(incident)
+    .where(
+      and(
+        eq(incident.businessId, businessId),
+        eq(incident.leaseId, leaseId),
+        sql`${incident.status} <> 'closed'`,
+      ),
+    );
+  return rows as IncidentRow[];
 }
 
 export interface NewLeaseExtension {
