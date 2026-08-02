@@ -21,6 +21,7 @@ export const ERROR_CODES = [
   "VEHICLE_ALREADY_EXISTS",
   "VEHICLE_DOUBLE_BOOKED",
   "DAILY_LEASE_OVERLAPS",
+  "TRIP_ADVANCE_UNSETTLED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

@@ -4,6 +4,7 @@ import { requireBusinessId, requireBusinessTimezone, requireCapability } from ".
 import { createVehicle } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import {
+  findVehicleCalendar,
   findVehicleForBusiness,
   listVehiclesForBusiness,
   upsertVehicleDocument,
@@ -11,6 +12,7 @@ import {
 } from "../queries/vehicle.js";
 import type {
   createVehicleRoute,
+  getVehicleCalendarRoute,
   getVehicleRoute,
   listVehiclesRoute,
   upsertVehicleDocumentRoute,
@@ -78,6 +80,32 @@ export const listVehiclesHandler: RouteHandler<typeof listVehiclesRoute, Env> = 
   const rows = await listVehiclesForBusiness(c.get("reader"), businessId);
 
   return c.json(rows.map(toResponse), 200);
+};
+
+/** UC-95: "is the vehicle free on the 12th" — read-only, `dailyOperations` (the same capability booking a trip or confirming a day needs). */
+export const getVehicleCalendarHandler: RouteHandler<typeof getVehicleCalendarRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const { from, to } = c.req.valid("query");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const days = await findVehicleCalendar(c.get("reader"), businessId, id, from, to);
+  return c.json(
+    days.map((day) => ({
+      businessDate: day.businessDate,
+      arrangement: day.arrangement,
+      sourceType: day.sourceType,
+      sourceId: day.sourceId,
+      isHold: day.isHold,
+    })),
+    200,
+  );
 };
 
 /** F-10.1 / UC-92. */

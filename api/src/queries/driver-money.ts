@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   advance,
@@ -61,6 +61,29 @@ export async function findAdvanceForBusiness(
     .where(and(eq(advance.id, advanceId), eq(advance.businessId, businessId)))
     .limit(1);
   return rows[0] as AdvanceRow | undefined;
+}
+
+/** F-5.4/UC-44, INV-17: an advance still `open`/`part_settled` against this trip is what blocks closing it. F-5.5/UC-45: the same set is what cancelling settles, one way or the other. */
+export async function findUnsettledAdvancesForTrip(
+  db: ReadDb,
+  tripId: string,
+): Promise<AdvanceRow[]> {
+  const rows = await db
+    .select({
+      id: advance.id,
+      businessId: advance.businessId,
+      driverId: advance.driverId,
+      tripId: advance.tripId,
+      amountMinor: advance.amountMinor,
+      issuedOn: advance.issuedOn,
+      status: advance.status,
+      voidedAt: advance.voidedAt,
+    })
+    .from(advance)
+    .where(
+      and(eq(advance.tripId, tripId), ne(advance.status, "settled"), isNull(advance.voidedAt)),
+    );
+  return rows as AdvanceRow[];
 }
 
 export interface NewAdvanceSettlement {

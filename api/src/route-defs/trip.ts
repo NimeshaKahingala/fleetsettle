@@ -1,5 +1,12 @@
 import { createRoute } from "@hono/zod-openapi";
-import { bookTripRequestSchema, tripResponseSchema } from "@fleetsettle/shared/schemas";
+import {
+  bookTripRequestSchema,
+  cancelledTripResponseSchema,
+  cancelTripRequestSchema,
+  closedTripResponseSchema,
+  closeTripRequestSchema,
+  tripResponseSchema,
+} from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const tripIdParams = z.object({ id: z.string().uuid() });
@@ -41,5 +48,51 @@ export const getTripRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read trips" },
     404: { description: "No such trip in this business" },
+  },
+});
+
+/**
+ * F-5.4/UC-44/W-41. INV-17 blocks this while a driver advance against the
+ * trip is unreconciled — the one place friction is correct, since it is
+ * what keeps trip profit from becoming fiction.
+ */
+export const closeTripRoute = createRoute({
+  method: "post",
+  path: "/{id}/close",
+  request: {
+    params: tripIdParams,
+    body: { content: { "application/json": { schema: closeTripRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: closedTripResponseSchema } },
+      description: "The closed trip, with its P&L",
+    },
+    400: { description: "The trip is cancelled, or the request is malformed" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot close a trip" },
+    404: { description: "No such trip in this business" },
+    409: { description: "An advance against this trip is not yet reconciled (INV-17)" },
+  },
+});
+
+/** F-5.5/UC-45: cancellation never blocks — an open advance is given a disposition here, not left implied. */
+export const cancelTripRoute = createRoute({
+  method: "post",
+  path: "/{id}/cancel",
+  request: {
+    params: tripIdParams,
+    body: { content: { "application/json": { schema: cancelTripRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: cancelledTripResponseSchema } },
+      description: "The cancelled trip",
+    },
+    400: { description: "The trip is already closed, or the request is malformed" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot cancel a trip" },
+    404: { description: "No such trip in this business" },
+    409: { description: "An advance against this trip needs a disposition (INV-17)" },
   },
 });

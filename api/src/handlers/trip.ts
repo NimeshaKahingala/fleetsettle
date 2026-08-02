@@ -1,16 +1,41 @@
-import { toWire, ZERO, type Minor } from "@fleetsettle/shared";
+import { businessToday, toWire, ZERO, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
-import { bookTrip } from "../domain/trip.js";
+import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
+import {
+  bookTrip,
+  cancelTrip,
+  closeTrip,
+  type CancelledTrip,
+  type ClosedTrip,
+} from "../domain/trip.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findTripForBusiness, type TripRow } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import { NotFoundError } from "../errors/app-error.js";
-import type { bookTripRoute, getTripRoute } from "../route-defs/trip.js";
+import type {
+  bookTripRoute,
+  cancelTripRoute,
+  closeTripRoute,
+  getTripRoute,
+} from "../route-defs/trip.js";
 import type { Env } from "../types.js";
 
-function toResponse(row: TripRow) {
+type TripResponseRow = Pick<
+  TripRow,
+  | "id"
+  | "vehicleId"
+  | "customerId"
+  | "driverId"
+  | "status"
+  | "startDate"
+  | "endDate"
+  | "destination"
+  | "agreedAmountMinor"
+  | "driverFeeMinor"
+>;
+
+function toResponse(row: TripResponseRow) {
   return {
     id: row.id,
     vehicleId: row.vehicleId,
@@ -22,6 +47,34 @@ function toResponse(row: TripRow) {
     destination: row.destination,
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     driverFeeMinor: toWire(row.driverFeeMinor as Minor),
+  };
+}
+
+function toClosedResponse(result: ClosedTrip) {
+  return {
+    id: result.id,
+    status: result.status,
+    closingDate: result.closingDate,
+    incomeMinor: toWire(result.incomeMinor),
+    costsMinor: toWire(result.costsMinor),
+    costsByCategory: result.costsByCategory.map((row) => ({
+      category: row.category,
+      amountMinor: toWire(row.amountMinor),
+    })),
+    driverFeeMinor: toWire(result.driverFeeMinor),
+    profitMinor: toWire(result.profitMinor),
+    distanceKm: result.distanceKm,
+    litres: result.litres,
+    kmPerLitre: result.kmPerLitre,
+  };
+}
+
+function toCancelledResponse(result: CancelledTrip) {
+  return {
+    id: result.id,
+    status: result.status,
+    cancelReason: result.cancelReason,
+    advanceDisposition: result.advanceDisposition,
   };
 }
 
@@ -57,6 +110,10 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
     ...(body.destination !== undefined ? { destination: body.destination } : {}),
     agreedAmountMinor,
     driverFeeMinor,
+    ...(body.openingOdometerKm !== undefined ? { openingOdometerKm: body.openingOdometerKm } : {}),
+    ...(body.openingOdometerSource !== undefined
+      ? { openingOdometerSource: body.openingOdometerSource }
+      : {}),
   });
 
   return c.json(
@@ -86,4 +143,53 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
   if (!row) throw new NotFoundError();
 
   return c.json(toResponse(row), 200);
+};
+
+/** F-5.4/UC-44. `closeTrip` (domain/trip.ts) is the write; this is validation and translation only. */
+export const closeTripHandler: RouteHandler<typeof closeTripRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const trip = await findTripForBusiness(c.get("reader"), businessId, id);
+  if (!trip) throw new NotFoundError();
+
+  const result = await closeTrip(c.get("writer"), {
+    businessId,
+    trip,
+    closingDate: body.closingDate,
+    ...(body.closingOdometerKm !== undefined ? { closingOdometerKm: body.closingOdometerKm } : {}),
+    ...(body.closingOdometerSource !== undefined
+      ? { closingOdometerSource: body.closingOdometerSource }
+      : {}),
+  });
+
+  return c.json(toClosedResponse(result), 200);
+};
+
+/** F-5.5/UC-45. `cancelTrip` (domain/trip.ts) resumes the daily arrangement and settles any open advance. */
+export const cancelTripHandler: RouteHandler<typeof cancelTripRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const cancelledOn = businessToday(requireBusinessTimezone(c));
+
+  const trip = await findTripForBusiness(c.get("reader"), businessId, id);
+  if (!trip) throw new NotFoundError();
+
+  const result = await cancelTrip(c.get("writer"), {
+    businessId,
+    trip,
+    cancelledOn,
+    ...(body.cancelReason !== undefined ? { cancelReason: body.cancelReason } : {}),
+    ...(body.advanceDisposition !== undefined
+      ? { advanceDisposition: body.advanceDisposition }
+      : {}),
+  });
+
+  return c.json(toCancelledResponse(result), 200);
 };

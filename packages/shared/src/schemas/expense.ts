@@ -34,6 +34,10 @@ export type BorneBy = z.infer<typeof borneBySchema>;
 export const createExpenseRequestSchema = z
   .object({
     vehicleId: uuidSchema.optional(),
+    // F-5.2/F-5.4: a cost incurred on a charter, folded into that trip's own
+    // P&L (UC-44) rather than only the vehicle's month — the trip and the
+    // vehicle are not exclusive, so both may be set.
+    tripId: uuidSchema.optional(),
     category: expenseCategorySchema,
     amountMinor: moneyWireSchema,
     spentOn: businessDateSchema,
@@ -58,6 +62,7 @@ export type CreateExpenseRequest = z.infer<typeof createExpenseRequestSchema>;
 export const expenseResponseSchema = z.object({
   id: z.string().uuid(),
   vehicleId: z.string().uuid().nullable(),
+  tripId: z.string().uuid().nullable(),
   category: expenseCategorySchema,
   amountMinor: z.string(),
   spentOn: z.string(),

@@ -17,6 +17,7 @@ export interface NewTrip {
   destination?: string;
   agreedAmountMinor: bigint;
   driverFeeMinor: bigint;
+  openingOdometerId?: string;
 }
 
 export async function insertTrip(db: WriteDb, values: NewTrip): Promise<void> {
@@ -44,8 +45,19 @@ export async function insertAllocationDays(db: WriteDb, days: NewAllocationDay[]
   await db.insert(vehicleDayAllocation).values(days);
 }
 
+/** F-5.5/UC-45: "the daily arrangement resumes for those dates" — freeing the vehicle's calendar. `vehicle_day_allocation` carries no `voided_at` (DM §4.1); a cancelled trip's occupancy rows are deleted rather than kept, unlike a money table. */
+export async function deleteAllocationDaysForTrip(db: WriteDb, tripId: string): Promise<void> {
+  // eslint-disable-next-line no-restricted-syntax -- allow: vehicle_day_allocation is occupancy, not money — no voided_at column exists to correct-in-place (DM §4.1)
+  await db
+    .delete(vehicleDayAllocation)
+    .where(
+      and(eq(vehicleDayAllocation.sourceType, "trip"), eq(vehicleDayAllocation.sourceId, tripId)),
+    );
+}
+
 export interface TripRow {
   id: string;
+  businessId: string;
   vehicleId: string;
   customerId: string | null;
   driverId: string | null;
@@ -55,10 +67,18 @@ export interface TripRow {
   destination: string | null;
   agreedAmountMinor: bigint;
   driverFeeMinor: bigint;
+  openingOdometerId: string | null;
+  closingOdometerId: string | null;
+  closingDate: string | null;
+  cancelReason: string | null;
+  advanceDisposition: "refunded" | "retained" | null;
+  postedPeriodId: string | null;
+  belongsToPeriodId: string | null;
 }
 
 const COLUMNS = {
   id: trip.id,
+  businessId: trip.businessId,
   vehicleId: trip.vehicleId,
   customerId: trip.customerId,
   driverId: trip.driverId,
@@ -68,6 +88,13 @@ const COLUMNS = {
   destination: trip.destination,
   agreedAmountMinor: trip.agreedAmountMinor,
   driverFeeMinor: trip.driverFeeMinor,
+  openingOdometerId: trip.openingOdometerId,
+  closingOdometerId: trip.closingOdometerId,
+  closingDate: trip.closingDate,
+  cancelReason: trip.cancelReason,
+  advanceDisposition: trip.advanceDisposition,
+  postedPeriodId: trip.postedPeriodId,
+  belongsToPeriodId: trip.belongsToPeriodId,
 };
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
@@ -82,4 +109,50 @@ export async function findTripForBusiness(
     .where(and(eq(trip.id, tripId), eq(trip.businessId, businessId)))
     .limit(1);
   return rows[0] as TripRow | undefined;
+}
+
+export interface CloseTripValues {
+  closingDate: string;
+  closingOdometerId?: string;
+  postedPeriodId: string;
+  belongsToPeriodId?: string;
+}
+
+/** F-5.4/UC-44/W-41: `posted_period_id` is set only here, on the closing date — trip income and cost recognise on close, never on booking. */
+export async function closeTripRow(
+  db: WriteDb,
+  tripId: string,
+  values: CloseTripValues,
+): Promise<void> {
+  await db
+    .update(trip)
+    .set({
+      status: "closed",
+      closingDate: values.closingDate,
+      closingOdometerId: values.closingOdometerId,
+      postedPeriodId: values.postedPeriodId,
+      belongsToPeriodId: values.belongsToPeriodId,
+    })
+    .where(eq(trip.id, tripId));
+}
+
+export interface CancelTripValues {
+  cancelReason?: string;
+  advanceDisposition?: "refunded" | "retained";
+}
+
+/** F-5.5/UC-45: "any advance refunded or retained as income — a choice, recorded" — the trip keeps which one was decided, not just that it was cancelled. */
+export async function cancelTripRow(
+  db: WriteDb,
+  tripId: string,
+  values: CancelTripValues,
+): Promise<void> {
+  await db
+    .update(trip)
+    .set({
+      status: "cancelled",
+      cancelReason: values.cancelReason,
+      advanceDisposition: values.advanceDisposition,
+    })
+    .where(eq(trip.id, tripId));
 }

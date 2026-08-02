@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dayRecord } from "../db/schema.js";
 
@@ -65,4 +65,39 @@ export interface NewDayRecord {
 /** F-4.2/F-4.4: the on-demand card — confirming a day with no row generates it, already in its confirmed state (never an intermediate `open` insert). */
 export async function insertDayRecord(db: WriteDb, values: NewDayRecord): Promise<void> {
   await db.insert(dayRecord).values(values);
+}
+
+/**
+ * F-5.1's flagged gap: "a future trip has no day records to pause" — this is
+ * the half of that sentence that DOES have something to pause. Only rows
+ * still `open` move; a day already confirmed one way or another keeps its
+ * own fact rather than being silently overwritten by the booking. One
+ * bulk `UPDATE`, never a loop per day (IG §2: bounded Worker CPU).
+ */
+export async function pauseDayRecordsForTrip(
+  db: WriteDb,
+  vehicleId: string,
+  startDate: string,
+  endDate: string,
+  tripId: string,
+): Promise<void> {
+  await db
+    .update(dayRecord)
+    .set({ state: "paused_for_trip", tripId })
+    .where(
+      and(
+        eq(dayRecord.vehicleId, vehicleId),
+        gte(dayRecord.businessDate, startDate),
+        lte(dayRecord.businessDate, endDate),
+        eq(dayRecord.state, "open"),
+      ),
+    );
+}
+
+/** F-5.5/UC-45: "the daily arrangement resumes" — only the rows this trip itself paused come back, never a day some other cause already touched. */
+export async function resumeDayRecordsForTrip(db: WriteDb, tripId: string): Promise<void> {
+  await db
+    .update(dayRecord)
+    .set({ state: "open", tripId: null })
+    .where(and(eq(dayRecord.tripId, tripId), eq(dayRecord.state, "paused_for_trip")));
 }

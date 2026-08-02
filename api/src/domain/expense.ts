@@ -65,6 +65,7 @@ export async function resolveBorneByDefault(
 export interface CreateExpenseInput {
   businessId: string;
   vehicleId?: string;
+  tripId?: string;
   category: ExpenseCategory;
   amountMinor: Minor;
   spentOn: BusinessDate;
@@ -100,6 +101,7 @@ export async function createExpense(
       id: expenseId,
       businessId: input.businessId,
       ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+      ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
       category: input.category,
       amountMinor: input.amountMinor,
       spentOn: input.spentOn,

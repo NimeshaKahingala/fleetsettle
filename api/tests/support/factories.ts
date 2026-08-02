@@ -91,6 +91,12 @@ interface DailyLeaseOverrides {
   dailyLeaseAmountMinor?: bigint;
 }
 
+interface DayRecordOverrides {
+  state?:
+    "open" | "ran_paid_full" | "ran_paid_short" | "ran_unpaid" | "did_not_run" | "paused_for_trip";
+  expectedMinor?: bigint;
+}
+
 /**
  * Creates rows a test needs and tears them down again, in the reverse of the
  * order they were created — the schema has no cascading deletes (DM: records
@@ -310,6 +316,40 @@ export class TestContext {
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, id));
     });
 
+    return id;
+  }
+
+  /**
+   * A bare `day_record` in `open` state — the shape a card-generation cron
+   * (P13) would leave behind. Nothing in this phase's endpoints ever produces
+   * a plain `open` row (`confirmDay` always writes an already-confirmed
+   * state), so this is the only way a test can set up "a trip booked inside
+   * the horizon has existing day records to pause" (F-5.1) without P13.
+   */
+  async createDayRecord(
+    businessId: string,
+    periodId: string,
+    dailyLeaseId: string,
+    vehicleId: string,
+    driverId: string,
+    businessDate: string,
+    overrides: DayRecordOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(dayRecord).values({
+      id,
+      businessId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      businessDate,
+      state: overrides.state ?? "open",
+      expectedMinor: overrides.expectedMinor ?? 5_000_00n,
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(dayRecord).where(eq(dayRecord.id, id));
+    });
     return id;
   }
 
@@ -539,11 +579,33 @@ export class TestContext {
     });
   }
 
-  /** F-5.1: `POST /api/trip` writes `trip` and its full-range `vehicle_day_allocation` (domain/trip.ts) — this is that write's teardown. */
+  /**
+   * F-5.1/F-5.4/F-5.5: `POST /api/trip` writes `trip` and its full-range
+   * `vehicle_day_allocation`; `.../close` adds the driver-fee `obligation`
+   * and a closing `odometer_reading` (domain/trip.ts); `.../cancel` settles
+   * any open advance instead (owned by whichever call issued the advance —
+   * see `trackCreatedAdvance`) and never touches `posted_period_id`. This is
+   * the one teardown for all of it — the `trip` row itself must go before
+   * the `odometer_reading` rows it references via `opening/closing_odometer_id`.
+   */
   trackCreatedTrip(tripId: string): void {
     this.track(async () => {
+      const sourcedObligations = await this.#db
+        .select({ id: obligation.id })
+        .from(obligation)
+        .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripId)));
+      const obligationIds = sourcedObligations.map((o) => o.id);
+      if (obligationIds.length > 0) {
+        await this.#db.delete(adjustment).where(inArray(adjustment.obligationId, obligationIds));
+        await this.#db
+          .delete(paymentAllocation)
+          .where(inArray(paymentAllocation.obligationId, obligationIds));
+        await this.#db.delete(obligation).where(inArray(obligation.id, obligationIds));
+      }
+
       await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, tripId));
       await this.#db.delete(trip).where(eq(trip.id, tripId));
+      await this.#db.delete(odometerReading).where(eq(odometerReading.tripId, tripId));
     });
   }
 

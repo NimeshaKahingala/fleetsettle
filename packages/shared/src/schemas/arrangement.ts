@@ -78,10 +78,20 @@ export const bookTripRequestSchema = z
     destination: z.string().trim().max(200).optional(),
     agreedAmountMinor: moneyWireSchema.optional(),
     driverFeeMinor: moneyWireSchema.optional(),
+    // F-5.4 needs a baseline to compute distance against the closing
+    // reading — optional, since a trip's own P&L degrades to "not
+    // available" rather than blocking booking when neither is ever taken.
+    // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+    openingOdometerKm: z.number().int().nonnegative().optional(),
+    openingOdometerSource: odometerSourceSchema.optional(),
   })
   .refine((value) => value.endDate >= value.startDate, {
     message: "endDate must not be before startDate",
     path: ["endDate"],
+  })
+  .refine((v) => (v.openingOdometerKm === undefined) === (v.openingOdometerSource === undefined), {
+    message: "openingOdometerKm and openingOdometerSource must be given together",
+    path: ["openingOdometerSource"],
   });
 export type BookTripRequest = z.infer<typeof bookTripRequestSchema>;
 

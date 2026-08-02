@@ -105,3 +105,14 @@ export class DailyLeaseOverlapsError extends AppError {
     super(409, "DAILY_LEASE_OVERLAPS", message);
   }
 }
+
+// INV-17 (F-5.4: "will not close while a driver advance against it is
+// unreconciled — this is the one place friction is correct, because
+// unreconciled advances turn trip profit into fiction"). F-5.5 reuses the
+// same block on cancel: an advance still open needs a disposition before the
+// trip can leave the books.
+export class TripAdvanceUnsettledError extends AppError {
+  constructor(message = "An advance against this trip is not yet reconciled") {
+    super(409, "TRIP_ADVANCE_UNSETTLED", message);
+  }
+}

@@ -1,14 +1,17 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  businessDateSchema,
   createVehicleRequestSchema,
   listVehiclesResponseSchema,
   upsertVehicleDocumentRequestSchema,
+  vehicleCalendarResponseSchema,
   vehicleDocumentResponseSchema,
   vehicleResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const vehicleIdParams = z.object({ id: z.string().uuid() });
+const vehicleCalendarQuery = z.object({ from: businessDateSchema, to: businessDateSchema });
 
 /** F-1.1 / UC-01. */
 export const createVehicleRoute = createRoute({
@@ -57,6 +60,26 @@ export const listVehiclesRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read vehicles" },
+  },
+});
+
+/**
+ * UC-95: "is the vehicle free on the 12th" — a single indexed range scan
+ * over `vehicle_day_allocation` (DM §2), never a generate_series/day_record
+ * merge. An absent date in the response is simply not scheduled.
+ */
+export const getVehicleCalendarRoute = createRoute({
+  method: "get",
+  path: "/{id}/calendar",
+  request: { params: vehicleIdParams, query: vehicleCalendarQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleCalendarResponseSchema } },
+      description: "Every occupied day for this vehicle in the given range",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read the vehicle calendar" },
+    404: { description: "No such vehicle in this business" },
   },
 });
 

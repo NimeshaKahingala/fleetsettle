@@ -31,6 +31,18 @@ async function putDocument(token: string, id: string, body: unknown) {
   });
 }
 
+async function getVehicleCalendar(token: string, id: string, from: string, to: string) {
+  return request(`/api/vehicle/${id}/calendar?from=${from}&to=${to}`, bearer(token));
+}
+
+async function postTrip(token: string, body: unknown) {
+  return request("/api/trip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 /**
  * F-1.1 / UC-01 and F-10.1 / UC-92 test matrix. 401 and 403 are proven once
  * here rather than per route — all four routes share the same
@@ -208,6 +220,90 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
       docType: "insurance",
       expiryDate: "2026-09-30",
     });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * UC-95 test matrix. "Is the vehicle free on the 12th" — a single indexed
+ * range scan (DM §2) over `vehicle_day_allocation`; an absent date in the
+ * range is simply not scheduled, never a row with a "free" state.
+ */
+describe("vehicle calendar (P6, UC-95)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — only occupied days appear, each with its own arrangement and source", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-10",
+      endDate: "2026-07-11",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const res = await getVehicleCalendar(token, vehicleId, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(200);
+    const body: Array<{ businessDate: string; arrangement: string; sourceId: string }> =
+      await res.json();
+    expect(body).toHaveLength(2);
+    expect(body.map((d) => d.businessDate)).toEqual(["2026-07-10", "2026-07-11"]);
+    expect(body.every((d) => d.arrangement === "C" && d.sourceId === tripBody.id)).toBe(true);
+
+    await ctx.cleanup();
+  });
+
+  it("an empty range returns an empty list, never a guess", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getVehicleCalendar(token, vehicleId, "2026-08-01", "2026-08-31");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+
+    await ctx.cleanup();
+  });
+
+  it("403 — a linked driver cannot read the vehicle calendar (dailyOperations is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getVehicleCalendar(token, vehicleId, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(403);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getVehicleCalendar(token, otherVehicleId, "2026-07-01", "2026-07-31");
     expect(res.status).toBe(404);
 
     await ctx.cleanup();
