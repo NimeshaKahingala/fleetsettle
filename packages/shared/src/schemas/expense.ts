@@ -81,6 +81,16 @@ export const expenseResponseSchema = z.object({
 });
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
 
+/** Vehicle overview's costs tab (Web-P5): `expenseResponseSchema` plus the void fields — a voided expense stays in the list, struck through with its reason, never removed (W-50). */
+export const expenseListRowSchema = expenseResponseSchema.extend({
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type ExpenseListRow = z.infer<typeof expenseListRowSchema>;
+
+export const listExpensesResponseSchema = z.array(expenseListRowSchema);
+export type ListExpensesResponse = z.infer<typeof listExpensesResponseSchema>;
+
 /** F-8.5/UC-96: "wrong vehicle... fuel logged against the wrong trip" — void it, with a reason, then record the corrected one through the ordinary create endpoint. */
 export const voidExpenseRequestSchema = z.object({
   reason: z.string().trim().min(1).max(500),

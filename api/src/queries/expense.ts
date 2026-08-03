@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { expense } from "../db/schema.js";
 
@@ -77,6 +77,67 @@ export async function voidExpenseRow(
     .returning({ voidedAt: expense.voidedAt });
   // `voidedAt` is written by the SET above, in the same statement — never null on the row this WHERE just matched.
   return rows[0] as { voidedAt: string };
+}
+
+export interface VehicleExpenseRow {
+  id: string;
+  tripId: string | null;
+  incidentId: string | null;
+  category:
+    | "fuel"
+    | "tolls"
+    | "fines"
+    | "cleaning"
+    | "tyres"
+    | "servicing"
+    | "repairs"
+    | "insurance"
+    | "licence"
+    | "crew_food"
+    | "permits"
+    | "office"
+    | "legal"
+    | "messaging"
+    | "other";
+  amountMinor: bigint;
+  spentOn: string;
+  borneBy: "us" | "driver" | "customer";
+  borneByDriverId: string | null;
+  borneByCustomerId: string | null;
+  paidByUserId: string | null;
+  litres: number | null;
+  note: string | null;
+  voidedAt: string | null;
+  voidedReason: string | null;
+}
+
+/** Vehicle overview's costs tab (Web-P5): every expense logged against this vehicle, voided ones included and struck through by the caller (W-50) — never filtered out, since "what did we spend" must still show what was later corrected. Newest first. */
+export async function listExpensesForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+): Promise<VehicleExpenseRow[]> {
+  const rows = await db
+    .select({
+      id: expense.id,
+      tripId: expense.tripId,
+      incidentId: expense.incidentId,
+      category: expense.category,
+      amountMinor: expense.amountMinor,
+      spentOn: expense.spentOn,
+      borneBy: expense.borneBy,
+      borneByDriverId: expense.borneByDriverId,
+      borneByCustomerId: expense.borneByCustomerId,
+      paidByUserId: expense.paidByUserId,
+      litres: expense.litres,
+      note: expense.note,
+      voidedAt: expense.voidedAt,
+      voidedReason: expense.voidedReason,
+    })
+    .from(expense)
+    .where(and(eq(expense.businessId, businessId), eq(expense.vehicleId, vehicleId)))
+    .orderBy(desc(expense.spentOn));
+  return rows as VehicleExpenseRow[];
 }
 
 export interface TripCostByCategory {

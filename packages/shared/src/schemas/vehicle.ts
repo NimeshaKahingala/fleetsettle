@@ -55,3 +55,7 @@ export const vehicleDocumentResponseSchema = z.object({
   reference: z.string().optional(),
 });
 export type VehicleDocumentResponse = z.infer<typeof vehicleDocumentResponseSchema>;
+
+/** Vehicle overview's paperwork tab (Web-P5): every document type this vehicle has ever had a date set for — at most one row per `docType` (UC-92's upsert), never one per renewal. */
+export const listVehicleDocumentsResponseSchema = z.array(vehicleDocumentResponseSchema);
+export type ListVehicleDocumentsResponse = z.infer<typeof listVehicleDocumentsResponseSchema>;

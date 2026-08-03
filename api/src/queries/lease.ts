@@ -1,6 +1,6 @@
-import { and, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { lease, vehicleDayAllocation } from "../db/schema.js";
+import { customer, lease, vehicleDayAllocation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -128,6 +128,39 @@ export async function deleteLeaseAllocationAfter(
         gt(vehicleDayAllocation.businessDate, afterDate),
       ),
     );
+}
+
+export interface VehicleLeaseHistoryRow {
+  id: string;
+  status: "draft" | "active" | "closing" | "closed";
+  startDate: string;
+  endDate: string | null;
+  rentAmountMinor: bigint;
+  customerId: string;
+  customerName: string;
+}
+
+/** Vehicle overview's history tab (Web-P5): every arrangement-A period this vehicle has had, customer already joined (IG §2), most recent first. */
+export async function listLeasesForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+): Promise<VehicleLeaseHistoryRow[]> {
+  const rows = await db
+    .select({
+      id: lease.id,
+      status: lease.status,
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+      rentAmountMinor: lease.rentAmountMinor,
+      customerId: lease.customerId,
+      customerName: customer.name,
+    })
+    .from(lease)
+    .innerJoin(customer, eq(customer.id, lease.customerId))
+    .where(and(eq(lease.businessId, businessId), eq(lease.vehicleId, vehicleId)))
+    .orderBy(desc(lease.startDate));
+  return rows as VehicleLeaseHistoryRow[];
 }
 
 /** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */

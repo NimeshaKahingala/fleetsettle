@@ -538,6 +538,26 @@ Closes P4's own recorded gap (§192 above, "the driver screen assembling `TwoBal
 
 ---
 
+# Web-P5 (backend) · Vehicle overview's scoped reads
+
+Re-validating the frontend roadmap against the real route table found the same "write-complete, read-thin" gap Web-P2 found for Home: `/vehicles/:id`'s own route-map line (UI §3.3, "overview · calendar · costs · history") names four sections, and only overview and calendar had a read behind them. Costs, and history for both arrangement A and B, had never had a list endpoint built — only `GET /{id}` singulars and the write paths.
+
+**Four new reads, all under `/api/vehicle/{id}/...`** (matching the file's own existing sub-path convention — `/{id}/calendar`, `/{id}/document` — rather than a new query-filter shape on each resource's own collection):
+- `GET /{id}/document` — every doc type this vehicle has a date set for (paperwork tab). Same path as the existing `PUT`, method-differentiated; `vehicle_document` carries no `business_id` of its own (DM §4's DDL), so the handler leans on the same "confirm the vehicle first, then query by `vehicleId` alone" order `getVehicleCalendarHandler`/`upsertVehicleDocumentHandler` already use.
+- `GET /{id}/expense` — every expense logged against this vehicle, newest first (costs tab). **A voided one stays in the list, struck through with its reason, rather than disappearing** (W-50) — the same "never hidden, never silently swapped" rule `Timeline`'s own doc comment already states for money corrections generally, applied here to a resource `Timeline` itself doesn't render (expense has no `replaces_id` link to a formal replacement, so a plain list with a void marker fits better than forcing `Timeline`'s shape onto a resource it wasn't built for).
+- `GET /{id}/lease` — every arrangement-A period this vehicle has had, customer name already resolved (IG §2 — bulk, not N+1), most recent first (history tab).
+- `GET /{id}/daily-lease` — every arrangement-B period this vehicle has had, driver name already resolved, most recent first (history tab). **Deliberately a new path, not a `vehicleId` filter added to the existing `GET /api/daily-lease`** — that route's contract (Web-P2, shipped, tested) is "active, business-wide" for Home; overloading it to also mean "all periods, one vehicle" when a query param is added would make one endpoint's behaviour depend on which params happen to be present, which is worse than one more route.
+
+**All four gated by `manageEntities`** — the same capability `getVehicleRoute`/`upsertVehicleDocumentRoute` already use, since this is vehicle master-data review, not day-to-day operation (`dailyOperations`, the calendar's own gate).
+
+**A real, recorded simplification, same shape as two earlier ones this roadmap already hit:** each daily-lease history row shows its rate via `CURRENT_RATE` (`effective_to IS NULL`) rather than resolving the rate that was actually in force at any given point in the period. Safe today for the identical reason `ConfirmDayCard`'s own doc comment already gives — F-4.3 (effective-dated rate change) isn't built, so no `daily_lease_rate` row has ever had a successor. A second, quieter one: nothing currently *writes* `effectiveTo` on a `daily_lease` (no closure flow exists for arrangement B the way F-2.6 exists for A), so in practice every row this endpoint returns today is still open — the read is correct and ready for when that changes, not exercised against an ended one outside its own test.
+
+**Depends on** — nothing new; `lease`, `daily_lease`, `expense`, `vehicle_document` all already existed (P2/P4/P6-era backend).
+
+**Done means** — 22 tests passing in `vehicle.test.ts` (was 14; 8 new, full matrix: happy path, 401, 403, and 404-belongs-to-another-business per read), plus the existing `expense`/`lease`/`dailyLease` integration suites re-run clean; `npm run check` clean across all three workspaces. The frontend screen consuming these (Web-P5, frontend half) is next.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

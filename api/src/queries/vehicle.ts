@@ -140,6 +140,34 @@ export async function findVehicleCalendar(
   return rows as VehicleCalendarDayRow[];
 }
 
+export interface VehicleDocumentRow {
+  docType: "insurance" | "registration" | "revenue_licence" | "permit" | "emissions";
+  expiryDate: string;
+  reference: string | null;
+}
+
+/**
+ * Vehicle overview's paperwork tab (Web-P5). `vehicle_document` carries no
+ * `business_id` of its own (DM §4's DDL) — the caller must already have
+ * confirmed `vehicleId` belongs to this business via `findVehicleForBusiness`
+ * first, the same order `getVehicleCalendarHandler`/`upsertVehicleDocumentHandler`
+ * already use.
+ */
+export async function listVehicleDocumentsForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<VehicleDocumentRow[]> {
+  const rows = await db
+    .select({
+      docType: vehicleDocument.docType,
+      expiryDate: vehicleDocument.expiryDate,
+      reference: vehicleDocument.reference,
+    })
+    .from(vehicleDocument)
+    .where(eq(vehicleDocument.vehicleId, vehicleId));
+  return rows as VehicleDocumentRow[];
+}
+
 export async function listVehiclesForBusiness(
   db: ReadDb,
   businessId: string,

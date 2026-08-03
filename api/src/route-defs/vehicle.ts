@@ -2,10 +2,14 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   businessDateSchema,
   createVehicleRequestSchema,
+  listExpensesResponseSchema,
+  listVehicleDocumentsResponseSchema,
   listVehiclesResponseSchema,
   upsertVehicleDocumentRequestSchema,
   vehicleCalendarResponseSchema,
+  vehicleDailyLeaseHistoryResponseSchema,
   vehicleDocumentResponseSchema,
+  vehicleLeaseHistoryResponseSchema,
   vehicleResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
@@ -98,6 +102,70 @@ export const upsertVehicleDocumentRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot update vehicle paperwork" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** Vehicle overview's paperwork tab (Web-P5). */
+export const listVehicleDocumentsRoute = createRoute({
+  method: "get",
+  path: "/{id}/document",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listVehicleDocumentsResponseSchema } },
+      description: "Every document type this vehicle has a date set for",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read vehicle paperwork" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** Vehicle overview's costs tab (Web-P5). */
+export const listVehicleExpensesRoute = createRoute({
+  method: "get",
+  path: "/{id}/expense",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listExpensesResponseSchema } },
+      description: "Every expense logged against this vehicle, newest first, voided ones included",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read vehicle costs" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** Vehicle overview's history tab (Web-P5): arrangement-A periods. */
+export const listVehicleLeaseHistoryRoute = createRoute({
+  method: "get",
+  path: "/{id}/lease",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleLeaseHistoryResponseSchema } },
+      description: "Every lease this vehicle has had, most recent first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read vehicle history" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** Vehicle overview's history tab (Web-P5): arrangement-B periods. */
+export const listVehicleDailyLeaseHistoryRoute = createRoute({
+  method: "get",
+  path: "/{id}/daily-lease",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleDailyLeaseHistoryResponseSchema } },
+      description: "Every daily lease this vehicle has had, most recent first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read vehicle history" },
     404: { description: "No such vehicle in this business" },
   },
 });

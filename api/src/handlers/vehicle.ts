@@ -1,11 +1,15 @@
-import { businessToday, newId } from "@fleetsettle/shared";
+import { businessToday, newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
 import { createVehicle } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
+import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
+import { listExpensesForVehicle } from "../queries/expense.js";
+import { listLeasesForVehicle } from "../queries/lease.js";
 import {
   findVehicleCalendar,
   findVehicleForBusiness,
+  listVehicleDocumentsForVehicle,
   listVehiclesForBusiness,
   upsertVehicleDocument,
   type VehicleRow,
@@ -14,6 +18,10 @@ import type {
   createVehicleRoute,
   getVehicleCalendarRoute,
   getVehicleRoute,
+  listVehicleDailyLeaseHistoryRoute,
+  listVehicleDocumentsRoute,
+  listVehicleExpensesRoute,
+  listVehicleLeaseHistoryRoute,
   listVehiclesRoute,
   upsertVehicleDocumentRoute,
 } from "../route-defs/vehicle.js";
@@ -136,6 +144,121 @@ export const upsertVehicleDocumentHandler: RouteHandler<
       expiryDate: body.expiryDate,
       ...(body.reference !== undefined ? { reference: body.reference } : {}),
     },
+    200,
+  );
+};
+
+/** Vehicle overview's paperwork tab (Web-P5). */
+export const listVehicleDocumentsHandler: RouteHandler<
+  typeof listVehicleDocumentsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listVehicleDocumentsForVehicle(c.get("reader"), id);
+  return c.json(
+    rows.map((row) => ({
+      docType: row.docType,
+      expiryDate: row.expiryDate,
+      ...(row.reference !== null ? { reference: row.reference } : {}),
+    })),
+    200,
+  );
+};
+
+/** Vehicle overview's costs tab (Web-P5). */
+export const listVehicleExpensesHandler: RouteHandler<
+  typeof listVehicleExpensesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listExpensesForVehicle(c.get("reader"), businessId, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      vehicleId: id,
+      tripId: row.tripId,
+      incidentId: row.incidentId,
+      category: row.category,
+      amountMinor: toWire(row.amountMinor as Minor),
+      spentOn: row.spentOn,
+      borneBy: row.borneBy,
+      borneByDriverId: row.borneByDriverId,
+      borneByCustomerId: row.borneByCustomerId,
+      paidByUserId: row.paidByUserId,
+      litres: row.litres,
+      note: row.note,
+      voidedAt: row.voidedAt,
+      voidedReason: row.voidedReason,
+    })),
+    200,
+  );
+};
+
+/** Vehicle overview's history tab (Web-P5): arrangement-A periods. */
+export const listVehicleLeaseHistoryHandler: RouteHandler<
+  typeof listVehicleLeaseHistoryRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listLeasesForVehicle(c.get("reader"), businessId, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      rentAmountMinor: toWire(row.rentAmountMinor as Minor),
+      customerId: row.customerId,
+      customerName: row.customerName,
+    })),
+    200,
+  );
+};
+
+/** Vehicle overview's history tab (Web-P5): arrangement-B periods. */
+export const listVehicleDailyLeaseHistoryHandler: RouteHandler<
+  typeof listVehicleDailyLeaseHistoryRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listDailyLeasesForVehicle(c.get("reader"), businessId, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      effectiveFrom: row.effectiveFrom,
+      effectiveTo: row.effectiveTo,
+      dailyLeaseAmountMinor: toWire(row.dailyLeaseAmountMinor as Minor),
+      driverId: row.driverId,
+      driverName: row.driverName,
+    })),
     200,
   );
 };

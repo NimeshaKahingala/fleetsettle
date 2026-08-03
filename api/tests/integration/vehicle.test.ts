@@ -43,6 +43,38 @@ async function postTrip(token: string, body: unknown) {
   });
 }
 
+async function postExpense(token: string, body: unknown) {
+  return request("/api/expense", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postVoidExpense(token: string, id: string, body: unknown) {
+  return request(`/api/expense/${id}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function listVehicleDocuments(token: string, id: string) {
+  return request(`/api/vehicle/${id}/document`, bearer(token));
+}
+
+async function listVehicleExpenses(token: string, id: string) {
+  return request(`/api/vehicle/${id}/expense`, bearer(token));
+}
+
+async function listVehicleLeaseHistory(token: string, id: string) {
+  return request(`/api/vehicle/${id}/lease`, bearer(token));
+}
+
+async function listVehicleDailyLeaseHistory(token: string, id: string) {
+  return request(`/api/vehicle/${id}/daily-lease`, bearer(token));
+}
+
 /**
  * F-1.1 / UC-01 and F-10.1 / UC-92 test matrix. 401 and 403 are proven once
  * here rather than per route — all four routes share the same
@@ -304,6 +336,221 @@ describe("vehicle calendar (P6, UC-95)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await getVehicleCalendar(token, otherVehicleId, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * Web-P5's vehicle overview: the four scoped reads its costs/history/
+ * paperwork sections need, none of which existed before. 401/403 are proven
+ * once (the documents list) rather than per route — all four share the same
+ * `manageEntities` capability check, already exhaustively covered for the
+ * middleware itself in auth.test.ts.
+ */
+describe("vehicle overview's scoped reads (Web-P5)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("documents — every doc type this vehicle has a date set for", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.createVehicleDocument(vehicleId, { docType: "insurance", expiryDate: "2026-09-30" });
+    await ctx.createVehicleDocument(vehicleId, {
+      docType: "registration",
+      expiryDate: "2027-01-15",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleDocuments(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{ docType: string; expiryDate: string }> = await res.json();
+    expect(body).toHaveLength(2);
+    expect(body.map((d) => d.docType).sort()).toEqual(["insurance", "registration"]);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/vehicle/${crypto.randomUUID()}/document`);
+    expect(res.status).toBe(401);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "MISSING_TOKEN" });
+  });
+
+  it("403 — a linked driver cannot read vehicle paperwork (manageEntities is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listVehicleDocuments(token, vehicleId);
+    expect(res.status).toBe(403);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — documents for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleDocuments(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("expenses — newest first, a voided one stays in the list rather than disappearing (W-50)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const older = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-10",
+    });
+    const olderBody: { id: string } = await older.json();
+    ctx.trackCreatedExpense(olderBody.id);
+
+    const newer = await postExpense(token, {
+      vehicleId,
+      category: "repairs",
+      amountMinor: "1200000",
+      spentOn: "2026-07-20",
+    });
+    const newerBody: { id: string } = await newer.json();
+    ctx.trackCreatedExpense(newerBody.id);
+
+    const voided = await postVoidExpense(token, olderBody.id, { reason: "wrong vehicle" });
+    expect(voided.status).toBe(200);
+
+    const res = await listVehicleExpenses(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      category: string;
+      voidedAt: string | null;
+      voidedReason: string | null;
+    }> = await res.json();
+    expect(body.map((e) => e.id)).toEqual([newerBody.id, olderBody.id]);
+    expect(body[1]).toMatchObject({ voidedReason: "wrong vehicle" });
+    expect(body[1]?.voidedAt).not.toBeNull();
+    expect(body[0]).toMatchObject({ voidedAt: null, voidedReason: null });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — expenses for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleExpenses(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("lease history — every arrangement-A period, customer name already resolved, most recent first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId, { name: "Acme Traders" });
+    const olderLeaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2025-01-01",
+      endDate: "2025-12-31",
+      status: "closed",
+    });
+    ctx.trackCreatedLease(olderLeaseId);
+    const newerLeaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      status: "active",
+    });
+    ctx.trackCreatedLease(newerLeaseId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleLeaseHistory(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; customerName: string; status: string }> = await res.json();
+    expect(body.map((l) => l.id)).toEqual([newerLeaseId, olderLeaseId]);
+    expect(body.every((l) => l.customerName === "Acme Traders")).toBe(true);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — lease history for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleLeaseHistory(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("daily-lease history — every arrangement-B period, driver name already resolved, most recent first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId, { name: "Sunil Perera" });
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      effectiveFrom: "2026-06-01",
+      dailyLeaseAmountMinor: 4_500_00n,
+    });
+    ctx.trackCreatedDailyLease(dailyLeaseId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleDailyLeaseHistory(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; driverName: string; dailyLeaseAmountMinor: string }> =
+      await res.json();
+    expect(body).toEqual([
+      expect.objectContaining({
+        id: dailyLeaseId,
+        driverName: "Sunil Perera",
+        dailyLeaseAmountMinor: "450000",
+      }),
+    ]);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — daily-lease history for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleDailyLeaseHistory(token, otherVehicleId);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

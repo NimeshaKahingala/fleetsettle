@@ -191,3 +191,34 @@ export type InProgressTripRow = z.infer<typeof inProgressTripRowSchema>;
 
 export const inProgressTripsResponseSchema = z.array(inProgressTripRowSchema);
 export type InProgressTripsResponse = z.infer<typeof inProgressTripsResponseSchema>;
+
+/** Vehicle overview's history tab (Web-P5): every arrangement-A period this vehicle has had, customer already resolved (IG §2 — bulk, not N+1), most recent first. */
+export const vehicleLeaseHistoryRowSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["draft", "active", "closing", "closed"]),
+  startDate: z.string(),
+  endDate: z.string().nullable(),
+  rentAmountMinor: z.string(),
+  customerId: z.string().uuid(),
+  customerName: z.string(),
+});
+export type VehicleLeaseHistoryRow = z.infer<typeof vehicleLeaseHistoryRowSchema>;
+
+export const vehicleLeaseHistoryResponseSchema = z.array(vehicleLeaseHistoryRowSchema);
+export type VehicleLeaseHistoryResponse = z.infer<typeof vehicleLeaseHistoryResponseSchema>;
+
+/** Vehicle overview's history tab (Web-P5): every arrangement-B period this vehicle has had, driver already resolved, most recent first — unlike `activeDailyLeaseRowSchema` (Home), this includes ended periods too. */
+export const vehicleDailyLeaseHistoryRowSchema = z.object({
+  id: z.string().uuid(),
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+  dailyLeaseAmountMinor: z.string(),
+  driverId: z.string().uuid(),
+  driverName: z.string(),
+});
+export type VehicleDailyLeaseHistoryRow = z.infer<typeof vehicleDailyLeaseHistoryRowSchema>;
+
+export const vehicleDailyLeaseHistoryResponseSchema = z.array(vehicleDailyLeaseHistoryRowSchema);
+export type VehicleDailyLeaseHistoryResponse = z.infer<
+  typeof vehicleDailyLeaseHistoryResponseSchema
+>;

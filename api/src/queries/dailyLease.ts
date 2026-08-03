@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, lte, or, gte } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, lte, or, gte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dailyLease, dailyLeaseRate, driver, vehicle } from "../db/schema.js";
 
@@ -184,5 +184,45 @@ export async function listActiveDailyLeasesForBusiness(
     .innerJoin(dailyLeaseRate, CURRENT_RATE)
     .where(and(eq(dailyLease.businessId, businessId), isNull(dailyLease.effectiveTo)))
     .orderBy(asc(vehicle.registration));
+  return rows;
+}
+
+export interface VehicleDailyLeaseHistoryRow {
+  id: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  dailyLeaseAmountMinor: bigint;
+  driverId: string;
+  driverName: string;
+}
+
+/**
+ * Vehicle overview's history tab (Web-P5): every arrangement-B period this
+ * vehicle has had, ended ones included, driver already joined. Each row's
+ * rate is its *current* one (`CURRENT_RATE`, `effective_to IS NULL`) — safe
+ * today because no path yet changes a daily lease's rate after creation
+ * (F-4.3, not built), so `dailyLeaseRate` never has more than one row per
+ * daily lease. The same simplification `ConfirmDayCard`'s own doc comment
+ * already records for exactly this reason.
+ */
+export async function listDailyLeasesForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+): Promise<VehicleDailyLeaseHistoryRow[]> {
+  const rows = await db
+    .select({
+      id: dailyLease.id,
+      effectiveFrom: dailyLease.effectiveFrom,
+      effectiveTo: dailyLease.effectiveTo,
+      dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor,
+      driverId: dailyLease.driverId,
+      driverName: driver.name,
+    })
+    .from(dailyLease)
+    .innerJoin(driver, eq(driver.id, dailyLease.driverId))
+    .innerJoin(dailyLeaseRate, CURRENT_RATE)
+    .where(and(eq(dailyLease.businessId, businessId), eq(dailyLease.vehicleId, vehicleId)))
+    .orderBy(desc(dailyLease.effectiveFrom));
   return rows;
 }
