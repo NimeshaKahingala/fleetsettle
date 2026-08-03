@@ -572,6 +572,28 @@ Re-validating the frontend roadmap against the real route table found the same "
 
 ---
 
+# Web-P5 (calendar) · F-1.5's vehicle calendar
+
+UI §7.6: "the one screen that justifies a custom date component" — a month grid, 7×~44px cells, colour plus glyph per day so it survives colour blindness and greyscale printing, a fixed legend below rather than a tooltip. Reached from `VehicleOverviewScreen` via `Screen`'s one contextual app-bar action (§4.2), a new `/vehicles/:id/calendar` route.
+
+**A real gap in the existing endpoint, closed rather than routed around:** `findVehicleCalendar` (Web-P2/P6-era) answered occupancy only — "is the vehicle free" — and its own doc comment said so explicitly: "it does not merge in `day_record`'s own state (lost / ran)." UI §7.6's table needs exactly that distinction ("Daily lease, ran" vs "Daily lease, lost" are two different rows), so the query gained a `LEFT JOIN` onto `day_record` (matching `dailyLeaseId = vehicleDayAllocation.sourceId` — only ever populated for arrangement B, since only a daily-lease's `sourceId` is a `daily_lease_id`) and the response gained `dayRecordState`. `dayRecordStateSchema` extracted from `dayRecordResponseSchema` into its own named export so both schemas reference the same six-value enum rather than two copies drifting.
+
+**One addition beyond the literal 7-row table, recorded rather than guessed:** an arrangement-B day that's scheduled but not yet confirmed (`open` — the common case, since `day-card-generation.ts`'s 90-day rolling horizon means most of a visible month is still `open`) gets its own glyph, `B`, distinct from lease-out's `L`. The table has no row for this — forcing it into "ran" would assert a fact about the day that isn't true yet, and "lost" is worse. `paused_for_trip` folds into the same `B` bucket; recorded as likely unreachable in practice, since the trip that pauses a daily-lease day almost always also claims that same date's one allocation row (DM §6.3's "one arrangement per vehicle-day"), so the date would show arrangement `C` here instead.
+
+**Two tensions with the token system, surfaced rather than silently resolved with a raw hex:**
+- UI §7.6 asks for an "orange wash" on arrangement C (on a trip / hold). No neutral, identity-only orange token exists in `tokens.css` — only the status-severity `--color-serious` (`#ec835a`, which does happen to be orange). Reused it rather than inventing a raw hex or a new token unilaterally; the reuse is a color match, not a semantic one (a trip isn't "serious"), and is recorded here as a gap worth a real token addition later, not a decision to be silently repeated.
+- **`isHold` has never been set to `true` anywhere in this codebase** — `bookTripRequestSchema`'s own doc comment already records that booking a trip writes `booked` outright, never modelling the `hold` state ST-5 describes. The hold-outline cell renders correctly and is tested, but is currently unreachable in production, the same class of gap as trip's own `status: "hold"`/`"in_progress"`.
+
+**Not rendered: "off the road."** No write path in this schema ever marks a vehicle-day unavailable outside an actual lease/trip allocation — there is nothing to query. Recorded rather than faked with an always-empty state.
+
+**`VehicleCalendarScreen` takes `today` as a prop**, not an internal `businessToday()` call — matching `VehicleListScreen` (this feature's own sibling) rather than `HomeScreen`/`DriverDetailScreen`'s internal-call convention, because a calendar's whole identity is dates: threading `today` from the router (`createAppRouteTree`'s own factory argument) is what makes the month-grid testable against a fixed month at all.
+
+**Depends on** — the extended `findVehicleCalendar`/`GET /api/vehicle/{id}/calendar` (this pass); `day_record` (P3-era).
+
+**Done means** — 24/24 passing in `api`'s `vehicle.test.ts` (2 new calendar cases: arrangement B's ran/lost distinction, arrangement A/C's `dayRecordState` always null); 54 files / 171 tests passing in `web` (4 new: `VehicleCalendarScreen.test.tsx`); `npm run check` clean across all three workspaces. Web-P5 in full (backend + overview sections + calendar) is now complete.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

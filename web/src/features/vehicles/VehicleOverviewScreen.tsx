@@ -7,6 +7,7 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
+import { CalendarDays } from "lucide-react";
 import { cn } from "../../lib/cn.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
@@ -51,6 +52,7 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
   onBack: () => void;
+  onViewCalendar: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -92,9 +94,14 @@ function buildHistoryEntries(
  * independently and simply doesn't render when empty (the same convention
  * `HomeScreen` already uses per-section, not an overall empty state, since
  * the overview `Card` above always has real content). The `calendar` tab
- * (F-1.5, UI §7.6) is a separate route and a separate build — not this one.
+ * (F-1.5, UI §7.6) is its own screen and route, reached via `Screen`'s one
+ * contextual app-bar action (§4.2) rather than a section here.
  */
-export function VehicleOverviewScreen({ vehicleId, onBack }: VehicleOverviewScreenProps) {
+export function VehicleOverviewScreen({
+  vehicleId,
+  onBack,
+  onViewCalendar,
+}: VehicleOverviewScreenProps) {
   const api = useApi();
   const { data: vehicle, isLoading } = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -125,7 +132,11 @@ export function VehicleOverviewScreen({ vehicleId, onBack }: VehicleOverviewScre
   );
 
   return (
-    <Screen title={vehicle?.registration ?? "Vehicle"} onBack={onBack}>
+    <Screen
+      title={vehicle?.registration ?? "Vehicle"}
+      onBack={onBack}
+      action={{ label: "View calendar", icon: CalendarDays, onClick: onViewCalendar }}
+    >
       {isLoading || vehicle === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (

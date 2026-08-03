@@ -111,6 +111,7 @@ export const getVehicleCalendarHandler: RouteHandler<typeof getVehicleCalendarRo
       sourceType: day.sourceType,
       sourceId: day.sourceId,
       isHold: day.isHold,
+      dayRecordState: day.dayRecordState,
     })),
     200,
   );

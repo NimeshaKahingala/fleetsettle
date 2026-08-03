@@ -1,11 +1,13 @@
 import { and, asc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
+  dayRecord,
   vehicle,
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
 } from "../db/schema.js";
+import type { DayRecordRow } from "./day-record.js";
 
 type WriteDb = Writer | Tx;
 /** Reads run from either the reader (the common case) or a writer/tx already open for a write in the same flow. */
@@ -102,15 +104,25 @@ export interface VehicleCalendarDayRow {
   sourceType: string;
   sourceId: string;
   isHold: boolean;
+  /** Only ever set for arrangement B (`sourceType === 'daily_lease'`) — that date's `day_record` outcome, when a row exists yet. `null` for arrangement A/C (nothing to join) and, within arrangement B, for a date generation hasn't reached yet (day-card-generation.ts's 90-day rolling horizon still covers every occupied date this endpoint could return, so this is rare in practice, not absent by design). */
+  dayRecordState: DayRecordRow["state"] | null;
 }
+
+const CALENDAR_DAY_RECORD = and(
+  eq(dayRecord.dailyLeaseId, vehicleDayAllocation.sourceId),
+  eq(dayRecord.businessDate, vehicleDayAllocation.businessDate),
+  eq(dayRecord.businessId, vehicleDayAllocation.businessId),
+);
 
 /**
  * UC-95, "a single indexed range scan" (DM §2 on `vehicle_day_allocation`) —
  * one row per occupied day; an absent date is not scheduled, the same
  * convention `day_record` already uses for an off-pattern day. This answers
  * "is the vehicle free," which is what booking a lease or a trip actually
- * needs before it can start; it does not merge in `day_record`'s own state
- * (lost / ran), which is a day's *outcome*, not its occupancy.
+ * needs before it can start. It also carries `day_record`'s own outcome
+ * (Web-P5's calendar screen, UI §7.6, needs "ran" vs "lost" — occupancy
+ * alone can't distinguish them) via a `LEFT JOIN` that only ever matches
+ * arrangement-B rows, since `sourceId` is a `daily_lease_id` only for those.
  */
 export async function findVehicleCalendar(
   db: ReadDb,
@@ -126,8 +138,10 @@ export async function findVehicleCalendar(
       sourceType: vehicleDayAllocation.sourceType,
       sourceId: vehicleDayAllocation.sourceId,
       isHold: vehicleDayAllocation.isHold,
+      dayRecordState: dayRecord.state,
     })
     .from(vehicleDayAllocation)
+    .leftJoin(dayRecord, CALENDAR_DAY_RECORD)
     .where(
       and(
         eq(vehicleDayAllocation.businessId, businessId),
@@ -137,7 +151,10 @@ export async function findVehicleCalendar(
       ),
     )
     .orderBy(asc(vehicleDayAllocation.businessDate));
-  return rows as VehicleCalendarDayRow[];
+  return rows.map((row) => ({
+    ...row,
+    dayRecordState: row.dayRecordState ?? null,
+  })) as VehicleCalendarDayRow[];
 }
 
 export interface VehicleDocumentRow {

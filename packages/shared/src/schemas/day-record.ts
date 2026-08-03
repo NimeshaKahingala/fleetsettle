@@ -67,20 +67,23 @@ export type ConfirmDayRequest = z.infer<typeof confirmDayRequestSchema>;
  * `earned` and `received` live in two different tables to use them as the
  * two separate facts they are.
  */
+export const dayRecordStateSchema = z.enum([
+  "open",
+  "ran_paid_full",
+  "ran_paid_short",
+  "ran_unpaid",
+  "did_not_run",
+  "paused_for_trip",
+]);
+export type DayRecordState = z.infer<typeof dayRecordStateSchema>;
+
 export const dayRecordResponseSchema = z.object({
   id: z.string().uuid(),
   dailyLeaseId: z.string().uuid(),
   vehicleId: z.string().uuid(),
   driverId: z.string().uuid(),
   businessDate: z.string(),
-  state: z.enum([
-    "open",
-    "ran_paid_full",
-    "ran_paid_short",
-    "ran_unpaid",
-    "did_not_run",
-    "paused_for_trip",
-  ]),
+  state: dayRecordStateSchema,
   earnedMinor: z.string(),
   expectedMinor: z.string(),
   receivedMinor: z.string(),

@@ -6,6 +6,7 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleOverviewScreen } from "./VehicleOverviewScreen.js";
@@ -31,25 +32,48 @@ function baseGet(overrides: Record<string, unknown> = {}) {
 
 test("renders the vehicle's fields once loaded", async () => {
   const get = baseGet();
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.getByText("Daily lease")).toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1");
 });
 
+test("the calendar action calls onViewCalendar", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const onViewCalendar = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={onViewCalendar} />,
+    { get },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "View calendar" }));
+
+  expect(onViewCalendar).toHaveBeenCalledOnce();
+});
+
 test("no active arrangement renders NotAvailable, never a blank or a zero", async () => {
   const get = baseGet({
     "/api/vehicle/v1": { ...baseVehicle, arrangement: undefined },
   });
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("no active arrangement")).toBeInTheDocument();
 });
 
 test("nothing recorded in any scoped read renders no Paperwork, Costs or History section", async () => {
   const get = baseGet();
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.queryByText(/Paperwork/)).not.toBeInTheDocument();
@@ -63,7 +87,10 @@ test("paperwork lists every document type with a date set", async () => {
     { docType: "revenue_licence", expiryDate: "2027-01-15" },
   ];
   const get = baseGet({ "/api/vehicle/v1/document": documents });
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("Paperwork · 2")).toBeInTheDocument();
   expect(screen.getByText("Insurance")).toBeInTheDocument();
@@ -109,7 +136,10 @@ test("a voided expense stays in the costs list, struck through, with its reason 
     },
   ];
   const get = baseGet({ "/api/vehicle/v1/expense": expenses });
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("Costs · 2")).toBeInTheDocument();
   expect(screen.getByText("Fuel")).toBeInTheDocument();
@@ -144,7 +174,10 @@ test("history merges lease and daily-lease periods into one chronological list",
     "/api/vehicle/v1/lease": leases,
     "/api/vehicle/v1/daily-lease": dailyLeases,
   });
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
+  renderWithProviders(
+    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    { get },
+  );
 
   expect(await screen.findByText("History · 2")).toBeInTheDocument();
   expect(screen.getByText("Daily lease · Rs 4,500/day")).toBeInTheDocument();

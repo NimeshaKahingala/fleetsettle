@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { businessDateSchema } from "./common.js";
+import { dayRecordStateSchema } from "./day-record.js";
 import { odometerSourceSchema } from "./lease-billing.js";
 
 /**
@@ -64,13 +65,20 @@ export const cancelledTripResponseSchema = z.object({
 });
 export type CancelledTripResponse = z.infer<typeof cancelledTripResponseSchema>;
 
-/** UC-95: one row per occupied day — an absent date is not scheduled (DM §2: "a single indexed range scan"). */
+/**
+ * UC-95: one row per occupied day — an absent date is not scheduled (DM §2:
+ * "a single indexed range scan"). `dayRecordState` is only ever set for
+ * arrangement B (Web-P5's calendar screen, UI §7.6, needs "ran" vs "lost,"
+ * which occupancy alone can't tell apart) — `null` for arrangement A/C, and
+ * for a B day the 90-day generation horizon hasn't reached yet.
+ */
 export const vehicleCalendarDaySchema = z.object({
   businessDate: z.string(),
   arrangement: z.enum(["A", "B", "C"]),
   sourceType: z.string(),
   sourceId: z.string().uuid(),
   isHold: z.boolean(),
+  dayRecordState: dayRecordStateSchema.nullable(),
 });
 export type VehicleCalendarDay = z.infer<typeof vehicleCalendarDaySchema>;
 

@@ -297,6 +297,76 @@ describe("vehicle calendar (P6, UC-95)", () => {
     await ctx.cleanup();
   });
 
+  it("arrangement B carries day_record's own outcome — ran vs lost, distinct from mere occupancy", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    await ctx.createVehicleDayAllocation(businessId, vehicleId, "2026-07-10", "B", dailyLeaseId);
+    await ctx.createVehicleDayAllocation(businessId, vehicleId, "2026-07-11", "B", dailyLeaseId);
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-10",
+      {
+        state: "ran_paid_full",
+      },
+    );
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-11",
+      {
+        state: "did_not_run",
+        lostReason: "other",
+      },
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getVehicleCalendar(token, vehicleId, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(200);
+    const body: Array<{ businessDate: string; dayRecordState: string | null }> = await res.json();
+    expect(body).toMatchObject([
+      { businessDate: "2026-07-10", dayRecordState: "ran_paid_full" },
+      { businessDate: "2026-07-11", dayRecordState: "did_not_run" },
+    ]);
+
+    await ctx.cleanup();
+  });
+
+  it("arrangement A/C never carry a day_record outcome — dayRecordState is always null", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-10",
+      endDate: "2026-07-10",
+    });
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const res = await getVehicleCalendar(token, vehicleId, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(200);
+    const body: Array<{ dayRecordState: string | null }> = await res.json();
+    expect(body.every((d) => d.dayRecordState === null)).toBe(true);
+
+    await ctx.cleanup();
+  });
+
   it("an empty range returns an empty list, never a guess", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

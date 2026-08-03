@@ -19,6 +19,7 @@ import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
 import { NotBuiltYetScreen } from "./NotBuiltYetScreen.js";
@@ -64,6 +65,23 @@ function VehicleDetailRoute() {
       vehicleId={vehicleId}
       onBack={() => {
         void navigate({ to: "/vehicles" });
+      }}
+      onViewCalendar={() => {
+        void navigate({ to: "/vehicles/$vehicleId/calendar", params: { vehicleId } });
+      }}
+    />
+  );
+}
+
+function VehicleCalendarRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/calendar" });
+  const navigate = useNavigate();
+  return (
+    <VehicleCalendarScreen
+      vehicleId={vehicleId}
+      today={today}
+      onBack={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
       }}
     />
   );
@@ -168,6 +186,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: VehicleDetailRoute,
   });
 
+  const vehicleCalendarRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicles/$vehicleId/calendar",
+    component: () => <VehicleCalendarRoute today={today} />,
+  });
+
   const peopleRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people",
@@ -196,6 +220,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     homeRoute,
     vehiclesRoute,
     vehicleDetailRoute,
+    vehicleCalendarRoute,
     peopleRoute,
     driverDetailRoute,
     customerDetailRoute,
