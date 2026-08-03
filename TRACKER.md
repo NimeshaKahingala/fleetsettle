@@ -520,6 +520,24 @@ UI §3.2's ordered stack, assembled from six independent reads (the three from W
 
 ---
 
+# Web-P4 · Driver detail
+
+Closes P4's own recorded gap (§192 above, "the driver screen assembling `TwoBalances` — not built this pass"): `DriverDetailScreen`, reached from `PeopleListScreen`'s driver row via a new `/people/drivers/$driverId` route (replacing its placeholder; `customerDetailRoute` is unchanged — still Web-P6's placeholder).
+
+**W-2 enforced by construction, not convention:** `TwoBalances` (pre-existing, never accepts a signed net) is fed the two independent totals from `GET /api/driver/{id}/balances` (P4 backend) and derives its own "Net: you owe him"/"he owes you" sentence — `DriverDetailScreen` never computes or passes a net itself.
+
+**`driverBalancesResponseSchema` gives only the two totals, no breakdown** — `owedToYouDetail`/`owedByYouDetail` are both passed `"—"`, the same fallback `TwoBalances.test.tsx` already established for "nothing specific to say," rather than a fabricated line. A per-obligation breakdown (e.g. "6 short days, oldest 14 Jul") would need a new read endpoint; recorded as a gap, not built here.
+
+**`OffsetSheet` built as a real, working form, not a stub.** `POST /api/offset` (P4 backend, F-6.4/UC-56/W-2's only endpoint that moves both balances at once) already had its full 400/401/403/404/409 matrix, so wiring `TwoBalances`' existing "Offset…" action to a stub would have been strictly more work than building it: amount, date (defaults to today), optional note — the same domain-typed-form pattern as `CreateDriverForm` (`Controller` for every field, `toWire()` only inside `mutationFn`). INV-3 ("cannot exceed what is outstanding on either side") is enforced server-side and its 400 message surfaced as-is, deliberately not pre-validated client-side against a balance read that could itself be stale.
+
+**Not built this pass:** the history sections (days, trips, advances, deposit) a fuller driver screen would eventually want — a separate, larger gap than this phase's own scope, recorded rather than half-built.
+
+**Depends on** — `GET /api/driver/{id}/balances` and `POST /api/offset` (both P4 backend), `TwoBalances` (P2).
+
+**Done means** — 52 files / 158 tests passing in `web` (4 new: `OffsetSheet`, `DriverDetailScreen`); `npm run check` clean across all three workspaces.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

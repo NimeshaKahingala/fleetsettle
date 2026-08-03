@@ -17,6 +17,7 @@ import {
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
+import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
@@ -85,7 +86,13 @@ function PeopleListRoute() {
   );
 }
 
-/** Web-P4/P6 build the real driver/customer screens; a placeholder still needs its own way back to the list (§7.5's back-button convention) — unlike the tab-root placeholders (Home/More), which have nothing to return to. */
+function DriverDetailRoute() {
+  const { driverId } = useParams({ from: "/people/drivers/$driverId" });
+  const navigate = useNavigate();
+  return <DriverDetailScreen driverId={driverId} onBack={() => void navigate({ to: "/people" })} />;
+}
+
+/** Web-P6 builds the real customer screen; a placeholder still needs its own way back to the list (§7.5's back-button convention) — unlike the tab-root placeholders (Home/More), which have nothing to return to. */
 function PlaceholderDetailRoute({ title }: { title: string }) {
   const navigate = useNavigate();
   return <NotBuiltYetScreen title={title} onBack={() => void navigate({ to: "/people" })} />;
@@ -170,7 +177,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const driverDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people/drivers/$driverId",
-    component: () => <PlaceholderDetailRoute title="Driver" />,
+    component: DriverDetailRoute,
   });
 
   const customerDetailRoute = createRoute({
