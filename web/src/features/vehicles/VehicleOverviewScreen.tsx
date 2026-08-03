@@ -13,6 +13,7 @@ const ARRANGEMENT_LABEL: Record<string, string> = {
 
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
+  onBack: () => void;
 }
 
 /**
@@ -22,7 +23,7 @@ export interface VehicleOverviewScreenProps {
  * belong to the phases that build those records (P3, P4, P5, P6) — this
  * screen doesn't fake sections for data that can't exist yet.
  */
-export function VehicleOverviewScreen({ vehicleId }: VehicleOverviewScreenProps) {
+export function VehicleOverviewScreen({ vehicleId, onBack }: VehicleOverviewScreenProps) {
   const api = useApi();
   const { data: vehicle, isLoading } = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -30,7 +31,7 @@ export function VehicleOverviewScreen({ vehicleId }: VehicleOverviewScreenProps)
   });
 
   return (
-    <Screen title={vehicle?.registration ?? "Vehicle"}>
+    <Screen title={vehicle?.registration ?? "Vehicle"} onBack={onBack}>
       {isLoading || vehicle === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (

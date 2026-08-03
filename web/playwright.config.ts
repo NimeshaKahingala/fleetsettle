@@ -21,7 +21,12 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run build && npm run preview -- --port 4173",
+    // `VITE_AUTH_MODE=stub` is set on the *build*, not the preview server:
+    // Vite inlines `import.meta.env` at build time, so setting it only on
+    // `preview` would have no effect on the bundle being served. Without
+    // it the token getter throws before any request is issued, and
+    // `page.route()` has nothing to intercept (see e2e/smoke.spec.ts).
+    command: "VITE_AUTH_MODE=stub npm run build && npm run preview -- --port 4173",
     url: "http://localhost:4173",
     reuseExistingServer: !process.env["CI"],
     timeout: 60_000,

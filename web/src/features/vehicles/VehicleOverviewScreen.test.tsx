@@ -12,7 +12,7 @@ test("renders the vehicle's fields once loaded", async () => {
     lifecycle: "active",
     arrangement: "B",
   } satisfies VehicleResponse);
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" />, { get });
+  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
 
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.getByText("Daily lease")).toBeInTheDocument();
@@ -26,7 +26,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
     vehicleType: "Bus",
     lifecycle: "active",
   } satisfies VehicleResponse);
-  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" />, { get });
+  renderWithProviders(<VehicleOverviewScreen vehicleId="v1" onBack={() => {}} />, { get });
 
   expect(await screen.findByText("no active arrangement")).toBeInTheDocument();
 });

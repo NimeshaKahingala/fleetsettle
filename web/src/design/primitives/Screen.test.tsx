@@ -48,3 +48,27 @@ test("renders the offline banner slot between the app bar and the scroll region 
   );
   expect(screen.getByTestId("offline")).toBeInTheDocument();
 });
+
+test("no onBack means no back button (a tab's own top-level screen, §7's convention)", () => {
+  render(
+    <Screen title="Vehicles">
+      <p>List</p>
+    </Screen>,
+  );
+  expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+});
+
+test('onBack renders a back button before the title and fires on click (§7.5/§7.2\'s "←" wireframes)', async () => {
+  const user = userEvent.setup();
+  const onBack = vi.fn();
+  render(
+    <Screen title="Vehicle" onBack={onBack}>
+      <p>Detail</p>
+    </Screen>,
+  );
+
+  const backButton = screen.getByRole("button", { name: "Back" });
+  expect(backButton).toBeInTheDocument();
+  await user.click(backButton);
+  expect(onBack).toHaveBeenCalledOnce();
+});
