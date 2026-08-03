@@ -558,6 +558,20 @@ Re-validating the frontend roadmap against the real route table found the same "
 
 ---
 
+# Web-P5 (frontend) · Vehicle overview's Paperwork/Costs/History sections
+
+`VehicleOverviewScreen` gains three sections below its existing overview `Card`, each reading one of the four backend endpoints above and simply not rendering when empty — the same per-section convention `HomeScreen` already established, chosen over an overall empty state because the overview `Card` above always has real content regardless of whether any section below it does.
+
+- **Paperwork** — one row per document type, label + "Expires `date`". Read-only: this pass adds the list, not a renewal form (`PUT /{id}/document`'s own UI is F-10.1's territory, not requested here) — recorded rather than half-built.
+- **Costs** — one row per expense, category + `Money`. **A voided expense stays visible, struck through, with "· Voided: `reason`"** — the same visible-correction rule `Timeline` enforces for money records generally (W-50), rendered here as plain struck-through rows rather than forcing `Timeline`'s own shape onto a resource with no formal replacement link.
+- **History** — arrangement-A and -B periods **merged into one chronological list via the existing `Timeline` component**, newest first: `{who: customerName/driverName, whenLabel: "start – end/ongoing", description: "Lease out/Daily lease · Rs …/month/day"}`. No new component needed — `Timeline`'s own shape (who, when, what) already fits an arrangement period, a second legitimate use beyond the money-correction one its own doc comment describes.
+
+**Depends on** — Web-P5 (backend)'s four reads; `Timeline`, `Section`, `Money` (all P2/P3-era, unchanged).
+
+**Done means** — 52 files / 162 tests passing in `web` (4 new — `VehicleOverviewScreen.test.tsx` grown from 2 to 6 cases); `npm run check` clean across all three workspaces.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.
