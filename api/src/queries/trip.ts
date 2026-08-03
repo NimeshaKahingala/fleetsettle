@@ -1,6 +1,6 @@
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { trip, vehicleDayAllocation } from "../db/schema.js";
+import { customer, driver, trip, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -192,4 +192,59 @@ export async function cancelTripRow(
       advanceDisposition: values.advanceDisposition,
     })
     .where(eq(trip.id, tripId));
+}
+
+export interface InProgressTripRow {
+  id: string;
+  vehicleId: string;
+  vehicleRegistration: string;
+  customerId: string | null;
+  customerName: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  startDate: string;
+  endDate: string;
+  destination: string | null;
+}
+
+/**
+ * Home item 7 (UI §3.2): every trip still open. `status = 'booked'` is the
+ * whole population right now — `arrangement.ts`'s own comment on
+ * `tripResponseSchema` records that booking (F-5.1) writes `booked`
+ * outright, and no path has ever produced `hold` or `in_progress` even
+ * though the schema allows them, so filtering on the literal `'in_progress'`
+ * would silently return nothing forever rather than the trips actually
+ * still running. `customer`/`driver` are left-joined (a trip's own columns
+ * are nullable per DM §8 — a driver-only or customer-only trip is real).
+ */
+export async function listInProgressTripsForBusiness(
+  db: ReadDb,
+  businessId: string,
+): Promise<InProgressTripRow[]> {
+  const rows = await db
+    .select({
+      id: trip.id,
+      vehicleId: trip.vehicleId,
+      vehicleRegistration: vehicle.registration,
+      customerId: trip.customerId,
+      customerName: customer.name,
+      driverId: trip.driverId,
+      driverName: driver.name,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      destination: trip.destination,
+    })
+    .from(trip)
+    .innerJoin(vehicle, eq(vehicle.id, trip.vehicleId))
+    .leftJoin(customer, eq(customer.id, trip.customerId))
+    .leftJoin(driver, eq(driver.id, trip.driverId))
+    .where(and(eq(trip.businessId, businessId), eq(trip.status, "booked")))
+    .orderBy(asc(trip.startDate));
+  return rows.map((r) => ({
+    ...r,
+    customerId: r.customerId ?? null,
+    customerName: r.customerName ?? null,
+    driverId: r.driverId ?? null,
+    driverName: r.driverName ?? null,
+  }));
 }

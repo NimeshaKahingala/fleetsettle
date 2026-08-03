@@ -138,6 +138,21 @@ export const dailyLeaseResponseSchema = z.object({
 });
 export type DailyLeaseResponse = z.infer<typeof dailyLeaseResponseSchema>;
 
+/** Home item 3 (UI §3.2): every daily lease still running, with enough of the vehicle and driver already resolved that a caller can render a day card per row without a follow-up lookup. */
+export const activeDailyLeaseRowSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  vehicleRegistration: z.string(),
+  vehicleType: z.string(),
+  driverId: z.string().uuid(),
+  driverName: z.string(),
+  dailyLeaseAmountMinor: z.string(),
+});
+export type ActiveDailyLeaseRow = z.infer<typeof activeDailyLeaseRowSchema>;
+
+export const activeDailyLeasesResponseSchema = z.array(activeDailyLeaseRowSchema);
+export type ActiveDailyLeasesResponse = z.infer<typeof activeDailyLeasesResponseSchema>;
+
 /** F-5.1: what booking a trip produces. */
 export const tripResponseSchema = z.object({
   id: z.string().uuid(),
@@ -152,3 +167,27 @@ export const tripResponseSchema = z.object({
   driverFeeMinor: z.string(),
 });
 export type TripResponse = z.infer<typeof tripResponseSchema>;
+
+/**
+ * Home item 7 (UI §3.2): every trip still open. `status: "booked"` is the
+ * whole population right now — `dailyLeaseResponseSchema`'s neighbour
+ * `tripResponseSchema` allows `hold`/`in_progress` at the schema level, but
+ * booking (F-5.1) writes `booked` outright and no path has ever produced the
+ * other two, so this list means "booked, not yet closed or cancelled."
+ */
+export const inProgressTripRowSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  vehicleRegistration: z.string(),
+  customerId: z.string().uuid().nullable(),
+  customerName: z.string().nullable(),
+  driverId: z.string().uuid().nullable(),
+  driverName: z.string().nullable(),
+  startDate: z.string(),
+  endDate: z.string(),
+  destination: z.string().nullable(),
+});
+export type InProgressTripRow = z.infer<typeof inProgressTripRowSchema>;
+
+export const inProgressTripsResponseSchema = z.array(inProgressTripRowSchema);
+export type InProgressTripsResponse = z.infer<typeof inProgressTripsResponseSchema>;

@@ -1,3 +1,4 @@
+import { addDays, businessToday } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
@@ -17,6 +18,10 @@ async function confirmDay(token: string, body: unknown) {
 
 async function getDayRecord(token: string, dailyLeaseId: string, businessDate: string) {
   return request(`/api/day-record/${dailyLeaseId}/${businessDate}`, bearer(token));
+}
+
+async function listUnconfirmedDayRecords(token: string) {
+  return request("/api/day-record", bearer(token));
 }
 
 /**
@@ -354,5 +359,124 @@ describe("read a day record (P3, F-4.1)", () => {
       headers: {},
     });
     expect(res.status).toBe(401);
+  });
+
+  describe("GET /api/day-record — unconfirmed, oldest first (Home item 4, UI §3.2)", () => {
+    const today = businessToday();
+
+    it("returns only open days strictly before today, oldest first, excluding paused-for-trip and today's own card, only for this business", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: addDays(today, -60),
+        periodEnd: addDays(today, 60),
+      });
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "CAB-3333" });
+      const driverId = await ctx.createDriver(businessId, { name: "Nimal" });
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+      const olderId = await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        addDays(today, -5),
+      );
+      const newerId = await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        addDays(today, -2),
+      );
+      // Excluded: already confirmed, paused for a trip, and today's own card
+      // (a different section, §3.2 — the two must never interleave).
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        addDays(today, -4),
+        {
+          state: "ran_paid_full",
+        },
+      );
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        addDays(today, -3),
+        {
+          state: "paused_for_trip",
+        },
+      );
+      await ctx.createDayRecord(businessId, periodId, dailyLeaseId, vehicleId, driverId, today);
+
+      const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+      const otherPeriodId = await ctx.createOpenPeriod(otherBusinessId, {
+        periodStart: addDays(today, -60),
+        periodEnd: addDays(today, 60),
+      });
+      const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+      const otherDriverId = await ctx.createDriver(otherBusinessId);
+      const otherDailyLeaseId = await ctx.createDailyLease(
+        otherBusinessId,
+        otherVehicleId,
+        otherDriverId,
+      );
+      await ctx.createDayRecord(
+        otherBusinessId,
+        otherPeriodId,
+        otherDailyLeaseId,
+        otherVehicleId,
+        otherDriverId,
+        addDays(today, -5),
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await listUnconfirmedDayRecords(token);
+      expect(res.status).toBe(200);
+      const body: Array<{
+        id: string;
+        vehicleRegistration: string;
+        driverName: string;
+        businessDate: string;
+        expectedMinor: string;
+      }> = await res.json();
+      expect(body.map((r) => r.id)).toEqual([olderId, newerId]);
+      expect(body[0]).toMatchObject({
+        vehicleRegistration: "CAB-3333",
+        driverName: "Nimal",
+        businessDate: addDays(today, -5),
+        expectedMinor: "500000",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("401 — missing Authorization header", async () => {
+      const res = await request("/api/day-record");
+      expect(res.status).toBe(401);
+    });
+
+    it("403 — a linked driver cannot read the unconfirmed-days list", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const driverId = await ctx.createDriver(businessId);
+      const linked = await mintLinkedDriver(db, ctx, driverId);
+      const token = await signAccessToken(linked.asgardeoSub);
+
+      const res = await listUnconfirmedDayRecords(token);
+      expect(res.status).toBe(403);
+
+      await ctx.cleanup();
+    });
   });
 });

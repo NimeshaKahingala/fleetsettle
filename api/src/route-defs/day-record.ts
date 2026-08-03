@@ -1,10 +1,28 @@
 import { createRoute } from "@hono/zod-openapi";
-import { confirmDayRequestSchema, dayRecordResponseSchema } from "@fleetsettle/shared/schemas";
+import {
+  confirmDayRequestSchema,
+  dayRecordResponseSchema,
+  unconfirmedDayRecordsResponseSchema,
+} from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const dayRecordParams = z.object({
   dailyLeaseId: z.string().uuid(),
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+/** Home item 4 (UI §3.2): days scheduled but never confirmed, strictly before today, oldest first. */
+export const listUnconfirmedDayRecordsRoute = createRoute({
+  method: "get",
+  path: "/",
+  responses: {
+    200: {
+      content: { "application/json": { schema: unconfirmedDayRecordsResponseSchema } },
+      description: "Unconfirmed days before today, oldest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read day records" },
+  },
 });
 
 /**

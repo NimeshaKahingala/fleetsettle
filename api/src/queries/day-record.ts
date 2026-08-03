@@ -1,6 +1,6 @@
-import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { dayRecord, obligation } from "../db/schema.js";
+import { dayRecord, driver, obligation, vehicle } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -161,4 +161,54 @@ export async function listDayRecordsForDriver(
     receivedMinor: settledByDayRecord.get(r.id) ?? 0n,
     lostReason: r.lostReason,
   }));
+}
+
+export interface UnconfirmedDayRecordRow {
+  id: string;
+  dailyLeaseId: string;
+  vehicleId: string;
+  vehicleRegistration: string;
+  driverId: string;
+  driverName: string;
+  businessDate: string;
+  expectedMinor: bigint;
+}
+
+/**
+ * Home item 4 (UI §3.2): days scheduled but never confirmed, strictly
+ * before `today` — a parameter the caller derives via `businessToday()`,
+ * never a server-evaluated date literal (CLAUDE.md → Time). Today's own
+ * card is item 3 and the two never interleave (§3.2). `state = 'open'` is
+ * the whole filter: it already excludes `paused_for_trip` (FL §4.1's own
+ * accept clause) and every terminal state, so there's no second condition
+ * to get wrong.
+ */
+export async function listUnconfirmedDayRecordsForBusiness(
+  db: ReadDb,
+  businessId: string,
+  today: string,
+): Promise<UnconfirmedDayRecordRow[]> {
+  const rows = await db
+    .select({
+      id: dayRecord.id,
+      dailyLeaseId: dayRecord.dailyLeaseId,
+      vehicleId: dayRecord.vehicleId,
+      vehicleRegistration: vehicle.registration,
+      driverId: dayRecord.driverId,
+      driverName: driver.name,
+      businessDate: dayRecord.businessDate,
+      expectedMinor: dayRecord.expectedMinor,
+    })
+    .from(dayRecord)
+    .innerJoin(vehicle, eq(vehicle.id, dayRecord.vehicleId))
+    .innerJoin(driver, eq(driver.id, dayRecord.driverId))
+    .where(
+      and(
+        eq(dayRecord.businessId, businessId),
+        eq(dayRecord.state, "open"),
+        lt(dayRecord.businessDate, today),
+      ),
+    )
+    .orderBy(asc(dayRecord.businessDate));
+  return rows;
 }

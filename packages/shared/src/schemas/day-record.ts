@@ -88,3 +88,26 @@ export const dayRecordResponseSchema = z.object({
   note: z.string().nullable(),
 });
 export type DayRecordResponse = z.infer<typeof dayRecordResponseSchema>;
+
+/**
+ * Home item 4 (UI §3.2): days scheduled but never confirmed, strictly
+ * before today — today's own card is item 3, and the two never interleave
+ * (§3.2: "different questions, mixing them makes both harder to answer").
+ * `state: "open"` alone already excludes `paused_for_trip` (FL §4.1's own
+ * accept clause) and every terminal state, so there's no separate filter to
+ * get wrong.
+ */
+export const unconfirmedDayRecordRowSchema = z.object({
+  id: z.string().uuid(),
+  dailyLeaseId: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  vehicleRegistration: z.string(),
+  driverId: z.string().uuid(),
+  driverName: z.string(),
+  businessDate: z.string(),
+  expectedMinor: z.string(),
+});
+export type UnconfirmedDayRecordRow = z.infer<typeof unconfirmedDayRecordRowSchema>;
+
+export const unconfirmedDayRecordsResponseSchema = z.array(unconfirmedDayRecordRowSchema);
+export type UnconfirmedDayRecordsResponse = z.infer<typeof unconfirmedDayRecordsResponseSchema>;

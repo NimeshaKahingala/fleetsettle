@@ -19,6 +19,10 @@ async function getDailyLease(token: string, id: string) {
   return request(`/api/daily-lease/${id}`, bearer(token));
 }
 
+async function listActiveDailyLeases(token: string) {
+  return request("/api/daily-lease", bearer(token));
+}
+
 /**
  * F-1.7 / UC-05 test matrix. Only `daily_lease` + its first `daily_lease_rate`
  * are written in P2 — DM §4.1 attributes the vehicle_day_allocation/day_record
@@ -197,5 +201,72 @@ describe("set up the daily lease (P2, F-1.7/UC-05)", () => {
     expect(secondBody).toMatchObject({ code: "DAILY_LEASE_OVERLAPS" });
 
     await ctx.cleanup();
+  });
+
+  describe("GET /api/daily-lease — active list (Home item 3, UI §3.2)", () => {
+    it("returns every active lease with its vehicle/driver/rate already resolved, only for this business, and excludes one that has ended", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "CAB-1111" });
+      const driverId = await ctx.createDriver(businessId, { name: "Sunil" });
+      const activeId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+        dailyLeaseAmountMinor: 5_000_00n,
+      });
+
+      const endedVehicleId = await ctx.createVehicle(businessId, { registration: "CAB-2222" });
+      const endedDriverId = await ctx.createDriver(businessId, { name: "Kamal" });
+      await ctx.createDailyLease(businessId, endedVehicleId, endedDriverId, {
+        effectiveFrom: "2025-01-01",
+        effectiveTo: "2025-12-31",
+      });
+
+      const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+      const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+      const otherDriverId = await ctx.createDriver(otherBusinessId);
+      await ctx.createDailyLease(otherBusinessId, otherVehicleId, otherDriverId);
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await listActiveDailyLeases(token);
+      expect(res.status).toBe(200);
+      const body: Array<{
+        id: string;
+        vehicleId: string;
+        vehicleRegistration: string;
+        vehicleType: string;
+        driverId: string;
+        driverName: string;
+        dailyLeaseAmountMinor: string;
+      }> = await res.json();
+      expect(body.map((r) => r.id)).toEqual([activeId]);
+      expect(body[0]).toMatchObject({
+        vehicleId,
+        vehicleRegistration: "CAB-1111",
+        driverId,
+        driverName: "Sunil",
+        dailyLeaseAmountMinor: "500000",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("401 — missing Authorization header", async () => {
+      const res = await request("/api/daily-lease");
+      expect(res.status).toBe(401);
+    });
+
+    it("403 — a linked driver cannot read the active-lease list", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const driverId = await ctx.createDriver(businessId);
+      const linked = await mintLinkedDriver(db, ctx, driverId);
+      const token = await signAccessToken(linked.asgardeoSub);
+
+      const res = await listActiveDailyLeases(token);
+      expect(res.status).toBe(403);
+
+      await ctx.cleanup();
+    });
   });
 });

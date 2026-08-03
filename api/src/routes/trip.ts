@@ -5,12 +5,14 @@ import {
   cancelTripHandler,
   closeTripHandler,
   getTripHandler,
+  listInProgressTripsHandler,
 } from "../handlers/trip.js";
 import {
   bookTripRoute,
   cancelTripRoute,
   closeTripRoute,
   getTripRoute,
+  listInProgressTripsRoute,
 } from "../route-defs/trip.js";
 import type { Env } from "../types.js";
 
@@ -19,4 +21,5 @@ export const trip = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(bookTripRoute, bookTripHandler)
   .openapi(getTripRoute, getTripHandler)
   .openapi(closeTripRoute, closeTripHandler)
-  .openapi(cancelTripRoute, cancelTripHandler);
+  .openapi(cancelTripRoute, cancelTripHandler)
+  .openapi(listInProgressTripsRoute, listInProgressTripsHandler);

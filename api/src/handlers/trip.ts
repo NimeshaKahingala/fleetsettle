@@ -10,7 +10,11 @@ import {
 } from "../domain/trip.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
-import { findTripForBusiness, type TripRow } from "../queries/trip.js";
+import {
+  findTripForBusiness,
+  listInProgressTripsForBusiness,
+  type TripRow,
+} from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import { NotFoundError } from "../errors/app-error.js";
 import type {
@@ -18,6 +22,7 @@ import type {
   cancelTripRoute,
   closeTripRoute,
   getTripRoute,
+  listInProgressTripsRoute,
 } from "../route-defs/trip.js";
 import type { Env } from "../types.js";
 
@@ -192,4 +197,31 @@ export const cancelTripHandler: RouteHandler<typeof cancelTripRoute, Env> = asyn
   });
 
   return c.json(toCancelledResponse(result), 200);
+};
+
+/** Home item 7 (UI §3.2). Same `leaseAndTripLifecycle` gate as this resource's other endpoints. */
+export const listInProgressTripsHandler: RouteHandler<
+  typeof listInProgressTripsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+  const businessId = requireBusinessId(c);
+
+  const rows = await listInProgressTripsForBusiness(c.get("reader"), businessId);
+
+  return c.json(
+    rows.map((r) => ({
+      id: r.id,
+      vehicleId: r.vehicleId,
+      vehicleRegistration: r.vehicleRegistration,
+      customerId: r.customerId,
+      customerName: r.customerName,
+      driverId: r.driverId,
+      driverName: r.driverName,
+      startDate: r.startDate,
+      endDate: r.endDate,
+      destination: r.destination,
+    })),
+    200,
+  );
 };

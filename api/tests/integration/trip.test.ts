@@ -27,6 +27,10 @@ async function getTrip(token: string, id: string) {
   return request(`/api/trip/${id}`, bearer(token));
 }
 
+async function listInProgressTrips(token: string) {
+  return request("/api/trip", bearer(token));
+}
+
 async function postCloseTrip(token: string, id: string, body: unknown) {
   return request(`/api/trip/${id}/close`, {
     method: "POST",
@@ -746,6 +750,94 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
 
     const res = await postCancelTrip(token, tripBody.id, {});
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+describe("GET /api/trip — in progress (Home item 7, UI §3.2)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("returns a booked trip with vehicle/customer/driver names resolved, excludes a closed one, only for this business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId, { registration: "CAB-4444" });
+    const customerId = await ctx.createCustomer(businessId, { name: "Perera Tours" });
+    const driverId = await ctx.createDriver(businessId, { name: "Ranil" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const bookedRes = await postTrip(token, {
+      vehicleId,
+      customerId,
+      driverId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      destination: "Kandy",
+    });
+    expect(bookedRes.status).toBe(201);
+    const bookedBody: { id: string } = await bookedRes.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+
+    // Excluded: already closed (booking never writes `in_progress` — see
+    // arrangement.ts's own comment on tripResponseSchema).
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const closedVehicleId = await ctx.createVehicle(businessId, { registration: "CAB-5555" });
+    await ctx.createTrip(businessId, closedVehicleId, periodId);
+
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherRes = await postTrip(otherToken, {
+      vehicleId: otherVehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const otherBody: { id: string } = await otherRes.json();
+    ctx.trackCreatedTrip(otherBody.id);
+
+    const res = await listInProgressTrips(token);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      vehicleRegistration: string;
+      customerName: string | null;
+      driverName: string | null;
+      startDate: string;
+      endDate: string;
+      destination: string | null;
+    }> = await res.json();
+    expect(body.map((r) => r.id)).toEqual([bookedBody.id]);
+    expect(body[0]).toMatchObject({
+      vehicleRegistration: "CAB-4444",
+      customerName: "Perera Tours",
+      driverName: "Ranil",
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      destination: "Kandy",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/trip");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot read the in-progress trip list", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listInProgressTrips(token);
+    expect(res.status).toBe(403);
 
     await ctx.cleanup();
   });

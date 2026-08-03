@@ -1,6 +1,6 @@
 import { and, eq, isNull, lte, or, gte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { dailyLease, dailyLeaseRate } from "../db/schema.js";
+import { dailyLease, dailyLeaseRate, driver, vehicle } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -136,4 +136,48 @@ export async function findDailyLeaseRateForDate(
     )
     .limit(1);
   return rows[0];
+}
+
+const CURRENT_RATE = and(
+  eq(dailyLeaseRate.dailyLeaseId, dailyLease.id),
+  isNull(dailyLeaseRate.effectiveTo),
+);
+
+export interface ActiveDailyLeaseRow {
+  id: string;
+  vehicleId: string;
+  vehicleRegistration: string;
+  vehicleType: string;
+  driverId: string;
+  driverName: string;
+  dailyLeaseAmountMinor: bigint;
+}
+
+/**
+ * Home item 3 (UI §3.2): every daily lease still running, one row each,
+ * with the vehicle and driver already joined so the caller can render a day
+ * card without a follow-up lookup per row (IG §2: bulk, not N+1). `effective_to
+ * IS NULL` is the same "still active" test `findCurrentDailyLeaseForVehicle`
+ * already uses.
+ */
+export async function listActiveDailyLeasesForBusiness(
+  db: ReadDb,
+  businessId: string,
+): Promise<ActiveDailyLeaseRow[]> {
+  const rows = await db
+    .select({
+      id: dailyLease.id,
+      vehicleId: dailyLease.vehicleId,
+      vehicleRegistration: vehicle.registration,
+      vehicleType: vehicle.vehicleType,
+      driverId: dailyLease.driverId,
+      driverName: driver.name,
+      dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor,
+    })
+    .from(dailyLease)
+    .innerJoin(vehicle, eq(vehicle.id, dailyLease.vehicleId))
+    .innerJoin(driver, eq(driver.id, dailyLease.driverId))
+    .innerJoin(dailyLeaseRate, CURRENT_RATE)
+    .where(and(eq(dailyLease.businessId, businessId), isNull(dailyLease.effectiveTo)));
+  return rows;
 }

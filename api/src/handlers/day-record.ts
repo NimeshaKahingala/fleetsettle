@@ -1,12 +1,25 @@
-import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
+import { asBusinessDate, businessToday, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
+import {
+  requireBusinessId,
+  requireBusinessTimezone,
+  requireCapability,
+  requireUserId,
+} from "../auth/context.js";
 import { confirmDay } from "../domain/confirmDay.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findDailyLeaseForBusiness, findDailyLeaseRateForDate } from "../queries/dailyLease.js";
-import { findDayRecordByLeaseAndDate, type DayRecordRow } from "../queries/day-record.js";
+import {
+  findDayRecordByLeaseAndDate,
+  listUnconfirmedDayRecordsForBusiness,
+  type DayRecordRow,
+} from "../queries/day-record.js";
 import { findObligationBySource } from "../queries/obligation.js";
-import type { confirmDayRoute, getDayRecordRoute } from "../route-defs/day-record.js";
+import type {
+  confirmDayRoute,
+  getDayRecordRoute,
+  listUnconfirmedDayRecordsRoute,
+} from "../route-defs/day-record.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: DayRecordRow, receivedMinor: bigint) {
@@ -80,4 +93,30 @@ export const getDayRecordHandler: RouteHandler<typeof getDayRecordRoute, Env> = 
 
   const obligationRow = await findObligationBySource(reader, "day_record", row.id);
   return c.json(toResponse(row, obligationRow?.settledMinor ?? 0n), 200);
+};
+
+/** Home item 4 (UI §3.2). Same `dailyOperations` gate as this resource's other endpoints. */
+export const listUnconfirmedDayRecordsHandler: RouteHandler<
+  typeof listUnconfirmedDayRecordsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const today = businessToday(requireBusinessTimezone(c));
+
+  const rows = await listUnconfirmedDayRecordsForBusiness(c.get("reader"), businessId, today);
+
+  return c.json(
+    rows.map((r) => ({
+      id: r.id,
+      dailyLeaseId: r.dailyLeaseId,
+      vehicleId: r.vehicleId,
+      vehicleRegistration: r.vehicleRegistration,
+      driverId: r.driverId,
+      driverName: r.driverName,
+      businessDate: r.businessDate,
+      expectedMinor: toWire(r.expectedMinor as Minor),
+    })),
+    200,
+  );
 };

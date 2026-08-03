@@ -21,18 +21,32 @@ test("attaches a freshly-fetched token to every request, never a captured one", 
   expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer token-1");
 });
 
-test("POST/PUT send a JSON body", async () => {
+test("POST/PUT/PATCH send a JSON body with the right method", async () => {
+  // A fresh Response per call — reusing one instance across calls throws on
+  // the second `.json()`, since reading a Response's body consumes it.
   const fetchMock = vi
     .fn()
-    .mockResolvedValue(new Response(JSON.stringify({ id: "1" }), { status: 201 }));
+    .mockImplementation(() =>
+      Promise.resolve(new Response(JSON.stringify({ id: "1" }), { status: 201 })),
+    );
   vi.stubGlobal("fetch", fetchMock);
 
   const client = createApiClient("https://api.example", () => Promise.resolve("t"));
   await client.post("/api/vehicle", { registration: "CAB-1234" });
+  await client.put("/api/vehicle/1", { registration: "CAB-5678" });
+  await client.patch("/api/lease/1/renew", { endDate: "2027-01-01" });
 
-  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-  expect(init.method).toBe("POST");
-  expect(init.body).toBe(JSON.stringify({ registration: "CAB-1234" }));
+  const [, postInit] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(postInit.method).toBe("POST");
+  expect(postInit.body).toBe(JSON.stringify({ registration: "CAB-1234" }));
+
+  const [, putInit] = fetchMock.mock.calls[1] as [string, RequestInit];
+  expect(putInit.method).toBe("PUT");
+  expect(putInit.body).toBe(JSON.stringify({ registration: "CAB-5678" }));
+
+  const [, patchInit] = fetchMock.mock.calls[2] as [string, RequestInit];
+  expect(patchInit.method).toBe("PATCH");
+  expect(patchInit.body).toBe(JSON.stringify({ endDate: "2027-01-01" }));
 });
 
 test("a non-ok response throws an ApiError carrying the Worker's error shape", async () => {

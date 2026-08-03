@@ -479,6 +479,21 @@ WhatsApp Business Cloud API behind Cloudflare Queues, the KV kill switch, the me
 
 ---
 
+# Web-P2 · Home-screen backend reads
+
+Not one of the original P0–P13 phases — a small backend increment inside the frontend build-out's own roadmap (Web-P1 through Web-P12), added because re-validating that roadmap against the real route table found the Home tab's three most load-bearing reads didn't exist: every other resource already had `GET /{id}`, but a *list* was never built for these three, because no earlier phase's own tests needed one.
+
+**Backend** — done, three endpoints, each following the `add-endpoint` skill's order and full test matrix against the real Neon branch (happy path with tenant isolation, 401 missing header, 403 linked driver):
+- `GET /api/daily-lease` — Home item 3 (UI §3.2, "today's day card"): every daily lease still running (`effective_to IS NULL`), vehicle and driver already resolved so the frontend can render a day card per row with no follow-up lookup (IG §2 — bulk, not N+1)
+- `GET /api/day-record` — Home item 4 ("earlier unconfirmed days, oldest first"): `state = 'open'` strictly before `businessToday()` (a parameter derived server-side from the verified token's timezone, never a client-supplied date or `CURRENT_DATE` — CLAUDE.md → Time). `state = 'open'` alone already excludes `paused_for_trip` (FL §4.1's own accept clause) and today's own card, which must never interleave with this list (§3.2)
+- `GET /api/trip` — Home item 7 ("trips in progress"): `status = 'booked'`, not a literal `'in_progress'` filter — `arrangement.ts`'s own comment on `tripResponseSchema` already records that booking (F-5.1) writes `booked` outright and no path has ever produced `hold` or `in_progress`, so filtering on that literal would have silently returned nothing forever (the exact "confident wrong number" class W-56 warns against, just empty instead of wrong)
+
+**Frontend** — `ApiClient` gained `patch<T>(path, body)` (`get`/`post`/`put` only, before), needed by Web-P6's `PATCH /api/lease/{id}/renew`. Not used yet — the Home tab itself is Web-P3.
+
+**Depends on** — nothing new; all three resources already existed.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.
@@ -487,8 +502,10 @@ UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a deci
 
 | Blocked | Waiting on |
 |---|---|
-| P1 frontend — Asgardeo wiring | Console: token type → JWT, binding → None, redirect URL cleanup |
+| Web-P12 — real Asgardeo auth | Console: token type → JWT, binding → None, redirect URL cleanup |
 | P14 | Twelve Meta template approvals |
+
+Real Asgardeo wiring no longer blocks any screen work — Web-P1 added a stub token getter (`web/src/lib/auth-stub.ts`, opt-in via `VITE_AUTH_MODE=stub`) precisely so Web-P2 through Web-P11 can be built and tested against real screens without it. Only swapping the stub for the real provider (Web-P12, deliberately sequenced last) still waits on the console changes above.
 
 **Everything in P0 is unblocked.**
 

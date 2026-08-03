@@ -25,6 +25,7 @@ export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
   put<T>(path: string, body: unknown): Promise<T>;
+  patch<T>(path: string, body: unknown): Promise<T>;
 }
 
 /**
@@ -66,5 +67,7 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
       request<T>(path, { method: "POST", body: JSON.stringify(body) }),
     put: <T>(path: string, body: unknown) =>
       request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
+    patch: <T>(path: string, body: unknown) =>
+      request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   };
 }

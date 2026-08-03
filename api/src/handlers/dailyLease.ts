@@ -6,11 +6,16 @@ import { NotFoundError } from "../errors/app-error.js";
 import {
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
+  listActiveDailyLeasesForBusiness,
   type DailyLeaseRow,
 } from "../queries/dailyLease.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
-import type { getDailyLeaseRoute, startDailyLeaseRoute } from "../route-defs/dailyLease.js";
+import type {
+  getDailyLeaseRoute,
+  listActiveDailyLeasesRoute,
+  startDailyLeaseRoute,
+} from "../route-defs/dailyLease.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: DailyLeaseRow, dailyLeaseAmountMinor: bigint) {
@@ -79,4 +84,28 @@ export const getDailyLeaseHandler: RouteHandler<typeof getDailyLeaseRoute, Env> 
   if (!rate) throw new NotFoundError();
 
   return c.json(toResponse(row, rate.dailyLeaseAmountMinor), 200);
+};
+
+/** Home item 3 (UI §3.2). Same `leaseAndTripLifecycle` gate as this resource's other endpoints. */
+export const listActiveDailyLeasesHandler: RouteHandler<
+  typeof listActiveDailyLeasesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+  const businessId = requireBusinessId(c);
+
+  const rows = await listActiveDailyLeasesForBusiness(c.get("reader"), businessId);
+
+  return c.json(
+    rows.map((r) => ({
+      id: r.id,
+      vehicleId: r.vehicleId,
+      vehicleRegistration: r.vehicleRegistration,
+      vehicleType: r.vehicleType,
+      driverId: r.driverId,
+      driverName: r.driverName,
+      dailyLeaseAmountMinor: toWire(r.dailyLeaseAmountMinor as Minor),
+    })),
+    200,
+  );
 };

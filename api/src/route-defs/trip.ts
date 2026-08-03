@@ -5,11 +5,26 @@ import {
   cancelTripRequestSchema,
   closedTripResponseSchema,
   closeTripRequestSchema,
+  inProgressTripsResponseSchema,
   tripResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const tripIdParams = z.object({ id: z.string().uuid() });
+
+/** Home item 7 (UI §3.2): every trip still open (booked, not yet closed or cancelled). */
+export const listInProgressTripsRoute = createRoute({
+  method: "get",
+  path: "/",
+  responses: {
+    200: {
+      content: { "application/json": { schema: inProgressTripsResponseSchema } },
+      description: "Trips still in progress",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read trips" },
+  },
+});
 
 /**
  * F-5.1 / UC-20 — starting arrangement C, the one arrangement whose calendar

@@ -1,11 +1,26 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  activeDailyLeasesResponseSchema,
   dailyLeaseResponseSchema,
   startDailyLeaseRequestSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const dailyLeaseIdParams = z.object({ id: z.string().uuid() });
+
+/** Home item 3 (UI §3.2): every active daily lease, so the caller can render a day card per vehicle without a follow-up lookup. */
+export const listActiveDailyLeasesRoute = createRoute({
+  method: "get",
+  path: "/",
+  responses: {
+    200: {
+      content: { "application/json": { schema: activeDailyLeasesResponseSchema } },
+      description: "Every daily lease still running",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read daily leases" },
+  },
+});
 
 /**
  * F-1.7 / UC-05 — starting arrangement B. Writes `daily_lease` and its first
