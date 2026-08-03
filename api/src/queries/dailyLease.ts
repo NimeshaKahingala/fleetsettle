@@ -1,4 +1,4 @@
-import { and, eq, isNull, lte, or, gte } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, or, gte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dailyLease, dailyLeaseRate, driver, vehicle } from "../db/schema.js";
 
@@ -158,7 +158,11 @@ export interface ActiveDailyLeaseRow {
  * with the vehicle and driver already joined so the caller can render a day
  * card without a follow-up lookup per row (IG §2: bulk, not N+1). `effective_to
  * IS NULL` is the same "still active" test `findCurrentDailyLeaseForVehicle`
- * already uses.
+ * already uses. Ordered by registration — stable and deterministic, not
+ * "most recently used" (§3.2's own rule for which card gets elevated at 2–3
+ * vehicles): nothing in this schema tracks last-used-at yet, so the
+ * frontend elevates the first row of a stable order rather than faking
+ * recency, recorded as a real, deliberate gap rather than a silent one.
  */
 export async function listActiveDailyLeasesForBusiness(
   db: ReadDb,
@@ -178,6 +182,7 @@ export async function listActiveDailyLeasesForBusiness(
     .innerJoin(vehicle, eq(vehicle.id, dailyLease.vehicleId))
     .innerJoin(driver, eq(driver.id, dailyLease.driverId))
     .innerJoin(dailyLeaseRate, CURRENT_RATE)
-    .where(and(eq(dailyLease.businessId, businessId), isNull(dailyLease.effectiveTo)));
+    .where(and(eq(dailyLease.businessId, businessId), isNull(dailyLease.effectiveTo)))
+    .orderBy(asc(vehicle.registration));
   return rows;
 }

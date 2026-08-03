@@ -16,10 +16,22 @@ import {
 } from "@tanstack/react-router";
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
+import { HomeScreen } from "../features/home/HomeScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
 import { NotBuiltYetScreen } from "./NotBuiltYetScreen.js";
+
+function HomeRoute() {
+  const navigate = useNavigate();
+  return (
+    <HomeScreen
+      onSelectVehicle={(vehicleId: string) => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+    />
+  );
+}
 
 /**
  * §3.3's route map, code-based rather than file-based:
@@ -134,7 +146,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <NotBuiltYetScreen title="Home" />,
+    component: HomeRoute,
   });
 
   const vehiclesRoute = createRoute({

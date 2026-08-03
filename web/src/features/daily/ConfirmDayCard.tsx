@@ -25,6 +25,8 @@ export interface ConfirmDayCardProps {
   driverLabel: string;
   dateLabel: string;
   today: BusinessDate;
+  /** Threaded straight to `DayCard`/the settled summary's own `Card` — see `DayCard`'s doc comment (§3.2's 2–3-vehicle case). */
+  elevated?: boolean;
 }
 
 /** F-4.4's reason list — `on_charter` is deliberately absent (FL §4.1). */
@@ -71,6 +73,7 @@ export function ConfirmDayCard({
   driverLabel,
   dateLabel,
   today,
+  elevated = true,
 }: ConfirmDayCardProps) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -120,7 +123,7 @@ export function ConfirmDayCard({
 
   if (settled) {
     return (
-      <Card elevated className="flex flex-col gap-2">
+      <Card elevated={elevated} className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <p className="text-body-sm text-ink-muted">
             {vehicleLabel} · {dateLabel}
@@ -143,6 +146,7 @@ export function ConfirmDayCard({
         dateLabel={dateLabel}
         expectedFromLabel={`Expected from ${driverLabel}`}
         amountMinor={expectedMinor}
+        elevated={elevated}
         onPaidInFull={() => {
           confirmMutation.mutate({ dailyLeaseId, businessDate: today, action: "paid_in_full" });
         }}

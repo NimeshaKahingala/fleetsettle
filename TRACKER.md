@@ -161,7 +161,7 @@ The biggest phase, and deliberately so. Nothing can hold money until a business,
 
 **Not built this phase, and recorded rather than silently skipped**: F-4.3's "make this the new daily amount from …" (inserting a new effective-dated `daily_lease_rate`, closing out the old one) and F-4.6's bulk week-confirm (`payment` covering several days, oldest-first allocation, a shared preview-before-write). Both are real, separate features roughly the size of F-4.2 itself; the "Done means" bar below is F-4.2/F-4.4's, which is what this phase actually ships end to end.
 
-**Frontend** — assembly, not construction. Everything it needs was built in P2.
+**Frontend** — assembly, not construction. Everything it needs was built in P2. **`ConfirmDayCard`/`DayCard` gained an `elevated?: boolean` prop in Web-P3** (default `true`, so every call site below is unchanged) — Home's multi-vehicle collapse rule (UI §3.2) needed a way to render an "ordinary," non-elevated card, which neither component could do before.
 - `ConfirmDayCard` (`features/daily/`) assembles `DayCard` + a new `SomethingElseSheet` + the existing `ReasonPicker`, wired to `POST /api/day-record/confirm` and the new `GET`, via TanStack Query — done. Takes `dailyLeaseId` plus caller-resolved labels as props, the same no-router-yet composition as P2's screens (P1 still blocks real navigation)
 - `DayCard` wired to the write path: optimistic, with the `SyncChip` until confirmed — done. Every action already carries the values the backend would derive the same state from (the tapped button, or what was typed into `SomethingElseSheet`/chosen in `ReasonPicker`), so the settled summary renders immediately, mirroring `domain/confirmDay.ts`'s own state derivation client-side for the pending window only — overwritten by the real response via `queryClient.setQueryData` the moment it lands. Verified in a real browser, both themes, 360×640 (same scratch-harness-behind-`AppShell` technique as P2's verification pass): the unconfirmed card, the optimistic-then-settled transition with `SyncChip`, and both sheets, all correct
 - The "Something else" sheet — **both** figures, earned and received — done (`SomethingElseSheet.tsx`). Two `MoneyField`s, Save disabled until both are set, and `receivedMinor > earnedMinor` is rejected client-side with an explanation (that's F-4.5's credit, a different flow) — mirroring the same check `confirmDayRequestSchema`'s `.refine()` makes server-side
@@ -491,6 +491,32 @@ Not one of the original P0–P13 phases — a small backend increment inside the
 **Frontend** — `ApiClient` gained `patch<T>(path, body)` (`get`/`post`/`put` only, before), needed by Web-P6's `PATCH /api/lease/{id}/renew`. Not used yet — the Home tab itself is Web-P3.
 
 **Depends on** — nothing new; all three resources already existed.
+
+**Found in passing:** `listActiveDailyLeasesForBusiness` had no `ORDER BY` — row order was DB-dependent, not guaranteed. Fixed with `ORDER BY vehicle.registration` before Web-P3 needed a *stable* order to build its own "elevate the first" simplification against (below).
+
+---
+
+# Web-P3 · The Home tab
+
+UI §3.2's ordered stack, assembled from six independent reads (the three from Web-P2, plus paperwork-warnings/deposit-releases from P13, plus `GET /api/reports/receivables` filtered to `partyType: "customer"` — rent due, never a driver's arrears, which is F-2.2's own territory and belongs on the driver's own two-balance screen instead, Web-P4). Item 1 (failed messages) stays absent — P14 is blocked and has no read endpoint.
+
+**New primitives** (UI §6.4's own table, not yet built): `AlertStrip` (items 1–2 — full-bleed, never a `Card`, "must not be mistaken for work") and `EmptyState` (a sentence, one optional button, no illustrations). Both needed precisely because Home is the first screen either one.
+
+**Extended, not new:** `DayCard`/`ConfirmDayCard` gained `elevated?: boolean` (default `true`) — §3.2's 2–3-vehicle case needs the most-recently-used card elevated and the rest "ordinary," which neither component could render before (both hard-coded `Card elevated`).
+
+**Two deliberate simplifications, recorded rather than silently built around:**
+- **"Most-recently-used" elevation degrades to "first in a stable order."** Nothing in this schema tracks last-used-at; `queries/dailyLease.ts`'s new `ORDER BY registration` (above) is the closest stable substitute available without new backend work.
+- **The 4+ summary row states vehicle count and total expected, not "N to confirm."** Knowing how many are *already* confirmed today would need each one's own day-record fetch — the same bulk-status gap already recorded against F-4.6 (bulk week-confirm), not a new one.
+
+**§7.1's empty-state timing is implemented as specified, not approximated:** "shows the empty state until the first response lands," with a skeleton escalation only when the app *already knows* (from a warm cache) that a vehicle exists. There's no persistence yet to make a cold cache warm (Web-P11), so the skeleton branch is correctly unbuilt — its one trigger condition cannot occur before that phase exists — and every cold load renders the empty state first, replaced the instant real data arrives.
+
+**Reused as-is:** `Section` (already built in P2 specifically for "the home screen's item 4–7 treatment," per its own doc comment — items 4, 5, 6, 7 all use it unchanged), `ConfirmDayCard` (items 3 *and* 4 — reused verbatim for past dates too, since its `today` prop is really just "the date to confirm," not literally today; the one caveat is recorded in `HomeScreen.tsx` itself: it displays the daily lease's *current* rate rather than the rate in force on that specific past date, unreachable until F-4.3 exists since no lease can have more than one rate yet).
+
+**Not built this pass:** any of the "collect this due / release this deposit / view this trip" action screens the later rows would ideally link to — F-2.2 (collect rent), F-2.7's own settle action, F-5.2/5.3 (trip money) — none exist yet, so rent-due/deposit-release/trip-in-progress rows are informational only. Paperwork warnings get a real action only for a vehicle subject (`View vehicle`, since `VehicleOverviewScreen` exists); a driver subject has nowhere to go until Web-P4.
+
+**Depends on** — Web-P2 (the three reads), P13 (paperwork-warnings/deposit-releases), P11 (receivables).
+
+**Done means** — 50 files / 154 tests passing in `web` (7 new: `HomeScreen`, `AlertStrip`, `EmptyState`); `npm run check` clean across all three workspaces; the daily-lease integration suite re-verified after the `ORDER BY` fix.
 
 ---
 

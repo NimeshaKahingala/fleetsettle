@@ -14,6 +14,8 @@ export interface DayCardProps {
   onPaidInFull: () => void;
   onSomethingElse: () => void;
   onDidntRun: () => void;
+  /** §3.2: when more than one vehicle has a card today, only the most-recently-used one is elevated — the rest are "ordinary cards" (§5.3: "shadow is reserved for things that genuinely float"). Defaults to `true` — the single-card case, still the common one. */
+  elevated?: boolean;
 }
 
 /**
@@ -31,9 +33,10 @@ export function DayCard({
   onPaidInFull,
   onSomethingElse,
   onDidntRun,
+  elevated = true,
 }: DayCardProps) {
   return (
-    <Card elevated className="flex flex-col gap-4">
+    <Card elevated={elevated} className="flex flex-col gap-4">
       <div>
         <p className="text-body-sm text-ink-muted">
           {vehicleLabel} · {dateLabel}
