@@ -636,6 +636,30 @@ Re-validating the Web-P6 plan against the actual repo (not the todo list's own s
 
 ---
 
+# Web-P6c · F-2.1's start form, on its own route — UI §7.4, M-27
+
+**The route decision from rev 7 of the implementation plan, executed.** `/vehicles/:id/lease/new` is real now: `UI §3.3`'s map and `§2`'s decisions log both carry the M-27 entry in the same commit as the route itself (`docs/design/ui-ux-guidelines.md` bumped to v1.2.2) — CLAUDE.md's "documents travel together" rule read literally, not as "amend the doc first, build second."
+
+**`StartLeaseScreen`** (`web/src/features/vehicles/`) is a seven-step wizard mirroring F-2.1's own step numbering exactly (Customer → Money → Term → Mileage → Reminders → Condition → Confirm). Six level-1 fields are spread across the first three steps; every step past level 1 is skippable — the automated U-2 test here is literal: pick a customer, enter a monthly amount, click Next six times, and the lease saves with nothing else set. Verified directly, not just asserted: the happy-path test checks the actual POST body has no `mileageDailyLimitKm`, `depositAmountMinor` or `endDate` keys at all.
+
+**Mileage packages (Web-P6a) get their first real consumer.** Step 3 renders them as chips — `Unlimited` · each saved package · `Custom` — selecting a saved one fills its daily limit and excess rate from its own row, never re-typed; selecting Custom reveals its own two fields instead. A caught bug from the test suite, not just a passing one: the excess-rate calculation originally fell back through a stale `customRateMinor` state variable when a named package was chosen after Custom had already been touched — a manager who tried Custom, typed a rate, then picked "Standard 100" instead would have silently kept the typed rate. Fixed by computing the effective rate from `mileageChoice` alone, with no fallback into state the current choice doesn't own; a dedicated regression test (`switching from Custom back to a named package...`) pins it.
+
+**Two real bugs surfaced by building the screen itself, not just by testing it:**
+- **`Screen`'s own back chevron and a per-step "Back" button would have carried the identical accessible name ("Back") while doing two different things** — the chevron always calls the screen's outer `onBack` (leave the whole form); a naive per-step button would go back one step. On step 3, tapping the chevron would have silently discarded four steps of work instead of stepping back one. Fixed by dropping the per-step button entirely and wiring the chevron itself to the step-aware `goBack` — one back affordance, consistent with every other screen in the app, and M-24's "one primary action" is now satisfied for real (one button per step, not two).
+- **`EntityPicker`'s customer step was first wired with `options={[]}`** — a manager could only ever create a new customer, never pick an existing one. `GET /api/customer` (already existed, unused by any screen until now) supplies the list.
+
+**Calendar tap-through wired (F-1.5's Accept, the F-2.1 half).** `VehicleCalendarScreen` gained `onSelectFreeDay` — a day cell with no allocation becomes a real `<button>` only when the vehicle's own arrangement is A; B/C vehicles and already-occupied days stay plain, inert cells this phase (F-5.1, the other half of "F-5.1 or F-2.1," is Web-P7 — recorded rather than routed nowhere). The date rides through as a `?startDate=` search param, hand-validated in `router.tsx` against `YYYY-MM-DD` rather than trusting a zod-schema `validateSearch` integration untested against this router version.
+
+**Paperwork warning (F-10.1) reuses P13's existing read**, `GET /api/home/paperwork-warnings`, filtered client-side to this one vehicle — no new endpoint needed. It renders on the Confirm step only, above the primary action, and never blocks; "records that you proceeded" is satisfied by the write itself existing in the audit trail (D-8's blanket trigger) rather than a bespoke acknowledgement field — no such field exists anywhere in the schema or the other five documents, and inventing one here would be scope no spec asked for.
+
+**Condition photos (F-2.1 step 6) render as `NotAvailable`**, the same honest gap F-2.6's closure wizard already carries for the identical reason (no R2 presigned upload yet, W-30).
+
+**Depends on** — Web-P6a's mileage packages and `GET /api/customer` (already existed); `EntityPicker`/`CreateCustomerForm`/`MoneyField`/`DateField`/`AlertStrip`/`NotAvailable` (all pre-P6).
+
+**Done means** — 58 files / 194 tests passing in `web` (2 new files: `StartLeaseScreen`'s own 6 tests, 3 new cases in `VehicleCalendarScreen.test.tsx` for the tap-through); `npm run check` clean across all three workspaces. Web-P6d (F-2.3 odometer/excess + F-2.6's closure wizard on `/leases/:id/close`) is next — the last piece of Web-P6.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

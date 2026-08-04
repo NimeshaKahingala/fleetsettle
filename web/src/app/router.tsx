@@ -1,4 +1,4 @@
-import type { BusinessDate } from "@fleetsettle/shared";
+import { asBusinessDate, type BusinessDate } from "@fleetsettle/shared";
 import type {
   CustomerResponse,
   DriverResponse,
@@ -13,6 +13,7 @@ import {
   useParams,
   useRouter,
   useRouterState,
+  useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
@@ -21,6 +22,7 @@ import { HomeScreen } from "../features/home/HomeScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
@@ -94,6 +96,33 @@ function VehicleCalendarRoute({ today }: { today: BusinessDate }) {
       today={today}
       onBack={() => {
         void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onSelectFreeDay={(date) => {
+        void navigate({
+          to: "/vehicles/$vehicleId/lease/new",
+          params: { vehicleId },
+          search: { startDate: date },
+        });
+      }}
+    />
+  );
+}
+
+/** F-1.5's calendar tap-through, F-2.1 half (Web-P6c) — reached with `?startDate=` already validated by the route below. `onCreated` lands on the new lease's own hub. */
+function StartLeaseRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/lease/new" });
+  const { startDate } = useSearch({ from: "/vehicles/$vehicleId/lease/new" });
+  const navigate = useNavigate();
+  return (
+    <StartLeaseScreen
+      vehicleId={vehicleId}
+      today={today}
+      {...(startDate !== undefined ? { initialStartDate: startDate } : {})}
+      onBack={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onCreated={(leaseId) => {
+        void navigate({ to: "/leases/$leaseId", params: { leaseId } });
       }}
     />
   );
@@ -204,6 +233,18 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <VehicleCalendarRoute today={today} />,
   });
 
+  const startLeaseRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicles/$vehicleId/lease/new",
+    validateSearch: (search: Record<string, unknown>): { startDate?: BusinessDate } => {
+      const raw = search["startDate"];
+      return typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? { startDate: asBusinessDate(raw) }
+        : {};
+    },
+    component: () => <StartLeaseRoute today={today} />,
+  });
+
   const leaseDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/leases/$leaseId",
@@ -239,6 +280,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehiclesRoute,
     vehicleDetailRoute,
     vehicleCalendarRoute,
+    startLeaseRoute,
     leaseDetailRoute,
     peopleRoute,
     driverDetailRoute,

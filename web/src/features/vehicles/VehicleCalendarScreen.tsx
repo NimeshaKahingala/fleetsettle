@@ -20,6 +20,15 @@ export interface VehicleCalendarScreenProps {
   onBack: () => void;
   /** Injected — never read from the device clock here (CLAUDE.md → Time); `createAppRouteTree`'s own `today` is threaded down through the route, the same way `VehicleListScreen` (this feature's sibling) already takes it. */
   today: BusinessDate;
+  /**
+   * F-1.5's own Accept: "tapping a free day opens F-5.1 or F-2.1 with that
+   * date filled in — otherwise the calendar answers the question and then
+   * makes you go somewhere else to act on it." Only the F-2.1 half exists
+   * yet (Web-P6c) — F-5.1 is Web-P7 — so a free day is only tappable at
+   * all when the vehicle's own arrangement is A; for B/C it stays a plain
+   * answered question this phase, recorded rather than routed nowhere.
+   */
+  onSelectFreeDay?: (date: BusinessDate) => void;
 }
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -80,7 +89,12 @@ function formatMonthLabel(date: BusinessDate): string {
  * marks a vehicle-day unavailable outside an actual lease/trip allocation,
  * so that state cannot occur yet; recorded rather than faked.
  */
-export function VehicleCalendarScreen({ vehicleId, onBack, today }: VehicleCalendarScreenProps) {
+export function VehicleCalendarScreen({
+  vehicleId,
+  onBack,
+  today,
+  onSelectFreeDay,
+}: VehicleCalendarScreenProps) {
   const api = useApi();
   const [monthAnchor, setMonthAnchor] = useState(today);
 
@@ -144,19 +158,40 @@ export function VehicleCalendarScreen({ vehicleId, onBack, today }: VehicleCalen
             const style = day !== undefined ? cellStyle(day) : null;
             // eslint-disable-next-line no-restricted-syntax -- a day-of-month for display, not money
             const dayOfMonth = Number(cell.date.slice(8, 10));
-            return (
-              <div
-                key={cell.date}
-                data-testid={`day-${cell.date}`}
+            const cellDate = cell.date;
+            const isFree = day === undefined;
+            const canStartLease =
+              isFree && vehicle?.arrangement === "A" && onSelectFreeDay !== undefined;
+            const content = (
+              <span className="flex flex-col items-center leading-none">
+                <span>{dayOfMonth}</span>
+                {style !== null ? <span aria-hidden>{style.glyph}</span> : null}
+              </span>
+            );
+            return canStartLease ? (
+              <button
+                key={cellDate}
+                type="button"
+                data-testid={`day-${cellDate}`}
+                onClick={() => onSelectFreeDay(cellDate)}
+                aria-label={`Start a rental from ${cellDate}`}
                 className={cn(
                   "flex aspect-square items-center justify-center rounded-sm text-body-sm",
                   style?.wash,
                 )}
               >
-                <span className="flex flex-col items-center leading-none">
-                  <span>{dayOfMonth}</span>
-                  {style !== null ? <span aria-hidden>{style.glyph}</span> : null}
-                </span>
+                {content}
+              </button>
+            ) : (
+              <div
+                key={cellDate}
+                data-testid={`day-${cellDate}`}
+                className={cn(
+                  "flex aspect-square items-center justify-center rounded-sm text-body-sm",
+                  style?.wash,
+                )}
+              >
+                {content}
               </div>
             );
           })}

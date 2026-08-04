@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.1 — second language closed (Sinhala); messaging resequenced (§15, §16)
-**Date:** 31 July 2026
+**Status:** v1.2.2 — F-2.1 given its own route rather than a sheet (M-27, §3.3)
+**Date:** 3 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -110,6 +110,7 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-24** ⚑ | **One primary action per screen**, bottom-anchored, full-width, and it states what it does | Two equally-weighted primary buttons is how the wrong one gets tapped at the end of a long day |
 | **M-26** ⚑ | **Landscape is supported, not locked.** Below `md` in landscape the app bar collapses to 44px, the tab bar becomes icon-only at 44px, and the sticky action stays | Locking orientation is the obvious answer and it is not available: **WCAG 2.1 SC 1.3.4 Orientation** forbids restricting content to one orientation unless it is essential, and a ledger is not essential in that sense. The manifest's `orientation` field is also ignored outside standalone mode and on iOS, so a lock would be a lock in name only. That leaves making landscape work: ~192px of content between the chrome is enough for the day card once the chrome gives back 24px |
 | **M-25** ⚑ | **The interface has no accounting vocabulary and no abbreviations of the reserved words** (FL §1.5, U-6). "Daily lease amount" is never shortened to "rate" on a screen where "driver day fee" could also appear | The two words mean opposite directions of money. UC-04 already had to split them once |
+| **M-27** ⚑ | **F-2.1 is a route (`/vehicles/:id/lease/new`), the one create flow that is not a sheet.** M-5's own rule already says why — "sheets for anything under one screenful; routes for anything multi-step" — but F-2.1 is also the first *create* flow long enough to hit that line: every other create (vehicle, driver, customer) is short enough to fit M-5's sheet half | A sheet here fails on mechanics, not taste: `Sheet` registers exactly one mobile history entry (§3.3), so hardware back would discard a multi-step, high-commitment write instead of stepping back one field; its `max-h-[90svh]` scroll region nests inside `Screen`'s own (§6.1: "the only scrolling element"); and F-10.1's `AlertStrip` warning, specified as sitting "above the primary action," would often sit below the fold of that nested scroll on exactly the screen where missing it costs money. Vehicle-scoped rather than `/leases/new` because F-2.1's own **Pre** is a vehicle precondition (INV-1) and F-1.5's Accept already names the calendar as an entry point with the date pre-filled |
 
 ---
 
@@ -193,7 +194,8 @@ Routes are shared across shells; the shell decides which are reachable and the s
 /vehicles                 list
 /vehicles/:id             overview · calendar · costs · history
 /vehicles/:id/calendar    F-1.5
-/leases/:id               F-2.1 → F-2.8
+/vehicles/:id/lease/new   F-2.1 (M-27) — the one create flow that is a route, not a sheet
+/leases/:id               F-2.2 → F-2.8
 /trips/:id                F-5.1 → F-5.5
 /incidents/:id            F-3.4 container
 /people                   drivers + customers

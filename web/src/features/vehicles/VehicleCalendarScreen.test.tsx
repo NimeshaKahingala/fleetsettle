@@ -16,10 +16,12 @@ const vehicle: VehicleResponse = {
   arrangement: "B",
 };
 
-function baseGet(days: VehicleCalendarDay[]) {
+const leaseVehicle: VehicleResponse = { ...vehicle, arrangement: "A" };
+
+function baseGet(days: VehicleCalendarDay[], overrideVehicle: VehicleResponse = vehicle) {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path === "/api/vehicle/v1") return Promise.resolve(overrideVehicle);
     if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve(days);
     return Promise.resolve([]);
   });
@@ -136,4 +138,71 @@ test("next/previous month navigation changes the displayed month and re-fetches"
   await user.click(screen.getByRole("button", { name: "Previous month" }));
   expect(await screen.findByText("June 2026")).toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1/calendar?from=2026-06-01&to=2026-06-30");
+});
+
+/** F-1.5's Accept, F-2.1 half (Web-P6c): "tapping a free day opens F-2.1 with that date filled in." Only wired for arrangement A — F-5.1 (the other half) is Web-P7. */
+test("a free day is tappable on an arrangement-A vehicle and reports its own date", async () => {
+  const user = userEvent.setup();
+  const get = baseGet([], leaseVehicle);
+  const onSelectFreeDay = vi.fn();
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDay={onSelectFreeDay}
+    />,
+    { get },
+  );
+
+  await screen.findByText("July 2026");
+  // "July 2026" resolves from local state, not the vehicle query — wait for
+  // the cell's own button role, which only renders once arrangement A is known.
+  await user.click(await screen.findByRole("button", { name: "Start a rental from 2026-07-15" }));
+
+  expect(onSelectFreeDay).toHaveBeenCalledOnce();
+  expect(onSelectFreeDay).toHaveBeenCalledWith("2026-07-15");
+});
+
+test("an already-occupied day is never tappable, even on an arrangement-A vehicle", async () => {
+  const days: VehicleCalendarDay[] = [
+    {
+      businessDate: "2026-07-15",
+      arrangement: "A",
+      sourceType: "lease",
+      sourceId: "l1",
+      isHold: false,
+      dayRecordState: null,
+    },
+  ];
+  const get = baseGet(days, leaseVehicle);
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDay={vi.fn()}
+    />,
+    { get },
+  );
+
+  await screen.findByText("July 2026");
+  const cell = await within(screen.getByTestId("day-2026-07-15")).findByText("L");
+  expect(cell.closest("button")).toBeNull();
+});
+
+test("a free day is not tappable on a non-arrangement-A vehicle (F-5.1 not built yet)", async () => {
+  const get = baseGet([]); // default `vehicle` fixture — arrangement B
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDay={vi.fn()}
+    />,
+    { get },
+  );
+
+  await screen.findByText("July 2026");
+  expect(screen.getByTestId("day-2026-07-15").tagName).not.toBe("BUTTON");
 });
