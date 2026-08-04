@@ -11,12 +11,14 @@ import {
   Outlet,
   useNavigate,
   useParams,
+  useRouter,
   useRouterState,
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
+import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
@@ -69,8 +71,18 @@ function VehicleDetailRoute() {
       onViewCalendar={() => {
         void navigate({ to: "/vehicles/$vehicleId/calendar", params: { vehicleId } });
       }}
+      onSelectLease={(leaseId: string) => {
+        void navigate({ to: "/leases/$leaseId", params: { leaseId } });
+      }}
     />
   );
+}
+
+/** §3.3's `/leases/:id` — reached today only from a vehicle's own History (Web-P6c adds a second entry point, the calendar's tap-through). `onBack` is real browser/router-history `back()`, not a hardcoded parent, since which vehicle's history the manager came from isn't this route's to know. */
+function LeaseDetailRoute() {
+  const { leaseId } = useParams({ from: "/leases/$leaseId" });
+  const router = useRouter();
+  return <LeaseHubScreen leaseId={leaseId} onBack={() => router.history.back()} />;
 }
 
 function VehicleCalendarRoute({ today }: { today: BusinessDate }) {
@@ -192,6 +204,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <VehicleCalendarRoute today={today} />,
   });
 
+  const leaseDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/leases/$leaseId",
+    component: LeaseDetailRoute,
+  });
+
   const peopleRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people",
@@ -221,6 +239,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehiclesRoute,
     vehicleDetailRoute,
     vehicleCalendarRoute,
+    leaseDetailRoute,
     peopleRoute,
     driverDetailRoute,
     customerDetailRoute,

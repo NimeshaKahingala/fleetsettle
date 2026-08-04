@@ -33,7 +33,12 @@ function baseGet(overrides: Record<string, unknown> = {}) {
 test("renders the vehicle's fields once loaded", async () => {
   const get = baseGet();
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -47,7 +52,12 @@ test("the calendar action calls onViewCalendar", async () => {
   const get = baseGet();
   const onViewCalendar = vi.fn();
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={onViewCalendar} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={onViewCalendar}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -61,7 +71,12 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
     "/api/vehicle/v1": { ...baseVehicle, arrangement: undefined },
   });
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -71,7 +86,12 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
 test("nothing recorded in any scoped read renders no Paperwork, Costs or History section", async () => {
   const get = baseGet();
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -88,7 +108,12 @@ test("paperwork lists every document type with a date set", async () => {
   ];
   const get = baseGet({ "/api/vehicle/v1/document": documents });
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -137,7 +162,12 @@ test("a voided expense stays in the costs list, struck through, with its reason 
   ];
   const get = baseGet({ "/api/vehicle/v1/expense": expenses });
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -175,7 +205,12 @@ test("history merges lease and daily-lease periods into one chronological list",
     "/api/vehicle/v1/daily-lease": dailyLeases,
   });
   renderWithProviders(
-    <VehicleOverviewScreen vehicleId="v1" onBack={() => {}} onViewCalendar={() => {}} />,
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+    />,
     { get },
   );
 
@@ -184,4 +219,51 @@ test("history merges lease and daily-lease periods into one chronological list",
   expect(screen.getByText("Lease out · Rs 45,000/month")).toBeInTheDocument();
   expect(screen.getByText("Sunil Perera · 1 Jun 2026 – ongoing")).toBeInTheDocument();
   expect(screen.getByText("Acme Traders · 1 Jan 2025 – 31 Dec 2025")).toBeInTheDocument();
+});
+
+test("a lease entry in History is tappable onto its own hub; a daily-lease entry is not (Web-P6b)", async () => {
+  const user = userEvent.setup();
+  const leases: VehicleLeaseHistoryRow[] = [
+    {
+      id: "l1",
+      status: "closed",
+      startDate: "2025-01-01",
+      endDate: "2025-12-31",
+      rentAmountMinor: "4500000",
+      customerId: "c1",
+      customerName: "Acme Traders",
+    },
+  ];
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({
+    "/api/vehicle/v1/lease": leases,
+    "/api/vehicle/v1/daily-lease": dailyLeases,
+  });
+  const onSelectLease = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={onSelectLease}
+    />,
+    { get },
+  );
+
+  await user.click(await screen.findByText("Lease out · Rs 45,000/month"));
+  expect(onSelectLease).toHaveBeenCalledOnce();
+  expect(onSelectLease).toHaveBeenCalledWith("l1");
+
+  // The daily-lease row has nothing to go to yet — a plain row, not a button.
+  const dailyLeaseText = screen.getByText("Daily lease · Rs 4,500/day");
+  expect(dailyLeaseText.closest("button")).toBeNull();
 });

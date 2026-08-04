@@ -8,6 +8,8 @@ export interface TimelineEntry {
   description: string;
   /** Set only when this entry was voided — the label of what replaced it. */
   replacedByLabel?: string;
+  /** Web-P6b: present only for an entry that has somewhere to go (a lease's own hub) — absent entries render as plain rows, the same convention `VehicleListScreen`'s own rows use for "nothing to tap yet." */
+  onClick?: () => void;
 }
 
 export interface TimelineProps {
@@ -27,8 +29,8 @@ export function Timeline({ entries }: TimelineProps) {
     <ol className="flex flex-col gap-3">
       {entries.map((entry) => {
         const voided = entry.replacedByLabel !== undefined;
-        return (
-          <li key={entry.key} className="flex flex-col gap-0.5">
+        const body = (
+          <>
             <p
               className={cn(
                 "text-body",
@@ -45,6 +47,21 @@ export function Timeline({ entries }: TimelineProps) {
                 → replaced by: {entry.replacedByLabel}
               </p>
             ) : null}
+          </>
+        );
+        return (
+          <li key={entry.key}>
+            {entry.onClick !== undefined ? (
+              <button
+                type="button"
+                onClick={entry.onClick}
+                className="flex w-full flex-col gap-0.5 text-left"
+              >
+                {body}
+              </button>
+            ) : (
+              <div className="flex flex-col gap-0.5">{body}</div>
+            )}
           </li>
         );
       })}

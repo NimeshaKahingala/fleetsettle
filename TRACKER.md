@@ -612,6 +612,30 @@ Re-validating the Web-P6 plan against the actual repo (not the todo list's own s
 
 ---
 
+# Web-P6b · The lease hub — `/leases/:id`, F-2.2/F-2.4/F-2.5
+
+§3.3's route map gives the lease exactly one route for eight flows (F-2.1 → F-2.8); this is the hub three of them — collect rent, adjust or waive, renew — act from. F-2.1 (start) and F-2.6 (close) stay their own phases (Web-P6c/P6d, per rev 7 of the implementation plan); this screen only ever reads a lease that already exists.
+
+**`LeaseHubScreen`** (`web/src/features/leases/`) fetches the lease, its customer (a dependent query — `enabled` on the lease having loaded), its billing periods, and Web-P6a's new dues read, in a Terms card + two `Section`s. A due's own row is tappable only when `status` is `pending`/`part_paid` — a `paid`/`waived`/`written_off` row has nothing further this phase does to it, so it stays a plain row rather than an inert-looking button.
+
+**Three sheets, one screen surface each:**
+
+- **`CollectPaymentSheet` (F-2.2/UC-11).** Two steps in one `Sheet` — amount + date via `AmountPad`/`DateField`, then `AllocationPreview` before anything writes (the add-screen skill's own rule). The preview is client-side only: it walks the already-oldest-first dues list the same way §6.5 describes, but the actual write, `POST /api/payment`, is party-level with no obligation ids — the server performs the real allocation independently and is the only authority on what actually settled. This is `AllocationPreview`'s first real caller; it existed as a built, tested, never-wired component since the phase-1 inventory landed.
+- **`AdjustObligationSheet` (F-2.4/UC-15/W-17).** One form for both halves of the flow — "adjustment ± with a reason… or waive in full or part" — a type chip (Waive · Goodwill · Rounding · Agreed discount · Late fee · Extra charge) carries a default direction, overridable except for Waive, which the schema itself pins to `sign: -1` (DM §10.3) and which the form hides the direction toggle for entirely rather than showing a control that would just get overridden. Never `auto_waiver` — that literal is cron-only (`domain/mileage.ts`), not a manager-selectable option here.
+- **`RenewLeaseSheet` (F-2.5/UC-17).** No date field — `renewLeaseRequestSchema` has none to take, since already-generated billing periods are frozen at their own figure and this only changes what the *next* one picks up. Mileage terms are level 2 behind `Disclosure`, matching F-2.1's own form.
+
+**A due's tap routes through one `ActionSheet`**, offering "Collect payment" / "Adjust or waive" — neither is more primary than the other for a given due, so §6.1's own definition of `ActionSheet` ("list of actions in a sheet") is the fit, not a guess. The screen's own single primary action (the add-screen skill: "one primary action per screen") is the sticky bottom "Collect payment" with nothing pre-selected — the due-scoped route through the `ActionSheet` is the second, more precise entry to the same sheet, pre-filling that due's own outstanding amount.
+
+**A real bug, caught by the test suite exercising two open/close cycles rather than one:** `CollectPaymentSheet` is mounted unconditionally (`AdjustObligationSheet`, by contrast, is conditionally mounted per selected due and so remounts fresh each time). Its `initialAmountMinor` prop differs per due that opens it, but `useState`'s initialiser only runs once, at first mount — a reset effect keyed to `open` becoming `false` never re-synced the *next* due's own pre-fill, since the prop had already changed by the time `open` flipped `true` again without ever passing through `false` in between with the new value in scope. Fixed by syncing on `open` becoming `true` instead of `false`; recorded in the component's own comment since the failure mode (silently falling back to the sheet's very first pre-fill, or none) would not have been obvious from reading the code alone.
+
+**History becomes tappable.** `Timeline` gained an optional per-entry `onClick` — `VehicleOverviewScreen`'s lease entries now navigate to `/leases/:id`; daily-lease entries stay plain rows, since there is no daily-lease hub yet to send them to. `onBack` from the lease hub is real router-history `back()` (`useRouter().history.back()`), not a hardcoded parent route — unlike every other detail route so far, a lease has more than one place it can be reached from (today, only the vehicle's own History; Web-P6c's calendar tap-through adds a second), so there is no single correct "parent" to hardcode.
+
+**Depends on** — Web-P6a's `GET /api/lease/{id}/obligation`, already-shipped `AllocationPreview`/`AmountPad`/`Disclosure`/`ActionSheet`, and the existing `recordPayment`/`createAdjustment`/`renewLease` endpoints (all pre-P6).
+
+**Done means** — 57 files / 185 tests passing in `web` (4 new files: `LeaseHubScreen`, `CollectPaymentSheet`, `AdjustObligationSheet`, `RenewLeaseSheet` test suites, plus one new case each in `Timeline.test.tsx` and `VehicleOverviewScreen.test.tsx`); `npm run check` clean across all three workspaces. Web-P6c (F-2.1's start form, on its own new route per the rev-7 plan decision) is next.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

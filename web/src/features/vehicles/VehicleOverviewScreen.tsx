@@ -53,6 +53,8 @@ export interface VehicleOverviewScreenProps {
   vehicleId: string;
   onBack: () => void;
   onViewCalendar: () => void;
+  /** History's own tap-through (Web-P6b) — daily-lease entries have no hub screen yet, so only a lease entry passes `onClick` (below). */
+  onSelectLease: (leaseId: string) => void;
 }
 
 function formatShortDate(date: string): string {
@@ -63,10 +65,18 @@ function formatShortDate(date: string): string {
   }).format(new Date(`${date}T00:00:00`));
 }
 
-/** Web-P5's history tab: arrangement-A and -B periods merged into one chronological list — `Timeline`'s own shape (who, when, what) already fits an arrangement period without a new component. */
+/**
+ * Web-P5's history tab: arrangement-A and -B periods merged into one
+ * chronological list — `Timeline`'s own shape (who, when, what) already
+ * fits an arrangement period without a new component. Web-P6b makes a
+ * lease entry tappable, onto its own `/leases/:id` hub (§3.3); a
+ * daily-lease entry stays a plain row — there is no daily-lease hub yet to
+ * send it to.
+ */
 function buildHistoryEntries(
   leases: VehicleLeaseHistoryRow[],
   dailyLeases: VehicleDailyLeaseHistoryRow[],
+  onSelectLease: (leaseId: string) => void,
 ): TimelineEntry[] {
   const leaseEntries = leases.map((row) => ({
     key: `lease-${row.id}`,
@@ -74,6 +84,7 @@ function buildHistoryEntries(
     whenLabel: `${formatShortDate(row.startDate)} – ${row.endDate !== null ? formatShortDate(row.endDate) : "ongoing"}`,
     description: `Lease out · Rs ${format(parse(row.rentAmountMinor))}/month`,
     sortDate: row.startDate,
+    onClick: () => onSelectLease(row.id),
   }));
   const dailyLeaseEntries = dailyLeases.map((row) => ({
     key: `daily-lease-${row.id}`,
@@ -101,6 +112,7 @@ export function VehicleOverviewScreen({
   vehicleId,
   onBack,
   onViewCalendar,
+  onSelectLease,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
   const { data: vehicle, isLoading } = useQuery({
@@ -129,6 +141,7 @@ export function VehicleOverviewScreen({
   const historyEntries = buildHistoryEntries(
     leaseHistoryQuery.data ?? [],
     dailyLeaseHistoryQuery.data ?? [],
+    onSelectLease,
   );
 
   return (
