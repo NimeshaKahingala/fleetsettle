@@ -38,6 +38,10 @@ async function getLeaseObligations(token: string, id: string) {
   return request(`/api/lease/${id}/obligation`, bearer(token));
 }
 
+async function getLeaseDeposit(token: string, id: string) {
+  return request(`/api/lease/${id}/deposit`, bearer(token));
+}
+
 /**
  * F-2.1 / UC-10 test matrix. Since P5, starting a lease also writes the
  * handover odometer reading (when a mileage limit is set) and generates the
@@ -466,6 +470,108 @@ describe("a lease's dues (Web-P6a, GET /{id}/obligation)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await getLeaseObligations(token, otherLeaseId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * Web-P6d's closure wizard: whether this lease has a deposit at all, and
+ * its current held balance (the SUM of movements, DM §10.4 — never a
+ * stored figure). F-2.1's own Alternates says "no deposit taken" is
+ * normal, so a lease with none is its own case, not an error.
+ */
+describe("a lease's deposit (Web-P6d, GET /{id}/deposit)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("null when no deposit was ever taken", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getLeaseDeposit(token, leaseId);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("the held balance is the sum of movements, not a stored figure", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+    const depositId = await ctx.createDeposit(businessId, {
+      customerId,
+      leaseId,
+      status: "held",
+    });
+    await ctx.createDepositMovement(businessId, periodId, depositId, {
+      movementType: "taken",
+      amountMinor: 30_000_00n,
+    });
+    await ctx.createDepositMovement(businessId, periodId, depositId, {
+      movementType: "applied",
+      amountMinor: 5_000_00n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getLeaseDeposit(token, leaseId);
+    expect(res.status).toBe(200);
+    const body: { id: string; status: string; heldMinor: string; holdReleaseDate: string | null } =
+      await res.json();
+    expect(body).toMatchObject({ id: depositId, status: "held", heldMinor: "2500000" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/lease/${crypto.randomUUID()}/deposit`);
+    expect(res.status).toBe(401);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "MISSING_TOKEN" });
+  });
+
+  it("403 — a linked driver cannot read a lease's deposit (leaseAndTripLifecycle is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getLeaseDeposit(token, leaseId);
+    expect(res.status).toBe(403);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a lease belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    const otherLeaseId = await ctx.createLease(otherBusinessId, otherVehicleId, otherCustomerId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getLeaseDeposit(token, otherLeaseId);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

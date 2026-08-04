@@ -6,7 +6,7 @@ import type {
   LeaseResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, SlidersHorizontal, Wallet } from "lucide-react";
+import { Gauge, MoreVertical, RefreshCw, SlidersHorizontal, SquareX, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
@@ -16,11 +16,14 @@ import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { AdjustObligationSheet } from "./AdjustObligationSheet.js";
 import { CollectPaymentSheet } from "./CollectPaymentSheet.js";
+import { ReadOdometerSheet } from "./ReadOdometerSheet.js";
 import { RenewLeaseSheet } from "./RenewLeaseSheet.js";
 
 export interface LeaseHubScreenProps {
   leaseId: string;
   onBack: () => void;
+  /** F-2.6 — its own route (`/leases/:id/close`), reached from this screen's own app-bar action list, never a sheet (the wizard is genuinely multi-step, M-5). */
+  onCloseLease: () => void;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -69,10 +72,12 @@ function outstandingMinor(due: LeaseObligationRow): Minor {
  * `VehicleCalendarScreen`'s prop-injection, which exists for a different
  * reason — testing a specific month grid, not a one-off date default.
  */
-export function LeaseHubScreen({ leaseId, onBack }: LeaseHubScreenProps) {
+export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreenProps) {
   const api = useApi();
   const today = businessToday();
   const [renewOpen, setRenewOpen] = useState(false);
+  const [readOdometerOpen, setReadOdometerOpen] = useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
   const [dueActionsOpen, setDueActionsOpen] = useState(false);
   const [selectedDue, setSelectedDue] = useState<LeaseObligationRow | null>(null);
@@ -132,13 +137,32 @@ export function LeaseHubScreen({ leaseId, onBack }: LeaseHubScreenProps) {
         ]
       : [];
 
+  // Renew (F-2.5), read odometer (F-2.3) and close the lease (F-2.6) all
+  // live at lease level, not per-due — one app-bar action listing all
+  // three (§6.1's own `ActionSheet`) rather than three competing app-bar
+  // slots (§4.2 allows exactly one).
+  const moreActions: ActionSheetAction[] = [
+    { key: "renew", label: "Renew", icon: RefreshCw, onSelect: () => setRenewOpen(true) },
+    {
+      key: "odometer",
+      label: "Read odometer",
+      icon: Gauge,
+      onSelect: () => setReadOdometerOpen(true),
+    },
+    { key: "close", label: "Close the lease", icon: SquareX, onSelect: onCloseLease },
+  ];
+
   return (
     <Screen
       title={customerQuery.data?.name ?? "Lease"}
       onBack={onBack}
       {...(lease !== undefined
         ? {
-            action: { label: "Renew", icon: RefreshCw, onClick: () => setRenewOpen(true) },
+            action: {
+              label: "Lease actions",
+              icon: MoreVertical,
+              onClick: () => setMoreActionsOpen(true),
+            },
             primaryAction: {
               label: "Collect payment",
               onClick: () => {
@@ -249,6 +273,12 @@ export function LeaseHubScreen({ leaseId, onBack }: LeaseHubScreenProps) {
             leaseId={leaseId}
             currentRentMinor={parse(lease.rentAmountMinor)}
           />
+          <ReadOdometerSheet
+            open={readOdometerOpen}
+            onOpenChange={setReadOdometerOpen}
+            leaseId={leaseId}
+            today={today}
+          />
           {customerQuery.data !== undefined ? (
             <CollectPaymentSheet
               open={collectOpen}
@@ -276,6 +306,12 @@ export function LeaseHubScreen({ leaseId, onBack }: LeaseHubScreenProps) {
             onOpenChange={setDueActionsOpen}
             title="This due"
             actions={dueActions}
+          />
+          <ActionSheet
+            open={moreActionsOpen}
+            onOpenChange={setMoreActionsOpen}
+            title="Lease actions"
+            actions={moreActions}
           />
         </div>
       )}

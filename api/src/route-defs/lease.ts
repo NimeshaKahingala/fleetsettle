@@ -4,6 +4,7 @@ import {
   closeLeaseRequestSchema,
   closeLeaseResponseSchema,
   leaseClosureSummaryResponseSchema,
+  leaseDepositResponseSchema,
   leaseResponseSchema,
   listLeaseObligationsResponseSchema,
   renewLeaseRequestSchema,
@@ -174,6 +175,22 @@ export const getLeaseClosureSummaryRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read a closure summary" },
+    404: { description: "No such lease in this business" },
+  },
+});
+
+/** Web-P6d: whether this lease has a deposit at all, and its current held balance — read before the closure wizard decides whether to show step 6. */
+export const getLeaseDepositRoute = createRoute({
+  method: "get",
+  path: "/{id}/deposit",
+  request: { params: leaseIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: leaseDepositResponseSchema.nullable() } },
+      description: "The deposit taken at handover, or null if none was",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read a lease's deposit" },
     404: { description: "No such lease in this business" },
   },
 });

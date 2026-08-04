@@ -19,6 +19,7 @@ import {
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
+import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
@@ -84,7 +85,33 @@ function VehicleDetailRoute() {
 function LeaseDetailRoute() {
   const { leaseId } = useParams({ from: "/leases/$leaseId" });
   const router = useRouter();
-  return <LeaseHubScreen leaseId={leaseId} onBack={() => router.history.back()} />;
+  const navigate = useNavigate();
+  return (
+    <LeaseHubScreen
+      leaseId={leaseId}
+      onBack={() => router.history.back()}
+      onCloseLease={() => {
+        void navigate({ to: "/leases/$leaseId/close", params: { leaseId } });
+      }}
+    />
+  );
+}
+
+/** F-2.6's own route (Web-P6d) — an in-screen stepper, not seven routes (§3.3 gives the lease one route for all of F-2.1→F-2.8). `onClosed` lands on the vehicle's own overview, now showing it available again. */
+function CloseLeaseRoute({ today }: { today: BusinessDate }) {
+  const { leaseId } = useParams({ from: "/leases/$leaseId/close" });
+  const router = useRouter();
+  const navigate = useNavigate();
+  return (
+    <CloseLeaseScreen
+      leaseId={leaseId}
+      today={today}
+      onBack={() => router.history.back()}
+      onClosed={(vehicleId) => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+    />
+  );
 }
 
 function VehicleCalendarRoute({ today }: { today: BusinessDate }) {
@@ -251,6 +278,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: LeaseDetailRoute,
   });
 
+  const closeLeaseRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/leases/$leaseId/close",
+    component: () => <CloseLeaseRoute today={today} />,
+  });
+
   const peopleRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people",
@@ -282,6 +315,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehicleCalendarRoute,
     startLeaseRoute,
     leaseDetailRoute,
+    closeLeaseRoute,
     peopleRoute,
     driverDetailRoute,
     customerDetailRoute,

@@ -86,7 +86,9 @@ test("renders terms, billing periods and dues once loaded", async () => {
     "/api/lease/l1/billing-period": billingPeriods,
     "/api/lease/l1/obligation": dues,
   });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   expect(await screen.findByRole("heading", { name: "Acme Traders" })).toBeInTheDocument();
   expect(screen.getByText("Active")).toBeInTheDocument();
@@ -103,7 +105,9 @@ test("renders terms, billing periods and dues once loaded", async () => {
 test("a pending due opens an action sheet offering collect payment and adjust or waive", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   await user.click(await screen.findByText("Rent"));
 
@@ -113,7 +117,9 @@ test("a pending due opens an action sheet offering collect payment and adjust or
 
 test("a due already paid is a plain row, not tappable", async () => {
   const get = baseGet({ "/api/lease/l1/obligation": dues });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   const paidRow = await screen.findByText("Mileage excess");
   expect(paidRow.closest("button")).toBeNull();
@@ -122,7 +128,9 @@ test("a due already paid is a plain row, not tappable", async () => {
 test("collect payment from an action sheet opens the amount step, pre-filled from that due", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   await user.click(await screen.findByText("Rent"));
   await user.click(screen.getByRole("button", { name: "Collect payment" }));
@@ -134,7 +142,9 @@ test("collect payment from an action sheet opens the amount step, pre-filled fro
 test("adjust or waive from an action sheet opens the adjust sheet for that due", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   await user.click(await screen.findByText("Rent"));
   await user.click(screen.getByRole("button", { name: "Adjust or waive" }));
@@ -146,7 +156,9 @@ test("adjust or waive from an action sheet opens the adjust sheet for that due",
 test("the sticky Collect payment action opens the amount step with nothing pre-filled", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
   await user.click(await screen.findByRole("button", { name: "Collect payment" }));
 
@@ -154,13 +166,59 @@ test("the sticky Collect payment action opens the amount step with nothing pre-f
   expect(screen.getByRole("textbox", { name: "Amount received" })).toHaveTextContent("Rs 0");
 });
 
-test("the Renew app-bar action opens the renew sheet, pre-filled with the current rent", async () => {
+test("the lease-actions app-bar action lists Renew, Read odometer and Close the lease", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": [] });
-  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} />, { get });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
 
-  await user.click(await screen.findByRole("button", { name: "Renew" }));
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+
+  expect(screen.getByRole("button", { name: "Renew" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Read odometer" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Close the lease" })).toBeInTheDocument();
+});
+
+test("Renew, from the lease-actions sheet, opens the renew sheet pre-filled with the current rent", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": [] });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+  await user.click(screen.getByRole("button", { name: "Renew" }));
 
   expect(await screen.findByText("New monthly amount")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Rs 70,000" })).toBeInTheDocument();
+});
+
+test("Read odometer, from the lease-actions sheet, opens the reading form", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": [] });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+  await user.click(screen.getByRole("button", { name: "Read odometer" }));
+
+  expect(await screen.findByText("Source")).toBeInTheDocument();
+  expect(screen.getByLabelText("Reading (km)")).toBeInTheDocument();
+});
+
+test("Close the lease, from the lease-actions sheet, calls onCloseLease", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": [] });
+  const onCloseLease = vi.fn();
+  renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={onCloseLease} />,
+    { get },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+  await user.click(screen.getByRole("button", { name: "Close the lease" }));
+
+  expect(onCloseLease).toHaveBeenCalledOnce();
 });

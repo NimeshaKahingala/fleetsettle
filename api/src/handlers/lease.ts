@@ -12,6 +12,7 @@ import { renewLease, startLease } from "../domain/lease.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findBillingPeriodsForLease, type BillingPeriodRow } from "../queries/billing-period.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
+import { findDepositForLease, sumDepositMovements } from "../queries/driver-money.js";
 import { findLeaseForBusiness, type LeaseRow } from "../queries/lease.js";
 import { findObligationsForLease } from "../queries/obligation.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
@@ -20,6 +21,7 @@ import type {
   closeOutLeaseRoute,
   generateBillingPeriodRoute,
   getLeaseClosureSummaryRoute,
+  getLeaseDepositRoute,
   getLeaseRoute,
   listBillingPeriodsRoute,
   listLeaseObligationsRoute,
@@ -284,6 +286,31 @@ export const getLeaseClosureSummaryHandler: RouteHandler<
       })),
       totalUnpaidMinor: toWire(summary.totalUnpaidMinor),
       openIncidents: summary.openIncidents,
+    },
+    200,
+  );
+};
+
+/** Web-P6d: whether this lease has a deposit at all, and its current held balance. `leaseAndTripLifecycle` — the same capability `settleLeaseDeposit` itself needs. */
+export const getLeaseDepositHandler: RouteHandler<typeof getLeaseDepositRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  const depositRow = await findDepositForLease(c.get("reader"), businessId, id);
+  if (!depositRow) return c.json(null, 200);
+
+  const heldMinor = await sumDepositMovements(c.get("reader"), depositRow.id);
+  return c.json(
+    {
+      id: depositRow.id,
+      status: depositRow.status,
+      heldMinor: toWire(heldMinor as Minor),
+      holdReleaseDate: depositRow.holdReleaseDate,
     },
     200,
   );

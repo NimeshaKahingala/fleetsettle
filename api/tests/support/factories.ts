@@ -628,13 +628,14 @@ export class TestContext {
     return id;
   }
 
-  /** A bare `deposit` row, held by default — for report tests (P11/UC-75) needing a deposits-held liability figure, and for F-2.7/P13 tests that need one already in `hold_window` with a release date. */
+  /** A bare `deposit` row, held by default — for report tests (P11/UC-75) needing a deposits-held liability figure, F-2.7/P13 tests needing one already in `hold_window` with a release date, and Web-P6d tests needing one attached to a lease (`findDepositForLease`'s own lookup column). */
   async createDeposit(
     businessId: string,
     overrides: {
       partyType?: "customer" | "driver";
       customerId?: string;
       driverId?: string;
+      leaseId?: string;
       status?: "held" | "hold_window" | "released" | "applied" | "retained";
       holdReleaseDate?: string;
     } = {},
@@ -647,6 +648,7 @@ export class TestContext {
       partyType,
       partyCustomerId: partyType === "customer" ? overrides.customerId : undefined,
       partyDriverId: partyType === "driver" ? overrides.driverId : undefined,
+      leaseId: overrides.leaseId,
       status: overrides.status ?? "held",
       holdReleaseDate: overrides.holdReleaseDate,
     });

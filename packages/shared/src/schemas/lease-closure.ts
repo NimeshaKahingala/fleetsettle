@@ -92,3 +92,20 @@ export const settleLeaseDepositResponseSchema = z.object({
   holdReleaseDate: z.string().nullable(),
 });
 export type SettleLeaseDepositResponse = z.infer<typeof settleLeaseDepositResponseSchema>;
+
+/**
+ * Web-P6d: whether this lease has a deposit at all, and its current held
+ * balance — F-2.1's own Alternates says "no deposit taken" is normal, so
+ * `null` here is a real, common answer, not a missing report (W-56 is about
+ * a number that should exist but can't be computed; this is an entity that
+ * may genuinely not exist). Closure step 6 needs this to know whether to
+ * show a deposit-settlement step at all before it ever calls
+ * `settleLeaseDeposit`.
+ */
+export const leaseDepositResponseSchema = z.object({
+  id: uuidSchema,
+  status: z.enum(["held", "hold_window", "released", "applied", "retained"]),
+  heldMinor: z.string(),
+  holdReleaseDate: z.string().nullable(),
+});
+export type LeaseDepositResponse = z.infer<typeof leaseDepositResponseSchema>;
