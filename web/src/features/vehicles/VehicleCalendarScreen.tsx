@@ -22,13 +22,15 @@ export interface VehicleCalendarScreenProps {
   today: BusinessDate;
   /**
    * F-1.5's own Accept: "tapping a free day opens F-5.1 or F-2.1 with that
-   * date filled in — otherwise the calendar answers the question and then
-   * makes you go somewhere else to act on it." Only the F-2.1 half exists
-   * yet (Web-P6c) — F-5.1 is Web-P7 — so a free day is only tappable at
-   * all when the vehicle's own arrangement is A; for B/C it stays a plain
-   * answered question this phase, recorded rather than routed nowhere.
+   * date filled in." An arrangement-A vehicle's free day opens F-2.1
+   * (Web-P6c); a B or C vehicle's opens F-5.1 instead (Web-P7) — a trip is
+   * real regardless of what a vehicle is normally arranged as (the bus's
+   * own daily lease doesn't stop it taking a one-off charter), so this is
+   * the two arrangements' free day, not "day nothing owns yet."
    */
   onSelectFreeDay?: (date: BusinessDate) => void;
+  /** Web-P7's own half of the same Accept clause, for a B/C vehicle's free day. */
+  onSelectFreeDayForTrip?: (date: BusinessDate) => void;
 }
 
 const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -94,6 +96,7 @@ export function VehicleCalendarScreen({
   onBack,
   today,
   onSelectFreeDay,
+  onSelectFreeDayForTrip,
 }: VehicleCalendarScreenProps) {
   const api = useApi();
   const [monthAnchor, setMonthAnchor] = useState(today);
@@ -162,19 +165,27 @@ export function VehicleCalendarScreen({
             const isFree = day === undefined;
             const canStartLease =
               isFree && vehicle?.arrangement === "A" && onSelectFreeDay !== undefined;
+            const canBookTrip =
+              isFree &&
+              (vehicle?.arrangement === "B" || vehicle?.arrangement === "C") &&
+              onSelectFreeDayForTrip !== undefined;
             const content = (
               <span className="flex flex-col items-center leading-none">
                 <span>{dayOfMonth}</span>
                 {style !== null ? <span aria-hidden>{style.glyph}</span> : null}
               </span>
             );
-            return canStartLease ? (
+            return canStartLease || canBookTrip ? (
               <button
                 key={cellDate}
                 type="button"
                 data-testid={`day-${cellDate}`}
-                onClick={() => onSelectFreeDay(cellDate)}
-                aria-label={`Start a rental from ${cellDate}`}
+                onClick={() =>
+                  canStartLease ? onSelectFreeDay(cellDate) : onSelectFreeDayForTrip?.(cellDate)
+                }
+                aria-label={
+                  canStartLease ? `Start a rental from ${cellDate}` : `Book a trip from ${cellDate}`
+                }
                 className={cn(
                   "flex aspect-square items-center justify-center rounded-sm text-body-sm",
                   style?.wash,

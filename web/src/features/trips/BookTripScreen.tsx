@@ -1,0 +1,338 @@
+import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import type {
+  bookTripRequestSchema,
+  CustomerResponse,
+  DriverResponse,
+  PaperworkWarningRow,
+  TripResponse,
+  VehicleCalendarDay,
+  VehicleDailyLeaseHistoryRow,
+  VehicleResponse,
+} from "@fleetsettle/shared/schemas";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
+import { useState } from "react";
+import type { z } from "zod";
+import { AlertStrip } from "../../components/AlertStrip.js";
+import { DateField } from "../../components/DateField.js";
+import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
+import { Money } from "../../components/Money.js";
+import { MoneyField } from "../../components/MoneyField.js";
+import { Field } from "../../design/primitives/Field.js";
+import { Input } from "../../design/primitives/Input.js";
+import { Screen } from "../../design/primitives/Screen.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
+import { useApi } from "../../lib/ApiContext.js";
+import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
+import { CreateDriverForm } from "../people/CreateDriverForm.js";
+
+/** `BookTripRequest` (the schema's output type) is post-transform — `Minor`/`BusinessDate`. `z.input` is the wire shape this call actually sends, the same fix every domain-typed form in this codebase already applies. */
+type BookTripWireRequest = z.input<typeof bookTripRequestSchema>;
+
+export interface BookTripScreenProps {
+  vehicleId: string;
+  today: BusinessDate;
+  /** F-1.5's own Accept, the F-5.1 half (Web-P7) — the calendar's tap-through for a B/C vehicle's free day, read from the route's own search param, the same pattern Web-P6c already established for F-2.1. */
+  initialStartDate?: BusinessDate;
+  onBack: () => void;
+  onBooked: (tripId: string) => void;
+}
+
+const STEP_LABELS = ["Trip", "Driver", "Confirm"];
+
+/**
+ * F-5.1/UC-20, UI §7.5 — "a short car hire is a trip. One screen, one
+ * mental model." Level 1 is just the vehicle (pre-filled by the route) and
+ * dates (defaulted to a single day) — customer, destination, agreed
+ * amount, driver and driver trip fee are all real fields on this form but
+ * every one of them is skippable (U-2), mirroring `StartLeaseScreen`'s own
+ * multi-step shape rather than inventing a second one.
+ *
+ * **Not built: the `hold` (ST-5) state.** `bookTripRequestSchema` has
+ * nowhere to carry it and `domain/trip.ts`'s `bookTrip` writes `booked`
+ * outright — the same gap `VehicleCalendarScreen`'s own `T?` glyph already
+ * records as currently unreachable in production. Offering a "Hold" button
+ * here would be UI for a state this backend cannot persist.
+ */
+export function BookTripScreen({
+  vehicleId,
+  today,
+  initialStartDate,
+  onBack,
+  onBooked,
+}: BookTripScreenProps) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState(0);
+
+  const vehicleQuery = useQuery({
+    queryKey: ["vehicle", vehicleId],
+    queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
+  });
+  const customersQuery = useQuery({
+    queryKey: ["customer"],
+    queryFn: () => api.get<CustomerResponse[]>("/api/customer"),
+  });
+  const driversQuery = useQuery({
+    queryKey: ["driver"],
+    queryFn: () => api.get<DriverResponse[]>("/api/driver"),
+  });
+  const paperworkWarningsQuery = useQuery({
+    queryKey: ["home", "paperwork-warnings"],
+    queryFn: () => api.get<PaperworkWarningRow[]>("/api/home/paperwork-warnings"),
+  });
+
+  // Step 0 — trip.
+  const startDateInit = initialStartDate ?? today;
+  const [startDate, setStartDate] = useState<BusinessDate>(startDateInit);
+  const [endDate, setEndDate] = useState<BusinessDate>(startDateInit);
+  const [endDateTouched, setEndDateTouched] = useState(false);
+  const [customer, setCustomer] = useState<EntityOption | null>(null);
+  const [addCustomerOpen, setAddCustomerOpen] = useState(false);
+  const [destination, setDestination] = useState("");
+  const [agreedAmountMinor, setAgreedAmountMinor] = useState<Minor | null>(null);
+
+  // Step 1 — driver.
+  const [driver, setDriver] = useState<EntityOption | null>(null);
+  const [addDriverOpen, setAddDriverOpen] = useState(false);
+  const [driverFeeMinor, setDriverFeeMinor] = useState<Minor | null>(null);
+  const [driverFeeTouched, setDriverFeeTouched] = useState(false);
+
+  // Step 2 — confirm: what these dates cost (F-5.1 step 3), read from the
+  // vehicle's own calendar rather than guessed — an arrangement-B day in
+  // range is a daily-lease day this booking pauses (§7.5).
+  const calendarQuery = useQuery({
+    queryKey: ["vehicle", vehicleId, "calendar", startDate, endDate],
+    queryFn: () =>
+      api.get<VehicleCalendarDay[]>(
+        `/api/vehicle/${vehicleId}/calendar?from=${startDate}&to=${endDate}`,
+      ),
+    enabled: step === 2,
+  });
+  const dailyLeaseHistoryQuery = useQuery({
+    queryKey: ["vehicle", vehicleId, "daily-lease"],
+    queryFn: () => api.get<VehicleDailyLeaseHistoryRow[]>(`/api/vehicle/${vehicleId}/daily-lease`),
+    enabled: step === 2,
+  });
+
+  const customerOptions: EntityOption[] = (customersQuery.data ?? []).map((c) => ({
+    id: c.id,
+    label: c.name,
+    ...(c.mobile !== null ? { sublabel: c.mobile } : {}),
+  }));
+  const driverOptions: EntityOption[] = (driversQuery.data ?? []).map((d) => ({
+    id: d.id,
+    label: d.name,
+    ...(d.mobile !== null ? { sublabel: d.mobile } : {}),
+  }));
+  const vehicleWarning = (paperworkWarningsQuery.data ?? []).find(
+    (row) => row.subjectType === "vehicle" && row.subjectId === vehicleId,
+  );
+
+  const pausedDaysCount = (calendarQuery.data ?? []).filter(
+    (day) => day.arrangement === "B",
+  ).length;
+  const currentDailyLease = (dailyLeaseHistoryQuery.data ?? []).find(
+    (row) => row.effectiveTo === null,
+  );
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.post<TripResponse>("/api/trip", {
+        vehicleId,
+        startDate,
+        endDate,
+        ...(customer !== null ? { customerId: customer.id } : {}),
+        ...(driver !== null ? { driverId: driver.id } : {}),
+        ...(destination.trim() !== "" ? { destination: destination.trim() } : {}),
+        ...(agreedAmountMinor !== null ? { agreedAmountMinor: toWire(agreedAmountMinor) } : {}),
+        ...(driverFeeMinor !== null ? { driverFeeMinor: toWire(driverFeeMinor) } : {}),
+      } satisfies BookTripWireRequest),
+    onSuccess: (trip) => {
+      void queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+      void queryClient.invalidateQueries({ queryKey: ["trip"] });
+      onBooked(trip.id);
+    },
+  });
+
+  function goBack(): void {
+    if (step === 0) onBack();
+    else setStep((s) => s - 1);
+  }
+  function goNext(): void {
+    setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
+  }
+
+  const primaryAction =
+    step === STEP_LABELS.length - 1
+      ? {
+          label: "Book trip",
+          onClick: () => mutation.mutate(),
+          disabled: mutation.isPending,
+        }
+      : { label: "Next", onClick: goNext };
+
+  return (
+    <Screen
+      title={vehicleQuery.data?.registration ?? "Book a trip"}
+      onBack={goBack}
+      primaryAction={primaryAction}
+    >
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-caption text-ink-muted">
+            Step {step + 1} of {STEP_LABELS.length} · {STEP_LABELS[step]}
+          </p>
+          <div className="h-1 w-full rounded-full bg-line-hairline">
+            <div
+              className="h-1 rounded-full bg-brand"
+              style={{ width: `${(((step + 1) / STEP_LABELS.length) * 100).toString()}%` }}
+            />
+          </div>
+        </div>
+
+        {step === 0 ? (
+          <div className="flex flex-col gap-4">
+            <DateField
+              label="Start date"
+              value={startDate}
+              today={today}
+              onChange={(value) => {
+                setStartDate(value);
+                if (!endDateTouched) setEndDate(value);
+              }}
+            />
+            <DateField
+              label="End date"
+              value={endDate}
+              today={today}
+              onChange={(value) => {
+                setEndDateTouched(true);
+                setEndDate(value);
+              }}
+            />
+            <EntityPicker
+              label="Customer (optional)"
+              options={customerOptions}
+              value={customer}
+              onChange={setCustomer}
+              onAddNew={() => setAddCustomerOpen(true)}
+              addNewLabel="Add a new customer"
+            />
+            <Field label="Destination" htmlFor="destination" optional>
+              <Input
+                id="destination"
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+              />
+            </Field>
+            <MoneyField
+              label="Agreed amount"
+              valueMinor={agreedAmountMinor}
+              onChange={setAgreedAmountMinor}
+            />
+          </div>
+        ) : null}
+
+        {step === 1 ? (
+          <div className="flex flex-col gap-4">
+            <EntityPicker
+              label="Driver (optional)"
+              options={driverOptions}
+              value={driver}
+              onChange={(option) => {
+                setDriver(option);
+                if (!driverFeeTouched) {
+                  const row = (driversQuery.data ?? []).find((d) => d.id === option.id);
+                  setDriverFeeMinor(
+                    row?.driverTripFeeMinor !== null && row?.driverTripFeeMinor !== undefined
+                      ? (BigInt(row.driverTripFeeMinor) as Minor)
+                      : null,
+                  );
+                }
+              }}
+              onAddNew={() => setAddDriverOpen(true)}
+              addNewLabel="Add a new driver"
+            />
+            <MoneyField
+              label="Driver trip fee"
+              valueMinor={driverFeeMinor}
+              onChange={(value) => {
+                setDriverFeeTouched(true);
+                setDriverFeeMinor(value);
+              }}
+            />
+          </div>
+        ) : null}
+
+        {step === 2 ? (
+          <div className="flex flex-col gap-4">
+            {pausedDaysCount > 0 ? (
+              <AlertStrip severity="warning" icon={TriangleAlert}>
+                This pauses {pausedDaysCount} day{pausedDaysCount === 1 ? "" : "s"} of the daily
+                lease
+                {currentDailyLease !== undefined ? (
+                  <>
+                    {" "}
+                    — its expected income (
+                    <Money
+                      value={
+                        (BigInt(currentDailyLease.dailyLeaseAmountMinor) *
+                          BigInt(pausedDaysCount)) as Minor
+                      }
+                    />
+                    ) disappears
+                  </>
+                ) : null}
+                .
+              </AlertStrip>
+            ) : null}
+            {vehicleWarning !== undefined ? (
+              <AlertStrip
+                severity={vehicleWarning.isExpired ? "critical" : "warning"}
+                icon={TriangleAlert}
+              >
+                {vehicleWarning.docType === "revenue_licence"
+                  ? "Revenue licence"
+                  : vehicleWarning.docType}{" "}
+                {vehicleWarning.isExpired ? "expired" : "expires"} {vehicleWarning.expiryDate}
+              </AlertStrip>
+            ) : null}
+            <p className="text-body text-ink-secondary">
+              {startDate === endDate ? startDate : `${startDate} – ${endDate}`}
+              {customer !== null ? ` · ${customer.label}` : ""}
+              {destination.trim() !== "" ? ` · ${destination.trim()}` : ""}
+            </p>
+            {mutation.isError ? (
+              <p className="text-body-sm text-critical-ink">{mutation.error.message}</p>
+            ) : null}
+          </div>
+        ) : null}
+
+        <Sheet open={addCustomerOpen} onOpenChange={setAddCustomerOpen} title="Add a new customer">
+          <CreateCustomerForm
+            onCreated={(created) => {
+              setCustomer({ id: created.id, label: created.name });
+              setAddCustomerOpen(false);
+            }}
+          />
+        </Sheet>
+        <Sheet open={addDriverOpen} onOpenChange={setAddDriverOpen} title="Add a new driver">
+          <CreateDriverForm
+            onCreated={(created) => {
+              setDriver({ id: created.id, label: created.name });
+              if (!driverFeeTouched) {
+                setDriverFeeMinor(
+                  created.driverTripFeeMinor !== null
+                    ? (BigInt(created.driverTripFeeMinor) as Minor)
+                    : null,
+                );
+              }
+              setAddDriverOpen(false);
+            }}
+          />
+        </Sheet>
+      </div>
+    </Screen>
+  );
+}

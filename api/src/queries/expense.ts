@@ -172,6 +172,72 @@ export async function sumTripFuelLitres(db: ReadDb, tripId: string): Promise<num
   return total === null || total === undefined ? null : Number(total);
 }
 
+export interface TripExpenseRow {
+  id: string;
+  vehicleId: string | null;
+  incidentId: string | null;
+  category:
+    | "fuel"
+    | "tolls"
+    | "fines"
+    | "cleaning"
+    | "tyres"
+    | "servicing"
+    | "repairs"
+    | "insurance"
+    | "licence"
+    | "crew_food"
+    | "permits"
+    | "office"
+    | "legal"
+    | "messaging"
+    | "other";
+  amountMinor: bigint;
+  spentOn: string;
+  borneBy: "us" | "driver" | "customer";
+  borneByDriverId: string | null;
+  borneByCustomerId: string | null;
+  paidByUserId: string | null;
+  litres: number | null;
+  note: string | null;
+  voidedAt: string | null;
+  voidedReason: string | null;
+}
+
+/**
+ * Web-P7's open-trip screen: every cost logged against this trip so far —
+ * not filtered to `borne_by = 'us'` the way `sumTripCostsByCategory` (the
+ * P&L's own sum) is, and voided rows stay in, struck through by the caller
+ * (W-50) — the same "never hidden, never silently swapped" convention
+ * `listExpensesForVehicle` already established, applied to a trip instead
+ * of a vehicle. Called only after the handler has already confirmed the
+ * trip belongs to this business (`findTripForBusiness`), the same trust
+ * boundary `sumTripCostsByCategory` already relies on from `closeTrip`.
+ */
+export async function listExpensesForTrip(db: ReadDb, tripId: string): Promise<TripExpenseRow[]> {
+  const rows = await db
+    .select({
+      id: expense.id,
+      vehicleId: expense.vehicleId,
+      incidentId: expense.incidentId,
+      category: expense.category,
+      amountMinor: expense.amountMinor,
+      spentOn: expense.spentOn,
+      borneBy: expense.borneBy,
+      borneByDriverId: expense.borneByDriverId,
+      borneByCustomerId: expense.borneByCustomerId,
+      paidByUserId: expense.paidByUserId,
+      litres: expense.litres,
+      note: expense.note,
+      voidedAt: expense.voidedAt,
+      voidedReason: expense.voidedReason,
+    })
+    .from(expense)
+    .where(eq(expense.tripId, tripId))
+    .orderBy(desc(expense.spentOn));
+  return rows as TripExpenseRow[];
+}
+
 /** F-3.4/UC-12 step 6, "total repair cost" — every cost attached to the incident, not filtered by `borne_by`: an accident repair is (almost) always the business's own cost, and the container's bottom line is what was spent, not a profit-eligibility sum (that is INV-5's job on `expense_profit`). Zero (not "not available") is a real total here — no cost has been logged yet, not a gap in the data (W-56 governs the reverse case). */
 export async function sumIncidentCostMinor(db: ReadDb, incidentId: string): Promise<bigint> {
   const rows = await db

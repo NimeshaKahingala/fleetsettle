@@ -27,6 +27,8 @@ import { ConfirmDayCard } from "../daily/ConfirmDayCard.js";
 
 export interface HomeScreenProps {
   onSelectVehicle: (vehicleId: string) => void;
+  /** Web-P7: item 7's own trips now have somewhere to go — `TripDetailScreen`. */
+  onSelectTrip: (tripId: string) => void;
 }
 
 function formatHomeDate(date: string): string {
@@ -102,7 +104,7 @@ function TodayCards({ leases, today }: { leases: ActiveDailyLeaseRow[]; today: B
  * and gets silently replaced the instant real data arrives, exactly as
  * specified, not as a shortcut.
  */
-export function HomeScreen({ onSelectVehicle }: HomeScreenProps) {
+export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
   const api = useApi();
   const today = businessToday();
 
@@ -238,12 +240,19 @@ export function HomeScreen({ onSelectVehicle }: HomeScreenProps) {
             title="Trips in progress"
             count={inProgressTrips.length}
             items={inProgressTrips.map((row) => (
-              <Card key={row.id} className="flex flex-col gap-1">
-                <p className="text-title text-ink-primary">{row.vehicleRegistration}</p>
-                <p className="text-body-sm text-ink-muted">
-                  {row.destination ?? "No destination recorded"} · {row.startDate}–{row.endDate}
-                </p>
-              </Card>
+              <button
+                key={row.id}
+                type="button"
+                onClick={() => onSelectTrip(row.id)}
+                className="w-full text-left"
+              >
+                <Card className="flex flex-col gap-1">
+                  <p className="text-title text-ink-primary">{row.vehicleRegistration}</p>
+                  <p className="text-body-sm text-ink-muted">
+                    {row.destination ?? "No destination recorded"} · {row.startDate}–{row.endDate}
+                  </p>
+                </Card>
+              </button>
             ))}
           />
         ) : null}

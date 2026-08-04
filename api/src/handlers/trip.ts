@@ -10,6 +10,7 @@ import {
 } from "../domain/trip.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
+import { listExpensesForTrip } from "../queries/expense.js";
 import {
   findTripForBusiness,
   listInProgressTripsForBusiness,
@@ -23,6 +24,7 @@ import type {
   closeTripRoute,
   getTripRoute,
   listInProgressTripsRoute,
+  listTripExpensesRoute,
 } from "../route-defs/trip.js";
 import type { Env } from "../types.js";
 
@@ -38,6 +40,9 @@ type TripResponseRow = Pick<
   | "destination"
   | "agreedAmountMinor"
   | "driverFeeMinor"
+  | "closingDate"
+  | "cancelReason"
+  | "advanceDisposition"
 >;
 
 function toResponse(row: TripResponseRow) {
@@ -52,6 +57,9 @@ function toResponse(row: TripResponseRow) {
     destination: row.destination,
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     driverFeeMinor: toWire(row.driverFeeMinor as Minor),
+    closingDate: row.closingDate,
+    cancelReason: row.cancelReason,
+    advanceDisposition: row.advanceDisposition,
   };
 }
 
@@ -133,6 +141,9 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
       destination: body.destination ?? null,
       agreedAmountMinor,
       driverFeeMinor,
+      closingDate: null,
+      cancelReason: null,
+      advanceDisposition: null,
     }),
     201,
   );
@@ -148,6 +159,41 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
   if (!row) throw new NotFoundError();
 
   return c.json(toResponse(row), 200);
+};
+
+/** Web-P7: the open-trip screen's own "Costs so far" — same `leaseAndTripLifecycle` gate as this resource's other reads. */
+export const listTripExpensesHandler: RouteHandler<typeof listTripExpensesRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const trip = await findTripForBusiness(c.get("reader"), businessId, id);
+  if (!trip) throw new NotFoundError();
+
+  const rows = await listExpensesForTrip(c.get("reader"), id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      vehicleId: row.vehicleId,
+      tripId: id,
+      incidentId: row.incidentId,
+      category: row.category,
+      amountMinor: toWire(row.amountMinor as Minor),
+      spentOn: row.spentOn,
+      borneBy: row.borneBy,
+      borneByDriverId: row.borneByDriverId,
+      borneByCustomerId: row.borneByCustomerId,
+      paidByUserId: row.paidByUserId,
+      litres: row.litres,
+      note: row.note,
+      voidedAt: row.voidedAt,
+      voidedReason: row.voidedReason,
+    })),
+    200,
+  );
 };
 
 /** F-5.4/UC-44. `closeTrip` (domain/trip.ts) is the write; this is validation and translation only. */

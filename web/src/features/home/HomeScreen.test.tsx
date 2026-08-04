@@ -49,7 +49,7 @@ function baseGet(overrides: Record<string, unknown> = {}) {
 
 test("nothing outstanding renders the empty state, not a blank screen", async () => {
   const get = baseGet();
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
   expect(await screen.findByText("Nothing needs you today")).toBeInTheDocument();
 });
@@ -76,7 +76,9 @@ test("a paperwork warning renders as an alert strip, styled by isExpired, with a
   const onSelectVehicle = vi.fn();
   const user = userEvent.setup();
   const get = baseGet({ "/api/home/paperwork-warnings": warnings });
-  renderWithProviders(<HomeScreen onSelectVehicle={onSelectVehicle} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={onSelectVehicle} onSelectTrip={vi.fn()} />, {
+    get,
+  });
 
   const vehicleAlert = await screen.findByText(/CAB-1234 — insurance expires 2026-08-10/);
   expect(vehicleAlert).toBeInTheDocument();
@@ -104,7 +106,7 @@ test("one vehicle running today renders its card directly, elevated, no summary 
     },
   ];
   const get = baseGet({ "/api/daily-lease": leases });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
   expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
   expect(screen.queryByText(/vehicles running today/)).not.toBeInTheDocument();
@@ -125,7 +127,7 @@ test("four or more vehicles collapse to a summary row, which expands to the full
     };
   });
   const get = baseGet({ "/api/daily-lease": leases });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
   expect(await screen.findByText("4 vehicles running today")).toBeInTheDocument();
   expect(screen.getByText("Rs 20,000")).toBeInTheDocument();
@@ -151,7 +153,7 @@ test("earlier unconfirmed days render inside a collapsible section, each its own
     },
   ];
   const get = baseGet({ "/api/day-record": rows });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
   expect(await screen.findByText("Earlier days · 1")).toBeInTheDocument();
   expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
@@ -175,14 +177,16 @@ test("rent due shows only customer obligations, never a driver's arrears (that's
     },
   ];
   const get = baseGet({ "/api/reports/receivables": receivables });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
   expect(await screen.findByText("Rent due · 1")).toBeInTheDocument();
   expect(screen.getByText("Perera Tours")).toBeInTheDocument();
   expect(screen.queryByText("Sunil")).not.toBeInTheDocument();
 });
 
-test("deposits to release and trips in progress each render in their own section", async () => {
+test("deposits to release and trips in progress each render in their own section, and a trip is tappable", async () => {
+  const user = userEvent.setup();
+  const onSelectTrip = vi.fn();
   const deposits: DepositReleaseRow[] = [
     {
       depositId: "dep1",
@@ -211,10 +215,15 @@ test("deposits to release and trips in progress each render in their own section
     "/api/home/deposit-releases": deposits,
     "/api/trip": trips,
   });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={onSelectTrip} />, {
+    get,
+  });
 
   expect(await screen.findByText("Deposits to release · 1")).toBeInTheDocument();
   expect(screen.getByText("Trips in progress · 1")).toBeInTheDocument();
   expect(screen.getByText("CAB-9999")).toBeInTheDocument();
   expect(screen.getByText(/Kandy/)).toBeInTheDocument();
+
+  await user.click(screen.getByText("CAB-9999"));
+  expect(onSelectTrip).toHaveBeenCalledWith("t1");
 });

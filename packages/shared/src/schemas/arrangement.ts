@@ -153,7 +153,16 @@ export type ActiveDailyLeaseRow = z.infer<typeof activeDailyLeaseRowSchema>;
 export const activeDailyLeasesResponseSchema = z.array(activeDailyLeaseRowSchema);
 export type ActiveDailyLeasesResponse = z.infer<typeof activeDailyLeasesResponseSchema>;
 
-/** F-5.1: what booking a trip produces. */
+/**
+ * F-5.1: what booking a trip produces. `closingDate`/`cancelReason`/
+ * `advanceDisposition` are nullable, not extras: `queries/trip.ts`'s own
+ * `TripRow` has carried all three since P6 (`closeTripRow`/`cancelTripRow`
+ * write them), but `handlers/trip.ts`'s `toResponse()` never projected them
+ * onto the wire — Web-P7 found this while building the trip screen: a
+ * closed or cancelled trip re-read later (`GET /{id}`) came back with no
+ * way to tell the two apart from a `booked` one beyond `status` itself.
+ * Fixed here, not routed around — no new query, the row already had it.
+ */
 export const tripResponseSchema = z.object({
   id: z.string().uuid(),
   vehicleId: z.string().uuid(),
@@ -165,6 +174,9 @@ export const tripResponseSchema = z.object({
   destination: z.string().nullable(),
   agreedAmountMinor: z.string(),
   driverFeeMinor: z.string(),
+  closingDate: z.string().nullable(),
+  cancelReason: z.string().nullable(),
+  advanceDisposition: z.enum(["refunded", "retained"]).nullable(),
 });
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 

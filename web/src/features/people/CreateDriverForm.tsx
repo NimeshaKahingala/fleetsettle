@@ -104,6 +104,17 @@ export function CreateDriverForm({ onCreated }: CreateDriverFormProps) {
               />
             )}
           />
+          <Controller
+            control={control}
+            name="driverTripFeeMinor"
+            render={({ field }) => (
+              <MoneyField
+                label="Driver trip fee"
+                valueMinor={field.value ?? null}
+                onChange={field.onChange}
+              />
+            )}
+          />
         </div>
       </Disclosure>
 

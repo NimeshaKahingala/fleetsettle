@@ -6,6 +6,7 @@ import {
   closedTripResponseSchema,
   closeTripRequestSchema,
   inProgressTripsResponseSchema,
+  listExpensesResponseSchema,
   tripResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
@@ -62,6 +63,27 @@ export const getTripRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read trips" },
+    404: { description: "No such trip in this business" },
+  },
+});
+
+/**
+ * Web-P7: every cost logged against this trip so far — the open-trip
+ * screen's own "Costs so far" (UI §7.5), read fresh rather than waiting for
+ * `POST /{id}/close`'s own P&L, which only exists once the trip is already
+ * closed.
+ */
+export const listTripExpensesRoute = createRoute({
+  method: "get",
+  path: "/{id}/expense",
+  request: { params: tripIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listExpensesResponseSchema } },
+      description: "Every cost logged against this trip so far, newest first, voided ones included",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read trip costs" },
     404: { description: "No such trip in this business" },
   },
 });

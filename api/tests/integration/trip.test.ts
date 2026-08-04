@@ -842,3 +842,127 @@ describe("GET /api/trip — in progress (Home item 7, UI §3.2)", () => {
     await ctx.cleanup();
   });
 });
+
+async function getTripExpenses(token: string, id: string) {
+  return request(`/api/trip/${id}/expense`, bearer(token));
+}
+
+/**
+ * Web-P7: the open-trip screen's own "Costs so far" — every cost logged
+ * against this trip, not filtered to `borne_by = 'us'` the way the P&L's
+ * own sum is (a driver- or customer-borne cost is still something that
+ * happened on this trip, and the manager reviewing it before closing wants
+ * to see all of it).
+ */
+describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every cost against this trip, newest first, voided ones included", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const fuel = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "2200000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+      litres: 35,
+    });
+    expect(fuel.status).toBe(201);
+    const fuelBody: { id: string } = await fuel.json();
+    ctx.trackCreatedExpense(fuelBody.id);
+
+    const tolls = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "tolls",
+      amountMinor: "300000",
+      spentOn: "2026-03-02",
+      borneBy: "us",
+    });
+    expect(tolls.status).toBe(201);
+    const tollsBody: { id: string } = await tolls.json();
+    ctx.trackCreatedExpense(tollsBody.id);
+
+    const res = await getTripExpenses(token, tripBody.id);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; category: string; amountMinor: string; spentOn: string }> =
+      await res.json();
+    // Newest first — tolls (2 Mar) before fuel (1 Mar).
+    expect(body.map((r) => r.id)).toEqual([tollsBody.id, fuelBody.id]);
+    expect(body[0]).toMatchObject({ category: "tolls", amountMinor: "300000" });
+    expect(body[1]).toMatchObject({ category: "fuel", amountMinor: "2200000" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/trip/${crypto.randomUUID()}/expense`);
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot read a trip's costs", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const trip = await postTrip(ownerToken, {
+      vehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getTripExpenses(token, tripBody.id);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a trip belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherTrip = await postTrip(otherToken, {
+      vehicleId: otherVehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const otherTripBody: { id: string } = await otherTrip.json();
+    ctx.trackCreatedTrip(otherTripBody.id);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getTripExpenses(token, otherTripBody.id);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});

@@ -23,6 +23,8 @@ import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { BookTripScreen } from "../features/trips/BookTripScreen.js";
+import { TripDetailScreen } from "../features/trips/TripDetailScreen.js";
 import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
@@ -35,6 +37,9 @@ function HomeRoute() {
     <HomeScreen
       onSelectVehicle={(vehicleId: string) => {
         void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onSelectTrip={(tripId: string) => {
+        void navigate({ to: "/trips/$tripId", params: { tripId } });
       }}
     />
   );
@@ -131,6 +136,13 @@ function VehicleCalendarRoute({ today }: { today: BusinessDate }) {
           search: { startDate: date },
         });
       }}
+      onSelectFreeDayForTrip={(date) => {
+        void navigate({
+          to: "/vehicles/$vehicleId/trip/new",
+          params: { vehicleId },
+          search: { startDate: date },
+        });
+      }}
     />
   );
 }
@@ -153,6 +165,33 @@ function StartLeaseRoute({ today }: { today: BusinessDate }) {
       }}
     />
   );
+}
+
+/** F-1.5's calendar tap-through, F-5.1 half (Web-P7) — the same `?startDate=` validation the lease route already established. `onBooked` lands on the new trip's own detail screen. */
+function BookTripRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/trip/new" });
+  const { startDate } = useSearch({ from: "/vehicles/$vehicleId/trip/new" });
+  const navigate = useNavigate();
+  return (
+    <BookTripScreen
+      vehicleId={vehicleId}
+      today={today}
+      {...(startDate !== undefined ? { initialStartDate: startDate } : {})}
+      onBack={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onBooked={(tripId) => {
+        void navigate({ to: "/trips/$tripId", params: { tripId } });
+      }}
+    />
+  );
+}
+
+/** UI §7.5's container screen (Web-P7) — reached from Home's item 7 or the calendar's own tap-through; `onBack` is real router-history `back()`, the same reason `LeaseHubScreen`'s is, since a trip has more than one place it can be reached from. */
+function TripDetailRoute({ today }: { today: BusinessDate }) {
+  const { tripId } = useParams({ from: "/trips/$tripId" });
+  const router = useRouter();
+  return <TripDetailScreen tripId={tripId} today={today} onBack={() => router.history.back()} />;
 }
 
 function PeopleListRoute() {
@@ -272,6 +311,24 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <StartLeaseRoute today={today} />,
   });
 
+  const bookTripRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicles/$vehicleId/trip/new",
+    validateSearch: (search: Record<string, unknown>): { startDate?: BusinessDate } => {
+      const raw = search["startDate"];
+      return typeof raw === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? { startDate: asBusinessDate(raw) }
+        : {};
+    },
+    component: () => <BookTripRoute today={today} />,
+  });
+
+  const tripDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/trips/$tripId",
+    component: () => <TripDetailRoute today={today} />,
+  });
+
   const leaseDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/leases/$leaseId",
@@ -314,6 +371,8 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehicleDetailRoute,
     vehicleCalendarRoute,
     startLeaseRoute,
+    bookTripRoute,
+    tripDetailRoute,
     leaseDetailRoute,
     closeLeaseRoute,
     peopleRoute,
