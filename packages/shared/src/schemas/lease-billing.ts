@@ -108,3 +108,28 @@ export const paymentResponseSchema = z.object({
   unallocatedMinor: z.string(),
 });
 export type PaymentResponse = z.infer<typeof paymentResponseSchema>;
+
+/**
+ * The lease hub's dues list (Web-P6b): every `owed_to_us` obligation this
+ * lease has ever raised — rent (`sourceType: billing_period`), mileage
+ * excess (`sourceType: mileage_assessment`) and any post-closure charge
+ * billed directly against it (`sourceType: lease`) — oldest due-on first,
+ * settled and waived ones included so F-2.2's "tap the due" and F-2.4's
+ * "on any due" both have somewhere to read from. Deliberately not filtered
+ * to outstanding-only the way `closureUnpaidObligationSchema` (lease-closure.ts)
+ * is — that one exists for a different question ("what's left before I can
+ * settle the deposit"); this one is "what has this lease ever owed."
+ */
+export const leaseObligationRowSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.string(),
+  dueOn: z.string(),
+  amountMinor: z.string(),
+  settledMinor: z.string(),
+  waivedMinor: z.string(),
+  status: z.enum(["pending", "part_paid", "paid", "waived", "written_off"]),
+});
+export type LeaseObligationRow = z.infer<typeof leaseObligationRowSchema>;
+
+export const listLeaseObligationsResponseSchema = z.array(leaseObligationRowSchema);
+export type ListLeaseObligationsResponse = z.infer<typeof listLeaseObligationsResponseSchema>;

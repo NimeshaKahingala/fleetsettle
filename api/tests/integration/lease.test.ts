@@ -34,6 +34,10 @@ async function generateBillingPeriod(token: string, id: string) {
   });
 }
 
+async function getLeaseObligations(token: string, id: string) {
+  return request(`/api/lease/${id}/obligation`, bearer(token));
+}
+
 /**
  * F-2.1 / UC-10 test matrix. Since P5, starting a lease also writes the
  * handover odometer reading (when a mileage limit is set) and generates the
@@ -332,6 +336,136 @@ describe("generate the next billing period (P5)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await generateBillingPeriod(token, otherLeaseId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * Web-P6b's lease hub: every due a lease has ever raised, from all three of
+ * its source paths — a rent due (`sourceType: billing_period`), a mileage
+ * excess due (`sourceType: mileage_assessment`) and a post-closure charge
+ * billed directly against the lease (`sourceType: lease`, F-8.4). There is
+ * deliberately no `lease_id` column on `obligation` itself, so this is the
+ * one test proving the three-way join actually reassembles them as one list
+ * rather than each staying invisible to the others.
+ */
+describe("a lease's dues (Web-P6a, GET /{id}/obligation)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — rent, mileage-excess and post-closure-charge dues, oldest first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-01-01",
+      periodEnd: "2026-12-31",
+    });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "active" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const billingPeriodId = await ctx.createBillingPeriod(leaseId, {
+      periodStart: "2026-03-12",
+      periodEnd: "2026-04-11",
+    });
+    await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      kind: "rent",
+      sourceType: "billing_period",
+      sourceId: billingPeriodId,
+      amountMinor: 70_000_00n,
+      settledMinor: 70_000_00n,
+      dueOn: "2026-03-12",
+      status: "paid",
+    });
+
+    const readingId = await ctx.createOdometerReading(businessId, vehicleId, 5_000, "2026-04-11", {
+      leaseId,
+    });
+    const assessmentId = await ctx.createMileageAssessment(
+      businessId,
+      leaseId,
+      periodId,
+      readingId,
+    );
+    await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      kind: "mileage_excess",
+      sourceType: "mileage_assessment",
+      sourceId: assessmentId,
+      amountMinor: 5_000_00n,
+      dueOn: "2026-04-11",
+      status: "pending",
+    });
+
+    await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      kind: "post_closure_charge",
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: 1_500_00n,
+      dueOn: "2026-05-01",
+      status: "pending",
+    });
+
+    const res = await getLeaseObligations(token, leaseId);
+    expect(res.status).toBe(200);
+    const body: Array<{ kind: string; dueOn: string; amountMinor: string; status: string }> =
+      await res.json();
+
+    expect(body).toHaveLength(3);
+    expect(body.map((o) => o.kind)).toEqual(["rent", "mileage_excess", "post_closure_charge"]);
+    expect(body[0]).toMatchObject({ dueOn: "2026-03-12", amountMinor: "7000000", status: "paid" });
+    expect(body[2]).toMatchObject({ dueOn: "2026-05-01", amountMinor: "150000" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/lease/${crypto.randomUUID()}/obligation`);
+    expect(res.status).toBe(401);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "MISSING_TOKEN" });
+  });
+
+  it("403 — a linked driver cannot read a lease's dues (dailyOperations is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getLeaseObligations(token, leaseId);
+    expect(res.status).toBe(403);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a lease belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    const otherLeaseId = await ctx.createLease(otherBusinessId, otherVehicleId, otherCustomerId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getLeaseObligations(token, otherLeaseId);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

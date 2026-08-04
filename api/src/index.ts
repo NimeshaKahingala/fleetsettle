@@ -14,6 +14,7 @@ import { business } from "./routes/business.js";
 import { vehicle } from "./routes/vehicle.js";
 import { driver } from "./routes/driver.js";
 import { customer } from "./routes/customer.js";
+import { mileagePackage } from "./routes/mileage-package.js";
 import { lease } from "./routes/lease.js";
 import { dailyLease } from "./routes/dailyLease.js";
 import { dayRecord } from "./routes/day-record.js";
@@ -75,6 +76,9 @@ app.route("/api/driver", driver);
 
 app.use("/api/customer/*", dbMiddleware(), authMiddleware());
 app.route("/api/customer", customer);
+
+app.use("/api/mileage-package/*", dbMiddleware(), authMiddleware());
+app.route("/api/mileage-package", mileagePackage);
 
 app.use("/api/lease/*", dbMiddleware(), authMiddleware());
 app.route("/api/lease", lease);

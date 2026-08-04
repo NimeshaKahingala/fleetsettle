@@ -13,6 +13,7 @@ import { NotFoundError } from "../errors/app-error.js";
 import { findBillingPeriodsForLease, type BillingPeriodRow } from "../queries/billing-period.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findLeaseForBusiness, type LeaseRow } from "../queries/lease.js";
+import { findObligationsForLease } from "../queries/obligation.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
   closeLeaseRoute,
@@ -21,6 +22,7 @@ import type {
   getLeaseClosureSummaryRoute,
   getLeaseRoute,
   listBillingPeriodsRoute,
+  listLeaseObligationsRoute,
   renewLeaseRoute,
   settleLeaseDepositRoute,
   startLeaseRoute,
@@ -187,6 +189,34 @@ export const listBillingPeriodsHandler: RouteHandler<typeof listBillingPeriodsRo
   const rows = await findBillingPeriodsForLease(c.get("reader"), id);
   return c.json(
     rows.map((row) => billingPeriodToResponse(row)),
+    200,
+  );
+};
+
+/** Web-P6b's lease hub. `dailyOperations` — the same capability its own writes (`recordPayment`, `createAdjustment`) already need. */
+export const listLeaseObligationsHandler: RouteHandler<
+  typeof listLeaseObligationsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  const rows = await findObligationsForLease(c.get("reader"), businessId, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      kind: row.kind,
+      dueOn: row.dueOn,
+      amountMinor: toWire(row.amountMinor as Minor),
+      settledMinor: toWire(row.settledMinor as Minor),
+      waivedMinor: toWire(row.waivedMinor as Minor),
+      status: row.status as "pending" | "part_paid" | "paid" | "waived" | "written_off",
+    })),
     200,
   );
 };

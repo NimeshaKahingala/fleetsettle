@@ -14,6 +14,7 @@ export * from "./home.js";
 export * from "./incident.js";
 export * from "./lease-billing.js";
 export * from "./lease-closure.js";
+export * from "./mileage-package.js";
 export * from "./opening-balance.js";
 export * from "./partner.js";
 export * from "./payment-correction.js";

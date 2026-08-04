@@ -594,6 +594,24 @@ UI §7.6: "the one screen that justifies a custom date component" — a month gr
 
 ---
 
+# Web-P6a · Two backend gaps closed before the lease hub can be built
+
+Re-validating the Web-P6 plan against the actual repo (not the todo list's own summary of it) surfaced two things that would otherwise have blocked Web-P6b's lease hub screen mid-build, the same way Web-P5's calendar hit `day_record`'s missing merge. Both closed here, backend-only, before any lease screen exists.
+
+**Gap A — F-1.9 mileage packages were entirely unbuilt.** `mileage_package` has existed in the DB schema since migration `0001` (id, business_id, name, daily_limit_km, excess_rate_minor_per_km, archived_at) and nowhere else — no shared schema, no query, no route, no handler. UI §7.4 names the chips this feeds literally (`Standard 100` · `Long 150` · `Custom`), and F-2.1's own Defaults line is "rate package = last used." New: `packages/shared/src/schemas/mileage-package.ts`, `queries/mileage-package.ts`, `route-defs`/`handlers`/`routes/mileage-package.ts`, mounted at `/api/mileage-package`, gated `manageEntities` (F-1.9 is setup, not money, same gate as vehicle document upsert). Three routes: create, list (every package regardless of archived state — the client decides what a chip list does with an archived one), archive. **Archive, never delete** — F-1.9's own Accept clause: "deleting a package leaves every lease using it untouched," which is already true by construction since `lease` stores its own copy of the terms and holds no foreign key to `mileage_package` at all — archiving is a leaf-table `UPDATE`, nothing to cascade.
+
+**Gap B — nothing could read an obligation scoped to a lease.** `POST /api/adjustment` acts on an `obligationId` a caller has to already have; `POST /api/payment` allocates by party, not by lease; `GET /api/reports/receivables` is party-level only; `GET /{id}/closure-summary` returns obligation lines but only unpaid ones, only inside the closure flow. F-2.2 ("tap the due") and F-2.4 ("on any due") had nothing to tap. New: `GET /api/lease/{id}/obligation`, gated `dailyOperations` — the same capability its own writes (`recordPayment`, `createAdjustment`) already need, so a role that can act on a due can also see the list it's acting on.
+
+**The query is a three-way reassembly, because `obligation` has no `lease_id` column.** A rent due points at its `billing_period` (`sourceType: 'billing_period'`), a mileage-excess due at its `mileage_assessment` (`sourceType: 'mileage_assessment'`), and only a post-closure charge (F-8.4) points at the lease directly (`sourceType: 'lease'`). `findObligationsForLease` fetches the child ids for the first two in two round trips, then one query with a guarded `OR` across the three source paths — never `inArray` on a possibly-empty array (this codebase's own established guard, `queries/opening-balance.ts`). This is the exact same shape `trackCreatedLease` (tests/support/factories.ts, written for an earlier phase's teardown) already tears down by, which is what confirmed the join was right rather than guessed.
+
+**New test factory:** `TestContext.createMileageAssessment` (bare row, mirroring `createBillingPeriod`'s own "figures under the test's control" convention) and `trackCreatedMileagePackage`, since `mileage_package` had no teardown helper at all before this.
+
+**Depends on** — nothing new; both gaps were pure absence, no migration needed (`mileage_package`'s DDL was already live).
+
+**Done means** — 46/46 passing in `api` (4 new in `mileage-package.test.ts`; 4 new in `lease.test.ts`'s dues describe block, including the three-source-path reassembly proven directly); `npm run check` clean across all three workspaces. Web-P6b (the lease hub screen these two reads exist to feed) is next.
+
+---
+
 ## Not in this tracker
 
 UC §9.1 phase Third, and UI §15 phase Third. Listed so their absence is a decision rather than an oversight: depreciation and disposal · driver retainers and spare-vehicle reassignment · loan and lease schedules · tax, if it applies · offline capture of photos · the desktop analytical dashboard beyond UI §14's three changes.

@@ -5,6 +5,7 @@ import {
   closeLeaseResponseSchema,
   leaseClosureSummaryResponseSchema,
   leaseResponseSchema,
+  listLeaseObligationsResponseSchema,
   renewLeaseRequestSchema,
   settleLeaseDepositRequestSchema,
   settleLeaseDepositResponseSchema,
@@ -115,6 +116,22 @@ export const listBillingPeriodsRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read billing periods" },
+    404: { description: "No such lease in this business" },
+  },
+});
+
+/** Web-P6b's lease hub: every due this lease has ever raised — rent, mileage excess and any post-closure charge — oldest first, settled and waived ones included. */
+export const listLeaseObligationsRoute = createRoute({
+  method: "get",
+  path: "/{id}/obligation",
+  request: { params: leaseIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listLeaseObligationsResponseSchema } },
+      description: "Every due this lease has ever raised, oldest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read a lease's dues" },
     404: { description: "No such lease in this business" },
   },
 });

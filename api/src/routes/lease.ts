@@ -7,6 +7,7 @@ import {
   getLeaseClosureSummaryHandler,
   getLeaseHandler,
   listBillingPeriodsHandler,
+  listLeaseObligationsHandler,
   renewLeaseHandler,
   settleLeaseDepositHandler,
   startLeaseHandler,
@@ -18,6 +19,7 @@ import {
   getLeaseClosureSummaryRoute,
   getLeaseRoute,
   listBillingPeriodsRoute,
+  listLeaseObligationsRoute,
   renewLeaseRoute,
   settleLeaseDepositRoute,
   startLeaseRoute,
@@ -31,6 +33,7 @@ export const lease = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(renewLeaseRoute, renewLeaseHandler)
   .openapi(generateBillingPeriodRoute, generateBillingPeriodHandler)
   .openapi(listBillingPeriodsRoute, listBillingPeriodsHandler)
+  .openapi(listLeaseObligationsRoute, listLeaseObligationsHandler)
   .openapi(closeLeaseRoute, closeLeaseHandler)
   .openapi(getLeaseClosureSummaryRoute, getLeaseClosureSummaryHandler)
   .openapi(settleLeaseDepositRoute, settleLeaseDepositHandler)

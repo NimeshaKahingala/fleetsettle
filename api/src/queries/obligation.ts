@@ -1,6 +1,6 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { obligation } from "../db/schema.js";
+import { billingPeriod, mileageAssessment, obligation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -239,4 +239,75 @@ export async function sumOutstandingByDirectionForDriver(
     else if (row.direction === "owed_by_us") owedByUsMinor = value;
   }
   return { owedToUsMinor, owedByUsMinor };
+}
+
+export interface LeaseObligationRow {
+  id: string;
+  kind: string;
+  dueOn: string;
+  amountMinor: bigint;
+  settledMinor: bigint;
+  waivedMinor: bigint;
+  status: string;
+}
+
+/**
+ * Web-P6b's lease hub: every obligation this lease has ever raised, oldest
+ * due first. There is no `lease_id` column on `obligation` itself — a rent
+ * due points at its `billing_period`, a mileage-excess due at its
+ * `mileage_assessment`, and only a post-closure charge (F-8.4) points at the
+ * lease directly — so this is three source paths, the same shape
+ * `trackCreatedLease` (tests/support/factories.ts) already tears down by.
+ * Two round trips to collect the child ids, then one query, rather than a
+ * correlated subquery — the convention this codebase already uses
+ * (queries/day-record.ts's `listDayRecordsForDriver`).
+ */
+export async function findObligationsForLease(
+  db: ReadDb,
+  businessId: string,
+  leaseId: string,
+): Promise<LeaseObligationRow[]> {
+  const periods = await db
+    .select({ id: billingPeriod.id })
+    .from(billingPeriod)
+    .where(eq(billingPeriod.leaseId, leaseId));
+  const periodIds = periods.map((p) => p.id);
+
+  const assessments = await db
+    .select({ id: mileageAssessment.id })
+    .from(mileageAssessment)
+    .where(eq(mileageAssessment.leaseId, leaseId));
+  const assessmentIds = assessments.map((a) => a.id);
+
+  const sourceClauses = [and(eq(obligation.sourceType, "lease"), eq(obligation.sourceId, leaseId))];
+  if (periodIds.length > 0) {
+    sourceClauses.push(
+      and(eq(obligation.sourceType, "billing_period"), inArray(obligation.sourceId, periodIds)),
+    );
+  }
+  if (assessmentIds.length > 0) {
+    sourceClauses.push(
+      and(
+        eq(obligation.sourceType, "mileage_assessment"),
+        inArray(obligation.sourceId, assessmentIds),
+      ),
+    );
+  }
+
+  const rows = await db
+    .select({
+      id: obligation.id,
+      kind: obligation.kind,
+      dueOn: obligation.dueOn,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+      status: obligation.status,
+    })
+    .from(obligation)
+    .where(
+      and(eq(obligation.businessId, businessId), isNull(obligation.voidedAt), or(...sourceClauses)),
+    )
+    .orderBy(asc(obligation.dueOn));
+  return rows;
 }

@@ -28,6 +28,7 @@ import {
   managementFeeAgreement,
   mileageAssessment,
   mileageAssessmentSplit,
+  mileagePackage,
   obligation,
   odometerReading,
   offsetAllocation,
@@ -96,6 +97,13 @@ interface BillingPeriodOverrides {
 interface OdometerReadingOverrides {
   leaseId?: string;
   source?: "photo" | "in_person" | "reported" | "at_return";
+}
+
+interface MileageAssessmentOverrides {
+  drivenKm?: number;
+  combinedAllowanceKm?: number;
+  excessKm?: number;
+  excessAmountMinor?: bigint;
 }
 
 interface DailyLeaseOverrides {
@@ -329,6 +337,32 @@ export class TestContext {
     });
     this.track(async () => {
       await this.#db.delete(odometerReading).where(eq(odometerReading.id, id));
+    });
+    return id;
+  }
+
+  /** A bare `mileage_assessment` — for tests exercising a lease's dues (Web-P6a's `GET /{id}/obligation`) without the full odometer-reading + rate-computation flow. `toReadingId` must be a real `odometer_reading` row (its own FK) — `createOdometerReading` above is the usual source. */
+  async createMileageAssessment(
+    businessId: string,
+    leaseId: string,
+    periodId: string,
+    toReadingId: string,
+    overrides: MileageAssessmentOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(mileageAssessment).values({
+      id,
+      leaseId,
+      businessId,
+      toReadingId,
+      drivenKm: overrides.drivenKm ?? 1000,
+      combinedAllowanceKm: overrides.combinedAllowanceKm ?? 900,
+      excessKm: overrides.excessKm ?? 100,
+      excessAmountMinor: overrides.excessAmountMinor ?? 5_000_00n,
+      postedPeriodId: periodId,
+    });
+    this.track(async () => {
+      await this.#db.delete(mileageAssessment).where(eq(mileageAssessment.id, id));
     });
     return id;
   }
@@ -940,6 +974,13 @@ export class TestContext {
   trackCreatedExpense(expenseId: string): void {
     this.track(async () => {
       await this.#db.delete(expense).where(eq(expense.id, expenseId));
+    });
+  }
+
+  /** F-1.9/UC-18: `POST /api/mileage-package` writes a single row — no lease ever references it by id (its own copy lives on `lease` itself), so this is a leaf-table teardown, nothing to cascade. */
+  trackCreatedMileagePackage(id: string): void {
+    this.track(async () => {
+      await this.#db.delete(mileagePackage).where(eq(mileagePackage.id, id));
     });
   }
 
