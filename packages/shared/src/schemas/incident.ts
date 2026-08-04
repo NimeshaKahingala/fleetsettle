@@ -135,7 +135,23 @@ export const incidentBottomLineSchema = z.object({
 });
 export type IncidentBottomLine = z.infer<typeof incidentBottomLineSchema>;
 
+/**
+ * Web-P8a: found while building the incident screen — `computeIncidentBottomLine`
+ * already fetches every recovery row and the bottom line already sums them,
+ * but neither the recovery rows themselves nor the insurance claim (if one
+ * was submitted) ever reached the wire. A container "opened once, edited
+ * independently over weeks" (§6.6) means the *same* incident is revisited
+ * many times — without these, a manager returning to mark a recovery
+ * received, or settle a claim, would have no id to act on unless they'd
+ * kept the original POST response around in memory.
+ */
 export const incidentDetailResponseSchema = incidentResponseSchema.extend({
   bottomLine: incidentBottomLineSchema,
+  recoveries: z.array(incidentRecoveryResponseSchema),
+  insuranceClaim: insuranceClaimResponseSchema.nullable(),
 });
 export type IncidentDetailResponse = z.infer<typeof incidentDetailResponseSchema>;
+
+/** Web-P8a: vehicle overview's own Incidents section — every incident this vehicle has had, open and closed, newest first. No new row shape: the plain `incidentResponseSchema` already carries everything a list row needs. */
+export const listIncidentsResponseSchema = z.array(incidentResponseSchema);
+export type ListIncidentsResponse = z.infer<typeof listIncidentsResponseSchema>;

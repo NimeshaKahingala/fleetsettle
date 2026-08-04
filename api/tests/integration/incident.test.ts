@@ -26,6 +26,14 @@ async function get(path: string, token: string) {
   return request(path, bearer(token));
 }
 
+async function getIncidentExpenses(token: string, id: string) {
+  return request(`/api/incident/${id}/expense`, bearer(token));
+}
+
+async function postExpense(token: string, body: unknown) {
+  return post("/api/expense", token, body);
+}
+
 /** F-3.4/UC-12/W-9/W-10/W-11 test matrix, and §7.2's golden fixture (G-2). */
 describe("incident (P8, F-3.4/UC-12)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -648,5 +656,111 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     ctx.trackCreatedIncident(incidentId);
     await ctx.cleanup();
+  });
+
+  describe("an incident's costs so far (Web-P8a, GET /{id}/expense)", () => {
+    it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const bodyWork = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "70000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+      });
+      expect(bodyWork.status).toBe(201);
+      const bodyWorkBody: { id: string } = await bodyWork.json();
+      ctx.trackCreatedExpense(bodyWorkBody.id);
+
+      const parts = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "25000",
+        spentOn: "2026-08-05",
+        borneBy: "us",
+      });
+      expect(parts.status).toBe(201);
+      const partsBody: { id: string } = await parts.json();
+      ctx.trackCreatedExpense(partsBody.id);
+
+      const res = await getIncidentExpenses(token, incidentId);
+      expect(res.status).toBe(200);
+      const body: Array<{ id: string; category: string; amountMinor: string; spentOn: string }> =
+        await res.json();
+      // Newest first — the parts invoice (5 Aug) before the body work (28 Jul).
+      expect(body.map((r) => r.id)).toEqual([partsBody.id, bodyWorkBody.id]);
+      expect(body[0]).toMatchObject({ category: "repairs", amountMinor: "25000" });
+      expect(body[1]).toMatchObject({ category: "repairs", amountMinor: "70000" });
+
+      await ctx.cleanup();
+    });
+
+    it("401 — missing Authorization header", async () => {
+      const res = await request(`/api/incident/${crypto.randomUUID()}/expense`);
+      expect(res.status).toBe(401);
+    });
+
+    it("403 — a linked driver cannot read an incident's costs", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+      const opened = await post("/api/incident", ownerToken, {
+        vehicleId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const linked = await mintLinkedDriver(db, ctx, driverId);
+      const token = await signAccessToken(linked.asgardeoSub);
+
+      const res = await getIncidentExpenses(token, incidentId);
+      expect(res.status).toBe(403);
+
+      await ctx.cleanup();
+    });
+
+    it("404 — an incident belonging to another business", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+      await ctx.createOpenPeriod(otherBusinessId);
+      const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+      const otherOwner = await mintUser(db, ctx, otherBusinessId, "manager");
+      const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+      const otherIncident = await post("/api/incident", otherToken, {
+        vehicleId: otherVehicleId,
+        occurredOn: "2026-07-08",
+      });
+      const otherIncidentBody: { id: string } = await otherIncident.json();
+      ctx.trackCreatedIncident(otherIncidentBody.id);
+
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getIncidentExpenses(token, otherIncidentBody.id);
+      expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
   });
 });

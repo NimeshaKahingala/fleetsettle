@@ -3,6 +3,7 @@ import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
   closeIncidentHandler,
   getIncidentHandler,
+  listIncidentExpensesHandler,
   openIncidentHandler,
   recordCustomerContributionHandler,
   recordOffRoadHandler,
@@ -13,6 +14,7 @@ import {
 import {
   closeIncidentRoute,
   getIncidentRoute,
+  listIncidentExpensesRoute,
   openIncidentRoute,
   recordCustomerContributionRoute,
   recordOffRoadRoute,
@@ -26,6 +28,7 @@ import type { Env } from "../types.js";
 export const incident = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(openIncidentRoute, openIncidentHandler)
   .openapi(getIncidentRoute, getIncidentHandler)
+  .openapi(listIncidentExpensesRoute, listIncidentExpensesHandler)
   .openapi(recordOffRoadRoute, recordOffRoadHandler)
   .openapi(recordCustomerContributionRoute, recordCustomerContributionHandler)
   .openapi(recordRecoveryReceivedRoute, recordRecoveryReceivedHandler)

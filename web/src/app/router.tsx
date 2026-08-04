@@ -19,6 +19,7 @@ import {
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
+import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
@@ -81,6 +82,9 @@ function VehicleDetailRoute() {
       }}
       onSelectLease={(leaseId: string) => {
         void navigate({ to: "/leases/$leaseId", params: { leaseId } });
+      }}
+      onSelectIncident={(incidentId: string) => {
+        void navigate({ to: "/incidents/$incidentId", params: { incidentId } });
       }}
     />
   );
@@ -192,6 +196,15 @@ function TripDetailRoute({ today }: { today: BusinessDate }) {
   const { tripId } = useParams({ from: "/trips/$tripId" });
   const router = useRouter();
   return <TripDetailScreen tripId={tripId} today={today} onBack={() => router.history.back()} />;
+}
+
+/** UC §6.6's container (Web-P8a) — §3.3's `/incidents/:id`, reached from a vehicle's own Incidents section (`VehicleOverviewScreen`), including a just-reported one. `onBack` is real router-history `back()`, the same convention every other hub/container route here already uses. */
+function IncidentDetailRoute({ today }: { today: BusinessDate }) {
+  const { incidentId } = useParams({ from: "/incidents/$incidentId" });
+  const router = useRouter();
+  return (
+    <IncidentScreen incidentId={incidentId} today={today} onBack={() => router.history.back()} />
+  );
 }
 
 function PeopleListRoute() {
@@ -329,6 +342,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <TripDetailRoute today={today} />,
   });
 
+  const incidentDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/incidents/$incidentId",
+    component: () => <IncidentDetailRoute today={today} />,
+  });
+
   const leaseDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/leases/$leaseId",
@@ -373,6 +392,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     startLeaseRoute,
     bookTripRoute,
     tripDetailRoute,
+    incidentDetailRoute,
     leaseDetailRoute,
     closeLeaseRoute,
     peopleRoute,

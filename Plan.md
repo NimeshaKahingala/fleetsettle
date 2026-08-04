@@ -37,7 +37,7 @@ This is the identical pattern Web-P2 and Web-P5 each hit and closed with a backe
 | # | Phase | Read increment | Notes |
 |---|---|---|---|
 | 1 | ✅ **Web-P7** — Trips | none, plus one small increment found along the way | Done — see TRACKER.md |
-| 2 | **Web-P8a** — Incidents | 1 endpoint | |
+| 2 | ✅ **Web-P8a** — Incidents | 2 endpoints, not the 1 planned | Done — see TRACKER.md |
 | 3 | **Web-P8b** — Costs and quick-add | 1–2 endpoints | |
 | 4 | **Web-P8c** — Partners, banking, cash | **~4 endpoints** | Largest |
 | 5 | **Web-P8d** — Close the month, corrections | 1–2 endpoints | |
@@ -54,23 +54,14 @@ See [TRACKER.md](TRACKER.md)'s own Web-P7 entry for the full account — what wa
 
 ---
 
-# 2 · Web-P8a — Incidents (F-3.4)
+# 2 · Web-P8a — Incidents (F-3.4) ✅ Done
 
-**Backend increment** — **`GET /api/incident`**, a list scoped to the business, filterable by vehicle and by open/closed. Nothing can list incidents today. `GET /api/lease/{id}/closure-summary` already has `listOpenIncidentsForLease` to generalise from.
+See [TRACKER.md](TRACKER.md)'s own Web-P8a entry for the full account. Two divergences from what this plan assumed, both deliberate:
 
-**Screens** — `web/src/features/incidents/`: `IncidentListScreen`, `IncidentScreen` on `/incidents/$incidentId`, plus `OffRoadSheet`, `CustomerContributionSheet`, `InsuranceClaimSheet`.
+- **No `IncidentListScreen`, and no flat `GET /api/incident` list.** UI §3.3's own route map has no list route for incidents at all — only `/incidents/:id`, the container — mirroring how `/trips/:id` has no list route either (Web-P7 hit the identical shape). Incidents are reached the way trips are: from the owning vehicle's own overview. The read increment became **vehicle-scoped** (`GET /api/vehicle/{id}/incident`, mirroring Web-P5's other vehicle-scoped reads) rather than the business-wide list first assumed here.
+- **A second, unplanned endpoint** — `GET /api/incident/{id}/expense` — because the container's own "Repairs" step needed the itemised list behind `sumIncidentCostMinor`'s total, the identical gap Web-P7 closed for trips with `GET /api/trip/{id}/expense`.
 
-**Reuses** — `Screen`, `Section`, `Card`, `Money`, `DateField`, `MoneyField`, `NoteField`, `Disclosure` (the insurance section), `ActionSheet`, `EntityPicker`, `NotAvailable`.
-
-**Traps:**
-- **A container, never a wizard** (§6.6) — opened once, edited independently over weeks. Every section is independently editable and independently skippable; nothing is a step.
-- **The off-road treatment is three branches, not a toggle** — `continue` (touches nothing), `credit_days` (pro-rata discount), `extend` (pushes `lease.end_date`). Present all three as an explicit choice; `continue` is the safe default.
-- **The insurance section stays hidden unless enabled** (W-11) — most incidents never involve an insurer.
-- **`status` never advances automatically.** `repairs_recorded` and `recovery_pending` exist in the enum and nothing sets them; the incident stays `open` until closed by hand. Do not render a state machine that does not run.
-- **The bottom line is a live snapshot**, recomputed per read — never cached or stored client-side.
-- **Damage photos render `NotAvailable`**, same honest gap F-2.1 step 6 and F-2.6 step 5 already carry.
-
-**Done means** — G-2's own walkthrough (95,000 spent, 80,000 recovered, net 15,000) readable through the real screen; `npm run check` clean.
+Every other trap this section named held: the container stayed a container (nothing here is a step), the off-road treatment is a real three-way choice, `status` is never advanced automatically, the bottom line is a live snapshot recomputed per read, and damage photos are not built (no R2, per the plan's own scope decision).
 
 ---
 

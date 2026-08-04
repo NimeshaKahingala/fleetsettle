@@ -75,6 +75,18 @@ async function listVehicleDailyLeaseHistory(token: string, id: string) {
   return request(`/api/vehicle/${id}/daily-lease`, bearer(token));
 }
 
+async function listVehicleIncidents(token: string, id: string) {
+  return request(`/api/vehicle/${id}/incident`, bearer(token));
+}
+
+async function postIncident(token: string, body: unknown) {
+  return request("/api/incident", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 /**
  * F-1.1 / UC-01 and F-10.1 / UC-92 test matrix. 401 and 403 are proven once
  * here rather than per route — all four routes share the same
@@ -621,6 +633,65 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await listVehicleDailyLeaseHistory(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("incidents — newest first, open and closed both included (Web-P8a)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const older = await postIncident(token, { vehicleId, occurredOn: "2026-07-01" });
+    const olderBody: { id: string } = await older.json();
+    ctx.trackCreatedIncident(olderBody.id);
+    const closedRes = await request(`/api/incident/${olderBody.id}/close`, {
+      method: "POST",
+      headers: bearer(token).headers,
+    });
+    expect(closedRes.status).toBe(200);
+
+    const newer = await postIncident(token, { vehicleId, occurredOn: "2026-07-15" });
+    const newerBody: { id: string } = await newer.json();
+    ctx.trackCreatedIncident(newerBody.id);
+
+    const res = await listVehicleIncidents(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; status: string; occurredOn: string }> = await res.json();
+    expect(body.map((row) => row.id)).toEqual([newerBody.id, olderBody.id]);
+    expect(body[0]).toMatchObject({ status: "open" });
+    expect(body[1]).toMatchObject({ status: "closed" });
+
+    await ctx.cleanup();
+  });
+
+  it("403 — a linked driver cannot read a vehicle's incidents (dailyOperations is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listVehicleIncidents(token, vehicleId);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — incidents for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleIncidents(token, otherVehicleId);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

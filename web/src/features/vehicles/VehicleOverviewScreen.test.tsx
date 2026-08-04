@@ -1,5 +1,6 @@
 import type {
   ExpenseListRow,
+  IncidentResponse,
   VehicleDailyLeaseHistoryRow,
   VehicleDocumentResponse,
   VehicleLeaseHistoryRow,
@@ -38,6 +39,7 @@ test("renders the vehicle's fields once loaded", async () => {
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -47,7 +49,7 @@ test("renders the vehicle's fields once loaded", async () => {
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1");
 });
 
-test("the calendar action calls onViewCalendar", async () => {
+test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", async () => {
   const user = userEvent.setup();
   const get = baseGet();
   const onViewCalendar = vi.fn();
@@ -57,13 +59,60 @@ test("the calendar action calls onViewCalendar", async () => {
       onBack={() => {}}
       onViewCalendar={onViewCalendar}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
 
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
   await user.click(await screen.findByRole("button", { name: "View calendar" }));
 
   expect(onViewCalendar).toHaveBeenCalledOnce();
+});
+
+test("Report incident, via the Vehicle actions menu, opens the sheet and onSelectIncident lands on the new one", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "inc1",
+    vehicleId: "v1",
+    leaseId: null,
+    status: "open",
+    occurredOn: "2026-08-04",
+    description: null,
+    offRoadFrom: null,
+    offRoadTo: null,
+    rentTreatment: null,
+    closedAt: null,
+    bottomLine: {
+      totalRepairCostMinor: "0",
+      totalRecoveredMinor: "0",
+      pendingRecoveryMinor: "0",
+      netCostMinor: "0",
+    },
+    recoveries: [],
+    insuranceClaim: null,
+  });
+  const onSelectIncident = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={onSelectIncident}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Report incident" }));
+  await user.click(await screen.findByRole("button", { name: "Report incident" }));
+
+  expect(post).toHaveBeenCalledWith("/api/incident", expect.objectContaining({ vehicleId: "v1" }));
+  await vi.waitFor(() => {
+    expect(onSelectIncident).toHaveBeenCalledWith("inc1");
+  });
 });
 
 test("no active arrangement renders NotAvailable, never a blank or a zero", async () => {
@@ -76,6 +125,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -83,7 +133,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
   expect(await screen.findByText("no active arrangement")).toBeInTheDocument();
 });
 
-test("nothing recorded in any scoped read renders no Paperwork, Costs or History section", async () => {
+test("nothing recorded in any scoped read renders no Paperwork, Costs, Incidents or History section", async () => {
   const get = baseGet();
   renderWithProviders(
     <VehicleOverviewScreen
@@ -91,6 +141,7 @@ test("nothing recorded in any scoped read renders no Paperwork, Costs or History
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -98,6 +149,7 @@ test("nothing recorded in any scoped read renders no Paperwork, Costs or History
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.queryByText(/Paperwork/)).not.toBeInTheDocument();
   expect(screen.queryByText(/Costs/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Incidents/)).not.toBeInTheDocument();
   expect(screen.queryByText(/History/)).not.toBeInTheDocument();
 });
 
@@ -113,6 +165,7 @@ test("paperwork lists every document type with a date set", async () => {
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -167,6 +220,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -210,6 +264,7 @@ test("history merges lease and daily-lease periods into one chronological list",
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -255,6 +310,7 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
       onBack={() => {}}
       onViewCalendar={() => {}}
       onSelectLease={onSelectLease}
+      onSelectIncident={() => {}}
     />,
     { get },
   );
@@ -266,4 +322,55 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
   // The daily-lease row has nothing to go to yet — a plain row, not a button.
   const dailyLeaseText = screen.getByText("Daily lease · Rs 4,500/day");
   expect(dailyLeaseText.closest("button")).toBeNull();
+});
+
+test("Incidents lists every one with its own status, and each row is tappable (Web-P8a)", async () => {
+  const user = userEvent.setup();
+  const incidents: IncidentResponse[] = [
+    {
+      id: "inc1",
+      vehicleId: "v1",
+      leaseId: null,
+      status: "closed",
+      occurredOn: "2026-06-01",
+      description: "Rear bumper damage",
+      offRoadFrom: "2026-06-01",
+      offRoadTo: "2026-06-03",
+      rentTreatment: "continue",
+      closedAt: "2026-06-10",
+    },
+    {
+      id: "inc2",
+      vehicleId: "v1",
+      leaseId: null,
+      status: "open",
+      occurredOn: "2026-07-08",
+      description: null,
+      offRoadFrom: null,
+      offRoadTo: null,
+      rentTreatment: null,
+      closedAt: null,
+    },
+  ];
+  const get = baseGet({ "/api/vehicle/v1/incident": incidents });
+  const onSelectIncident = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={onSelectIncident}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Incidents · 2")).toBeInTheDocument();
+  expect(screen.getByText("Rear bumper damage")).toBeInTheDocument();
+  expect(screen.getByText("No description recorded")).toBeInTheDocument();
+  expect(screen.getByText("Closed")).toBeInTheDocument();
+  expect(screen.getByText("Open")).toBeInTheDocument();
+
+  await user.click(screen.getByText("Rear bumper damage"));
+  expect(onSelectIncident).toHaveBeenCalledWith("inc1");
 });

@@ -3,6 +3,7 @@ import {
   incidentDetailResponseSchema,
   incidentRecoveryResponseSchema,
   insuranceClaimResponseSchema,
+  listExpensesResponseSchema,
   openIncidentRequestSchema,
   recordCustomerContributionRequestSchema,
   recordOffRoadRequestSchema,
@@ -48,6 +49,23 @@ export const getIncidentRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read incidents" },
+    404: { description: "No such incident in this business" },
+  },
+});
+
+/** Web-P8a's incident screen, step 3: every repair cost logged against this incident so far, newest first, voided ones included. */
+export const listIncidentExpensesRoute = createRoute({
+  method: "get",
+  path: "/{id}/expense",
+  request: { params: incidentIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listExpensesResponseSchema } },
+      description:
+        "Every cost logged against this incident so far, newest first, voided ones included",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read incident costs" },
     404: { description: "No such incident in this business" },
   },
 });

@@ -1,17 +1,21 @@
-import { format, parse } from "@fleetsettle/shared";
+import { businessToday, format, parse } from "@fleetsettle/shared";
 import type {
   ExpenseListRow,
+  IncidentResponse,
   VehicleDailyLeaseHistoryRow,
   VehicleDocumentResponse,
   VehicleLeaseHistoryRow,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, MoreVertical, TriangleAlert } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../../lib/cn.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
+import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
+import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
@@ -49,12 +53,21 @@ const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
   other: "Other",
 };
 
+const INCIDENT_STATUS_LABEL: Record<string, string> = {
+  open: "Open",
+  repairs_recorded: "Repairs recorded",
+  recovery_pending: "Recovery pending",
+  closed: "Closed",
+};
+
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
   onBack: () => void;
   onViewCalendar: () => void;
   /** History's own tap-through (Web-P6b) — daily-lease entries have no hub screen yet, so only a lease entry passes `onClick` (below). */
   onSelectLease: (leaseId: string) => void;
+  /** Incidents section's own tap-through (Web-P8a) — also where a just-reported incident lands, from `ReportIncidentSheet`'s own `onCreated`. */
+  onSelectIncident: (incidentId: string) => void;
 }
 
 function formatShortDate(date: string): string {
@@ -113,8 +126,12 @@ export function VehicleOverviewScreen({
   onBack,
   onViewCalendar,
   onSelectLease,
+  onSelectIncident,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
+  const today = businessToday();
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const { data: vehicle, isLoading } = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -135,20 +152,35 @@ export function VehicleOverviewScreen({
     queryKey: ["vehicle", vehicleId, "daily-lease"],
     queryFn: () => api.get<VehicleDailyLeaseHistoryRow[]>(`/api/vehicle/${vehicleId}/daily-lease`),
   });
+  const incidentsQuery = useQuery({
+    queryKey: ["vehicle", vehicleId, "incident"],
+    queryFn: () => api.get<IncidentResponse[]>(`/api/vehicle/${vehicleId}/incident`),
+  });
 
   const documents = documentsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
+  const incidents = incidentsQuery.data ?? [];
   const historyEntries = buildHistoryEntries(
     leaseHistoryQuery.data ?? [],
     dailyLeaseHistoryQuery.data ?? [],
     onSelectLease,
   );
 
+  const vehicleActions: ActionSheetAction[] = [
+    { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    {
+      key: "incident",
+      label: "Report incident",
+      icon: TriangleAlert,
+      onSelect: () => setReportIncidentOpen(true),
+    },
+  ];
+
   return (
     <Screen
       title={vehicle?.registration ?? "Vehicle"}
       onBack={onBack}
-      action={{ label: "View calendar", icon: CalendarDays, onClick: onViewCalendar }}
+      action={{ label: "Vehicle actions", icon: MoreVertical, onClick: () => setActionsOpen(true) }}
     >
       {isLoading || vehicle === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
@@ -223,6 +255,35 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {incidents.length > 0 ? (
+            <Section
+              title="Incidents"
+              count={incidents.length}
+              items={incidents.map((incident) => (
+                <button
+                  key={incident.id}
+                  type="button"
+                  onClick={() => onSelectIncident(incident.id)}
+                  className="w-full text-left"
+                >
+                  <Card className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-body text-ink-primary">
+                        {incident.description ?? "No description recorded"}
+                      </p>
+                      <p className="text-caption text-ink-muted">
+                        {formatShortDate(incident.occurredOn)}
+                      </p>
+                    </div>
+                    <p className="text-caption text-ink-muted">
+                      {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
+                    </p>
+                  </Card>
+                </button>
+              ))}
+            />
+          ) : null}
+
           {historyEntries.length > 0 ? (
             <section className="flex flex-col gap-2">
               <h2 className="text-label font-medium text-ink-secondary">
@@ -233,6 +294,23 @@ export function VehicleOverviewScreen({
               </Card>
             </section>
           ) : null}
+
+          <ReportIncidentSheet
+            open={reportIncidentOpen}
+            onOpenChange={setReportIncidentOpen}
+            vehicleId={vehicleId}
+            today={today}
+            onCreated={(incidentId) => {
+              setReportIncidentOpen(false);
+              onSelectIncident(incidentId);
+            }}
+          />
+          <ActionSheet
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            title="Vehicle actions"
+            actions={vehicleActions}
+          />
         </div>
       )}
     </Screen>

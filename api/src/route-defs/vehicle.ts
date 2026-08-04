@@ -3,6 +3,7 @@ import {
   businessDateSchema,
   createVehicleRequestSchema,
   listExpensesResponseSchema,
+  listIncidentsResponseSchema,
   listVehicleDocumentsResponseSchema,
   listVehiclesResponseSchema,
   upsertVehicleDocumentRequestSchema,
@@ -150,6 +151,22 @@ export const listVehicleLeaseHistoryRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read vehicle history" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** Vehicle overview's own Incidents section (Web-P8a): every incident this vehicle has had, open and closed, newest first — `dailyOperations`, the same capability every other incident endpoint already uses (this is operational content, not vehicle master-data, unlike this file's other reads). */
+export const listVehicleIncidentsRoute = createRoute({
+  method: "get",
+  path: "/{id}/incident",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listIncidentsResponseSchema } },
+      description: "Every incident this vehicle has had, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read incidents" },
     404: { description: "No such vehicle in this business" },
   },
 });

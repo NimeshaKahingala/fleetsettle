@@ -5,6 +5,7 @@ import { createVehicle } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
 import { listExpensesForVehicle } from "../queries/expense.js";
+import { listIncidentsForVehicle } from "../queries/incident.js";
 import { listLeasesForVehicle } from "../queries/lease.js";
 import {
   findVehicleCalendar,
@@ -21,10 +22,12 @@ import type {
   listVehicleDailyLeaseHistoryRoute,
   listVehicleDocumentsRoute,
   listVehicleExpensesRoute,
+  listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
   listVehiclesRoute,
   upsertVehicleDocumentRoute,
 } from "../route-defs/vehicle.js";
+import { incidentToResponse } from "./incident.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: VehicleRow) {
@@ -235,6 +238,23 @@ export const listVehicleLeaseHistoryHandler: RouteHandler<
     })),
     200,
   );
+};
+
+/** Vehicle overview's own Incidents section (Web-P8a). `dailyOperations` — matches every other incident endpoint's own gate, not this file's `manageEntities`. */
+export const listVehicleIncidentsHandler: RouteHandler<
+  typeof listVehicleIncidentsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listIncidentsForVehicle(c.get("reader"), businessId, id);
+  return c.json(rows.map(incidentToResponse), 200);
 };
 
 /** Vehicle overview's history tab (Web-P5): arrangement-B periods. */

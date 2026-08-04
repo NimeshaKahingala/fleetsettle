@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { incident, incidentRecovery, insuranceClaim, leaseExtension } from "../db/schema.js";
 
@@ -105,6 +105,20 @@ export async function listOpenIncidentsForLease(
   return rows as IncidentRow[];
 }
 
+/** Vehicle overview's own Incidents section (Web-P8a): every incident this vehicle has had, open and closed alike, newest first — unlike `listOpenIncidentsForLease`, this is not filtered to "not closed," since the section is meant to answer "what has happened to this vehicle," not just "what still needs a decision." */
+export async function listIncidentsForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+): Promise<IncidentRow[]> {
+  const rows = await db
+    .select(INCIDENT_COLUMNS)
+    .from(incident)
+    .where(and(eq(incident.businessId, businessId), eq(incident.vehicleId, vehicleId)))
+    .orderBy(desc(incident.occurredOn));
+  return rows as IncidentRow[];
+}
+
 export interface NewLeaseExtension {
   id: string;
   leaseId: string;
@@ -169,6 +183,25 @@ export async function findInsuranceClaimForBusiness(
     .select(INSURANCE_CLAIM_COLUMNS)
     .from(insuranceClaim)
     .where(and(eq(insuranceClaim.id, claimId), eq(insuranceClaim.businessId, businessId)))
+    .limit(1);
+  return rows[0] as InsuranceClaimRow | undefined;
+}
+
+/**
+ * Web-P8a: the incident screen's own read of a claim it already submitted —
+ * at most one per incident (app-checked, `InsuranceClaimAlreadyExistsError`),
+ * so this is what lets the screen find "was one submitted, and what's its
+ * own id to settle" across a reload, the same gap `findIncidentRecoveryBySource`
+ * already solves for the recovery half of the same pair.
+ */
+export async function findInsuranceClaimForIncident(
+  db: ReadDb,
+  incidentId: string,
+): Promise<InsuranceClaimRow | undefined> {
+  const rows = await db
+    .select(INSURANCE_CLAIM_COLUMNS)
+    .from(insuranceClaim)
+    .where(eq(insuranceClaim.incidentId, incidentId))
     .limit(1);
   return rows[0] as InsuranceClaimRow | undefined;
 }

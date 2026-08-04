@@ -7,6 +7,7 @@ import {
   listVehicleDailyLeaseHistoryHandler,
   listVehicleDocumentsHandler,
   listVehicleExpensesHandler,
+  listVehicleIncidentsHandler,
   listVehicleLeaseHistoryHandler,
   listVehiclesHandler,
   upsertVehicleDocumentHandler,
@@ -18,6 +19,7 @@ import {
   listVehicleDailyLeaseHistoryRoute,
   listVehicleDocumentsRoute,
   listVehicleExpensesRoute,
+  listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
   listVehiclesRoute,
   upsertVehicleDocumentRoute,
@@ -33,5 +35,6 @@ export const vehicle = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(upsertVehicleDocumentRoute, upsertVehicleDocumentHandler)
   .openapi(listVehicleDocumentsRoute, listVehicleDocumentsHandler)
   .openapi(listVehicleExpensesRoute, listVehicleExpensesHandler)
+  .openapi(listVehicleIncidentsRoute, listVehicleIncidentsHandler)
   .openapi(listVehicleLeaseHistoryRoute, listVehicleLeaseHistoryHandler)
   .openapi(listVehicleDailyLeaseHistoryRoute, listVehicleDailyLeaseHistoryHandler);

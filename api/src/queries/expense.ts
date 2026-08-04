@@ -238,6 +238,77 @@ export async function listExpensesForTrip(db: ReadDb, tripId: string): Promise<T
   return rows as TripExpenseRow[];
 }
 
+export interface IncidentExpenseRow {
+  id: string;
+  vehicleId: string | null;
+  tripId: string | null;
+  category:
+    | "fuel"
+    | "tolls"
+    | "fines"
+    | "cleaning"
+    | "tyres"
+    | "servicing"
+    | "repairs"
+    | "insurance"
+    | "licence"
+    | "crew_food"
+    | "permits"
+    | "office"
+    | "legal"
+    | "messaging"
+    | "other";
+  amountMinor: bigint;
+  spentOn: string;
+  borneBy: "us" | "driver" | "customer";
+  borneByDriverId: string | null;
+  borneByCustomerId: string | null;
+  paidByUserId: string | null;
+  litres: number | null;
+  note: string | null;
+  voidedAt: string | null;
+  voidedReason: string | null;
+}
+
+/**
+ * Web-P8a's incident screen, step 3 ("Repairs — one cost or several, added
+ * as invoices arrive over following weeks"): every cost attached to this
+ * incident, newest first, voided ones included and struck through by the
+ * caller — the same "never hidden, never silently swapped" convention
+ * `listExpensesForVehicle`/`listExpensesForTrip` already established (W-50),
+ * applied to an incident instead. `sumIncidentCostMinor` above is the
+ * bottom line's own excludes-voided total; this is the itemised list behind
+ * it. Called only after the handler has already confirmed the incident
+ * belongs to this business (`findIncidentForBusiness`), the same trust
+ * boundary those two queries rely on.
+ */
+export async function listExpensesForIncident(
+  db: ReadDb,
+  incidentId: string,
+): Promise<IncidentExpenseRow[]> {
+  const rows = await db
+    .select({
+      id: expense.id,
+      vehicleId: expense.vehicleId,
+      tripId: expense.tripId,
+      category: expense.category,
+      amountMinor: expense.amountMinor,
+      spentOn: expense.spentOn,
+      borneBy: expense.borneBy,
+      borneByDriverId: expense.borneByDriverId,
+      borneByCustomerId: expense.borneByCustomerId,
+      paidByUserId: expense.paidByUserId,
+      litres: expense.litres,
+      note: expense.note,
+      voidedAt: expense.voidedAt,
+      voidedReason: expense.voidedReason,
+    })
+    .from(expense)
+    .where(eq(expense.incidentId, incidentId))
+    .orderBy(desc(expense.spentOn));
+  return rows as IncidentExpenseRow[];
+}
+
 /** F-3.4/UC-12 step 6, "total repair cost" — every cost attached to the incident, not filtered by `borne_by`: an accident repair is (almost) always the business's own cost, and the container's bottom line is what was spent, not a profit-eligibility sum (that is INV-5's job on `expense_profit`). Zero (not "not available") is a real total here — no cost has been logged yet, not a gap in the data (W-56 governs the reverse case). */
 export async function sumIncidentCostMinor(db: ReadDb, incidentId: string): Promise<bigint> {
   const rows = await db

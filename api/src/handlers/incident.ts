@@ -18,9 +18,12 @@ import {
   type IncidentBottomLine,
 } from "../domain/incident.js";
 import { NotFoundError } from "../errors/app-error.js";
+import { listExpensesForIncident } from "../queries/expense.js";
 import {
   findIncidentForBusiness,
   findIncidentRecoveryForBusiness,
+  findInsuranceClaimForIncident,
+  listIncidentRecoveries,
   type IncidentRecoveryRow,
   type IncidentRow,
   type InsuranceClaimRow,
@@ -31,6 +34,7 @@ import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
   closeIncidentRoute,
   getIncidentRoute,
+  listIncidentExpensesRoute,
   openIncidentRoute,
   recordCustomerContributionRoute,
   recordOffRoadRoute,
@@ -40,7 +44,8 @@ import type {
 } from "../route-defs/incident.js";
 import type { Env } from "../types.js";
 
-function incidentToResponse(row: IncidentRow) {
+/** Shared with `handlers/vehicle.ts`'s own Incidents-section list (Web-P8a) — one mapping for `IncidentRow → incidentResponseSchema`, not a second copy that could drift. */
+export function incidentToResponse(row: IncidentRow) {
   return {
     id: row.id,
     vehicleId: row.vehicleId,
@@ -65,8 +70,17 @@ function bottomLineToResponse(bottomLine: IncidentBottomLine) {
 }
 
 async function incidentDetailToResponse(reader: Reader, row: IncidentRow) {
-  const bottomLine = await computeIncidentBottomLine(reader, row.id);
-  return { ...incidentToResponse(row), bottomLine: bottomLineToResponse(bottomLine) };
+  const [bottomLine, recoveries, claim] = await Promise.all([
+    computeIncidentBottomLine(reader, row.id),
+    listIncidentRecoveries(reader, row.id),
+    findInsuranceClaimForIncident(reader, row.id),
+  ]);
+  return {
+    ...incidentToResponse(row),
+    bottomLine: bottomLineToResponse(bottomLine),
+    recoveries: recoveries.map(recoveryToResponse),
+    insuranceClaim: claim !== undefined ? claimToResponse(claim) : null,
+  };
 }
 
 type RecoveryResponseRow = Pick<
@@ -158,6 +172,43 @@ export const getIncidentHandler: RouteHandler<typeof getIncidentRoute, Env> = as
   if (!row) throw new NotFoundError();
 
   return c.json(await incidentDetailToResponse(reader, row), 200);
+};
+
+/** Web-P8a's incident screen, step 3 ("Repairs"). `dailyOperations` — matches every other incident endpoint's own gate. */
+export const listIncidentExpensesHandler: RouteHandler<
+  typeof listIncidentExpensesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const existing = await findIncidentForBusiness(reader, businessId, id);
+  if (!existing) throw new NotFoundError();
+
+  const rows = await listExpensesForIncident(reader, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      vehicleId: row.vehicleId,
+      tripId: row.tripId,
+      incidentId: id,
+      category: row.category,
+      amountMinor: toWire(row.amountMinor as Minor),
+      spentOn: row.spentOn,
+      borneBy: row.borneBy,
+      borneByDriverId: row.borneByDriverId,
+      borneByCustomerId: row.borneByCustomerId,
+      paidByUserId: row.paidByUserId,
+      litres: row.litres,
+      note: row.note,
+      voidedAt: row.voidedAt,
+      voidedReason: row.voidedReason,
+    })),
+    200,
+  );
 };
 
 /** F-3.4 step 2/W-9. `recordOffRoad` (domain/incident.ts) is the write; this is validation and translation only. */
