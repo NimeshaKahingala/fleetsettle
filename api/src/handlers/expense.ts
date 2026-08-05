@@ -1,14 +1,23 @@
-import { asBusinessDate, toWire } from "@fleetsettle/shared";
+import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { createExpense, resolveBorneByDefault, voidExpense } from "../domain/expense.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
+import {
+  listExpensesForBusiness,
+  type BusinessExpenseRow,
+  type ExpenseFilters,
+} from "../queries/expense.js";
 import { findIncidentForBusiness } from "../queries/incident.js";
 import { findTripForBusiness } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
-import type { createExpenseRoute, voidExpenseRoute } from "../route-defs/expense.js";
+import type {
+  createExpenseRoute,
+  listExpensesRoute,
+  voidExpenseRoute,
+} from "../route-defs/expense.js";
 import type { Env } from "../types.js";
 
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
@@ -108,4 +117,43 @@ export const voidExpenseHandler: RouteHandler<typeof voidExpenseRoute, Env> = as
   });
 
   return c.json(result, 200);
+};
+
+function toListRow(row: BusinessExpenseRow) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicleId,
+    tripId: row.tripId,
+    incidentId: row.incidentId,
+    category: row.category,
+    amountMinor: toWire(row.amountMinor as Minor),
+    spentOn: row.spentOn,
+    borneBy: row.borneBy,
+    borneByDriverId: row.borneByDriverId,
+    borneByCustomerId: row.borneByCustomerId,
+    paidByUserId: row.paidByUserId,
+    litres: row.litres,
+    note: row.note,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+  } as const;
+}
+
+/** Web-P8b's costs list (F-3.1). `dailyOperations` (STAFF) — same gate as create. */
+export const listExpensesHandler: RouteHandler<typeof listExpensesRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const filters: ExpenseFilters = {
+    ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+    ...(query.tripId !== undefined ? { tripId: query.tripId } : {}),
+    ...(query.incidentId !== undefined ? { incidentId: query.incidentId } : {}),
+    ...(query.category !== undefined ? { category: query.category } : {}),
+    ...(query.from !== undefined ? { from: query.from } : {}),
+    ...(query.to !== undefined ? { to: query.to } : {}),
+  };
+
+  const rows = await listExpensesForBusiness(c.get("reader"), businessId, filters);
+  return c.json(rows.map(toListRow), 200);
 };

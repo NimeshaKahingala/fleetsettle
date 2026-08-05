@@ -8,18 +8,20 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, MoreVertical, TriangleAlert } from "lucide-react";
+import { CalendarDays, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/cn.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
+import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 
 const ARRANGEMENT_LABEL: Record<string, string> = {
   A: "Lease out",
@@ -33,24 +35,6 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   revenue_licence: "Revenue licence",
   permit: "Permit",
   emissions: "Emissions",
-};
-
-const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
-  fuel: "Fuel",
-  tolls: "Tolls",
-  fines: "Fines",
-  cleaning: "Cleaning",
-  tyres: "Tyres",
-  servicing: "Servicing",
-  repairs: "Repairs",
-  insurance: "Insurance",
-  licence: "Licence",
-  crew_food: "Crew food",
-  permits: "Permits",
-  office: "Office",
-  legal: "Legal",
-  messaging: "Messaging",
-  other: "Other",
 };
 
 const INCIDENT_STATUS_LABEL: Record<string, string> = {
@@ -132,6 +116,7 @@ export function VehicleOverviewScreen({
   const today = businessToday();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
+  const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
   const { data: vehicle, isLoading } = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -168,6 +153,12 @@ export function VehicleOverviewScreen({
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    {
+      key: "expense",
+      label: "Record expense",
+      icon: Receipt,
+      onSelect: () => setRecordExpenseOpen(true),
+    },
     {
       key: "incident",
       label: "Report incident",
@@ -304,6 +295,13 @@ export function VehicleOverviewScreen({
               setReportIncidentOpen(false);
               onSelectIncident(incidentId);
             }}
+          />
+          <RecordExpenseSheet
+            open={recordExpenseOpen}
+            onOpenChange={setRecordExpenseOpen}
+            vehicleId={vehicleId}
+            today={today}
+            onRecorded={() => setRecordExpenseOpen(false)}
           />
           <ActionSheet
             open={actionsOpen}

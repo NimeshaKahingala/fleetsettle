@@ -6,6 +6,8 @@
 
 **Updated 4 August 2026** — Web-P7 (row 1) is done; see [TRACKER.md](TRACKER.md)'s own entry for the full account. One thing that entry surfaces and this plan didn't anticipate: **F-5.2/F-5.3 (a trip's own costs/advances and customer money) were never wired into any domain code** — no obligation is ever raised for a trip's `agreedAmountMinor`, so there is nothing an ordinary payment could allocate against. This has no scheduled home in phases 2–9 below; it is backend design work (deciding *when* the receivable posts, matching W-41's closing-date precedent) plus a small frontend piece, roughly the size of Web-P8a. Not scheduled here — flag it to the owner before deciding where it slots in.
 
+**Updated 4 August 2026 (later same day)** — Web-P8b (row 3) is done; see TRACKER.md's own entry. One correction this pass made to the plan itself: **there is no `ExpenseListScreen`** — UI §3.3's route map has no business-wide costs route, so it was not built; the new `GET /api/expense` still shipped (real value regardless of caller) but its screen was F-3.1/F-3.3's sheets, reached from `＋` and from a vehicle's own menu, not a list screen. Session stopped here by owner instruction — Web-P8c has **not** been started.
+
 **Scope: web only.** R2 presigned uploads are deliberately out (see "Skipped by decision"). Per-vehicle capability scoping is backend hardening and is also out, with its cost recorded below.
 
 ---
@@ -38,8 +40,8 @@ This is the identical pattern Web-P2 and Web-P5 each hit and closed with a backe
 |---|---|---|---|
 | 1 | ✅ **Web-P7** — Trips | none, plus one small increment found along the way | Done — see TRACKER.md |
 | 2 | ✅ **Web-P8a** — Incidents | 2 endpoints, not the 1 planned | Done — see TRACKER.md |
-| 3 | **Web-P8b** — Costs and quick-add | 1–2 endpoints | |
-| 4 | **Web-P8c** — Partners, banking, cash | **~4 endpoints** | Largest |
+| 3 | ✅ **Web-P8b** — Costs and quick-add | 1 endpoint (`GET /api/advance` skipped — no caller this phase) | Done — see TRACKER.md |
+| 4 | **Web-P8c** — Partners, banking, cash | **~4 endpoints** | Largest — **next** |
 | 5 | **Web-P8d** — Close the month, corrections | 1–2 endpoints | |
 | 6 | **Web-P9** — Review shell and reports | none | |
 | 7 | **Web-P10** — Mine shell | none | |
@@ -65,22 +67,14 @@ Every other trap this section named held: the container stayed a container (noth
 
 ---
 
-# 3 · Web-P8b — Costs and quick-add (F-3.1, F-3.3, M-4)
+# 3 · Web-P8b — Costs and quick-add (F-3.1, F-3.2, F-3.3, M-4) ✅ Done
 
-**Backend increment** — a business-level **`GET /api/expense`** (newest first, filterable by vehicle/trip/incident/category and by date range). Possibly **`GET /api/advance`** too, if the driver screen's advances section lands here rather than with Web-P10.
+See [TRACKER.md](TRACKER.md)'s own Web-P8b entry for the full account. Two divergences from what this plan assumed, both deliberate:
 
-**Screens** — `web/src/features/costs/`: `ExpenseListScreen`, `CreateExpenseForm`, `FuelFillScreen` (F-3.3's ten-second flow), and the `＋` quick-add `ActionSheet` (M-4) wired into `AppShell`'s existing `＋` tab, which currently changes no route by design and opens nothing.
+- **No `ExpenseListScreen`.** UI §3.3's own route map has no business-wide costs route — `/vehicles/:id` already owns "costs" (Web-P5, per-vehicle), and §3.1 puts F-3.1/F-3.3 under the `＋` tab, never a list. The plan's own guess was wrong; `docs/` won. `GET /api/expense` still shipped — it's real, independent value — but its callers are `RecordExpenseSheet`/`FuelFillSheet`, not a list screen.
+- **Quick-add ships 3 of M-4's 5 actions** (Fuel, Expense, New trip). Payment received/Payment made are real, separately-sized features with no business-wide party picker to open against yet — left off the rendered list rather than wired to a dead tap; `ActionSheet` never filters what it's given, so growing the list later is additive, not a rework.
 
-**Reuses** — `BorneByPaidBy` (built in P2, never yet wired to a real form — this is its first caller), `MoneyField`, `DateField`, `EntityPicker`, `ReasonPicker`, `NoteField`, `Disclosure`, `PhotoCapture` (capture only; the upload has no endpoint).
-
-**Traps:**
-- **`borne_by` and `paid_by` are two fields** (W-48). `BorneByPaidBy` already enforces this by composing two independent pickers — do not collapse them for the fuel flow's sake.
-- **The server resolves the `borne_by` default** from the vehicle's current arrangement. Show that default, let it be overridden, never recompute it client-side — two implementations of one rule diverge.
-- **No `vehicleId` is a valid overhead cost** (UC-66, INV-24), never a validation error.
-- **A voided expense stays visible, struck through, with its reason** (W-50) — `VehicleOverviewScreen` already does exactly this; reuse the treatment rather than inventing a second one.
-- **F-3.3 means ten seconds.** If the fuel flow needs more than amount, litres, odometer and a vehicle at level 1, it has drifted past U-2.
-
-**Done means** — the manager buying the driver's fuel from his own pocket records as borne by the driver, paid by the manager, in one flow; every form saves with level-1 fields only; `npm run check` clean.
+Every other trap this section named held: `BorneByPaidBy` composes two independent pickers (never collapsed), the `borne_by` matrix is never recomputed client-side (the server default is simply left unsent unless overridden to "Us"), a blank vehicle is a valid overhead cost, and a voided expense stays visible and struck through. Fuel-fill's odometer/trip-link fields are not built (no domain wiring for `expense.odometer_reading_id` exists anywhere yet) — recorded in TRACKER.md rather than half-built.
 
 ---
 

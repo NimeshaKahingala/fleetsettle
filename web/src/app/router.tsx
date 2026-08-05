@@ -16,6 +16,7 @@ import {
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
+import { useState } from "react";
 import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
@@ -24,6 +25,7 @@ import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { BookTripScreen } from "../features/trips/BookTripScreen.js";
 import { TripDetailScreen } from "../features/trips/TripDetailScreen.js";
 import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
@@ -251,13 +253,14 @@ const TAB_PATH: Record<OperateTabKey, string> = {
   more: "/more",
 };
 
-function RootLayout() {
+function RootLayout({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
   // The root route owns `<Outlet />` but has no match of its own to read
   // params from — subscribing to the router's own location keeps the tab
   // bar's `activeTab` derived from the URL rather than tracked state that
   // could drift from it.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   return (
     <FirstRunGate
@@ -268,8 +271,22 @@ function RootLayout() {
           onTabChange={(key) => {
             void navigate({ to: TAB_PATH[key as OperateTabKey] });
           }}
+          onQuickAdd={() => setQuickAddOpen(true)}
         >
           <Outlet />
+          <QuickAddSheet
+            open={quickAddOpen}
+            onOpenChange={setQuickAddOpen}
+            today={today}
+            onBookTrip={(vehicleId) => {
+              setQuickAddOpen(false);
+              void navigate({
+                to: "/vehicles/$vehicleId/trip/new",
+                params: { vehicleId },
+                search: {},
+              });
+            }}
+          />
         </AppShell>
       )}
     />
@@ -286,7 +303,7 @@ function RootLayout() {
  * itself.
  */
 export function createAppRouteTree(today: BusinessDate, history?: RouterHistory) {
-  const rootRoute = createRootRoute({ component: RootLayout });
+  const rootRoute = createRootRoute({ component: () => <RootLayout today={today} /> });
 
   const homeRoute = createRoute({
     getParentRoute: () => rootRoute,

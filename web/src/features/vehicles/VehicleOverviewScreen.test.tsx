@@ -115,6 +115,56 @@ test("Report incident, via the Vehicle actions menu, opens the sheet and onSelec
   });
 });
 
+test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled to this vehicle (Web-P8b)", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "e1",
+    vehicleId: "v1",
+    tripId: null,
+    incidentId: null,
+    category: "fuel",
+    amountMinor: "5",
+    spentOn: "2026-08-04",
+    borneBy: "driver",
+    borneByDriverId: "d1",
+    borneByCustomerId: null,
+    paidByUserId: "u1",
+    litres: null,
+    note: null,
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Record expense" }));
+
+  // Pre-filled and locked to this vehicle — no vehicle picker rendered.
+  expect(screen.queryByText("Choose vehicle")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "5" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Fuel" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() => {
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ vehicleId: "v1", category: "fuel" }),
+    );
+  });
+});
+
 test("no active arrangement renders NotAvailable, never a blank or a zero", async () => {
   const get = baseGet({
     "/api/vehicle/v1": { ...baseVehicle, arrangement: undefined },

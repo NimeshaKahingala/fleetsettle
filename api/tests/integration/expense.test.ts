@@ -23,6 +23,10 @@ async function postVoidExpense(token: string, id: string, body: unknown) {
   });
 }
 
+async function getExpenses(token: string, query = "") {
+  return request(`/api/expense${query}`, bearer(token));
+}
+
 /**
  * F-3.1/F-3.2/F-3.3, UC-60/UC-66. §6.7's default-owner matrix, `borne_by`/
  * `paid_by` as two separate fields (W-48/INV-27), and the overhead case
@@ -352,6 +356,155 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
     const res = await postVoidExpense(token, "11111111-1111-4111-8111-111111111111", {
       reason: "x",
     });
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/** Web-P8b's costs list (F-3.1): every filter optional, voided rows included and struck through by the caller (W-50). */
+describe("list expenses (Web-P8b, F-3.1)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — newest first, a voided row included with its reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const first = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "10000",
+      spentOn: "2026-07-10",
+    });
+    const firstBody: { id: string } = await first.json();
+    ctx.trackCreatedExpense(firstBody.id);
+
+    const second = await postExpense(token, {
+      category: "office",
+      amountMinor: "20000",
+      spentOn: "2026-07-20",
+    });
+    const secondBody: { id: string } = await second.json();
+    ctx.trackCreatedExpense(secondBody.id);
+    await postVoidExpense(token, secondBody.id, { reason: "wrong category" });
+
+    const res = await getExpenses(token);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; voidedAt: string | null; voidedReason: string | null }> =
+      await res.json();
+    const ids = body.map((r) => r.id);
+    expect(ids.indexOf(secondBody.id)).toBeLessThan(ids.indexOf(firstBody.id));
+    const voided = body.find((r) => r.id === secondBody.id);
+    expect(voided).toMatchObject({ voidedReason: "wrong category" });
+    expect(voided?.voidedAt).toBeTruthy();
+
+    await ctx.cleanup();
+  });
+
+  it("filters by vehicleId, category and date range", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const inScope = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "10000",
+      spentOn: "2026-07-10",
+    });
+    const inScopeBody: { id: string } = await inScope.json();
+    ctx.trackCreatedExpense(inScopeBody.id);
+
+    const wrongCategory = await postExpense(token, {
+      vehicleId,
+      category: "tolls",
+      amountMinor: "5000",
+      spentOn: "2026-07-10",
+    });
+    const wrongCategoryBody: { id: string } = await wrongCategory.json();
+    ctx.trackCreatedExpense(wrongCategoryBody.id);
+
+    const outsideWindow = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "10000",
+      spentOn: "2026-06-01",
+    });
+    const outsideWindowBody: { id: string } = await outsideWindow.json();
+    ctx.trackCreatedExpense(outsideWindowBody.id);
+
+    const overhead = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "10000",
+      spentOn: "2026-07-10",
+    });
+    const overheadBody: { id: string } = await overhead.json();
+    ctx.trackCreatedExpense(overheadBody.id);
+
+    const res = await getExpenses(
+      token,
+      `?vehicleId=${vehicleId}&category=fuel&from=2026-07-01&to=2026-07-31`,
+    );
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string }> = await res.json();
+    expect(body.map((r) => r.id)).toEqual([inScopeBody.id]);
+
+    await ctx.cleanup();
+  });
+
+  it("tenant isolation — another business's expenses never appear", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    await other.createOpenPeriod(otherBusinessId);
+    const otherOwner = await mintUser(db, other, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherExpense = await postExpense(otherToken, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const otherExpenseBody: { id: string } = await otherExpense.json();
+    other.trackCreatedExpense(otherExpenseBody.id);
+
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getExpenses(token);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string }> = await res.json();
+    expect(body.map((r) => r.id)).not.toContain(otherExpenseBody.id);
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await getExpenses("");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot read the business's costs", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getExpenses(token);
     expect(res.status).toBe(403);
 
     await ctx.cleanup();

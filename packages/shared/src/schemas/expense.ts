@@ -91,6 +91,22 @@ export type ExpenseListRow = z.infer<typeof expenseListRowSchema>;
 export const listExpensesResponseSchema = z.array(expenseListRowSchema);
 export type ListExpensesResponse = z.infer<typeof listExpensesResponseSchema>;
 
+/**
+ * Web-P8b's costs list (F-3.1): every filter optional — an unfiltered call
+ * is every expense the business has ever logged, newest first. `from`/`to`
+ * bound `spentOn`, not `createdAt` (an expense entered late is still dated
+ * when it happened, same as `insertExpense`'s own doc comment).
+ */
+export const listExpensesQuerySchema = z.object({
+  vehicleId: uuidSchema.optional(),
+  tripId: uuidSchema.optional(),
+  incidentId: uuidSchema.optional(),
+  category: expenseCategorySchema.optional(),
+  from: businessDateSchema.optional(),
+  to: businessDateSchema.optional(),
+});
+export type ListExpensesQuery = z.infer<typeof listExpensesQuerySchema>;
+
 /** F-8.5/UC-96: "wrong vehicle... fuel logged against the wrong trip" — void it, with a reason, then record the corrected one through the ordinary create endpoint. */
 export const voidExpenseRequestSchema = z.object({
   reason: z.string().trim().min(1).max(500),

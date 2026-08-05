@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { expense } from "../db/schema.js";
 
@@ -138,6 +138,95 @@ export async function listExpensesForVehicle(
     .where(and(eq(expense.businessId, businessId), eq(expense.vehicleId, vehicleId)))
     .orderBy(desc(expense.spentOn));
   return rows as VehicleExpenseRow[];
+}
+
+export interface BusinessExpenseRow {
+  id: string;
+  vehicleId: string | null;
+  tripId: string | null;
+  incidentId: string | null;
+  category:
+    | "fuel"
+    | "tolls"
+    | "fines"
+    | "cleaning"
+    | "tyres"
+    | "servicing"
+    | "repairs"
+    | "insurance"
+    | "licence"
+    | "crew_food"
+    | "permits"
+    | "office"
+    | "legal"
+    | "messaging"
+    | "other";
+  amountMinor: bigint;
+  spentOn: string;
+  borneBy: "us" | "driver" | "customer";
+  borneByDriverId: string | null;
+  borneByCustomerId: string | null;
+  paidByUserId: string | null;
+  litres: number | null;
+  note: string | null;
+  voidedAt: string | null;
+  voidedReason: string | null;
+}
+
+export interface ExpenseFilters {
+  vehicleId?: string;
+  tripId?: string;
+  incidentId?: string;
+  category?: string;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Web-P8b's costs list (F-3.1): every filter optional — no scope beyond
+ * `businessId` is required, generalising `listExpensesForVehicle`/
+ * `-Trip`/`-Incident`'s single-scope shape into one query with all of theirs
+ * as optional narrowing. Voided rows stay in, struck through by the caller
+ * (W-50), the same convention those three already established. Newest
+ * first, `id` as the tie-break within a date (UUIDv7 sorts by time).
+ */
+export async function listExpensesForBusiness(
+  db: ReadDb,
+  businessId: string,
+  filters: ExpenseFilters,
+): Promise<BusinessExpenseRow[]> {
+  const rows = await db
+    .select({
+      id: expense.id,
+      vehicleId: expense.vehicleId,
+      tripId: expense.tripId,
+      incidentId: expense.incidentId,
+      category: expense.category,
+      amountMinor: expense.amountMinor,
+      spentOn: expense.spentOn,
+      borneBy: expense.borneBy,
+      borneByDriverId: expense.borneByDriverId,
+      borneByCustomerId: expense.borneByCustomerId,
+      paidByUserId: expense.paidByUserId,
+      litres: expense.litres,
+      note: expense.note,
+      voidedAt: expense.voidedAt,
+      voidedReason: expense.voidedReason,
+    })
+    .from(expense)
+    .where(
+      and(
+        eq(expense.businessId, businessId),
+        filters.vehicleId !== undefined ? eq(expense.vehicleId, filters.vehicleId) : undefined,
+        filters.tripId !== undefined ? eq(expense.tripId, filters.tripId) : undefined,
+        filters.incidentId !== undefined ? eq(expense.incidentId, filters.incidentId) : undefined,
+        filters.category !== undefined ? eq(expense.category, filters.category) : undefined,
+        filters.from !== undefined ? gte(expense.spentOn, filters.from) : undefined,
+        filters.to !== undefined ? lte(expense.spentOn, filters.to) : undefined,
+      ),
+    )
+    .orderBy(desc(expense.spentOn), desc(expense.id));
+  return rows as BusinessExpenseRow[];
 }
 
 export interface TripCostByCategory {
