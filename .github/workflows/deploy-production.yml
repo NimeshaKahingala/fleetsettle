@@ -1,19 +1,35 @@
 name: deploy-production
 
-# DEPLOYMENT.md: push to main promotes to production. Migrations are never
-# automatic here — the guard job fails the deploy if any migration is
-# pending rather than letting code run ahead of its schema. Applying a
-# migration to production is a separate, manually-triggered workflow
-# (migrate-production.yml), by design.
+# DEPLOYMENT.md: merging to `main` deploys production, automatically.
 #
-# Requires the `production` GitHub environment configured with required
-# reviewers, and holding DATABASE_URL, CLOUDFLARE_API_TOKEN and
-# CLOUDFLARE_ACCOUNT_ID. The reviewer gate is an environment protection
-# rule set in GitHub, not something this file can declare.
+# There is no post-merge approval step, because GitHub does not offer one
+# here: required reviewers are an environment protection rule, and those are
+# unavailable on a private repository on the free plan (the API answers
+# `422 — Please ensure the billing plan supports the required reviewers
+# protection rule`). So **the human gate is the pull request into `main`** —
+# review it as the deploy decision it is, because nothing downstream will
+# ask again.
+#
+# What still stands between a merge and a bad production deploy:
+#   1. checks.yml — the same full gate every PR clears
+#   2. the guard job — `migrate:check` fails the deploy when a migration is
+#      pending, so code can never arrive ahead of its schema
+#   3. the smoke suite — asserts the deploy actually works, after the fact
+#
+# Migrations remain deliberately manual (migrate-production.yml). Applying
+# one to live money data is forward-only and stays a separate, explicit act.
+#
+# `workflow_dispatch` is kept alongside the push trigger so production can
+# be re-deployed or rolled forward without inventing a commit.
+#
+# The `production` environment supplies DATABASE_URL, CLOUDFLARE_API_TOKEN
+# and CLOUDFLARE_ACCOUNT_ID: environment *secrets* work on every plan; only
+# the protection *rules* are gated.
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: deploy-production

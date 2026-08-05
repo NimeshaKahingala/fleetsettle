@@ -68,18 +68,16 @@ Universal SSL covers the apex and first-level subdomains, and the Custom Domain 
 
 ```
 feature/*  ──PR──►  develop  ──PR──►  main
-              │        │                 │
-   checks.yml + integration.yml          │
-   (ephemeral Neon branch, deleted)      │
-                       │                 │
-                       ▼                 ▼
-              migrate  qa branch    [ approval gate ]
-              deploy   api-qa + web-qa   │
-              smoke    qa.fleetsettle.com│
-                                         ▼
-                                   guard: fail if migrations pending
-                                   deploy api + web
-                                   smoke fleetsettle.com
+              │        │              ▲  │
+   checks.yml + integration.yml       │  │
+   (ephemeral Neon branch, deleted)   │  │
+                       │       the human gate
+                       ▼         (see below) │
+       push to develop, automatic:           ▼
+              migrate  qa branch      merge to main, automatic:
+              deploy   web then api      guard: fail if migrations pending
+              smoke    qa.fleetsettle.com deploy   web then api
+                                          smoke    fleetsettle.com
 ```
 
 | | Git branch | Hostname | Workers | Neon branch | `ENVIRONMENT` |
@@ -93,6 +91,12 @@ feature/*  ──PR──►  develop  ──PR──►  main
 **Both Workers deploy together within an environment**, rather than path-filtering per workspace. `packages/shared` is imported by both, so a shared schema change must reach both at once; a path filter would let it ship to the client and not the Worker. Independent Workers still give independent versioning and rollback, which is the benefit that actually matters.
 
 **Migrations run automatically in QA and never automatically in production.** QA is where the forward-only path gets proven; production is a one-way door on real money data. `deploy-production.yml` instead opens with a guard that fails the deploy when a migration is unapplied, so production code can never arrive ahead of its schema.
+
+**Merging to `main` deploys production, automatically, with no approval step after the merge.** There is no post-merge gate available: required reviewers are an environment protection rule, and those do not exist on a private repository on the free plan — the API answers `422 — Please ensure the billing plan supports the required reviewers protection rule`. Environment **secrets** work on every plan; only the protection **rules** are gated.
+
+**So the human gate is the pull request into `main`.** That is a normal continuous-delivery shape, but it relocates the decision: review that PR as the deploy decision it is, because nothing downstream will ask a second time. Three things still stand between a merge and a bad production deploy — `checks.yml`, the `migrate:check` guard that refuses to deploy code ahead of its schema, and the smoke suite that asserts the result — but none of them is a person.
+
+Upgrading the plan or making the repo public would allow a required reviewer on top of the push trigger, which is strictly stronger. `workflow_dispatch` is kept alongside so production can be re-deployed without inventing a commit.
 
 ---
 
@@ -153,7 +157,11 @@ The whole path-split design is therefore proven end to end, against real infrast
 
 **Production schema — deliberately not applied.** Neon `main` is still empty. This is the one-way door; it stays a human decision. QA rehearsed the exact path cleanly, which is what it is for.
 
-**GitHub configuration — needs you.** The API token, the `qa` and `production` environments with their secrets, the required-reviewer rule on `production`, and pushing `develop`. None of it can be minted from here.
+**Pushing `develop` — needs you.** The API token and both GitHub environments are done and verified. What remains is the push, which is what first arms `deploy-qa.yml`.
+
+**No approval gate exists on the production path.** The required-reviewer rule is unavailable on this plan, and automatic deploy-on-merge was chosen regardless. The PR into `main` is the only place a person decides. See step 9.
+
+**Pushing `main` will deploy production** once `main` carries these workflows — so the production `DATABASE_URL` secret and the production schema must both be in place *before* that merge, not after.
 
 One consequence of the current state worth knowing: **`fleetsettle.com` itself still does not resolve.** Only QA has been deployed, and the production Custom Domain is created by the production deploy. The apex is NXDOMAIN until then, which is the better state to be parked in.
 
@@ -289,13 +297,16 @@ The exact same three commands already ran clean against the `qa` branch from an 
 - [x] Local `develop` branch pointer created from `main` — **not checked out, not pushed**, so the in-flight work on `build/p0-foundation` was never disturbed
 - [x] `pr.yml` and `integration.yml` — trigger changed to `[develop, main]`, nothing else touched
 - [x] `deploy-qa.yml` — push to `develop`, environment `qa`: checks → migrate → drift → deploy web → deploy api → smoke
-- [x] `deploy-production.yml` — push to `main`, environment `production`: checks → `migrate:check` guard → deploy web → deploy api → smoke
+- [x] `deploy-production.yml` — **push to `main`** (plus `workflow_dispatch`), environment `production`: checks → `migrate:check` guard → deploy web → deploy api → smoke
 - [x] `migrate-production.yml` — `workflow_dispatch` only, prints `--status` before applying
+- [x] `qa` and `production` GitHub environments created, three secrets each (`DATABASE_URL`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`) — verified present
+- [x] Repo-level `NEON_API_KEY` and `NEON_PROJECT_ID` confirmed still in place for `integration.yml`
 - [ ] **Push `develop`** and set it as the PR base branch
-- [ ] **Create the `qa` and `production` GitHub environments**, with secrets
-- [ ] **Add the required-reviewer rule to `production`** — this is an environment protection rule configured in GitHub; no workflow file can declare it, so without this step the approval gate in the pipeline diagram does not exist
+- [~] **Required-reviewer rule on `production`** — **unavailable on this plan**, and the pipeline runs without it by decision
 
-The reviewer gate is the one part of the promotion pipeline that lives entirely outside the repository. A `deploy-production.yml` that references `environment: production` will run happily without it and deploy straight through.
+> **The reviewer gate does not exist and cannot be created here.** GitHub returned `422 — Please ensure the billing plan supports the required reviewers protection rule`: environment protection rules are unavailable on private repositories on the free plan. Both environments exist and hold their secrets — that works on every plan — but `production` has an empty `protection_rules` array.
+>
+> Automatic deployment on merge was chosen anyway, deliberately. **The consequence to hold onto: the PR into `main` is the only human decision point in the production path.** Approving that PR ships to production; nothing afterwards pauses. `checks.yml`, the `migrate:check` guard and the smoke suite all still run, but they check correctness, not intent.
 
 Smoke suite — `.github/scripts/smoke.sh <origin> <docs-status>`, shared by both deploy workflows so the two environments clear a bit-identical bar:
 
