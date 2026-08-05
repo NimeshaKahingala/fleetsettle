@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { writeOff, writeOffRecovery } from "../db/schema.js";
 
@@ -62,6 +62,75 @@ export async function findWriteOffForBusiness(
     .where(and(eq(writeOff.id, writeOffId), eq(writeOff.businessId, businessId)))
     .limit(1);
   return rows[0] as WriteOffRow | undefined;
+}
+
+export interface WriteOffListRow {
+  id: string;
+  obligationId: string | null;
+  partyType: "customer" | "driver";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  vehicleId: string | null;
+  amountMinor: bigint;
+  reason: string;
+  writtenOffOn: string;
+  voidedAt: string | null;
+  voidedReason: string | null;
+}
+
+export interface WriteOffListFilters {
+  partyType?: "customer" | "driver";
+  partyCustomerId?: string;
+  partyDriverId?: string;
+  vehicleId?: string;
+  from?: string;
+  to?: string;
+}
+
+/**
+ * A3: every write-off this business has ever recorded — every filter
+ * optional, newest first. Voided rows stay in, struck through by the caller
+ * with their reason (W-50), the same convention `listExpensesForBusiness`
+ * already established; GAP-12 means nothing sets `voided_at` on this table
+ * yet, but the shape is ready for when it does.
+ */
+export async function listWriteOffsForBusiness(
+  db: ReadDb,
+  businessId: string,
+  filters: WriteOffListFilters,
+): Promise<WriteOffListRow[]> {
+  const rows = await db
+    .select({
+      id: writeOff.id,
+      obligationId: writeOff.obligationId,
+      partyType: writeOff.partyType,
+      partyCustomerId: writeOff.partyCustomerId,
+      partyDriverId: writeOff.partyDriverId,
+      vehicleId: writeOff.vehicleId,
+      amountMinor: writeOff.amountMinor,
+      reason: writeOff.reason,
+      writtenOffOn: writeOff.writtenOffOn,
+      voidedAt: writeOff.voidedAt,
+      voidedReason: writeOff.voidedReason,
+    })
+    .from(writeOff)
+    .where(
+      and(
+        eq(writeOff.businessId, businessId),
+        filters.partyType !== undefined ? eq(writeOff.partyType, filters.partyType) : undefined,
+        filters.partyCustomerId !== undefined
+          ? eq(writeOff.partyCustomerId, filters.partyCustomerId)
+          : undefined,
+        filters.partyDriverId !== undefined
+          ? eq(writeOff.partyDriverId, filters.partyDriverId)
+          : undefined,
+        filters.vehicleId !== undefined ? eq(writeOff.vehicleId, filters.vehicleId) : undefined,
+        filters.from !== undefined ? gte(writeOff.writtenOffOn, filters.from) : undefined,
+        filters.to !== undefined ? lte(writeOff.writtenOffOn, filters.to) : undefined,
+      ),
+    )
+    .orderBy(desc(writeOff.writtenOffOn), desc(writeOff.id));
+  return rows as WriteOffListRow[];
 }
 
 export interface NewWriteOffRecovery {

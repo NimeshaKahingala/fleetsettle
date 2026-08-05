@@ -1,5 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  listWriteOffsQuerySchema,
+  listWriteOffsResponseSchema,
   recordWriteOffRecoveryRequestSchema,
   writeOffRecoveryResponseSchema,
   writeOffRequestSchema,
@@ -8,6 +10,21 @@ import {
 import { z } from "zod";
 
 const writeOffIdParams = z.object({ id: z.string().uuid() });
+
+/** A3: every filter optional, newest first. Voided rows stay in, struck through with their reason (W-50). */
+export const listWriteOffsRoute = createRoute({
+  method: "get",
+  path: "/",
+  request: { query: listWriteOffsQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listWriteOffsResponseSchema } },
+      description: "Every write-off matching the given filters, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view write-offs" },
+  },
+});
 
 /** F-8.3/UC-90/W-28: a loss you were handed, never pooled with a waiver (INV-14). */
 export const recordWriteOffRoute = createRoute({

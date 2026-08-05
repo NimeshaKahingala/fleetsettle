@@ -33,15 +33,15 @@
 
 ## Start here
 
-**A2 is done** (below) — the A2 → B2 handoff is live: every schema B2 needs is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
+**A2 and A3 are both done** (below) — the A2 → B2 and A3 → B3 handoffs are both live: every schema B2 and B3 need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
 
 | Track A next | Track B starts |
 |---|---|
-| **A3** — period, write-off and payment reads | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| **A4** — customer-scoped reads (closes GAP-22) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
 
 **Before B2 or B3, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those two items build is reachable only by typing a URL.
 
-B2 can now start in parallel with A3 — it no longer waits on anything from Track A.
+B2 and B3 can now both start in parallel with A4 — neither waits on anything left in Track A, only on B0.
 
 ---
 
@@ -51,7 +51,7 @@ B2 can now start in parallel with A3 — it no longer waits on anything from Tra
 |---|---|---|---|---|
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
 | **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
-| **A3** | Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
+| **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
 | **A4** | Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
 | **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
@@ -73,19 +73,11 @@ Six endpoints, all shipped: `GET /api/business-member` (GAP-31, `dailyOperations
 
 **One new gap, recorded rather than fixed: GAP-39.** `sumVehicleCostsForPeriod` already reads `obligation WHERE kind = 'management_fee'`, but nothing has ever written one — W-53's "management fee reduces vehicle profit" has been silently a no-op since P7. `GET /api/partner/{userId}` works around it correctly (reading `management_fee_agreement` directly), but UC-70's vehicle-profit figure is still wrong wherever a management fee applies. Unowned; needs a generator, not a read-side fix.
 
-### A3 · Period, write-off and payment reads
+### A3 · Done
 
-**Small.** `GET /api/accounting-period/checklist` and `GET /api/audit-log/{tableName}/{recordId}` already exist and are tested.
+Four endpoints/changes, all shipped: `GET /api/accounting-period` (list, newest first, `viewReports`) · `GET /api/write-off` (list, every filter optional, `writeOffOrWaiveAboveThreshold` — the same gate as recording one) · **`GET /api/payment`** (GAP-38, `dailyOperations` — the same gate as recording one; carries the W-49 linked-driver 403 class since a payment names the driver it moved against) · the close checklist's **`unconfirmedDays`** row (GAP-13 — one `COUNT(*)` on `day_record.state = 'open'` scoped to the open period, the same scoping `pendingObligations` already used, cheap and exact since P13). No new table, no new write, no domain layer — four straight filtered reads. 13 new integration tests across the three existing files; full suite 31/366, all green. TRACKER.md §2 carries the row.
 
-**Endpoints** — `GET /api/accounting-period` (list, so a screen can show which months are closed) · `GET /api/write-off` (list) · **`GET /api/payment`** (GAP-38) · plus the checklist's `unconfirmedDays` count (GAP-13), which changes an existing response shape rather than adding a route.
-
-**`GET /api/payment` is the one this item cannot ship without.** `POST /api/payment/{id}/correct` has existed since P9 and **no screen can reach it** — `queries/payment.ts` has no list function and no route exposes one, so there is no path from any interface to a payment id. F-8.2's first step is *"Open the receipt"*. Without this, B3's `CorrectPaymentSheet` has nothing to open and the whole correction half of B3 is unbuildable. It carries **the linked-driver test class** — payments name drivers.
-
-**GAP-13 is now cheap, and should be built here rather than deferred again.** TRACKER's standing reason for leaving it — an unconfirmed day is "indistinguishable from a day the pattern never scheduled without replaying it" — was true when it was written and is not true after **P13**. `generate-day-cards` only generates cards for pattern days, so a `day_record` row in `state = 'open'` *is* a scheduled-but-unconfirmed day: one `COUNT(*)` scoped to the open period. UI §7.7 lists unconfirmed days as the checklist's **first row**, so B3 cannot render its own spec faithfully while this is missing. It under-reports if the cron has not run — which is honest, warn-only, and exactly what U-7 permits.
-
-**Trap** — the checklist **warns and lists; it never blocks** (U-7). Nothing in it is an invariant the schema does not already refuse structurally. Do not add a `canClose` boolean; there isn't one.
-
-**Explicitly out of scope: GAP-12.** Void-and-replace stays `expense`-only. The other twelve W-50 tables carry the `voided_*` trio structurally, but a domain function and endpoint per table is real additional work, and the mechanism is proven rather than each instance of it.
+**Explicitly out of scope, unchanged: GAP-12.** Void-and-replace stays `expense`-only — that is A9's job, not this one's.
 
 ### A4 · Customer-scoped reads — closes GAP-22
 
@@ -198,7 +190,7 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
 | **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
-| **B3** | Close the month, corrections | A3, B0 | waits |
+| **B3** | Close the month, corrections | B0 (A3 ✅) | ▶ ready once B0 lands |
 | **B6** | Customer detail | A4 | waits |
 | **B8** | Real Asgardeo | — | 🔴 blocked externally |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
@@ -266,15 +258,15 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a 60/40 split saves in one write and reads back; a shared vehicle with a monthly fee grants and revokes.
 
-### B3 · Close the month and corrections — waits on A3
+### B3 · Close the month and corrections — A3 done, waits only on B0
 
 **Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` finally wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
-**`CorrectPaymentSheet` needs a payment row to open from**, which is `GET /api/payment` (GAP-38, A3). Where that row lives is this item's own decision — the lease hub's dues section and the driver/customer detail screens are all candidates; §7.10 only says "open the receipt."
+**`CorrectPaymentSheet` needs a payment row to open from**, which is `GET /api/payment` (GAP-38, shipped in A3). Where that row lives is this item's own decision — the lease hub's dues section and the driver/customer detail screens are all candidates; §7.10 only says "open the receipt."
 
 **Traps:**
 - **The checklist warns and lists; it never blocks** (U-7). The close button stays enabled.
-- **`unconfirmedDays` is the checklist's first row** (§7.7) and arrives with A3. Render all five rows or state plainly which is missing — do not silently show four.
+- **`unconfirmedDays` is the checklist's first row** (§7.7) and is now in the response (A3). Render all five rows — none is missing any longer, so there is no "state plainly which is missing" fallback to reach for.
 - **Closing opens the successor period in the same transaction.** The screen must make clear that this happened, since every later write depends on it.
 - **A correction's `bearer` is the whole decision.** `back_to_arrears` puts the party back in arrears (INV-22); `absorbed_loss` leaves their due settled and the business eats it. Two outcomes from one form, and the copy must say which is which **without using the word "allocation"** (U-6).
 - **A waiver and a write-off never share a bucket** (W-28). Separate entry points, separate reporting, never one combined "reduce this due" control.
@@ -315,24 +307,23 @@ Cross-cutting: it wraps every screen, so building it before the screens exist me
         Track A (Worker + shared schemas)          Track B (React client)
         ─────────────────────────────────          ──────────────────────
 done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ withdrawn
-        A2  partner/banking/cash + members ✅ ──┐    B0  the /more hub ──────┬──┐
-                                                │        (no backend dependency) │  │
-now     A3  period/write-off/payment ─────────┐ │    B4  Review shell + 9 reports │  │
-                                               │ │    B5  Mine shell              │  │
-        A4  customer reads ──────────────────┐ │ └─►  B2  partners, banking, cash ◄┘  │
-        A5  driver history + advances ─────┐ │ └───►  B3  close the month  ◄──────────┘
-                                           │ └─────►  B6  customer detail
+        A2  partner/banking/cash + members ✅        B0  the /more hub (no backend dependency)
+        A3  period/write-off/payment ✅              B4  Review shell + 9 reports
+                                                     B5  Mine shell
+                                                     B2  partners, banking, cash (needs B0 only; A2 ✅)
+                                                     B3  close the month, corrections (needs B0 only; A3 ✅)
+now     A4  customer reads ────────────────────►    B6  customer detail (waits on A4)
+        A5  driver history + advances ─────────►    B5+ driver detail history (partial)
         A6  trip receivable (design settled — post at booking)
         A7  R2 upload (unblocks 5 gaps)
         A8  odometer wiring, borne-by override
-                                           └──────►  B5+ driver detail history
-last                                               B7  offline and the PWA
-blocked                                            B8  real Asgardeo 🔴
+last                                                B7  offline and the PWA
+blocked                                             B8  real Asgardeo 🔴
 ```
 
-**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A3 through A8 are independent of each other and of every B item; A2 is already done.
+**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A4 through A8 are independent of each other and of every B item; A2 and A3 are already done.
 
-**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top.
+**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top — the first two have already happened, so B2 and B3 wait on B0 alone now.
 
 ---
 

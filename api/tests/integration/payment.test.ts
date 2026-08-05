@@ -15,10 +15,28 @@ async function postPayment(token: string, body: unknown) {
   });
 }
 
+async function listPayments(token: string, query = "") {
+  return request(`/api/payment${query}`, bearer(token));
+}
+
 interface PaymentResponseBody {
   id: string;
   allocations: Array<{ obligationId: string; amountMinor: string }>;
   unallocatedMinor: string;
+}
+
+interface PaymentListRowBody {
+  id: string;
+  direction: "received" | "paid";
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  partyUserId: string | null;
+  amountMinor: string;
+  occurredOn: string;
+  method: string | null;
+  reference: string | null;
+  status: "active" | "corrected" | "reversed";
 }
 
 /**
@@ -198,6 +216,132 @@ describe("record a payment (P5, F-2.2/UC-11)", () => {
     expect(res.status).toBe(409);
     const responseBody: { code: string } = await res.json();
     expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A3/GAP-38: `POST /api/payment/{id}/correct` has had no caller since P9 — F-8.2's own first step is "open the receipt". */
+describe("GET /api/payment (A3, GAP-38)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every payment for this business, newest first, filterable by party and date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 70_000n,
+      dueOn: "2026-07-12",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const customerPaymentRes = await postPayment(token, {
+      partyType: "customer",
+      partyId: customerId,
+      amountMinor: "70000",
+      occurredOn: "2026-07-15",
+    });
+    expect(customerPaymentRes.status).toBe(201);
+    const customerPaymentBody: PaymentResponseBody = await customerPaymentRes.json();
+    ctx.trackCreatedPayment(customerPaymentBody.id);
+
+    const driverPaymentRes = await postPayment(token, {
+      partyType: "driver",
+      partyId: driverId,
+      amountMinor: "5000",
+      occurredOn: "2026-07-20",
+    });
+    expect(driverPaymentRes.status).toBe(201);
+    const driverPaymentBody: PaymentResponseBody = await driverPaymentRes.json();
+    ctx.trackCreatedPayment(driverPaymentBody.id);
+
+    const allRes = await listPayments(token);
+    expect(allRes.status).toBe(200);
+    const allBody: PaymentListRowBody[] = await allRes.json();
+    // Newest first — the driver payment (20th) before the customer one (15th).
+    expect(allBody.map((r) => r.id)).toEqual([driverPaymentBody.id, customerPaymentBody.id]);
+    expect(allBody[0]).toMatchObject({
+      id: driverPaymentBody.id,
+      direction: "received",
+      partyType: "driver",
+      partyDriverId: driverId,
+      partyCustomerId: null,
+      amountMinor: "5000",
+      occurredOn: "2026-07-20",
+      status: "active",
+    });
+
+    const filteredRes = await listPayments(
+      token,
+      `?partyType=customer&partyCustomerId=${customerId}`,
+    );
+    expect(filteredRes.status).toBe(200);
+    const filteredBody: PaymentListRowBody[] = await filteredRes.json();
+    expect(filteredBody.map((r) => r.id)).toEqual([customerPaymentBody.id]);
+
+    await ctx.cleanup();
+  });
+
+  it("scoping — a payment recorded against another business never appears", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherPeriodId = await ctx.createOpenPeriod(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    await ctx.createObligation(otherBusinessId, otherPeriodId, {
+      partyType: "customer",
+      customerId: otherCustomerId,
+      amountMinor: 1_000n,
+      dueOn: "2026-07-12",
+    });
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherPaymentRes = await postPayment(otherToken, {
+      partyType: "customer",
+      partyId: otherCustomerId,
+      amountMinor: "1000",
+      occurredOn: "2026-07-15",
+    });
+    expect(otherPaymentRes.status).toBe(201);
+    const otherPaymentBody: PaymentResponseBody = await otherPaymentRes.json();
+    ctx.trackCreatedPayment(otherPaymentBody.id);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listPayments(token);
+    expect(res.status).toBe(200);
+    const body: PaymentListRowBody[] = await res.json();
+    expect(body.map((r) => r.id)).not.toContain(otherPaymentBody.id);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await listPayments("");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot list payments (W-49)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listPayments(token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
 
     await ctx.cleanup();
   });

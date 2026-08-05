@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { payment, paymentAllocation } from "../db/schema.js";
 
@@ -40,6 +40,76 @@ export async function insertPaymentAllocation(
   values: NewPaymentAllocation,
 ): Promise<void> {
   await db.insert(paymentAllocation).values(values);
+}
+
+export interface PaymentListRow {
+  id: string;
+  direction: "received" | "paid";
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  partyUserId: string | null;
+  amountMinor: bigint;
+  occurredOn: string;
+  method: string | null;
+  reference: string | null;
+  status: "active" | "corrected" | "reversed";
+}
+
+export interface PaymentListFilters {
+  partyType?: "customer" | "driver" | "partner";
+  partyCustomerId?: string;
+  partyDriverId?: string;
+  direction?: "received" | "paid";
+  from?: string;
+  to?: string;
+}
+
+/**
+ * A3/GAP-38: `POST /api/payment/{id}/correct` has had no caller since P9 —
+ * F-8.2's own first step is "open the receipt", so this is what hands a
+ * screen a payment id. Every filter optional, newest first. Carries the
+ * linked-driver test class (W-49) — a payment names the driver it was paid
+ * to or received from, so a linked-driver token must never reach this list
+ * (it is not a STAFF capability, so `requireCapability` already refuses it).
+ */
+export async function listPaymentsForBusiness(
+  db: ReadDb,
+  businessId: string,
+  filters: PaymentListFilters,
+): Promise<PaymentListRow[]> {
+  const rows = await db
+    .select({
+      id: payment.id,
+      direction: payment.direction,
+      partyType: payment.partyType,
+      partyCustomerId: payment.partyCustomerId,
+      partyDriverId: payment.partyDriverId,
+      partyUserId: payment.partyUserId,
+      amountMinor: payment.amountMinor,
+      occurredOn: payment.occurredOn,
+      method: payment.method,
+      reference: payment.reference,
+      status: payment.status,
+    })
+    .from(payment)
+    .where(
+      and(
+        eq(payment.businessId, businessId),
+        filters.partyType !== undefined ? eq(payment.partyType, filters.partyType) : undefined,
+        filters.partyCustomerId !== undefined
+          ? eq(payment.partyCustomerId, filters.partyCustomerId)
+          : undefined,
+        filters.partyDriverId !== undefined
+          ? eq(payment.partyDriverId, filters.partyDriverId)
+          : undefined,
+        filters.direction !== undefined ? eq(payment.direction, filters.direction) : undefined,
+        filters.from !== undefined ? gte(payment.occurredOn, filters.from) : undefined,
+        filters.to !== undefined ? lte(payment.occurredOn, filters.to) : undefined,
+      ),
+    )
+    .orderBy(desc(payment.occurredOn), desc(payment.id));
+  return rows as PaymentListRow[];
 }
 
 export interface PaymentRow {

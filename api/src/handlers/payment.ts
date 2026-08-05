@@ -6,8 +6,52 @@ import { correctPayment } from "../domain/payment-correction.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
-import type { correctPaymentRoute, recordPaymentRoute } from "../route-defs/payment.js";
+import {
+  listPaymentsForBusiness,
+  type PaymentListFilters,
+  type PaymentListRow,
+} from "../queries/payment.js";
+import type {
+  correctPaymentRoute,
+  listPaymentsRoute,
+  recordPaymentRoute,
+} from "../route-defs/payment.js";
 import type { Env } from "../types.js";
+
+function toListRow(row: PaymentListRow) {
+  return {
+    id: row.id,
+    direction: row.direction,
+    partyType: row.partyType,
+    partyCustomerId: row.partyCustomerId,
+    partyDriverId: row.partyDriverId,
+    partyUserId: row.partyUserId,
+    amountMinor: toWire(row.amountMinor as Minor),
+    occurredOn: row.occurredOn,
+    method: row.method,
+    reference: row.reference,
+    status: row.status,
+  };
+}
+
+/** A3/GAP-38. `dailyOperations` — the same capability as recording one; `reverseReceipt` (owners only) still gates the actual correction below. */
+export const listPaymentsHandler: RouteHandler<typeof listPaymentsRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const filters: PaymentListFilters = {
+    ...(query.partyType !== undefined ? { partyType: query.partyType } : {}),
+    ...(query.partyCustomerId !== undefined ? { partyCustomerId: query.partyCustomerId } : {}),
+    ...(query.partyDriverId !== undefined ? { partyDriverId: query.partyDriverId } : {}),
+    ...(query.direction !== undefined ? { direction: query.direction } : {}),
+    ...(query.from !== undefined ? { from: query.from } : {}),
+    ...(query.to !== undefined ? { to: query.to } : {}),
+  };
+
+  const rows = await listPaymentsForBusiness(c.get("reader"), businessId, filters);
+  return c.json(rows.map(toListRow), 200);
+};
 
 /**
  * F-2.2/UC-11. `dailyOperations` — grouped with expenses/collections/advances.

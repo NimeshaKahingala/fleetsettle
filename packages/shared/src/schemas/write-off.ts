@@ -46,6 +46,27 @@ export const writeOffResponseSchema = z.object({
 });
 export type WriteOffResponse = z.infer<typeof writeOffResponseSchema>;
 
+/** A3: `writeOffResponseSchema` plus the void fields — a voided write-off stays in the list, struck through with its reason, never removed (W-50), the same convention `expenseListRowSchema` already established. GAP-12 means nothing sets these yet, but the shape is ready for when it does. */
+export const writeOffListRowSchema = writeOffResponseSchema.extend({
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type WriteOffListRow = z.infer<typeof writeOffListRowSchema>;
+
+export const listWriteOffsResponseSchema = z.array(writeOffListRowSchema);
+export type ListWriteOffsResponse = z.infer<typeof listWriteOffsResponseSchema>;
+
+/** A3: every filter optional — an unfiltered call is every write-off the business has ever recorded, newest first. */
+export const listWriteOffsQuerySchema = z.object({
+  partyType: z.enum(["customer", "driver"]).optional(),
+  partyCustomerId: uuidSchema.optional(),
+  partyDriverId: uuidSchema.optional(),
+  vehicleId: uuidSchema.optional(),
+  from: businessDateSchema.optional(),
+  to: businessDateSchema.optional(),
+});
+export type ListWriteOffsQuery = z.infer<typeof listWriteOffsQuerySchema>;
+
 /**
  * INV-15: a later payment against a written-off balance is a recovery that
  * nets against the loss, never fresh income. Recorded through the ordinary
