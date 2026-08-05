@@ -11,7 +11,7 @@ description: Write or review a database migration for FleetSettle. Use for any s
 - **Never drop or rename a column** without explicit instruction. Add a new one and backfill.
 - **A migration is never rolled back over live data.** If it is wrong, the fix is another migration.
 - **Money is `bigint` minor units.** Never `numeric`, `float` or `real` for an amount.
-- **UUID v4 primary keys**, `DEFAULT gen_random_uuid()`. Never serial — ids appear in URLs.
+- **UUID primary keys, generated in the app as UUIDv7** (`data-model.md` §2 — time-ordered, so index locality survives high insert rates; not `DEFAULT gen_random_uuid()`, which is v4). Never serial — ids appear in URLs.
 
 ## Adding a money table — the checklist that has already been missed
 

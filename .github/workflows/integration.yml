@@ -1,0 +1,83 @@
+name: integration
+
+# TS §10 / IG §9.1: the integration suite (api/tests/**) drives the real Hono
+# app against a real Neon branch — never mocked, since this schema's
+# correctness is largely its constraints. This provisions one throwaway
+# branch per PR, applies every migration from scratch (proving forward-only,
+# not just this diff — the same path a brand new environment takes), runs
+# the DM §13 drift assertion, then the integration suite, and always deletes
+# the branch afterward.
+#
+# Deliberately one workflow, not two (a migrations-only one and a tests-only
+# one): IG §9.2 records that Neon's free plan caps a project at 10 branches
+# and starts failing branch creation around nine open PRs — a PR touching
+# migrations would otherwise claim two branches at once for no reason.
+#
+# Requires two repository configuration values that are not committed here:
+#   secrets.NEON_API_KEY     a Neon API key scoped to this project
+#   vars.NEON_PROJECT_ID     the Neon project id (e.g. spring-sunset-96946055)
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: integration-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # suspend_timeout is deliberately not set: the Free plan fixes
+      # scale-to-zero at 5 minutes and rejects any attempt to configure it
+      # via the API (confirmed against Neon's own plans doc, "Can I disable
+      # scale-to-zero? Free: No, it's always enabled") — passing this
+      # explicitly, even at the same 300s the plan already defaults to,
+      # 412'd branch creation outright. Omitting it costs nothing on Free.
+      - name: Create ephemeral branch
+        id: branch
+        uses: neondatabase/create-branch-action@v6
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          api_key: ${{ secrets.NEON_API_KEY }}
+          branch_name: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+
+      # Every migration in the repo, from empty, in order — this is what
+      # actually catches a migration that only worked because an earlier
+      # hand-run left the schema primed.
+      - name: Apply every migration from scratch
+        run: npm run migrate -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      - name: DM §13 drift check
+        run: npm run check:drift -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      # TEST_DATABASE_URL only — DATABASE_URL is deliberately unset here.
+      # support/env.ts's safety rail (IG §8.3) requires the two to differ,
+      # and there is no "real" branch in this job to point DATABASE_URL at.
+      - name: Integration tests
+        run: npm run test:integration -w @fleetsettle/api
+        env:
+          TEST_DATABASE_URL: ${{ steps.branch.outputs.db_url_pooled }}
+
+      - name: Delete ephemeral branch
+        if: always()
+        uses: neondatabase/delete-branch-action@v3
+        with:
+          project_id: ${{ vars.NEON_PROJECT_ID }}
+          branch: ${{ steps.branch.outputs.branch_id }}
+          api_key: ${{ secrets.NEON_API_KEY }}

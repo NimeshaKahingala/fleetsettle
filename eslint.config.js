@@ -1,6 +1,8 @@
 import js from "@eslint/js";
 import ts from "typescript-eslint";
 import prettier from "eslint-config-prettier";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
 
 /**
@@ -330,8 +332,23 @@ export default ts.config(
   },
 
   // ── Reports ────────────────────────────────────────────────────────────────
+  // No `...tenancy` for api/src/{queries,domain}: both layers are forbidden
+  // from importing hono/handlers/routes at all (the no-restricted-imports
+  // rules above), so neither ever holds a request, body, params or query —
+  // the shapes this check matches on. A domain function's own typed input
+  // struct is routinely named `input` and routinely carries a `businessId`
+  // field (handler-supplied, from `c.get("businessId")`); flagging that
+  // identifier collision doesn't catch a real violation, since the one that
+  // matters — a handler reading business_id off the request — is still
+  // caught by the Worker-wide block above, which does apply to handlers/.
   {
-    files: ["api/src/{queries,domain}/**/*.ts", "web/src/**/report*/**/*.{ts,tsx}"],
+    files: ["api/src/{queries,domain}/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...money, ...time, ...appendOnly, ...notZero],
+    },
+  },
+  {
+    files: ["web/src/**/report*/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...money, ...time, ...tenancy, ...appendOnly, ...notZero],
     },
@@ -341,7 +358,18 @@ export default ts.config(
   {
     files: ["web/src/**/*.{ts,tsx}"],
     languageOptions: { globals: globals.browser },
+    // `eslint-plugin-react-hooks` and `-react-refresh` were dependencies
+    // without ever being wired into this config — added here rather than
+    // pulling in v7's full "React Compiler" rule set (purity, immutability,
+    // static-components, ...), which is a separate adoption decision nobody
+    // has made yet. `rules-of-hooks` and `exhaustive-deps` are the
+    // long-stable pair; a wrong dependency array is exactly the class of
+    // bug `useMobileHistoryDismiss.ts` needs guarded.
+    plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {
+      "react-hooks/rules-of-hooks": "error",
+      "react-hooks/exhaustive-deps": "warn",
+      "react-refresh/only-export-components": "warn",
       "no-restricted-syntax": [
         "error",
         ...money,
@@ -379,9 +407,23 @@ export default ts.config(
     },
   },
 
+  // Test fixtures, not production writes: a TestContext only ever deletes
+  // rows the same test created moments earlier, on a disposable Neon branch
+  // (IG §8.3) — the append-only rule (W-50) is about a money record's whole
+  // lifecycle in the real system, which this isn't. Scoped to the two
+  // support files that ARE the sanctioned teardown helpers, not tests/ at
+  // large, so an actual test assertion still gets the same protection as
+  // application code.
+  {
+    files: ["api/tests/support/factories.ts", "api/tests/support/auth.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...money, ...time, ...tenancy],
+    },
+  },
+
   // ── Tooling ────────────────────────────────────────────────────────────────
   {
-    files: ["scripts/**/*.{js,mjs,ts}", "*.config.{js,mjs,ts}", ".claude/hooks/**/*.mjs"],
+    files: ["**/scripts/**/*.{js,mjs,ts}", "*.config.{js,mjs,ts}", ".claude/hooks/**/*.mjs"],
     languageOptions: { globals: globals.node },
     rules: {
       "no-console": "off",

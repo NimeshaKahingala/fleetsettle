@@ -1,0 +1,141 @@
+# G-1 Golden Fixture — One Month of the Bus (§7.1)
+# ==================================================
+# Source: use-cases.md §7.1, user-flows.md §9.1 G-1
+# Every number here is a regression assertion.
+# A change to ANY number is a breaking change.
+
+scenario:
+  name: "One month of the bus"
+  vehicle: vehicle-bus-001
+  driver: driver-001
+  arrangement: daily_lease  # Arrangement B
+  daily_lease_amount: 5000
+  month: "2026-07"
+  days_in_month: 31
+  deposit_held: 25000
+
+# -------------------------------------------
+# DAY-BY-DAY RECORDS
+# -------------------------------------------
+day_records:
+  ran_normal:
+    count: 23
+    daily_amount: 5000
+    total_earned: 115000
+    total_received: 115000
+
+  ran_paid_short:
+    count: 1
+    day: "2026-07-12"
+    earned: 5000
+    received: 3000
+    arrears_generated: 2000
+
+  breakdown:
+    count: 2
+    days: ["2026-07-15", "2026-07-16"]
+    reason: "breakdown"
+    earned: 0
+    received: 0
+
+  driver_day_off:
+    count: 1
+    day: "2026-07-20"
+    reason: "driver_day_off"
+    earned: 0
+    received: 0
+
+  no_passengers:
+    count: 1
+    day: "2026-07-25"
+    reason: "no_passengers"
+    earned: 0
+    received: 0
+
+  charter_paused:
+    count: 3
+    days: ["2026-07-08", "2026-07-09", "2026-07-10"]
+    state: "paused_for_trip"  # system-set, NOT a pickable reason
+
+# -------------------------------------------
+# DAY DECOMPOSITION — the critical assertion
+# -------------------------------------------
+day_decomposition:
+  not_scheduled: 0
+  paused_for_trip: 3
+  ran: 24
+  lost: 4
+  total: 31  # must equal days_in_month
+  lease_eligible: 28  # ran + lost (NOT including paused or not_scheduled)
+
+# -------------------------------------------
+# CHARTER (Arrangement C trip during the month)
+# -------------------------------------------
+charter:
+  dates: ["2026-07-08", "2026-07-09", "2026-07-10"]
+  customer_agreed_amount: 60000
+  costs:
+    fuel: 22000        # ours on a charter
+    tolls_and_food: 3000  # ours on a charter
+    driver_trip_fee: 9000
+    total: 34000
+  profit: 26000  # 60000 - 34000
+
+# -------------------------------------------
+# BREAKDOWN REPAIR (not tied to a trip)
+# -------------------------------------------
+repair:
+  amount: 12000
+  type: vehicle_cost
+  attached_to_trip: false
+
+# -------------------------------------------
+# BUS JULY TOTALS
+# -------------------------------------------
+monthly_totals:
+  earned: 180000       # 120,000 lease + 60,000 charter
+  received: 178000     # 118,000 + 60,000
+  arrears: 2000        # gap is arrears, NOT a loss
+  costs: 46000         # 22,000 + 3,000 + 9,000 + 12,000
+  net_profit: 134000   # 180,000 - 46,000
+
+# -------------------------------------------
+# BELOW THE LINE (never inside costs)
+# -------------------------------------------
+below_the_line:
+  driver_fuel_and_tolls:
+    description: "Fuel and tolls he paid across his 24 operating days"
+    in_profit: false
+    in_costs: false
+
+  deposit:
+    amount: 25000
+    description: "Cash you hold, not income"
+    in_income: false
+    in_costs: false
+    in_profit: false
+    in_cash_position: true
+
+# -------------------------------------------
+# DRIVER BALANCES — two separate, unmerged (W-2)
+# -------------------------------------------
+driver_balances:
+  he_owes_you: 2000     # short on 12 Jul
+  you_owe_him: 9000     # charter fee, Trip #21
+  net_display: -7000    # net: you owe him 7,000
+  net_applied: false    # NOT applied until explicit Offset (UC-56)
+
+  after_offset:
+    he_owes_you: 0
+    you_owe_him: 7000
+    cash_to_hand_him: 7000
+    deposit_touched: false
+
+# -------------------------------------------
+# METRICS
+# -------------------------------------------
+metrics:
+  lost_day_value: 20000   # 4 lost × 5,000
+  lost_days_denominator: 28  # lease_eligible, NOT 31
+  fuel_efficiency_lease_days: "not_available"  # NEVER zero
+  fuel_efficiency_charter: "computed"  # only fuel we bought

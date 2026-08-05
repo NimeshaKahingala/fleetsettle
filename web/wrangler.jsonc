@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Local-only name, same reasoning as api/wrangler.jsonc: a bare `wrangler
+  // deploy` can never overwrite the production Worker (IG §9.4).
+  "name": "fleetsettle-web-local",
+  "compatibility_date": "2026-07-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+
+  // A pure static-assets Worker — no `main`, no server-side logic. Security
+  // headers (IG §10.9) live in public/_headers, which Workers-with-assets
+  // serves natively; routing falls back to index.html for the client router
+  // once one exists (P2+).
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+  },
+}

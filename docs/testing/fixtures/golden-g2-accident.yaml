@@ -1,0 +1,88 @@
+# G-2 Golden Fixture — One Accident (§7.2)
+# ==========================================
+# Source: use-cases.md §7.2, user-flows.md §9.1 G-2
+# Every number here is a regression assertion.
+
+scenario:
+  name: "One accident"
+  vehicle: vehicle-car-001
+  arrangement: lease_out  # Arrangement A
+  monthly_rent: 70000
+  accident_date: "2026-07-08"
+  off_road_days: 12
+  rent_treatment: extend  # "Extend the rental by 12 days"
+
+# -------------------------------------------
+# COSTS
+# -------------------------------------------
+costs:
+  bodywork:
+    amount: 70000
+    invoiced: "2026-07"  # late July
+  parts:
+    amount: 25000
+    invoiced: "2026-08"  # early August
+  total_repair: 95000
+
+# -------------------------------------------
+# INSURANCE (major damage — worth claiming, W-11)
+# -------------------------------------------
+insurance:
+  claimed: 75000
+  excess_borne: 15000
+  received: 60000
+  received_month: "2026-09"  # September
+
+# -------------------------------------------
+# CUSTOMER CONTRIBUTION (negotiated, W-10)
+# -------------------------------------------
+customer_contribution:
+  agreed_amount: 20000
+  agreed_month: "2026-08"
+  paid_over_months: 2
+
+# -------------------------------------------
+# INCIDENT BOTTOM LINE
+# -------------------------------------------
+bottom_line:
+  total_spent: 95000     # 70,000 + 25,000
+  total_recovered: 80000  # 20,000 customer + 60,000 insurer
+  net_cost_to_you: 15000  # 95,000 - 80,000
+  revenue_lost: 0  # NO revenue lost — days given back as time
+
+# -------------------------------------------
+# MONTH-BY-MONTH BREAKDOWN
+# This is the test that proves the container matters.
+# Without the incident grouping, July is a disaster,
+# September is a windfall, and nothing connects them.
+# -------------------------------------------
+monthly_breakdown:
+  july:
+    repairs: 70000
+    recovered: 0
+    pending_recovery_shown: 60000  # insurance expected
+    rent: "normal"
+
+  august:
+    repairs: 25000
+    recovered: 20000  # customer contribution
+    pending_recovery_shown: 60000  # still waiting on insurer
+    rent: "normal"
+
+  september:
+    repairs: 0
+    recovered: 60000  # insurer settles
+    pending_recovery_shown: 0
+    rent: "normal"
+    lease_end: "extended by 12 days"
+
+# -------------------------------------------
+# KEY ASSERTIONS
+# -------------------------------------------
+assertions:
+  - "Pending recovery NEVER enters profit (INV-4 adjacent)"
+  - "Recovery carries TWO dates: agreed date and received date"
+  - "Net cost 15,000 is findable as a single number a year later"
+  - "Extension adds 12 days to lease term"
+  - "Extension adds 12 × daily_limit to mileage allowance automatically"
+  - "Claims-per-vehicle-per-year is derivable"

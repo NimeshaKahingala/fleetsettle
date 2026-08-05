@@ -1,0 +1,12 @@
+# IG §10.9 — "the highest value-to-effort item on this list." Applies to
+# every static asset response; Worker-generated responses would need their
+# own headers, but this Worker has none (wrangler.jsonc has no `main`).
+#
+# connect-src is 'self' only for now: the deployed API Worker and the
+# Asgardeo issuer are different origins once P1 wires real auth, and their
+# domains get added here alongside that work rather than guessed at now.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

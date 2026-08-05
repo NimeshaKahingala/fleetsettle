@@ -42,6 +42,15 @@ const isSql = (p) => p.endsWith(".sql");
 const isMigration = (p) => p.startsWith("api/migrations/") && isSql(p);
 const isLocale = (p) => /^web\/(src|public)\/locales\/.*\.json$/.test(p);
 const isCss = (p) => p.endsWith(".css");
+// api/CLAUDE.md: "`queries/` takes `(db, …)` and has never heard of HTTP" —
+// domain/ is the same, one layer up (IG §3.1). Neither ever sees `c` or a
+// request body, so a `.businessId` read off a same-named local variable
+// (routinely called `input` for a domain function's own typed parameter
+// struct) cannot be the request-body read this rule exists to catch — that
+// provenance is only checkable where the request is actually read, i.e.
+// handlers/ and routes/.
+const isDomainOrQueries = (p) =>
+  p.startsWith("api/src/domain/") || p.startsWith("api/src/queries/");
 
 const RULES = [
   // ── Time ───────────────────────────────────────────────────────────────────
@@ -67,7 +76,7 @@ const RULES = [
     when: isSql,
     pattern: /\b(big)?serial\b/gi,
     message:
-      "Ids appear in URLs — use uuid DEFAULT gen_random_uuid(), never serial (write-migration skill).",
+      "Ids appear in URLs — use uuid, generated in the app as UUIDv7 (DM §2), never serial (write-migration skill).",
   },
 
   // ── Forward-only ───────────────────────────────────────────────────────────
@@ -90,7 +99,7 @@ const RULES = [
   // ── Tenancy ────────────────────────────────────────────────────────────────
   {
     id: "tenancy/from-request",
-    when: (p) => inApi(p) && p.endsWith(".ts"),
+    when: (p) => inApi(p) && p.endsWith(".ts") && !isDomainOrQueries(p),
     pattern: /\b(body|payload|input|query|params)\s*(\?\.|\.|\[["'])\s*business_?[iI]d/g,
     message:
       "business_id is resolved from the verified JWT sub via business_member — never from a request (CLAUDE.md → Tenancy).",
@@ -139,7 +148,10 @@ const RULES = [
   {
     id: "css/untokenised-colour",
     when: isCss,
-    pattern: /^\s*--(ink|bg|surface|text|border|fg|accent|direction)-[a-z0-9-]+\s*:/gim,
+    // Not `text` — Tailwind v4's @theme reserves --text-* for the font-size
+    // scale (`text-xl`), not colour; UI §12.3's tokens.css defines
+    // --text-hero etc. for exactly that and would false-positive here.
+    pattern: /^\s*--(ink|bg|surface|border|fg|accent|direction)-[a-z0-9-]+\s*:/gim,
     message:
       "Tailwind v4's @theme only generates colour utilities from --color-*. A colour token without that prefix fails silently (UI §5.1).",
   },
@@ -186,8 +198,9 @@ function scan(path) {
   for (const rule of applicable) {
     for (const [i, line] of lines.entries()) {
       if (OPT_OUT.test(line)) continue;
+      const subject = code(line, path);
       rule.pattern.lastIndex = 0;
-      const m = rule.pattern.exec(line);
+      const m = rule.pattern.exec(subject);
       if (m) {
         findings.push({
           file: path,
@@ -201,6 +214,23 @@ function scan(path) {
     }
   }
   return findings;
+}
+
+/**
+ * The code part of a line, with comments removed.
+ *
+ * A comment cannot declare a column type or evaluate a date, so matching inside
+ * one is always a false positive — and false positives are what get a check
+ * deleted. Prose about "money tables" in a migration header is the case that
+ * found this.
+ *
+ * CSS is left alone: there, `--` starts a custom property, not a comment, and
+ * `--ink-primary` is exactly what one rule is looking for.
+ */
+function code(line, path) {
+  if (path.endsWith(".sql")) return line.replace(/--.*$/, "");
+  if (/\.(ts|tsx|js|jsx|mjs|cjs)$/.test(path)) return line.replace(/\/\/.*$/, "");
+  return line;
 }
 
 /** Whole-directory checks that no single line can express. */

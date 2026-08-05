@@ -1,0 +1,128 @@
+# G-3 Golden Fixture — Mileage on an Open-Ended Rental (§7.3)
+# =============================================================
+# Source: use-cases.md §7.3, user-flows.md §9.1 G-3
+# Every number here is a regression assertion.
+# The last row is fully derivable and every step is an assertion.
+
+scenario:
+  name: "Mileage on an open-ended rental"
+  vehicle: vehicle-car-001
+  arrangement: lease_out  # Arrangement A
+  start_date: "2026-01-12"
+  billing_cycle_day: 12  # bills the 12th, periods run 12th → 11th
+  term: open_ended
+  monthly_rent: 70000
+  daily_km_limit: 100
+  excess_rate_per_km: 25
+
+# -------------------------------------------
+# BILLING PERIODS
+# Inclusive start, inclusive end (W-54)
+# days = end - start + 1
+# -------------------------------------------
+periods:
+
+  - period: 1
+    start: "2026-01-12"
+    end: "2026-02-11"
+    days: 31  # Jan 12 – Feb 11 inclusive
+    rent: 70000  # NEVER moves (W-25)
+    allowance_km: 3100  # 31 × 100
+    driven_km: 3240
+    excess_km: 140  # 3240 - 3100
+    excess_charge: 3500  # 140 × 25
+    assessment_type: final
+
+  - period: 2
+    start: "2026-02-12"
+    end: "2026-03-11"
+    days: 28  # Feb 12 – Mar 11 inclusive
+    rent: 70000  # NEVER moves
+    allowance_km: 2800  # 28 × 100
+    driven_km: 2650
+    excess_km: 0  # under allowance
+    excess_charge: 0
+    unused_km: 150  # forfeited, NOT carried forward
+    assessment_type: final
+
+  - period: 3
+    start: "2026-03-12"
+    end: "2026-04-11"
+    days: 31
+    rent: 70000
+    allowance_km: 3100
+    driven_km: null  # no reading taken
+    excess_km: null
+    excess_charge: null
+    assessment_type: deferred  # assessed with next period
+
+  - period: 4
+    start: "2026-04-12"
+    end: "2026-05-11"
+    days: 30
+    rent: 70000
+    allowance_km: 3000
+    driven_km: null  # no individual reading
+    excess_km: null
+    excess_charge: null
+    assessment_type: combined_with_period_3
+
+# -------------------------------------------
+# COMBINED ASSESSMENT (periods 3 + 4)
+# This is the derivation that must be verified step by step.
+# -------------------------------------------
+combined_assessment:
+  periods: [3, 4]
+  combined_days: 61  # 31 + 30
+  combined_allowance: 6100  # 3100 + 3000
+  combined_driven: 6400
+  combined_excess_km: 300  # 6400 - 6100
+  combined_excess_charge: 7500  # 300 × 25
+
+  # Split by days, using largest-remainder (INV-26)
+  split:
+    period_3:
+      days: 31
+      proportion: 0.508196721  # 31/61
+      exact_km: 152.459016  # 300 × 31/61
+      allocated_km: 152  # floor
+      allocated_charge: 3800  # 152 × 25
+    period_4:
+      days: 30
+      proportion: 0.491803278  # 30/61
+      exact_km: 147.540983  # 300 × 30/61
+      allocated_km: 148  # gets the remainder (largest fractional part)
+      allocated_charge: 3700  # 148 × 25
+
+  # THE CRITICAL ASSERTION (INV-26)
+  split_sum_km: 300  # 152 + 148 MUST equal 300
+  split_sum_charge: 7500  # 3800 + 3700 MUST equal 7500
+  marked_as: estimated  # because boundary reading was missing
+
+# -------------------------------------------
+# INVARIANT ASSERTIONS
+# -------------------------------------------
+invariants:
+  rent_never_moves: true  # W-25: every period is 70,000
+  allowance_varies_by_days: true  # W-24: 3100, 2800, 3100, 3000
+  unused_km_forfeited: true  # period 2's 150 km gone
+  unused_km_never_reduces_rent: true  # INV-7
+  combined_excess_lte_separate: true  # INV-9
+  split_sums_to_whole: true  # INV-26
+  estimated_split_marked: true  # because no boundary reading
+
+# -------------------------------------------
+# PROPERTY TEST: INV-9 — Mileage inequality
+# For ANY d1, d2, A1, A2 ≥ 0:
+#   max(0, d1+d2-A1-A2) ≤ max(0, d1-A1) + max(0, d2-A2)
+# Verify with these concrete values:
+# -------------------------------------------
+inv9_check:
+  d1: 6400  # driven across both
+  d2: 0     # n/a for combined
+  A1: 3100  # period 3 allowance
+  A2: 3000  # period 4 allowance
+  combined_excess: 300  # max(0, 6400 - 6100)
+  # If we had separate readings, say 3500 and 2900:
+  # separate would be max(0,3500-3100) + max(0,2900-3000) = 400 + 0 = 400
+  # 300 ≤ 400 ✓ — a missing reading always errs in customer's favour

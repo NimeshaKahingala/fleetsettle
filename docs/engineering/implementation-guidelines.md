@@ -1,6 +1,6 @@
 # Implementation Guidelines
 
-**Status:** v1.3 — access-token rule added (§7.3); refresh section renumbered to §7.4
+**Status:** v1.4 — §5's primary-key bullet corrected to match `data-model.md` §2: UUIDv7 generated in the app, not `DEFAULT gen_random_uuid()`
 **Date:** 31 July 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
@@ -260,7 +260,7 @@ Worth a lint rule too.
 
 ## 5. Database conventions
 
-- **UUID v4 primary keys**, `DEFAULT gen_random_uuid()`. Never serial — ids appear in URLs and must not be enumerable.
+- **UUID primary keys, generated in the app as UUIDv7** (`data-model.md` §2 — time-ordered, so index locality survives high insert rates; not `DEFAULT gen_random_uuid()`, which is v4). Never serial — ids appear in URLs and must not be enumerable.
 - **Composite FKs for tenant isolation**, keyed on `business_id` (§1.4). The parent needs `UNIQUE (id, business_id)` for the child to reference the pair.
 - **Money is `bigint` minor units.** Never `float`, never `numeric` for money in this schema.
 - **`CHECK` constraints for every bounded value.** Zod is the fast path; the database is the truth. Both.
