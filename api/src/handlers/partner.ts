@@ -7,6 +7,7 @@ import {
   requireUserId,
 } from "../auth/context.js";
 import {
+  getPartnerSummary,
   grantManagement,
   recordBankingEvent,
   recordCapitalContribution,
@@ -18,15 +19,27 @@ import { NotFoundError } from "../errors/app-error.js";
 import {
   findBusinessMemberUserId,
   findManagementFeeAgreementForBusiness,
+  listBankingEvents,
+  listCapitalContributions,
+  listManagementFeeAgreements,
+  listOwnershipShares,
+  listPartnerPayouts,
   type BankingEventRow,
   type CapitalContributionRow,
   type ManagementFeeAgreementRow,
   type OwnershipShareRow,
   type PartnerPayoutRow,
 } from "../queries/partner.js";
+import { findPartyNames } from "../queries/reports.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
+  getPartnerSummaryRoute,
   grantManagementRoute,
+  listBankingEventsRoute,
+  listCapitalContributionsRoute,
+  listManagementFeeAgreementsRoute,
+  listOwnershipSharesRoute,
+  listPartnerPayoutsRoute,
   recordBankingEventRoute,
   recordCapitalContributionRoute,
   recordPartnerPayoutRoute,
@@ -70,6 +83,21 @@ export const setOwnershipSharesHandler: RouteHandler<typeof setOwnershipSharesRo
   });
 
   return c.json(rows.map(shareToResponse), 201);
+};
+
+/** A2/GAP-9. `managePartnerCapital` (OWNERS) — the currently active split across every vehicle, or one vehicle if `vehicleId` narrows it. */
+export const listOwnershipSharesHandler: RouteHandler<
+  typeof listOwnershipSharesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const rows = await listOwnershipShares(c.get("reader"), businessId, {
+    ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+  });
+  return c.json(rows.map(shareToResponse), 200);
 };
 
 function contributionToResponse(row: CapitalContributionRow) {
@@ -122,6 +150,22 @@ export const recordCapitalContributionHandler: RouteHandler<
     }),
     201,
   );
+};
+
+/** A2/GAP-9/W-52. `managePartnerCapital` (OWNERS) — what a partner *paid*, never rendered by this handler as what he *owns*. */
+export const listCapitalContributionsHandler: RouteHandler<
+  typeof listCapitalContributionsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const rows = await listCapitalContributions(c.get("reader"), businessId, {
+    ...(query.userId !== undefined ? { userId: query.userId } : {}),
+    ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+  });
+  return c.json(rows.map(contributionToResponse), 200);
 };
 
 function managementToResponse(row: ManagementFeeAgreementRow) {
@@ -186,6 +230,22 @@ export const revokeManagementHandler: RouteHandler<typeof revokeManagementRoute,
   return c.json(managementToResponse({ ...existing, effectiveTo: today }), 200);
 };
 
+/** A2/GAP-9. `managePartnerCapital` (OWNERS) — **revoked agreements come back too**, per this route-def's own note. */
+export const listManagementFeeAgreementsHandler: RouteHandler<
+  typeof listManagementFeeAgreementsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const rows = await listManagementFeeAgreements(c.get("reader"), businessId, {
+    ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+    ...(query.managerUserId !== undefined ? { managerUserId: query.managerUserId } : {}),
+  });
+  return c.json(rows.map(managementToResponse), 200);
+};
+
 function bankingEventToResponse(row: BankingEventRow) {
   return {
     id: row.id,
@@ -247,6 +307,20 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
   );
 };
 
+/** A2/GAP-9. `dailyOperations` (STAFF) — the same gate as the write above; F-7.4's actor is "Manager or partner," not owners-only. */
+export const listBankingEventsHandler: RouteHandler<typeof listBankingEventsRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const rows = await listBankingEvents(c.get("reader"), businessId, {
+    ...(query.userId !== undefined ? { userId: query.userId } : {}),
+  });
+  return c.json(rows.map(bankingEventToResponse), 200);
+};
+
 function payoutToResponse(row: PartnerPayoutRow) {
   return {
     id: row.id,
@@ -289,5 +363,60 @@ export const recordPartnerPayoutHandler: RouteHandler<
       occurredOn: body.occurredOn,
     }),
     201,
+  );
+};
+
+/** A2/GAP-9. `managePartnerCapital` (OWNERS), same gate as the write above. */
+export const listPartnerPayoutsHandler: RouteHandler<typeof listPartnerPayoutsRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const rows = await listPartnerPayouts(c.get("reader"), businessId, {
+    ...(query.userId !== undefined ? { userId: query.userId } : {}),
+    ...(query.kind !== undefined ? { kind: query.kind } : {}),
+  });
+  return c.json(rows.map(payoutToResponse), 200);
+};
+
+/** A2/GAP-9/GAP-4/UC-67/W-52/W-53. `managePartnerCapital` (OWNERS) — one page per partner, same gate as every other read on this file. */
+export const getPartnerSummaryHandler: RouteHandler<typeof getPartnerSummaryRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const { userId } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const member = await findBusinessMemberUserId(reader, businessId, userId);
+  if (!member) throw new NotFoundError("No such partner in this business");
+
+  const names = await findPartyNames(reader, businessId, [], [], [userId]);
+  const displayName = names.partners.get(userId) ?? null;
+
+  const summary = await getPartnerSummary(reader, businessId, userId, displayName);
+
+  return c.json(
+    {
+      userId: summary.userId,
+      displayName: summary.displayName,
+      period: summary.period,
+      putIn: {
+        contributionsMinor: toWire(summary.putIn.contributionsMinor),
+        outOfPocketMinor: toWire(summary.putIn.outOfPocketMinor),
+      },
+      takenOut: {
+        payoutsMinor: toWire(summary.takenOut.payoutsMinor),
+        settlementsMinor: toWire(summary.takenOut.settlementsMinor),
+      },
+      earned: {
+        profitShareMinor: toWire(summary.earned.profitShareMinor),
+        managementFeeMinor: toWire(summary.earned.managementFeeMinor),
+      },
+      holdingMinor: toWire(summary.holdingMinor),
+    },
+    200,
   );
 };

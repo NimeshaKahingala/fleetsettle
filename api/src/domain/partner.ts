@@ -1,5 +1,5 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
+import type { Reader, Writer } from "../db/client.js";
 import {
   isExclusionViolation,
   isPeriodClosedViolation,
@@ -7,10 +7,12 @@ import {
 } from "../db/pg-error.js";
 import {
   ManagementAgreementOverlapsError,
+  NotFoundError,
   OwnershipSharesInvalidError,
   PeriodClosedError,
 } from "../errors/app-error.js";
-import { resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { sumOutOfPocketExpensesForUser } from "../queries/expense.js";
 import {
   insertBankingEvent,
   insertCapitalContribution,
@@ -18,8 +20,13 @@ import {
   insertOwnershipShares,
   insertPartnerPayout,
   revokeManagementFeeAgreement,
+  sumCapitalContributionsForUser,
+  sumManagementFeeAsOfDate,
+  sumPartnerPayoutsForUser,
   type OwnershipShareRow,
 } from "../queries/partner.js";
+import { listPartnerCashPositions } from "../queries/reports.js";
+import { getVehicleMonthReport } from "./reports.js";
 
 export interface SetOwnershipSharesInput {
   vehicleId: string;
@@ -261,4 +268,81 @@ export async function recordPartnerPayout(
   }
 
   return { payoutId };
+}
+
+export interface PartnerSummary {
+  userId: string;
+  displayName: string | null;
+  period: { id: string; periodStart: string; periodEnd: string };
+  putIn: { contributionsMinor: Minor; outOfPocketMinor: Minor };
+  takenOut: { payoutsMinor: Minor; settlementsMinor: Minor };
+  earned: { profitShareMinor: Minor; managementFeeMinor: Minor };
+  holdingMinor: Minor;
+}
+
+/**
+ * A2/GAP-9/GAP-4/UC-67/W-52/W-53: "one page per partner, four lines" —
+ * composed entirely from reads that already exist. `putIn`/`takenOut` are
+ * all-time; `earned` is the currently open period only, and no wider (this
+ * response schema's own note explains why a full history is a different,
+ * larger feature). Reused rather than duplicated: `getVehicleMonthReport`
+ * for profit share (P11), `listPartnerCashPositions` for holding (P11).
+ */
+export async function getPartnerSummary(
+  db: Reader,
+  businessId: string,
+  userId: string,
+  displayName: string | null,
+): Promise<PartnerSummary> {
+  const period = await findOpenPeriodRow(db, businessId);
+  if (!period) throw new NotFoundError("No open accounting period for this business");
+
+  const [
+    contributionsMinor,
+    outOfPocketMinor,
+    payoutTotals,
+    managementFeeMinor,
+    vehicleMonth,
+    cashPositions,
+  ] = await Promise.all([
+    sumCapitalContributionsForUser(db, businessId, userId),
+    sumOutOfPocketExpensesForUser(db, businessId, userId),
+    sumPartnerPayoutsForUser(db, businessId, userId),
+    sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
+    getVehicleMonthReport(db, businessId, period.id, undefined),
+    listPartnerCashPositions(db, businessId),
+  ]);
+
+  const profitShareMinor = vehicleMonth.vehicles.reduce((sum, v) => {
+    const share = v.ownerShares.find((s) => s.userId === userId);
+    // eslint-disable-next-line no-restricted-syntax -- allow: no ownership_share row for this user on this vehicle is a real 0% share of it, not a missing figure (W-56 governs an unknown, not an absent one)
+    return sum + (share?.profitShareMinor ?? 0n);
+  }, 0n);
+
+  // The handler only reaches here after confirming `userId` is an active
+  // member of `businessId` (`findBusinessMemberUserId`) — the same
+  // membership `listPartnerCashPositions` scopes its own rows to — so a
+  // matching row is guaranteed here, not a `?? 0n` guess at a missing
+  // figure (W-56).
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- see the comment above
+  const holdingMinor = cashPositions.find((p) => p.userId === userId)!.heldMinor;
+
+  return {
+    userId,
+    displayName,
+    period,
+    putIn: {
+      contributionsMinor: contributionsMinor as Minor,
+      outOfPocketMinor: outOfPocketMinor as Minor,
+    },
+    takenOut: {
+      payoutsMinor: payoutTotals.payoutsMinor as Minor,
+      settlementsMinor: payoutTotals.settlementsMinor as Minor,
+    },
+    earned: {
+      profitShareMinor: profitShareMinor as Minor,
+      managementFeeMinor: managementFeeMinor as Minor,
+    },
+    holdingMinor: holdingMinor as Minor,
+  };
 }

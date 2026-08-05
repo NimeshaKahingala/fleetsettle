@@ -8,6 +8,10 @@
 
 **Updated 5 August 2026**, `e7efa71` — the CI gap under "One thing that is not code" (below) is resolved; see [TRACKER.md](TRACKER.md) for the full account. Nothing on either track was ever blocked by it, but every PR into `main` is now actually tested for the first time.
 
+**Updated 5 August 2026**, `2822193` — validated A2/A3/B2/B3 against the code rather than against this file, ahead of building them. Three things were wrong and are fixed below: **`/more` does not exist**, so B2 and B3 had no entry point (now **B0**, GAP-37) · **`GET /api/payment` does not exist**, so F-8.2 was unbuildable from any screen (now in A3, GAP-38) · **GAP-13 stopped being expensive when P13 shipped** and is now built in A3 rather than deferred a fifth time. A2's one open decision — F-7.6's host — is also **made**, and it closes GAP-4 by deriving rather than writing.
+
+**Updated 5 August 2026 — A2 done.** Six endpoints, 25 new tests, full suite 31/353. B2's dependency is now only B0. One new gap recorded, **GAP-39** — W-53's management fee has never actually reduced vehicle profit; TRACKER.md §4 has the detail. A2's own write-up is below, under Track A.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -29,13 +33,15 @@
 
 ## Start here
 
-**Three Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets both tracks start at full speed on day one:
+**A2 is done** (below) — the A2 → B2 handoff is live: every schema B2 needs is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
 
-| Track A starts | Track B starts |
+| Track A next | Track B starts |
 |---|---|
-| **A2** — partner, banking and cash reads (the largest read increment) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| **A3** — period, write-off and payment reads | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
 
-Neither waits on the other. The first real handoff is A2 → B2, by which point B4 is well underway.
+**Before B2 or B3, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those two items build is reachable only by typing a URL.
+
+B2 can now start in parallel with A3 — it no longer waits on anything from Track A.
 
 ---
 
@@ -44,8 +50,8 @@ Neither waits on the other. The first real handoff is A2 → B2, by which point 
 | id | Item | Gaps | Endpoints | Blocks |
 |---|---|---|---|---|
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
-| **A2** | Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | ~5 | B2 |
-| **A3** | Period and write-off reads | GAP-13 | 1–2 | B3 |
+| **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
+| **A3** | Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
 | **A4** | Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
 | **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
@@ -59,27 +65,23 @@ Neither waits on the other. The first real handoff is A2 → B2, by which point 
 
 **It has no caller** (GAP-33), and that is deliberate: §3.3's route map has no business-wide costs route, so the plan's `ExpenseListScreen` was withdrawn rather than built. The endpoint keeps real value — report-adjacent, and every other list endpoint here has shipped ahead of its screen at some point. **Do not add a screen for it without a spec change.**
 
-### A2 · Partner, banking and cash reads
+### A2 · Done
 
-**The largest item on either track, entirely because all five partner resources are `POST`-only.** Nothing can be rendered about a partner today.
+Six endpoints, all shipped: `GET /api/business-member` (GAP-31, `dailyOperations`) · `GET /api/ownership-share`/`capital-contribution`/`management-fee-agreement`/`banking-event`/`partner-payout` (`managePartnerCapital`, except banking-event which shares the write's `dailyOperations` gate) · the composed `GET /api/partner/{userId}` (F-7.6/F-7.3), closing GAP-9 and GAP-4 by derivation, never a write. 25 new integration tests (business-member 4, partner +16, partner-summary 5) in two new files; full suite 31/353, all green. TRACKER.md §2 carries the row.
 
-**Endpoints** — `GET /api/ownership-share` (current shares, effective-dated), `GET /api/capital-contribution`, `GET /api/management-fee-agreement`, `GET /api/banking-event`, and **`GET /api/business-member`** (GAP-31). `GET /api/reports/cash-position` already covers F-7.5 and **must not be duplicated**.
+**One design correction worth carrying forward:** `listOwnershipShares` filters `effective_to IS NULL` alone, not a "latest set per vehicle" grouping — `assert_shares_total`'s deferred trigger structurally forbids two open sets ever coexisting for one vehicle, so the simple filter is provably sufficient. A first draft over-built this; TRACKER §5 has the reasoning.
 
-**GAP-31 is small and unblocks something already shipped.** `BorneByPaidBy`'s paid-by picker renders one honest option ("You") because nothing lists a business's own members. W-48 is satisfied — two fields, never collapsed — but the second field cannot offer a real choice until this exists. It is the cheapest endpoint on this track and it makes a shipped form correct.
+**One new gap, recorded rather than fixed: GAP-39.** `sumVehicleCostsForPeriod` already reads `obligation WHERE kind = 'management_fee'`, but nothing has ever written one — W-53's "management fee reduces vehicle profit" has been silently a no-op since P7. `GET /api/partner/{userId}` works around it correctly (reading `management_fee_agreement` directly), but UC-70's vehicle-profit figure is still wrong wherever a management fee applies. Unowned; needs a generator, not a read-side fix.
 
-**One decision this item owns:** F-7.6's partner current account has no read and no obvious host. Decide deliberately whether it is an endpoint here or a tenth report — and note that **GAP-4 points at the same place**: `paid_by_user_id` is recorded on every expense but raises no current-account entry, so F-3.1's "no extra step" is unmet. If F-7.6 becomes real, GAP-4 is its first writer.
-
-**Traps:**
-- **Shares are a deferred constraint.** A 60/40 split is one legal multi-row write; the trigger fires once at commit. Any read must present them as a set with one `effectiveFrom`, never row by row.
-- **Capital is not ownership** (W-52). What a partner paid and what he owns are two facts. Never derive a "gap" figure this backend does not compute.
-- **A revoked management agreement keeps its records attributed.** Revoke set `effective_to`; the read must return revoked agreements, not filter them out.
-- **GAP-1 is still open.** `managePartnerCapital` is flat and business-wide. Gate these with it, and do not let the response shape imply per-vehicle scoping exists.
-
-### A3 · Period and write-off reads
+### A3 · Period, write-off and payment reads
 
 **Small.** `GET /api/accounting-period/checklist` and `GET /api/audit-log/{tableName}/{recordId}` already exist and are tested.
 
-**Endpoints** — `GET /api/write-off` (list), and a period list so a screen can show which months are closed.
+**Endpoints** — `GET /api/accounting-period` (list, so a screen can show which months are closed) · `GET /api/write-off` (list) · **`GET /api/payment`** (GAP-38) · plus the checklist's `unconfirmedDays` count (GAP-13), which changes an existing response shape rather than adding a route.
+
+**`GET /api/payment` is the one this item cannot ship without.** `POST /api/payment/{id}/correct` has existed since P9 and **no screen can reach it** — `queries/payment.ts` has no list function and no route exposes one, so there is no path from any interface to a payment id. F-8.2's first step is *"Open the receipt"*. Without this, B3's `CorrectPaymentSheet` has nothing to open and the whole correction half of B3 is unbuildable. It carries **the linked-driver test class** — payments name drivers.
+
+**GAP-13 is now cheap, and should be built here rather than deferred again.** TRACKER's standing reason for leaving it — an unconfirmed day is "indistinguishable from a day the pattern never scheduled without replaying it" — was true when it was written and is not true after **P13**. `generate-day-cards` only generates cards for pattern days, so a `day_record` row in `state = 'open'` *is* a scheduled-but-unconfirmed day: one `COUNT(*)` scoped to the open period. UI §7.7 lists unconfirmed days as the checklist's **first row**, so B3 cannot render its own spec faithfully while this is missing. It under-reports if the cron has not run — which is honest, warn-only, and exactly what U-7 permits.
 
 **Trap** — the checklist **warns and lists; it never blocks** (U-7). Nothing in it is an invariant the schema does not already refuse structurally. Do not add a `canClose` boolean; there isn't one.
 
@@ -191,14 +193,23 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 
 | id | Item | Needs | Status |
 |---|---|---|---|
+| **B0** | **The `/more` hub** (GAP-37) | **nothing** | ▶ start now — **B2 and B3 are unreachable without it** |
 | **B4** | Review shell + nine reports | **nothing** | ▶ start now |
 | **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
-| **B2** | Partners, banking, cash | A2 | waits |
-| **B3** | Close the month, corrections | A3 | waits |
+| **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
+| **B3** | Close the month, corrections | A3, B0 | waits |
 | **B6** | Customer detail | A4 | waits |
 | **B8** | Real Asgardeo | — | 🔴 blocked externally |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
+
+### B0 · The `/more` hub — closes GAP-37, and both waiting B items need it
+
+**Missed by the previous edition, and it gates two of them.** `/more` renders `NotBuiltYetScreen` (`router.tsx`), and §3.1 puts **Cash, reports, period close, settings, message log, business** behind that tab. §3.3 gives `/cash`, `/partners/:id`, `/reports` and `/period/close` **no other entry point** — the tab bar has five fixed slots and none of them is "Cash". So every screen B2 and B3 build is reachable only by typing a URL until this exists.
+
+Small: one screen, a list of rows, no backend increment. **Rows for what exists only** — a row leading to `NotBuiltYetScreen` is worse than no row. Reports appears when B4 lands, Cash when B2 does, and so on.
+
+**Trap** — the close-month row is **absent for a `manager`, not disabled** (M-22/W-49, the same rule §7.7 states for the close action itself).
 
 ### B1 · Withdrawn, and why
 
@@ -240,9 +251,11 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a linked driver's token renders exactly his own data, and no request shape exists that could return anyone else's.
 
-### B2 · Partners, banking and cash — waits on A2
+### B2 · Partners, banking and cash — A2 done, waits only on B0
 
-**Screens** — `web/src/features/partners/`: `PartnerListScreen`, `PartnerDetailScreen`, `OwnershipSharesForm`, `CapitalContributionSheet`, `ShareVehicleForm` (F-1.4), `BankingEventForm`, `CashPositionScreen`. New routes `/cash` and `/partners/:id`.
+**Screens** — `web/src/features/partners/`: `PartnerDetailScreen`, `OwnershipSharesForm`, `CapitalContributionSheet`, `ShareVehicleForm` (F-1.4), `BankingEventForm`, `CashPositionScreen`. New routes `/cash` and `/partners/:id`.
+
+**`PartnerListScreen` is a section on `/cash`, not a route.** §3.3 has `/partners/:id` and deliberately no `/partners` — and `GET /api/reports/cash-position` already returns every partner with a name and a held figure, which *is* the list. A separate list route would be a second way to reach the same rows, and the route map is the document that decides.
 
 **Traps:**
 - **The shares form submits the whole set at once, never row by row**, and surfaces `OWNERSHIP_SHARES_INVALID` as a 400 rather than pre-checking the sum client-side. The trigger is deferred and fires once at commit — a client-side sum check is a second implementation of it.
@@ -257,8 +270,11 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` finally wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
+**`CorrectPaymentSheet` needs a payment row to open from**, which is `GET /api/payment` (GAP-38, A3). Where that row lives is this item's own decision — the lease hub's dues section and the driver/customer detail screens are all candidates; §7.10 only says "open the receipt."
+
 **Traps:**
 - **The checklist warns and lists; it never blocks** (U-7). The close button stays enabled.
+- **`unconfirmedDays` is the checklist's first row** (§7.7) and arrives with A3. Render all five rows or state plainly which is missing — do not silently show four.
 - **Closing opens the successor period in the same transaction.** The screen must make clear that this happened, since every later write depends on it.
 - **A correction's `bearer` is the whole decision.** `back_to_arrears` puts the party back in arrears (INV-22); `absorbed_loss` leaves their due settled and the business eats it. Two outcomes from one form, and the copy must say which is which **without using the word "allocation"** (U-6).
 - **A waiver and a write-off never share a bucket** (W-28). Separate entry points, separate reporting, never one combined "reduce this due" control.
@@ -299,23 +315,22 @@ Cross-cutting: it wraps every screen, so building it before the screens exist me
         Track A (Worker + shared schemas)          Track B (React client)
         ─────────────────────────────────          ──────────────────────
 done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ withdrawn
-
-now     A2  partner/banking/cash + members ──┐      B4  Review shell + 9 reports
-                                             │          (no backend dependency)
-        A3  period/write-off reads ────────┐ │      B5  Mine shell
-                                           │ │          (no backend dependency)
-        A4  customer reads ──────────────┐ │ └───►  B2  partners, banking, cash
-        A5  driver history + advances ─┐ │ └─────►  B3  close the month
-                                       │ └───────►  B6  customer detail
+        A2  partner/banking/cash + members ✅ ──┐    B0  the /more hub ──────┬──┐
+                                                │        (no backend dependency) │  │
+now     A3  period/write-off/payment ─────────┐ │    B4  Review shell + 9 reports │  │
+                                               │ │    B5  Mine shell              │  │
+        A4  customer reads ──────────────────┐ │ └─►  B2  partners, banking, cash ◄┘  │
+        A5  driver history + advances ─────┐ │ └───►  B3  close the month  ◄──────────┘
+                                           │ └─────►  B6  customer detail
         A6  trip receivable (design settled — post at booking)
         A7  R2 upload (unblocks 5 gaps)
         A8  odometer wiring, borne-by override
-                                       └────────►  B5+ driver detail history
+                                           └──────►  B5+ driver detail history
 last                                               B7  offline and the PWA
 blocked                                            B8  real Asgardeo 🔴
 ```
 
-**Track B never idles.** B4 alone is larger than A2, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A2 through A8 are independent of each other and of every B item.
+**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A3 through A8 are independent of each other and of every B item; A2 is already done.
 
 **The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top.
 

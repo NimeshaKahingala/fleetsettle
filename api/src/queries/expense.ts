@@ -406,3 +406,22 @@ export async function sumIncidentCostMinor(db: ReadDb, incidentId: string): Prom
     .where(and(eq(expense.incidentId, incidentId), isNull(expense.voidedAt)));
   return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
 }
+
+/** A2/GAP-4/UC-67 "put in": what this partner spent out of his own pocket, across every vehicle and every overhead cost, all-time — not who it was borne by. Derived at read time from `expense.paid_by_user_id`, deliberately never a written current-account entry (the response schema's own note on why). */
+export async function sumOutOfPocketExpensesForUser(
+  db: ReadDb,
+  businessId: string,
+  userId: string,
+): Promise<bigint> {
+  const rows = await db
+    .select({ amountMinor: expense.amountMinor })
+    .from(expense)
+    .where(
+      and(
+        eq(expense.businessId, businessId),
+        eq(expense.paidByUserId, userId),
+        isNull(expense.voidedAt),
+      ),
+    );
+  return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
+}

@@ -17,7 +17,7 @@ import { defineConfig } from "vitest/config";
 // Only turn this on against a branch dedicated to it (a fresh
 // TEST_DATABASE_URL, not the one other sessions or CI also point at) —
 // otherwise this just relocates the same contention, it doesn't remove it.
-const parallel = process.env.TEST_PARALLEL === "1";
+const parallel = process.env["TEST_PARALLEL"] === "1";
 
 export default defineConfig({
   test: {

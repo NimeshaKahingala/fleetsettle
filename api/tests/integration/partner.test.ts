@@ -1,3 +1,4 @@
+import { newId } from "@fleetsettle/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
@@ -15,6 +16,10 @@ async function post(path: string, token: string, body: unknown) {
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
   });
+}
+
+async function get(path: string, token: string) {
+  return request(path, bearer(token));
 }
 
 /** F-1.3/UC-02/INV-16 test matrix. */
@@ -236,6 +241,369 @@ describe("capital contribution (P7, F-1.3/UC-02)", () => {
     });
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A2/GAP-9 test matrix. */
+describe("list ownership shares (A2, F-1.3/UC-02)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — only the latest set is 'current', an earlier one is superseded", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const partner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // `setOwnershipShares` (domain/partner.ts) only ever inserts — there is
+    // no write path today that closes an old set's `effective_to`, so a
+    // second `POST` for the same vehicle always 400s (`assert_shares_total`
+    // sums every row whose date range contains the *new* row's own
+    // `effective_from`, and the still-open first set would push the total
+    // to 200%). Inserted directly here, with the older set's `effective_to`
+    // already closed, to prove `effective_to IS NULL` alone correctly
+    // isolates the current split once one exists — the same direct-insert
+    // fixture pattern `reports.test.ts` already uses for this exact table.
+    const oldShareIds = [newId(), newId()];
+    const newShareIds = [newId(), newId()];
+    await db.insert(ownershipShare).values([
+      {
+        id: oldShareIds[0]!,
+        vehicleId,
+        userId: owner.userId,
+        shareBp: 5000,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "2026-01-31",
+      },
+      {
+        id: oldShareIds[1]!,
+        vehicleId,
+        userId: partner.userId,
+        shareBp: 5000,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "2026-01-31",
+      },
+      {
+        id: newShareIds[0]!,
+        vehicleId,
+        userId: owner.userId,
+        shareBp: 6000,
+        effectiveFrom: "2026-02-01",
+      },
+      {
+        id: newShareIds[1]!,
+        vehicleId,
+        userId: partner.userId,
+        shareBp: 4000,
+        effectiveFrom: "2026-02-01",
+      },
+    ]);
+    ctx.trackCreatedOwnershipShares([...oldShareIds, ...newShareIds]);
+
+    const res = await get("/api/ownership-share", token);
+    expect(res.status).toBe(200);
+    const body: Array<{ userId: string; shareBp: number; effectiveFrom: string }> =
+      await res.json();
+    expect(body).toHaveLength(2);
+    expect(body.every((s) => s.effectiveFrom === "2026-02-01")).toBe(true);
+    expect(body.map((s) => s.shareBp).sort()).toEqual([4000, 6000]);
+
+    await ctx.cleanup();
+  });
+
+  it("filters by vehicleId — another vehicle's split never appears", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const otherVehicleId = await ctx.createVehicle(businessId, { registration: "Other Vehicle" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-01-01",
+      shares: [{ userId: owner.userId, shareBp: 10000 }],
+    });
+    const createdBody: Array<{ id: string }> = await created.json();
+    ctx.trackCreatedOwnershipShares(createdBody.map((s) => s.id));
+    const otherCreated = await post("/api/ownership-share", token, {
+      vehicleId: otherVehicleId,
+      effectiveFrom: "2026-01-01",
+      shares: [{ userId: owner.userId, shareBp: 10000 }],
+    });
+    const otherCreatedBody: Array<{ id: string }> = await otherCreated.json();
+    ctx.trackCreatedOwnershipShares(otherCreatedBody.map((s) => s.id));
+
+    const res = await get(`/api/ownership-share?vehicleId=${vehicleId}`, token);
+    expect(res.status).toBe(200);
+    const body: Array<{ vehicleId: string }> = await res.json();
+    expect(body.map((s) => s.vehicleId)).toEqual([vehicleId]);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/ownership-share");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a manager (not an owner) cannot read ownership shares", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await get("/api/ownership-share", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A2/GAP-9/W-52 test matrix. */
+describe("list capital contributions (A2, F-1.3/UC-02)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — newest first, tenant isolated", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    await ctx.createOpenPeriod(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+
+    const earlier = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "100000",
+      contributedOn: "2026-07-01",
+    });
+    const earlierBody: { id: string } = await earlier.json();
+    ctx.trackCreatedCapitalContribution(earlierBody.id);
+    const later = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "200000",
+      contributedOn: "2026-07-15",
+    });
+    const laterBody: { id: string } = await later.json();
+    ctx.trackCreatedCapitalContribution(laterBody.id);
+    const otherRes = await post("/api/capital-contribution", otherToken, {
+      userId: otherOwner.userId,
+      amountMinor: "999999",
+      contributedOn: "2026-07-10",
+    });
+    const otherResBody: { id: string } = await otherRes.json();
+    ctx.trackCreatedCapitalContribution(otherResBody.id);
+
+    const res = await get("/api/capital-contribution", token);
+    expect(res.status).toBe(200);
+    const body: Array<{ amountMinor: string; contributedOn: string }> = await res.json();
+    expect(body.map((c) => c.contributedOn)).toEqual(["2026-07-15", "2026-07-01"]);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/capital-contribution");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a manager (not an owner) cannot read capital contributions", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await get("/api/capital-contribution", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A2/GAP-9 test matrix. */
+describe("list management fee agreements (A2, F-1.4/UC-03)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a revoked agreement is returned, not filtered out", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const granted = await post("/api/management-fee-agreement", token, {
+      vehicleId,
+      managerUserId: manager.userId,
+      effectiveFrom: "2026-01-01",
+    });
+    const grantedBody: { id: string } = await granted.json();
+    ctx.trackCreatedManagementFeeAgreement(grantedBody.id);
+
+    const revoked = await post(`/api/management-fee-agreement/${grantedBody.id}/revoke`, token, {});
+    expect(revoked.status).toBe(200);
+
+    const res = await get("/api/management-fee-agreement", token);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; effectiveTo: string | null }> = await res.json();
+    expect(body.map((a) => a.id)).toContain(grantedBody.id);
+    const revokedRow = body.find((a) => a.id === grantedBody.id);
+    expect(revokedRow?.effectiveTo).not.toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/management-fee-agreement");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a manager (not an owner) cannot read management agreements", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await get("/api/management-fee-agreement", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A2/GAP-9 test matrix. */
+describe("list banking events (A2, F-7.4/UC-65)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — newest-banked-first, a manager (not owners-only) can read it", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const managerToken = await signAccessToken(manager.asgardeoSub);
+
+    const earlier = await post("/api/banking-event", ownerToken, {
+      amountRecordedMinor: "1000000",
+      amountCountedMinor: "1000000",
+      bankedOn: "2026-07-10",
+      destination: "BOC current account",
+    });
+    const earlierBody: { id: string } = await earlier.json();
+    ctx.trackCreatedBankingEvent(earlierBody.id);
+    const later = await post("/api/banking-event", ownerToken, {
+      amountRecordedMinor: "2000000",
+      amountCountedMinor: "2000000",
+      bankedOn: "2026-07-20",
+      destination: "BOC current account",
+    });
+    const laterBody: { id: string } = await later.json();
+    ctx.trackCreatedBankingEvent(laterBody.id);
+
+    const res = await get("/api/banking-event", managerToken);
+    expect(res.status).toBe(200);
+    const body: Array<{ bankedOn: string }> = await res.json();
+    expect(body.map((e) => e.bankedOn)).toEqual(["2026-07-20", "2026-07-10"]);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/banking-event");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot read banking events", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await get("/api/banking-event", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+});
+
+/** A2/GAP-9 test matrix. */
+describe("list partner payouts (A2, F-7.2/UC-63)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — newest-occurred-first, filtered by kind", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const payout = await post("/api/partner-payout", token, {
+      userId: owner.userId,
+      amountMinor: "500000",
+      kind: "payout",
+      occurredOn: "2026-07-10",
+    });
+    const payoutBody: { id: string } = await payout.json();
+    ctx.trackCreatedPartnerPayout(payoutBody.id);
+    const settlement = await post("/api/partner-payout", token, {
+      userId: owner.userId,
+      amountMinor: "300000",
+      kind: "partner_settlement",
+      occurredOn: "2026-07-20",
+    });
+    const settlementBody: { id: string } = await settlement.json();
+    ctx.trackCreatedPartnerPayout(settlementBody.id);
+
+    const res = await get("/api/partner-payout?kind=payout", token);
+    expect(res.status).toBe(200);
+    const body: Array<{ kind: string }> = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ kind: "payout" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request("/api/partner-payout");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a manager (not an owner) cannot read partner payouts", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await get("/api/partner-payout", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
 
     await ctx.cleanup();
   });
