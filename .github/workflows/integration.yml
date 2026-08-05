@@ -39,6 +39,12 @@ jobs:
 
       - run: npm ci
 
+      # suspend_timeout is deliberately not set: the Free plan fixes
+      # scale-to-zero at 5 minutes and rejects any attempt to configure it
+      # via the API (confirmed against Neon's own plans doc, "Can I disable
+      # scale-to-zero? Free: No, it's always enabled") — passing this
+      # explicitly, even at the same 300s the plan already defaults to,
+      # 412'd branch creation outright. Omitting it costs nothing on Free.
       - name: Create ephemeral branch
         id: branch
         uses: neondatabase/create-branch-action@v6
@@ -46,7 +52,6 @@ jobs:
           project_id: ${{ vars.NEON_PROJECT_ID }}
           api_key: ${{ secrets.NEON_API_KEY }}
           branch_name: pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
-          suspend_timeout: 300
 
       # Every migration in the repo, from empty, in order — this is what
       # actually catches a migration that only worked because an earlier
