@@ -336,7 +336,7 @@ Unchanged, restated so no session goes looking:
 - **New form → inherit the three structural fixes** (TRACKER.md §5): domain-typed form state with `toWire()` only in `mutationFn`, `blankToUndefined` on optional text, `Disclosure forceOpen` on a level-2 error.
 - **A new money table is not finished until it is in the `assert_period_open()` array** (Track A only).
 - **A new write to a `posted_period_id`-carrying table must open a transaction**, or its audit row records `changed_by` as `NULL` (Track A only).
-- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run alone**, since `check` does not include it and the shared Neon branch drops connections at random.
+- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run alone**, since `check` does not include it and the shared Neon branch drops connections at random. `TEST_PARALLEL=1` against a personal branch (TRACKER.md §5) cuts a full local suite run from ~29 minutes to ~105 seconds — worth setting up before a Track A session, not just for the touched-file re-run.
 - **a11y is axe-core in Playwright**, not `eslint-plugin-jsx-a11y` — its peer range caps at ESLint 8/9 and this repo is on 10.
 - [TRACKER.md](TRACKER.md) updated: the item becomes a **row**, its leftovers become **gap rows with a track**.
 
