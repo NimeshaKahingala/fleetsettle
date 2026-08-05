@@ -4,6 +4,7 @@
  *
  *   node api/scripts/migrate.mjs            apply anything outstanding
  *   node api/scripts/migrate.mjs --status   report, change nothing
+ *   node api/scripts/migrate.mjs --check    report, change nothing, exit 1 if anything is pending
  *
  * Reads DATABASE_URL from the environment or from api/.dev.vars.
  *
@@ -33,6 +34,7 @@ const MIGRATIONS = resolve(HERE, "..", "migrations");
 const LOCK_KEY = 8_675_309; // arbitrary, but must be the same in every process
 
 const statusOnly = process.argv.includes("--status");
+const checkOnly = process.argv.includes("--check");
 
 function databaseUrl() {
   if (process.env["DATABASE_URL"]) return process.env["DATABASE_URL"];
@@ -64,6 +66,7 @@ function pending() {
 const pool = new Pool({ connectionString: databaseUrl() });
 const client = await pool.connect();
 let held = false;
+let exitCode = 0;
 
 try {
   await client.query(`
@@ -81,6 +84,8 @@ try {
   const applied = new Map(rows.map((r) => [r.name, r.checksum]));
 
   let ran = 0;
+  let outstanding = 0;
+  const reportOnly = statusOnly || checkOnly;
 
   for (const migration of pending()) {
     const seen = applied.get(migration.name);
@@ -99,8 +104,10 @@ try {
       continue;
     }
 
-    if (statusOnly) {
-      console.log(`  PENDING  ${migration.name}`);
+    outstanding += 1;
+
+    if (reportOnly) {
+      if (statusOnly) console.log(`  PENDING  ${migration.name}`);
       continue;
     }
 
@@ -122,11 +129,18 @@ try {
     }
   }
 
-  if (!statusOnly) {
+  if (!reportOnly) {
     console.log(ran === 0 ? "nothing to apply" : `applied ${ran} migration(s)`);
+  }
+
+  if (checkOnly) {
+    console.log(outstanding === 0 ? "nothing pending" : `${outstanding} migration(s) pending`);
+    if (outstanding > 0) exitCode = 1;
   }
 } finally {
   if (held) await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]);
   client.release();
   await pool.end();
 }
+
+process.exitCode = exitCode;

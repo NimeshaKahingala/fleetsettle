@@ -1,0 +1,46 @@
+name: migrate-production
+
+# DEPLOYMENT.md step 8's one-way door, as a workflow. Migrations are
+# forward-only and this touches live money data, so it is never triggered
+# by a push — a human has to choose to run it, and the `production`
+# environment's required-reviewer rule (configured in GitHub, not here)
+# gates it a second time. Status is printed before applying so the run log
+# always shows what was about to change, even though nothing here pauses
+# for interactive confirmation the way a local run would.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: migrate-production
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Show pending migrations
+        run: npm run migrate:status -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Apply pending migrations
+        run: npm run migrate -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: DM §13 drift check
+        run: npm run check:drift -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

@@ -8,9 +8,12 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node scripts/migrate.mjs",
     "migrate:status": "node scripts/migrate.mjs --status",
+    "migrate:check": "node scripts/migrate.mjs --check",
     "check:drift": "node scripts/check-drift.mjs",
     "test": "vitest run --project unit",
-    "test:integration": "vitest run --project integration"
+    "test:integration": "vitest run --project integration",
+    "deploy:qa": "wrangler deploy --env qa",
+    "deploy:production": "wrangler deploy --env production"
   },
   "dependencies": {
     "@fleetsettle/shared": "*",

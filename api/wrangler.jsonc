@@ -51,4 +51,69 @@
   // itself still goes through `businessToday()`, never the trigger's own
   // UTC firing instant).
   "triggers": { "crons": ["30 20 * * *"] },
+
+  // Deployed environments (DEPLOYMENT.md). The top-level block above stays
+  // untouched by either — `workers_dev: false` and the local-only `name`
+  // are what keep a bare `wrangler deploy` from ever touching QA or
+  // production (IG §9.4). `vars`, `kv_namespaces`, `r2_buckets`, `queues`
+  // and `ratelimits` are non-inheritable in wrangler: every one of them
+  // must be restated in full below, or the binding silently vanishes from
+  // the deployed Worker.
+  "env": {
+    "qa": {
+      "name": "fleetsettle-api-qa",
+      "routes": [{ "pattern": "qa.fleetsettle.com/api/*", "zone_name": "fleetsettle.com" }],
+      "vars": {
+        "ENVIRONMENT": "preview",
+        "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
+        "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
+        "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+      },
+      // fleetsettle-kv-qa / fleetsettle-attachments-qa / fleetsettle-messages-qa
+      // (DEPLOYMENT.md "Progress" — all three provisioned and isolated from prod).
+      "kv_namespaces": [{ "binding": "KV", "id": "1dfcd1efb71846e49f6da9756a64523e" }],
+      "r2_buckets": [{ "binding": "R2", "bucket_name": "fleetsettle-attachments-qa" }],
+      "queues": {
+        "producers": [{ "binding": "MESSAGE_QUEUE", "queue": "fleetsettle-messages-qa" }],
+      },
+      // namespace_id must differ from every other environment's — rate-limit
+      // counters are shared account-wide per namespace_id, not per Worker
+      // (confirmed against Cloudflare's docs, DEPLOYMENT.md step 4).
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "1002",
+          "simple": { "limit": 100, "period": 60 },
+        },
+      ],
+      "triggers": { "crons": ["30 20 * * *"] },
+      "observability": { "enabled": true },
+    },
+    "production": {
+      "name": "fleetsettle-api",
+      "routes": [{ "pattern": "fleetsettle.com/api/*", "zone_name": "fleetsettle.com" }],
+      "vars": {
+        "ENVIRONMENT": "production",
+        "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
+        "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
+        "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+      },
+      // fleetsettle-kv / fleetsettle-attachments / fleetsettle-messages
+      // (DEPLOYMENT.md "Progress" — all three provisioned, isolated from QA).
+      "kv_namespaces": [{ "binding": "KV", "id": "1c639491546d48319637f67d6db77b5a" }],
+      "r2_buckets": [{ "binding": "R2", "bucket_name": "fleetsettle-attachments" }],
+      "queues": {
+        "producers": [{ "binding": "MESSAGE_QUEUE", "queue": "fleetsettle-messages" }],
+      },
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "1003",
+          "simple": { "limit": 100, "period": 60 },
+        },
+      ],
+      "triggers": { "crons": ["30 20 * * *"] },
+      "observability": { "enabled": true },
+    },
+  },
 }

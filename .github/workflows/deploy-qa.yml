@@ -1,0 +1,68 @@
+name: deploy-qa
+
+# DEPLOYMENT.md: push to develop promotes to QA. Migrations run
+# automatically here — QA is where the forward-only path gets proven,
+# never production. Requires repository/environment configuration not
+# committed here: the `qa` GitHub environment holding DATABASE_URL,
+# CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+
+  deploy:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: qa
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply pending migrations
+        run: npm run migrate -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: DM §13 drift check
+        run: npm run check:drift -w @fleetsettle/api
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Deploy web
+        run: npm run deploy:qa -w @fleetsettle/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy api
+        run: npm run deploy:qa -w @fleetsettle/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # DEPLOYMENT.md "Verification" — the /api/home 401 is the line that
+      # proves /api/* actually reached the API Worker rather than being
+      # swallowed by the web Worker's SPA fallback.
+      #
+      # Retried, not asserted once: a freshly deployed route takes a few
+      # seconds to propagate, and during that window /api/* still falls
+      # through to the web Worker and answers 200 with index.html. Observed
+      # on the first QA deploy. Asserting immediately turns that into a
+      # red build that goes green on re-run, which is worse than a slow one.
+      - name: Smoke test
+        run: bash .github/scripts/smoke.sh https://qa.fleetsettle.com 200

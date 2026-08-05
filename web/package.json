@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "deploy:qa": "npm run build && wrangler deploy --env qa",
+    "deploy:production": "npm run build && wrangler deploy --env production"
   },
   "dependencies": {
     "@fleetsettle/shared": "*",
