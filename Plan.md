@@ -46,7 +46,7 @@ Neither waits on the other. The first real handoff is A2 → B2, by which point 
 | **A3** | Period and write-off reads | GAP-13 | 1–2 | B3 |
 | **A4** | Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
-| **A6** | The trip receivable — design resolved, **one assumption flagged** | GAP-23 | 1 + a migration | — |
+| **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
 | **A7** | R2 presigned upload — unblocks five gaps | GAP-16 | 1 | B-photos |
 | **A8** | Expense odometer wiring and borne-by override | GAP-30, GAP-32 | 0–1 | — |
 | **A9** | **Soft delete, everywhere** — starts with a live defect | GAP-12, GAP-35, GAP-36 | ~15 + 2 migrations | — |
@@ -127,7 +127,9 @@ So posting the receivable at booking violates neither W-41 nor INV-30, and F-5.3
 - **On cancel: void the obligation.** `obligation` carries the `voided_*` trio and `listReceivables` already filters `isNull(voidedAt)`. This is the one piece of extra work posting at booking costs, and it is small.
 - **The read: `GET /api/trip/{id}/obligation`** — simpler than its lease equivalent, since `source_id` is the trip id directly. One query, not Web-P6a's three-way reassembly.
 
-**The one judgment call left, and it is the owner's.** Posting at booking creates a receivable for a service not yet delivered. That is right if a booking is a firm commitment the customer owes on, and wrong if it is provisional until the vehicle goes out. The documents do not settle it — F-5.1 has no cancellation-fee concept, and GAP-7 records that the `hold` state was never built, which suggests every booking in this system is already firm. **This plan assumes firm.** If bookings should be provisional instead, post at close and **GAP-5 (applying an unallocated surplus forward) becomes a prerequisite of this item rather than an adjacent gap.**
+**Settled by the owner, 5 August 2026: bookings are firm.** Posting at booking creates a receivable for a service not yet delivered, which is correct precisely because a booking here *is* a commitment the customer owes on — confirmed against the absence of any cancellation-fee concept in F-5.1, and consistent with GAP-7's record that the `hold` state (ST-5) was never built, so no booking in this system was ever provisional. Post at booking; no alternative branch remains to design for.
+
+The consequence worth stating once: **a cancelled trip must void its obligation**, or a customer keeps owing for a charter that never ran. That is the one piece of work this choice adds, and it is in the build list above.
 
 ### A7 · R2 presigned upload — closes GAP-16
 
@@ -303,7 +305,7 @@ now     A2  partner/banking/cash + members ──┐      B4  Review shell + 9 r
         A4  customer reads ──────────────┐ │ └───►  B2  partners, banking, cash
         A5  driver history + advances ─┐ │ └─────►  B3  close the month
                                        │ └───────►  B6  customer detail
-        A6  trip receivable (design resolved; assumes firm bookings)
+        A6  trip receivable (design settled — post at booking)
         A7  R2 upload (unblocks 5 gaps)
         A8  odometer wiring, borne-by override
                                        └────────►  B5+ driver detail history
