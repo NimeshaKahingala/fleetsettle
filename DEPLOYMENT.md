@@ -113,6 +113,7 @@ Upgrading the plan or making the repo public would allow a required reviewer on 
 | Queue (QA) | `fleetsettle-messages-qa` | created |
 | Queue (production) | `fleetsettle-messages` | created |
 | Neon branch (QA) | `qa` | `br-square-sound-afb68wft` · **migrated 0001–0007** · drift clean |
+| Neon branch (production) | `main` | `br-odd-cherry-afx5394i` · **migrated 0001–0007** · drift clean |
 | Worker (QA) | `fleetsettle-api-qa` | **deployed** · 4 bindings · route · cron |
 | Worker (QA) | `fleetsettle-web-qa` | **deployed** · custom domain · 14 assets |
 | Secret (QA) | `DATABASE_URL` | set on `fleetsettle-api-qa` |
@@ -151,19 +152,24 @@ ok   CSP + HSTS
 
 The whole path-split design is therefore proven end to end, against real infrastructure, before production is touched. **DNS is no longer a blocker for either environment** — the Custom Domain creates it.
 
-### Still blocked
+### The QA pipeline has now run for real, end to end
 
-**Production `DATABASE_URL` — needs you.** Fetching the production Neon connection string was refused by the sandbox's safety classifier, and I did not route around it. Run `wrangler secret put DATABASE_URL --env production` from `api/` with the pooled string for Neon `main`.
+`develop` is pushed and `deploy-qa.yml` completed green — gate, migrate, drift check, both Worker deploys, smoke:
 
-**Production schema — deliberately not applied.** Neon `main` is still empty. This is the one-way door; it stays a human decision. QA rehearsed the exact path cleanly, which is what it is for.
+```
+checks / gate   5m10s    guard · lint · lint:css · format · typecheck · tests · build
+deploy            47s    nothing to apply · drift clean · web · api · smoke passed
+```
 
-**Pushing `develop` — needs you.** The API token and both GitHub environments are done and verified. What remains is the push, which is what first arms `deploy-qa.yml`.
+It is no longer a design on paper: it migrated, deployed and verified with no human in the loop.
 
-**No approval gate exists on the production path.** The required-reviewer rule is unavailable on this plan, and automatic deploy-on-merge was chosen regardless. The PR into `main` is the only place a person decides. See step 9.
+### Production is ready; one step remains
 
-**Pushing `main` will deploy production** once `main` carries these workflows — so the production `DATABASE_URL` secret and the production schema must both be in place *before* that merge, not after.
+Schema migrated, secret set, workflow armed. **The only remaining action is merging `develop` into `main`, and that merge deploys.**
 
-One consequence of the current state worth knowing: **`fleetsettle.com` itself still does not resolve.** Only QA has been deployed, and the production Custom Domain is created by the production deploy. The apex is NXDOMAIN until then, which is the better state to be parked in.
+**No approval gate exists on that path.** The required-reviewer rule is unavailable on this plan and automatic deploy-on-merge was chosen regardless, so the pull request into `main` is the only place a person decides. See step 9.
+
+One consequence worth knowing: **`fleetsettle.com` does not resolve yet.** Only QA has been deployed, and the production Custom Domain is created *by* the production deploy. The apex stays NXDOMAIN until that merge — the better state to be parked in.
 
 ---
 
@@ -280,17 +286,18 @@ Two different places need the database URL, and putting it in only one of them i
 
 Never a `var`. Vars are plaintext in the deployed bundle (TS §8, IG §9.4). `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_ID` wait for P14.
 
-Then the production schema, once, by hand — **not yet done, deliberately**:
+Then the production schema — ✅ **applied 5 August 2026**:
 
 ```
-node api/scripts/migrate.mjs --status      # read this before continuing
-node api/scripts/migrate.mjs               # applies 0001–0007
-npm run check:drift -w @fleetsettle/api    # DM §13 — the hand-maintained trigger array
+node api/scripts/migrate.mjs --status      # 7 PENDING, nothing already applied
+node api/scripts/migrate.mjs               # applied 7 migration(s)
+node api/scripts/check-drift.mjs           # clean — every posted_period_id table has both triggers
+node api/scripts/migrate.mjs --check       # nothing pending  → the deploy guard now passes
 ```
 
-> **This is the one-way door.** Migrations are forward-only; a money system that rolls one backwards over live data has a worse problem than the migration. Read the `--status` output before running the second line.
+> **This was the one-way door.** Migrations are forward-only; a money system that rolls one backwards over live data has a worse problem than the migration. The `--status` output was read before applying, and showed exactly the expected seven with nothing already present.
 
-The exact same three commands already ran clean against the `qa` branch from an empty database, which is the rehearsal this step exists to have. Neon `main` remains empty.
+Two things confirmed it was the right database before writing: the pooled host is `ep-cold-hall-…`, distinct from QA's `ep-morning-feather-…`, and `--status` reported all seven pending rather than a partial set. The same three commands had already run clean against `qa` from empty — the rehearsal this step exists to have.
 
 ### 9 · Branch and workflows — files done, GitHub configuration outstanding
 
@@ -392,6 +399,8 @@ Found by executing step 1. Recorded rather than silently edited, because both we
 **"Location hint APAC."** Passed, accepted, and ignored — both buckets are in ENAM. The original draft asserted the hint as though it were a setting. It is documented as best-effort. Recorded at step 1.
 
 Two smaller ones, both mechanical and both costing a failed command: `wrangler r2 bucket cors set` takes `--file`, not `--rules`; and the CORS JSON must use the nested `{"rules":[{"allowed":{…}}]}` shape rather than the flat `AllowedOrigins`/`AllowedMethods` form that Cloudflare's CORS documentation shows most prominently — that one is the dashboard's S3-style format and the CLI rejects it.
+
+**`checks.yml` had outgrown Node's default heap, and nothing had noticed.** The first full run of the gate since the codebase grew died at Lint with `exit 134` — SIGABRT, from "Ineffective mark-compacts near heap limit — JavaScript heap out of memory" at ~2 GB. It passes locally on the same default cap, because a laptop is not otherwise loaded. Type-aware `typescript-eslint` rules hold the whole program graph in memory, so this scaled with the project and would have landed on some commit regardless of which. Fixed with `NODE_OPTIONS: --max-old-space-size=4096` at job level — 4 GB and not more, because a private repo's runner has 7 GB total and the OS and npm need room. **Worth remembering that exit 134 is a crash, not a lint failure**; reading it as "lint is broken" sends you looking in the wrong file entirely.
 
 Found by executing steps 2, 5 and 10:
 
