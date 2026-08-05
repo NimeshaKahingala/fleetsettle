@@ -6,11 +6,13 @@
 
 **Validated this pass** — route-def by route-def against `api/src/route-defs/`, screen by screen against `web/src/`, both against a real `npm run check`. Corrections in [§6](#6-what-validation-corrected).
 
+**Updated 5 August 2026**, `e7efa71` — CI's integration workflow, blocked since P0 on missing repository secrets, is now configured and verified end to end: a real PR run applied all seven migrations from scratch, passed the DM §13 drift check, and ran all 328 integration tests, green, in 12m49s. One live bug found and fixed along the way, recorded in [§5](#5-the-traps).
+
 ---
 
 ## 1. Where things stand
 
-**Backend is complete through P13.** **Frontend is complete through Web-P8b.** P14 and real Asgardeo are blocked on external work; CI's integration workflow is blocked on repository secrets.
+**Backend is complete through P13.** **Frontend is complete through Web-P8b.** P14 and real Asgardeo are blocked on external work. CI's integration workflow is configured and verified — every PR into `main` now runs all seven migrations from scratch, the DM §13 drift check, and the full integration suite against a fresh Neon branch.
 
 | Gate | Result |
 |---|---|
@@ -18,7 +20,7 @@
 | `web` | 74 files / 264 tests |
 | `packages/shared` | 11 files / 78 tests |
 | `api` unit | 3 files / 10 tests |
-| **`api` integration** | 29 files / 328 tests — **not in `check`**, needs the live Neon branch ([§5](#5-the-traps)) |
+| **`api` integration** | 29 files / 328 tests — **not in `check`** locally ([§5](#5-the-traps)); runs on every PR via `integration.yml`, verified green 5 Aug 2026 |
 | `npm run lint` | 0 errors, 15 warnings — all `react-refresh/only-export-components`, expected ([§5](#5-the-traps)) |
 
 The client reaches **14 routes**. §3.3's map names 19 paths; the five with no screen are `/cash`, `/partners/:id`, `/reports`, `/reports/:key`, `/period/close`, plus `/settings/*` (level-3 config, unscoped) and `/me`. `/people/customers/:id` exists but renders a placeholder.
@@ -156,6 +158,8 @@ Things that cost a session each when rediscovered.
 - **`audit_log` no-ops every `DELETE`** (`DO INSTEAD NOTHING`, migration `0001`). An `app_user` is permanent from the moment anyone acts. Test cleanup must not try — it will compile, run, and silently do nothing. The fix lives in `tests/support/auth.ts`/`factories.ts`; production only ever revokes `business_member`.
 - **15 ESLint warnings are expected**, all `react-refresh/only-export-components` in `router.tsx` (14, one per route component) and `ApiContext.tsx` (1). A direct consequence of the code-based-router decision. 0 errors is the bar; do not "fix" these by splitting the route tree.
 - **`eslint-plugin-jsx-a11y` is deliberately absent** — its published peer range caps at ESLint 8/9 and this repo is on ESLint 10. **axe-core in Playwright is the a11y gate** until it catches up.
+- **Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright** — a `412` with no error body surfaced by `create-branch-action`, even though the value passed (300s) matched the plan's own fixed default exactly. Confirmed against Neon's own plans doc: *"Can I disable scale-to-zero? Free: No, it's always enabled (5 min idle timeout)"* — the setting isn't configurable via the API on this plan at any value, matching or not. Cost three failed CI runs before the parameter itself was suspected (the first three failures were a separate, missing-secrets cause). Fixed by omitting it from `integration.yml` entirely; Free already suspends at 5 minutes regardless, so nothing is lost.
+- **The free plan caps a project at 10 branches and starts failing branch creation around nine open PRs**, on *someone else's* PR, for a reason that looks unrelated (IG §9.2) — why `integration.yml` is one workflow, not two. Delete a hand-created scratch branch (a `migrate-check-*` from testing a migration manually) once its job is done rather than leaving it as permanent headroom loss.
 
 **Writing code**
 
@@ -192,7 +196,6 @@ UC §9.1 phase Third and UI §15 phase Third, listed so their absence is a decis
 
 | Blocked | Waiting on |
 |---|---|
-| **CI's integration workflow** | `secrets.NEON_API_KEY` / `vars.NEON_PROJECT_ID`, which do not exist in the repo. `integration.yml` creates, seeds and **deletes** a per-PR Neon branch — not optional on the free plan, where branch creation starts failing around nine open PRs, and fails on *someone else's* PR for a reason that looks unrelated (IG §9.2) |
 | **Real Asgardeo** (Track B, last) | Console: token type → JWT, binding → None, redirect URL cleanup. ~10 minutes; blocks nothing else |
 | **P14** — messaging | Twelve Meta template approvals |
 

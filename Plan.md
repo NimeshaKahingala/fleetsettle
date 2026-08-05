@@ -6,6 +6,8 @@
 
 **What changed from the previous edition.** It was a single serial queue of nine phases, each opening with its own backend increment and then building screens against it — so the frontend idled through every read increment and the backend idled through every screen. This splits the same work into **Track A (Worker + shared schemas)** and **Track B (React client)**, which is legal because of one rule the project already runs on, restated below. The old `Web-P8c…P12` numbering is retired; every item here carries a gap id from [TRACKER.md](TRACKER.md) §4 instead.
 
+**Updated 5 August 2026**, `e7efa71` — the CI gap under "One thing that is not code" (below) is resolved; see [TRACKER.md](TRACKER.md) for the full account. Nothing on either track was ever blocked by it, but every PR into `main` is now actually tested for the first time.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -352,12 +354,13 @@ Unchanged, restated so no session goes looking:
 
 ---
 
-## Two things that are not code
+## One thing that is not code
 
-Both are external, both are cheap, and both gate something real:
+External, cheap, and gates something real:
 
-1. **CI's integration workflow is blocked on `secrets.NEON_API_KEY` / `vars.NEON_PROJECT_ID`.** Until they exist, no endpoint is tested by CI at all — the integration suite runs only when a person runs it, on a shared branch that drops connections at random. This is the single highest-value non-code fix available.
-2. **Asgardeo's console change** — ten minutes, unblocks B8, blocks nothing else. Fire it early regardless of when B8 runs.
+1. **Asgardeo's console change** — ten minutes, unblocks B8, blocks nothing else. Fire it early regardless of when B8 runs.
+
+**Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 
 ---
 
