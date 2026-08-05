@@ -11,6 +11,22 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    # Node defaults its old-space heap to roughly 2 GB, and `eslint .` across
+    # this workspace now exceeds that: the first full run of this gate after
+    # the codebase grew died with "Ineffective mark-compacts near heap limit
+    # — JavaScript heap out of memory" and exit 134, which reads as a crashed
+    # runner rather than a lint failure. Type-aware typescript-eslint rules
+    # hold the whole program graph in memory, so this grows with the project
+    # and would only have got worse.
+    #
+    # 4 GB, not more: GitHub's runners for a private repository have 7 GB
+    # total, and the cap has to leave room for the OS and npm alongside it.
+    # Set at job level because `typecheck`, `test` and `build` load the same
+    # program graph and are the next candidates to hit the ceiling.
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
     steps:
       - uses: actions/checkout@v5
 
