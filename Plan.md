@@ -16,6 +16,8 @@
 
 **Updated 5 August 2026 — A4 done.** Two endpoints, 8 new tests, full suite 31/374. B6's dependency is now only B0 — every one of A2, A3 and A4's handoffs to Track B has now happened. A4's own write-up is below, under Track A.
 
+**Updated 5 August 2026 — A5 done.** One endpoint, 4 new tests, full suite 31/388. **Track A's read backlog is finished**; everything left on it writes, migrates, or both. A5's own write-up is below, and the section after the Track A table has been re-planned against the code — see "What the A6–A10 validation pass found".
+
 ---
 
 ## The rule that makes two tracks legal
@@ -37,15 +39,19 @@
 
 ## Start here
 
-**A2, A3 and A4 are all done** (below) — the A2 → B2, A3 → B3 and A4 → B6 handoffs are all live: every schema B2, B3 and B6 need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
+**A1 through A5 are all done — Track A's entire read backlog is finished.** Every handoff to Track B has happened: A2 → B2, A3 → B3, A4 → B6, A5 → B5's staff-side twin. Every schema those items need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested.
+
+**Everything left on Track A writes, migrates, or both** — which changes how it should be sequenced. A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter, and one entirely new item came out of it. The findings are below the Track A table.
 
 | Track A next | Track B starts |
 |---|---|
-| **A5** — driver history reads (closes GAP-24, GAP-29) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| **A9** — the period-close void hole (a live defect, ~half a day) then the rest of soft delete | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+
+**A9 goes first now, and only its first step.** GAP-35 is a live defect: voiding a record posted into a closed month silently changes that month's reported figures, and **A6 and A10 each add a fourteenth and fifteenth place it can happen.** Fixing it is one trigger change; doing it after A6 means shipping a known hole into new code.
 
 **Before B2, B3 or B6, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those items build is reachable only by typing a URL.
 
-B2, B3 and B6 can now all start in parallel with A5 — none of the three waits on anything left in Track A, only on B0.
+B2, B3, B4, B5 and B6 can all start in parallel with any of A6–A10 — none of them waits on anything left in Track A, only on B0.
 
 ---
 
@@ -57,7 +63,7 @@ B2, B3 and B6 can now all start in parallel with A5 — none of the three waits 
 | **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
 | **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
 | **A4** | ✅ Customer-scoped reads | GAP-22 | 2 | B6 |
-| **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
+| **A5** | ✅ Driver history reads | GAP-24, GAP-29 | 1 | B5 (partly) |
 | **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
 | **A7** | R2 presigned upload — unblocks five gaps | GAP-16 | 1 | B-photos |
 | **A8** | Expense odometer wiring and borne-by override | GAP-30, GAP-32 | 0–1 | — |
@@ -91,15 +97,15 @@ Two endpoints, both shipped: `GET /api/customer/{id}/obligation` (outstanding du
 
 **One shortcut this item confirmed rather than avoided:** `obligation` carries `party_customer_id` directly (set at insert, even for a rent due whose `source_type` is `billing_period`), so a customer's dues never needed the lease hub's three-way source reassembly — one direct filter was enough, as the plan predicted.
 
-### A5 · Driver history reads — closes GAP-24 and GAP-29
+### A5 · Done
 
-`DriverDetailScreen` shows two balances and nothing else; `driverBalancesResponseSchema` has no breakdown, so `TwoBalances` is fed `"—"` for both detail lines. `GET /api/advance` was deliberately skipped in Web-P8b for want of a caller — this is the caller.
+One endpoint: `GET /api/driver/{id}/view`, gated `dailyOperations`, returning both balances, days (excused ones included), closed trips and fees, advances, offsets and the held deposit. 4 new integration tests in the existing `driver.test.ts` (10 total). TRACKER.md §2 carries the row.
 
-**The thing to notice before writing anything:** `GET /api/driver-view` (P12) already returns exactly this data — days including excused ones, closed trips and fees, advances, offsets, held deposit. **It cannot be reused.** It is gated by `viewOwnData`, restricted to the `driver` role alone, and **INV-25 is structural** — there is no slot in that route for a caller-supplied driver id, by construction. A manager-facing equivalent is a genuinely separate route with a genuinely different gate.
+**The previous edition said the driver's own view "cannot be reused." That was half right, and the half it got wrong saved the work.** What cannot be reused is the *route* — its gate, and `requireDriverId` as the only source of the id. The **domain function** reuses perfectly: `getDriverOwnView(db, businessId, driverId, from, to)` never read the caller's identity, it took a `driverId` argument all along. So A5 is a new route-def, a new handler and a shared wire mapper (`toDriverViewResponse`, lifted out of the driver-view handler) over an unchanged domain function — which is also what guarantees the manager's screen and the driver's own screen can never print different numbers for the same driver.
 
-**Endpoints** — `GET /api/driver/{id}/advance`, `/deposit`, `/day` (or one composed read mirroring `driver-view`'s shape but keyed by an explicit, business-scoped `{id}`), gated `dailyOperations`.
+**INV-25 is untouched, and worth restating because it reads like a contradiction.** INV-25 forbids a caller-supplied `driverId` on *the linked driver's own* route — and that route still has no such slot. This is a different route with a different gate, and the boundary is proven in both directions: a linked-driver token 403s it for **any** id, including their own.
 
-**Trap — this is the W-49 test class's sharpest case.** A route that takes a `driverId` and returns a driver's money is exactly what INV-25 prevents on the driver's own route. It is legitimate here because the caller is staff and the id is business-scoped — but **a linked-driver token must 403 it outright**, and that test is not optional.
+**GAP-29 closed without building `GET /api/advance`.** The composed read already returns the driver's advances, so a separate advance list would have been a second way to reach the same rows with no screen asking for it — the same reasoning that withdrew B1. Revisit only if a screen ever needs advances *without* the rest of a driver's history.
 
 ### A6 · The trip receivable — closes GAP-23
 
@@ -312,20 +318,25 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A2  partner/banking/cash + members ✅        B0  the /more hub (no backend dependency)
         A3  period/write-off/payment ✅              B4  Review shell + 9 reports
         A4  customer reads ✅                        B5  Mine shell
-                                                     B2  partners, banking, cash (needs B0 only; A2 ✅)
+        A5  driver history ✅                        B2  partners, banking, cash (needs B0 only; A2 ✅)
                                                      B3  close the month, corrections (needs B0 only; A3 ✅)
                                                      B6  customer detail (needs B0 only; A4 ✅)
-now     A5  driver history + advances ─────────►    B5+ driver detail history (partial)
-        A6  trip receivable (design settled — post at booking)
-        A7  R2 upload (unblocks 5 gaps)
-        A8  odometer wiring, borne-by override
+                                                     B5+ driver detail history (A5 ✅)
+now     A9a GAP-35 — the void/closed-period hole  ← do this one first
+        A6  trip receivable (needs A9a)
+        A10 the other two silent zeros (needs A9a)
+        A7  R2 upload (unblocks 5 gaps; independent)
+        A8  odometer wiring, borne-by preview (independent)
+        A9b the rest of soft delete
 last                                                B7  offline and the PWA
 blocked                                             B8  real Asgardeo 🔴
 ```
 
-**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A5 through A8 are independent of each other and of every B item; A2, A3 and A4 are already done.
+**Track B never idles.** B4 alone is larger than A2 was, and B5, B6 and B7 sit behind it with no backend dependency at all — every Track A handoff Track B was ever waiting on has landed.
 
-**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top — all three have already happened, so B2, B3 and B6 wait on B0 alone now.
+**Track A's remaining items are no longer independent of each other.** A9a (the GAP-35 trigger fix) gates A6 and A10, because both add new places the defect can fire. A7 and A8 stay genuinely independent and can be picked up at any point.
+
+**There are no Track A → Track B handoffs left.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened; B2, B3, B5+ and B6 wait on B0 alone now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
 
 ---
 
