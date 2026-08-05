@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { leaseObligationRowSchema } from "./lease-billing.js";
 
 /**
  * UC-10 / W-55: a person has an NIC; an organisation chartering the bus does
@@ -48,3 +49,12 @@ export const customerResponseSchema = z.object({
   address: z.string().nullable(),
 });
 export type CustomerResponse = z.infer<typeof customerResponseSchema>;
+
+/**
+ * A4/GAP-22: the same row shape as a lease's obligation hub — `obligation`
+ * carries `party_customer_id` directly, so this is a customer's outstanding
+ * dues, oldest due first, reusing the identical fields rather than a
+ * near-duplicate schema.
+ */
+export const listCustomerObligationsResponseSchema = z.array(leaseObligationRowSchema);
+export type ListCustomerObligationsResponse = z.infer<typeof listCustomerObligationsResponseSchema>;

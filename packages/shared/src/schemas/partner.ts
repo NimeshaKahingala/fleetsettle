@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { accountingPeriodSummarySchema } from "./accounting-period.js";
 import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
 
 /**
@@ -37,6 +38,12 @@ export type OwnershipShareResponse = z.infer<typeof ownershipShareResponseSchema
 export const ownershipSharesResponseSchema = z.array(ownershipShareResponseSchema);
 export type OwnershipSharesResponse = z.infer<typeof ownershipSharesResponseSchema>;
 
+/** A2/GAP-9: the currently active split — `effectiveTo IS NULL` — never the full effective-dated history. `vehicleId` narrows to one vehicle; omitted, every vehicle's current split in the business. */
+export const listOwnershipSharesQuerySchema = z.object({
+  vehicleId: uuidSchema.optional(),
+});
+export type ListOwnershipSharesQuery = z.infer<typeof listOwnershipSharesQuerySchema>;
+
 /** F-1.3/UC-02/W-52: what a partner PAID — distinct from `ownership_share`, what he OWNS. The gap between the two is a standing claim, never a bigger slice. */
 export const recordCapitalContributionRequestSchema = z.object({
   vehicleId: uuidSchema.optional(),
@@ -58,6 +65,16 @@ export const capitalContributionResponseSchema = z.object({
   note: z.string().nullable(),
 });
 export type CapitalContributionResponse = z.infer<typeof capitalContributionResponseSchema>;
+
+/** A2/GAP-9: newest first. `userId`/`vehicleId` both optional — this is also the query `GET /api/partner/{userId}`'s "put in" block reads through, unscoped by vehicle. */
+export const listCapitalContributionsQuerySchema = z.object({
+  userId: uuidSchema.optional(),
+  vehicleId: uuidSchema.optional(),
+});
+export type ListCapitalContributionsQuery = z.infer<typeof listCapitalContributionsQuerySchema>;
+
+export const capitalContributionsResponseSchema = z.array(capitalContributionResponseSchema);
+export type CapitalContributionsResponse = z.infer<typeof capitalContributionsResponseSchema>;
 
 /**
  * F-1.4/UC-03/W-53: sharing a vehicle with a manager, with an optional
@@ -81,6 +98,18 @@ export const managementFeeAgreementResponseSchema = z.object({
   effectiveTo: z.string().nullable(),
 });
 export type ManagementFeeAgreementResponse = z.infer<typeof managementFeeAgreementResponseSchema>;
+
+/** A2/GAP-9: **revoked agreements are returned, not filtered out** — F-1.4's own "Revoke — access ends, everything they entered stays." */
+export const listManagementFeeAgreementsQuerySchema = z.object({
+  vehicleId: uuidSchema.optional(),
+  managerUserId: uuidSchema.optional(),
+});
+export type ListManagementFeeAgreementsQuery = z.infer<
+  typeof listManagementFeeAgreementsQuerySchema
+>;
+
+export const managementFeeAgreementsResponseSchema = z.array(managementFeeAgreementResponseSchema);
+export type ManagementFeeAgreementsResponse = z.infer<typeof managementFeeAgreementsResponseSchema>;
 
 /**
  * F-7.4/UC-65/W-27/W-37. Banking is not income, not an expense, not a
@@ -130,6 +159,15 @@ export const bankingEventResponseSchema = z.object({
 });
 export type BankingEventResponse = z.infer<typeof bankingEventResponseSchema>;
 
+/** A2/GAP-9: newest-banked-first. `userId` filters to one partner's own bankings (`fromUserId`). */
+export const listBankingEventsQuerySchema = z.object({
+  userId: uuidSchema.optional(),
+});
+export type ListBankingEventsQuery = z.infer<typeof listBankingEventsQuerySchema>;
+
+export const bankingEventsResponseSchema = z.array(bankingEventResponseSchema);
+export type BankingEventsResponse = z.infer<typeof bankingEventsResponseSchema>;
+
 /** F-7.2/UC-63: never a cost of the vehicle — a payout to a partner, or a settlement between partners. Settlement between partners moves the current account, not the P&L. */
 export const recordPartnerPayoutRequestSchema = z.object({
   userId: uuidSchema,
@@ -147,3 +185,60 @@ export const partnerPayoutResponseSchema = z.object({
   occurredOn: z.string(),
 });
 export type PartnerPayoutResponse = z.infer<typeof partnerPayoutResponseSchema>;
+
+/** A2/GAP-9: newest-occurred-first. `userId` filters to one partner; `kind` splits payouts from settlements. */
+export const listPartnerPayoutsQuerySchema = z.object({
+  userId: uuidSchema.optional(),
+  kind: z.enum(["payout", "partner_settlement"]).optional(),
+});
+export type ListPartnerPayoutsQuery = z.infer<typeof listPartnerPayoutsQuerySchema>;
+
+/**
+ * A2/GAP-9/GAP-4/UC-67/W-52/W-53: "one page per partner, four lines."
+ *
+ * `putIn`/`takenOut` are **all-time running totals** — a contribution or a
+ * payout from years ago never stops counting, the same way `holdingMinor`
+ * (`GET /api/reports/cash-position`'s own figure, unscoped by date) already
+ * doesn't reset. `earned` is **the `period` named alongside it, and no
+ * wider** — profit share and management fee are period facts, not a
+ * standing balance, so unlike the other three blocks a rerun across every
+ * closed period there has ever been is a different, larger feature this
+ * endpoint does not attempt.
+ *
+ * `putIn.outOfPocketMinor` is GAP-4, closed by **derivation**:
+ * `expense.paid_by_user_id` summed at read time, never a written
+ * current-account entry — a sum cannot drift from the expense it came from,
+ * a new money table can.
+ */
+export const partnerPutInSchema = z.object({
+  contributionsMinor: z.string(),
+  outOfPocketMinor: z.string(),
+});
+export type PartnerPutIn = z.infer<typeof partnerPutInSchema>;
+
+export const partnerTakenOutSchema = z.object({
+  payoutsMinor: z.string(),
+  settlementsMinor: z.string(),
+});
+export type PartnerTakenOut = z.infer<typeof partnerTakenOutSchema>;
+
+export const partnerEarnedSchema = z.object({
+  profitShareMinor: z.string(),
+  managementFeeMinor: z.string(),
+});
+export type PartnerEarned = z.infer<typeof partnerEarnedSchema>;
+
+export const partnerSummaryResponseSchema = z.object({
+  userId: uuidSchema,
+  displayName: z.string().nullable(),
+  /** The period `earned` is scoped to — same convention `vehicleMonthResponseSchema` (reports.ts) already uses for the identical reason. */
+  period: accountingPeriodSummarySchema,
+  putIn: partnerPutInSchema,
+  takenOut: partnerTakenOutSchema,
+  earned: partnerEarnedSchema,
+  holdingMinor: z.string(),
+});
+export type PartnerSummaryResponse = z.infer<typeof partnerSummaryResponseSchema>;
+
+export const partnerPayoutsResponseSchema = z.array(partnerPayoutResponseSchema);
+export type PartnerPayoutsResponse = z.infer<typeof partnerPayoutsResponseSchema>;

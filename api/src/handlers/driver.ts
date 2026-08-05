@@ -1,6 +1,7 @@
 import { newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { getDriverOwnView } from "../domain/driver-view.js";
 import { NotFoundError } from "../errors/app-error.js";
 import {
   findDriverForBusiness,
@@ -12,10 +13,12 @@ import { sumOutstandingByDirectionForDriver } from "../queries/obligation.js";
 import type {
   createDriverRoute,
   getDriverBalancesRoute,
+  getDriverHistoryRoute,
   getDriverRoute,
   listDriversRoute,
 } from "../route-defs/driver.js";
 import type { Env } from "../types.js";
+import { toDriverViewResponse } from "./driver-view.js";
 
 function toResponse(row: DriverRow) {
   return {
@@ -108,4 +111,32 @@ export const getDriverBalancesHandler: RouteHandler<typeof getDriverBalancesRout
     },
     200,
   );
+};
+
+/**
+ * A5/GAP-24/GAP-29. `dailyOperations` — the staff-facing twin of
+ * `GET /api/driver-view`, same `getDriverOwnView` domain function, keyed
+ * by an explicit `{id}` instead of the caller's own identity. This is
+ * the W-49 test class's sharpest case: a route that takes a `driverId`
+ * and returns a driver's money is exactly what INV-25 forbids on the
+ * driver's own route — legitimate here only because the caller is staff
+ * and the id is business-scoped, so a linked-driver token must 403
+ * outright (proven in the integration tests, not assumed from the
+ * capability gate alone).
+ */
+export const getDriverHistoryHandler: RouteHandler<typeof getDriverHistoryRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const { from, to } = c.req.valid("query");
+  const reader = c.get("reader");
+
+  const driver = await findDriverForBusiness(reader, businessId, id);
+  if (!driver) throw new NotFoundError();
+
+  const view = await getDriverOwnView(reader, businessId, id, from, to);
+  return c.json(toDriverViewResponse(view), 200);
 };

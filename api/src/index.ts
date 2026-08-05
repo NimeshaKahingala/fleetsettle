@@ -27,11 +27,13 @@ import { deposit } from "./routes/deposit.js";
 import { offset } from "./routes/offset.js";
 import { mileageAssessment } from "./routes/mileage-assessment.js";
 import { payment } from "./routes/payment.js";
+import { businessMember } from "./routes/business-member.js";
 import {
   bankingEvent,
   capitalContribution,
   managementFeeAgreement,
   ownershipShare,
+  partner,
   partnerPayout,
 } from "./routes/partner.js";
 import { incident } from "./routes/incident.js";
@@ -116,6 +118,9 @@ app.route("/api/mileage-assessment", mileageAssessment);
 app.use("/api/payment/*", dbMiddleware(), authMiddleware());
 app.route("/api/payment", payment);
 
+app.use("/api/business-member/*", dbMiddleware(), authMiddleware());
+app.route("/api/business-member", businessMember);
+
 app.use("/api/ownership-share/*", dbMiddleware(), authMiddleware());
 app.route("/api/ownership-share", ownershipShare);
 
@@ -130,6 +135,9 @@ app.route("/api/banking-event", bankingEvent);
 
 app.use("/api/partner-payout/*", dbMiddleware(), authMiddleware());
 app.route("/api/partner-payout", partnerPayout);
+
+app.use("/api/partner/*", dbMiddleware(), authMiddleware());
+app.route("/api/partner", partner);
 
 app.use("/api/incident/*", dbMiddleware(), authMiddleware());
 app.route("/api/incident", incident);

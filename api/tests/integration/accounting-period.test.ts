@@ -2,12 +2,16 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { accountingPeriod, dayRecord, expense, obligation } from "../../src/db/schema.js";
-import { mintUser, signAccessToken } from "../support/auth.js";
+import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
 
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+
+async function listPeriods(token: string) {
+  return request("/api/accounting-period", bearer(token));
+}
 
 async function getChecklist(token: string) {
   return request("/api/accounting-period/checklist", bearer(token));
@@ -64,6 +68,7 @@ async function getDriverBalances(token: string, driverId: string) {
 interface CloseChecklistBody {
   period: { id: string; periodStart: string; periodEnd: string };
   checklist: {
+    unconfirmedDays: number;
     openTrips: number;
     unreconciledAdvances: number;
     pendingObligations: number;
@@ -88,7 +93,7 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     await db.$client.end();
   });
 
-  it("the checklist counts an open trip, an unsettled advance, a pending due and an open incident", async () => {
+  it("the checklist counts an open trip, an unsettled advance, a pending due, an open incident and an unconfirmed day (GAP-13)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
@@ -100,6 +105,15 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
       customerId,
       amountMinor: 10_000n,
     });
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-15",
+    );
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -120,6 +134,7 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     expect(body.period.id).toBe(periodId);
     expect(body.checklist.openTrips).toBeGreaterThanOrEqual(1);
     expect(body.checklist.pendingObligations).toBeGreaterThanOrEqual(1);
+    expect(body.checklist.unconfirmedDays).toBeGreaterThanOrEqual(1);
 
     await ctx.cleanup();
   });
@@ -209,6 +224,76 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     const token = await signAccessToken(manager.asgardeoSub);
 
     const res = await postClose(token);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/** A3: this business's whole period history, newest first — so a screen can show which months are closed. */
+describe("GET /api/accounting-period (A3)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every period for this business, newest first, open and closed alike", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const julyId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const closeRes = await postClose(token);
+    expect(closeRes.status).toBe(200);
+    const closeBody: ClosedPeriodBody = await closeRes.json();
+    ctx.trackCreatedPeriod(closeBody.newPeriod.id);
+
+    const res = await listPeriods(token);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; status: string; closedAt: string | null }> = await res.json();
+    expect(body.map((p) => p.id)).toEqual([closeBody.newPeriod.id, julyId]);
+    expect(body[0]).toMatchObject({ status: "open", closedAt: null });
+    expect(body[1]).toMatchObject({ status: "closed" });
+    expect(body[1]?.closedAt).toBeTruthy();
+
+    await ctx.cleanup();
+  });
+
+  it("scoping — another business's periods never appear", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    await ctx.createOpenPeriod(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listPeriods(token);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string }> = await res.json();
+    expect(body.map((p) => p.id)).toEqual([periodId]);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await listPeriods("");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver has no viewReports capability", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listPeriods(token);
     expect(res.status).toBe(403);
 
     await ctx.cleanup();

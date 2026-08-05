@@ -110,6 +110,42 @@ export const paymentResponseSchema = z.object({
 export type PaymentResponse = z.infer<typeof paymentResponseSchema>;
 
 /**
+ * A3/GAP-38: `POST /api/payment/{id}/correct` has existed since P9 with no
+ * caller — F-8.2's own first step is "open the receipt", so this is what
+ * hands a screen a payment id. Carries the same fields `correctPayment`
+ * reads plus enough party context to render a receipt row without a second
+ * lookup.
+ */
+export const paymentListRowSchema = z.object({
+  id: z.string().uuid(),
+  direction: z.enum(["received", "paid"]),
+  partyType: z.enum(["customer", "driver", "partner"]),
+  partyCustomerId: z.string().uuid().nullable(),
+  partyDriverId: z.string().uuid().nullable(),
+  partyUserId: z.string().uuid().nullable(),
+  amountMinor: z.string(),
+  occurredOn: z.string(),
+  method: z.string().nullable(),
+  reference: z.string().nullable(),
+  status: z.enum(["active", "corrected", "reversed"]),
+});
+export type PaymentListRow = z.infer<typeof paymentListRowSchema>;
+
+export const listPaymentsResponseSchema = z.array(paymentListRowSchema);
+export type ListPaymentsResponse = z.infer<typeof listPaymentsResponseSchema>;
+
+/** A3: every filter optional — an unfiltered call is every payment the business has ever recorded, newest first. `from`/`to` bound `occurredOn`, the same convention `listExpensesQuerySchema` already established. */
+export const listPaymentsQuerySchema = z.object({
+  partyType: z.enum(["customer", "driver", "partner"]).optional(),
+  partyCustomerId: uuidSchema.optional(),
+  partyDriverId: uuidSchema.optional(),
+  direction: z.enum(["received", "paid"]).optional(),
+  from: businessDateSchema.optional(),
+  to: businessDateSchema.optional(),
+});
+export type ListPaymentsQuery = z.infer<typeof listPaymentsQuerySchema>;
+
+/**
  * The lease hub's dues list (Web-P6b): every `owed_to_us` obligation this
  * lease has ever raised — rent (`sourceType: billing_period`), mileage
  * excess (`sourceType: mileage_assessment`) and any post-closure charge

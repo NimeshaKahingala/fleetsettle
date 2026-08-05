@@ -1,4 +1,4 @@
-import { asBusinessDate, toWire } from "@fleetsettle/shared";
+import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { recordWriteOff, recordWriteOffRecovery } from "../domain/write-off.js";
@@ -6,8 +6,52 @@ import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findObligationForBusiness } from "../queries/obligation.js";
-import type { recordWriteOffRecoveryRoute, recordWriteOffRoute } from "../route-defs/write-off.js";
+import {
+  listWriteOffsForBusiness,
+  type WriteOffListFilters,
+  type WriteOffListRow,
+} from "../queries/write-off.js";
+import type {
+  listWriteOffsRoute,
+  recordWriteOffRecoveryRoute,
+  recordWriteOffRoute,
+} from "../route-defs/write-off.js";
 import type { Env } from "../types.js";
+
+function toListRow(row: WriteOffListRow) {
+  return {
+    id: row.id,
+    obligationId: row.obligationId,
+    partyType: row.partyType,
+    partyCustomerId: row.partyCustomerId,
+    partyDriverId: row.partyDriverId,
+    vehicleId: row.vehicleId,
+    amountMinor: toWire(row.amountMinor as Minor),
+    reason: row.reason,
+    writtenOffOn: row.writtenOffOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+  };
+}
+
+/** A3: same audience as recording one — reviewing write-off history is as sensitive as creating a write-off. */
+export const listWriteOffsHandler: RouteHandler<typeof listWriteOffsRoute, Env> = async (c) => {
+  requireCapability(c, "writeOffOrWaiveAboveThreshold");
+  const businessId = requireBusinessId(c);
+  const query = c.req.valid("query");
+
+  const filters: WriteOffListFilters = {
+    ...(query.partyType !== undefined ? { partyType: query.partyType } : {}),
+    ...(query.partyCustomerId !== undefined ? { partyCustomerId: query.partyCustomerId } : {}),
+    ...(query.partyDriverId !== undefined ? { partyDriverId: query.partyDriverId } : {}),
+    ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+    ...(query.from !== undefined ? { from: query.from } : {}),
+    ...(query.to !== undefined ? { to: query.to } : {}),
+  };
+
+  const rows = await listWriteOffsForBusiness(c.get("reader"), businessId, filters);
+  return c.json(rows.map(toListRow), 200);
+};
 
 /** F-8.3/UC-90/W-28. `writeOffOrWaiveAboveThreshold` — owners only, the same row UC-90's own actor line names. */
 export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env> = async (c) => {

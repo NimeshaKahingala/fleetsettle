@@ -6,6 +6,18 @@
 
 **What changed from the previous edition.** It was a single serial queue of nine phases, each opening with its own backend increment and then building screens against it — so the frontend idled through every read increment and the backend idled through every screen. This splits the same work into **Track A (Worker + shared schemas)** and **Track B (React client)**, which is legal because of one rule the project already runs on, restated below. The old `Web-P8c…P12` numbering is retired; every item here carries a gap id from [TRACKER.md](TRACKER.md) §4 instead.
 
+**Updated 5 August 2026**, `e7efa71` — the CI gap under "One thing that is not code" (below) is resolved; see [TRACKER.md](TRACKER.md) for the full account. Nothing on either track was ever blocked by it, but every PR into `main` is now actually tested for the first time.
+
+**Updated 5 August 2026**, `2822193` — validated A2/A3/B2/B3 against the code rather than against this file, ahead of building them. Three things were wrong and are fixed below: **`/more` does not exist**, so B2 and B3 had no entry point (now **B0**, GAP-37) · **`GET /api/payment` does not exist**, so F-8.2 was unbuildable from any screen (now in A3, GAP-38) · **GAP-13 stopped being expensive when P13 shipped** and is now built in A3 rather than deferred a fifth time. A2's one open decision — F-7.6's host — is also **made**, and it closes GAP-4 by deriving rather than writing.
+
+**Updated 5 August 2026 — A2 done.** Six endpoints, 25 new tests, full suite 31/353. B2's dependency is now only B0. One new gap recorded, **GAP-39** — W-53's management fee has never actually reduced vehicle profit; TRACKER.md §4 has the detail. A2's own write-up is below, under Track A.
+
+**Updated 5 August 2026 — A3 done.** Four endpoints/changes, 13 new tests, full suite 31/366. B3's dependency is now only B0. A3's own write-up is below, under Track A.
+
+**Updated 5 August 2026 — A4 done.** Two endpoints, 8 new tests, full suite 31/374. B6's dependency is now only B0 — every one of A2, A3 and A4's handoffs to Track B has now happened. A4's own write-up is below, under Track A.
+
+**Updated 5 August 2026 — A5 done.** One endpoint, 4 new tests, full suite 31/388. **Track A's read backlog is finished**; everything left on it writes, migrates, or both. A5's own write-up is below, and the section after the Track A table has been re-planned against the code — see "What the A6–A10 validation pass found".
+
 ---
 
 ## The rule that makes two tracks legal
@@ -27,13 +39,19 @@
 
 ## Start here
 
-**Three Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets both tracks start at full speed on day one:
+**A1 through A5 are all done — Track A's entire read backlog is finished.** Every handoff to Track B has happened: A2 → B2, A3 → B3, A4 → B6, A5 → B5's staff-side twin. Every schema those items need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested.
 
-| Track A starts | Track B starts |
+**Everything left on Track A writes, migrates, or both** — which changes how it should be sequenced. A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter, and one entirely new item came out of it. The findings are below the Track A table.
+
+| Track A next | Track B starts |
 |---|---|
-| **A2** — partner, banking and cash reads (the largest read increment) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| **A9** — the period-close void hole (a live defect, ~half a day) then the rest of soft delete | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
 
-Neither waits on the other. The first real handoff is A2 → B2, by which point B4 is well underway.
+**A9 goes first now, and only its first step.** GAP-35 is a live defect: voiding a record posted into a closed month silently changes that month's reported figures, and **A6 and A10 each add a fourteenth and fifteenth place it can happen.** Fixing it is one trigger change; doing it after A6 means shipping a known hole into new code.
+
+**Before B2, B3 or B6, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those items build is reachable only by typing a URL.
+
+B2, B3, B4, B5 and B6 can all start in parallel with any of A6–A10 — none of them waits on anything left in Track A, only on B0.
 
 ---
 
@@ -42,14 +60,18 @@ Neither waits on the other. The first real handoff is A2 → B2, by which point 
 | id | Item | Gaps | Endpoints | Blocks |
 |---|---|---|---|---|
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
-| **A2** | Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | ~5 | B2 |
-| **A3** | Period and write-off reads | GAP-13 | 1–2 | B3 |
-| **A4** | Customer-scoped reads | GAP-22 | 2 | B6 |
-| **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
-| **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
-| **A7** | R2 presigned upload — unblocks five gaps | GAP-16 | 1 | B-photos |
-| **A8** | Expense odometer wiring and borne-by override | GAP-30, GAP-32 | 0–1 | — |
-| **A9** | **Soft delete, everywhere** — starts with a live defect | GAP-12, GAP-35, GAP-36 | ~15 + 2 migrations | — |
+| **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
+| **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
+| **A4** | ✅ Customer-scoped reads | GAP-22 | 2 | B6 |
+| **A5** | ✅ Driver history reads | GAP-24, GAP-29 | 1 | B5 (partly) |
+| **A9a** | ⚠️ **The void/closed-period hole — a live defect** | GAP-35 | 0 + a migration | **A6, A10** |
+| **A6** | The trip receivable — design settled, needs A9a | GAP-23 | 0 + a migration | — |
+| **A10** | The other two silent zeros — **new** | GAP-39, GAP-10 | 0–1 + a generator | — |
+| **A7** | R2 upload — unblocks five gaps, independent | GAP-16 | 1–2 | B-photos |
+| **A8** | Odometer wiring + borne-by preview, independent | GAP-30, GAP-32 | 1 | — |
+| **A9b** | The rest of soft delete | GAP-12, GAP-36 | ~15 + a migration | — |
+
+**Endpoint counts are lower than the previous edition's** because validation moved work out of handlers: A6 and A10 add **no new endpoints at all** — they change what existing writes do inside their existing transactions — and A9a is a migration with no endpoint. What is left on this track is mostly domain-layer and SQL, which is also why it is the half that needs the golden fixtures re-run rather than a new screen.
 
 ### A1 · Done
 
@@ -57,96 +79,146 @@ Neither waits on the other. The first real handoff is A2 → B2, by which point 
 
 **It has no caller** (GAP-33), and that is deliberate: §3.3's route map has no business-wide costs route, so the plan's `ExpenseListScreen` was withdrawn rather than built. The endpoint keeps real value — report-adjacent, and every other list endpoint here has shipped ahead of its screen at some point. **Do not add a screen for it without a spec change.**
 
-### A2 · Partner, banking and cash reads
+### A2 · Done
 
-**The largest item on either track, entirely because all five partner resources are `POST`-only.** Nothing can be rendered about a partner today.
+Six endpoints, all shipped: `GET /api/business-member` (GAP-31, `dailyOperations`) · `GET /api/ownership-share`/`capital-contribution`/`management-fee-agreement`/`banking-event`/`partner-payout` (`managePartnerCapital`, except banking-event which shares the write's `dailyOperations` gate) · the composed `GET /api/partner/{userId}` (F-7.6/F-7.3), closing GAP-9 and GAP-4 by derivation, never a write. 25 new integration tests (business-member 4, partner +16, partner-summary 5) in two new files; full suite 31/353, all green. TRACKER.md §2 carries the row.
 
-**Endpoints** — `GET /api/ownership-share` (current shares, effective-dated), `GET /api/capital-contribution`, `GET /api/management-fee-agreement`, `GET /api/banking-event`, and **`GET /api/business-member`** (GAP-31). `GET /api/reports/cash-position` already covers F-7.5 and **must not be duplicated**.
+**One design correction worth carrying forward:** `listOwnershipShares` filters `effective_to IS NULL` alone, not a "latest set per vehicle" grouping — `assert_shares_total`'s deferred trigger structurally forbids two open sets ever coexisting for one vehicle, so the simple filter is provably sufficient. A first draft over-built this; TRACKER §5 has the reasoning.
 
-**GAP-31 is small and unblocks something already shipped.** `BorneByPaidBy`'s paid-by picker renders one honest option ("You") because nothing lists a business's own members. W-48 is satisfied — two fields, never collapsed — but the second field cannot offer a real choice until this exists. It is the cheapest endpoint on this track and it makes a shipped form correct.
+**One new gap, recorded rather than fixed: GAP-39.** `sumVehicleCostsForPeriod` already reads `obligation WHERE kind = 'management_fee'`, but nothing has ever written one — W-53's "management fee reduces vehicle profit" has been silently a no-op since P7. `GET /api/partner/{userId}` works around it correctly (reading `management_fee_agreement` directly), but UC-70's vehicle-profit figure is still wrong wherever a management fee applies. Unowned; needs a generator, not a read-side fix.
 
-**One decision this item owns:** F-7.6's partner current account has no read and no obvious host. Decide deliberately whether it is an endpoint here or a tenth report — and note that **GAP-4 points at the same place**: `paid_by_user_id` is recorded on every expense but raises no current-account entry, so F-3.1's "no extra step" is unmet. If F-7.6 becomes real, GAP-4 is its first writer.
+### A3 · Done
+
+Four endpoints/changes, all shipped: `GET /api/accounting-period` (list, newest first, `viewReports`) · `GET /api/write-off` (list, every filter optional, `writeOffOrWaiveAboveThreshold` — the same gate as recording one) · **`GET /api/payment`** (GAP-38, `dailyOperations` — the same gate as recording one; carries the W-49 linked-driver 403 class since a payment names the driver it moved against) · the close checklist's **`unconfirmedDays`** row (GAP-13 — one `COUNT(*)` on `day_record.state = 'open'` scoped to the open period, the same scoping `pendingObligations` already used, cheap and exact since P13). No new table, no new write, no domain layer — four straight filtered reads. 13 new integration tests across the three existing files; full suite 31/366, all green. TRACKER.md §2 carries the row.
+
+**Explicitly out of scope, unchanged: GAP-12.** Void-and-replace stays `expense`-only — that is A9's job, not this one's.
+
+### A4 · Done
+
+Two endpoints, both shipped: `GET /api/customer/{id}/obligation` (outstanding dues only, oldest due first — reuses `findOutstandingObligationsForParty` rather than a second party-scoped query, exactly the trap this item was written to avoid, so this screen can never disagree with what `recordPayment` actually allocates against) and `GET /api/customer/{id}/payment` (reuses `listPaymentsForBusiness` scoped by `partyCustomerId`). Both `dailyOperations`, 404 cross-tenant, both proven against the W-49 linked-driver 403 class. No new table, no new write, no domain layer. 8 new integration tests in the existing `customer.test.ts`; full suite 31/374, all green. TRACKER.md §2 carries the row.
+
+**GAP-22 closes on its backend half only.** `/people/customers/:id` itself still renders `NotBuiltYetScreen` — that placeholder is B6's own item, not a backend gap, and B6 now waits only on B0.
+
+**One shortcut this item confirmed rather than avoided:** `obligation` carries `party_customer_id` directly (set at insert, even for a rent due whose `source_type` is `billing_period`), so a customer's dues never needed the lease hub's three-way source reassembly — one direct filter was enough, as the plan predicted.
+
+### A5 · Done
+
+One endpoint: `GET /api/driver/{id}/view`, gated `dailyOperations`, returning both balances, days (excused ones included), closed trips and fees, advances, offsets and the held deposit. 4 new integration tests in the existing `driver.test.ts` (10 total). TRACKER.md §2 carries the row.
+
+**The previous edition said the driver's own view "cannot be reused." That was half right, and the half it got wrong saved the work.** What cannot be reused is the *route* — its gate, and `requireDriverId` as the only source of the id. The **domain function** reuses perfectly: `getDriverOwnView(db, businessId, driverId, from, to)` never read the caller's identity, it took a `driverId` argument all along. So A5 is a new route-def, a new handler and a shared wire mapper (`toDriverViewResponse`, lifted out of the driver-view handler) over an unchanged domain function — which is also what guarantees the manager's screen and the driver's own screen can never print different numbers for the same driver.
+
+**INV-25 is untouched, and worth restating because it reads like a contradiction.** INV-25 forbids a caller-supplied `driverId` on *the linked driver's own* route — and that route still has no such slot. This is a different route with a different gate, and the boundary is proven in both directions: a linked-driver token 403s it for **any** id, including their own.
+
+**GAP-29 closed without building `GET /api/advance`.** The composed read already returns the driver's advances, so a separate advance list would have been a second way to reach the same rows with no screen asking for it — the same reasoning that withdrew B1. Revisit only if a screen ever needs advances *without* the rest of a driver's history.
+
+### What the A6–A10 validation pass found — 5 August 2026
+
+Re-validated against the code, not against this file, the same way the A2/A3 pass was. **Three of the four remaining items were wrong in ways that change the work**, one whole item was missing, and the ordering changed as a result.
+
+1. **A6 makes `bookTrip` period-dependent for the first time.** `bookTrip` never calls `resolvePeriodLinkage` today — booking a charter works regardless of whether an accounting period covers the date. Posting an obligation inside that transaction requires `posted_period_id`, so **booking starts being refusable with `PERIOD_CLOSED` where it currently always succeeds.** That is a behaviour change to a shipped endpoint, not an addition, and it needs its own test.
+2. **A trip need not have a customer.** `trip.customer_id` is nullable and `BookTripInput.customerId` is optional, but `obligation` has a CHECK forcing exactly one party. A trip fare therefore cannot always be posted — the branch is real and the plan never mentioned it.
+3. **A8's "real decision" is already decided, four times over.** Whether a fuel fill writes its own `odometer_reading` row transactionally is settled by precedent: `lease.ts`, `mileage.ts` and `trip.ts` (twice) all insert one inside their own transaction, and **there is no standalone odometer endpoint at all.** A8 follows the convention rather than opening the question.
+4. **A8's borne-by lookup already exists.** `resolveBorneByDefault` already calls `findActiveLeaseForVehicle`/`findCurrentDailyLeaseForVehicle`. What is missing is not a lookup but a way for the form to *show* what the server would decide — a preview read, which is why the client currently has to omit `borne_by` entirely rather than display a default it is forbidden to compute.
+5. **GAP-35's fix cannot be a straight revert of `0006`, and cannot reference `NEW.voided_at` unguarded.** `assert_period_open()` is one function shared by **19** tables; only **13** of them have a `voided_at` column. A function reading `NEW.voided_at` raises `record "new" has no field` on the other six. The fix is a column-presence-safe test, sketched in A9a.
+6. **GAP-23 is not the only silent zero — it is one of three, and the other two are unowned.** GAP-39 (management fee) is marked `—`, and GAP-10 (an incident's customer contribution) is filed under "correct to leave." All three are the same defect: **an amount somebody has agreed to owe never becomes an obligation, so it reads as zero everywhere.** `incident_recovery.obligation_id` even carries the comment `-- customer contributions become receivable`. They are now **A10**, and A6 is the first of the family rather than a one-off.
+
+---
+
+### A9a · The void/closed-period hole — GAP-35, and it goes first
+
+**A live defect, roughly half a day, and it grows with every item built before it.** Migration `0006` made `assert_period_open()` return early on any `UPDATE` that leaves `posted_period_id` untouched — correct for its own case (settling a July rent with an August payment) and correct for the twelve others it silently fixed. But **a void sets only `voided_at`**, so voiding a record posted into a closed month is refused by nothing, and July's reported costs change after July closed. `voidExpense` has no period check either. This is precisely the "wrong, plausible, unnoticed for months" failure the project exists to prevent, and it is live today.
+
+**Fix it in the trigger, not in thirteen domain functions.** Two implementations of one rule diverge, and the one that loses is the database.
+
+**The shape, and why it is not obvious.** `assert_period_open()` is attached to **19** tables (`0001`'s `FOREACH t IN ARRAY` block); only **13** carry `voided_at` — `payment`, `day_record`, `mileage_assessment`, `payment_correction`, `insurance_claim` and `trip` do not. A function that names `NEW.voided_at` directly fails on those six with `record "new" has no field "voided_at"`. So the test must be column-presence-safe:
+
+```sql
+IF TG_OP = 'UPDATE' AND NEW.posted_period_id IS NOT DISTINCT FROM OLD.posted_period_id THEN
+  -- A void is a new reversal fact, not an incidental update: it must obey
+  -- the closed-period rule even though posted_period_id is unchanged.
+  -- to_jsonb keeps this legal on the six trigger tables with no voided_at.
+  IF (to_jsonb(OLD) ->> 'voided_at') IS NULL
+     AND (to_jsonb(NEW) ->> 'voided_at') IS NOT NULL THEN
+    NULL;                     -- fall through to the closed check below
+  ELSE
+    RETURN NEW;               -- 0006's case, unchanged
+  END IF;
+END IF;
+```
 
 **Traps:**
-- **Shares are a deferred constraint.** A 60/40 split is one legal multi-row write; the trigger fires once at commit. Any read must present them as a set with one `effectiveFrom`, never row by row.
-- **Capital is not ownership** (W-52). What a partner paid and what he owns are two facts. Never derive a "gap" figure this backend does not compute.
-- **A revoked management agreement keeps its records attributed.** Revoke set `effective_to`; the read must return revoked agreements, not filter them out.
-- **GAP-1 is still open.** `managePartnerCapital` is flat and business-wide. Gate these with it, and do not let the response shape imply per-vehicle scoping exists.
+- **Do not narrow `0006`.** Settling an obligation, correcting a payment and every other posted-period-preserving update must stay legal. Only the `NULL → NOT NULL` transition on `voided_at` is caught.
+- **Un-voiding is not a thing.** There is no path that clears `voided_at`; do not add one to make the test symmetric.
+- **`voidExpense` still needs its `PERIOD_CLOSED` mapping** — the trigger raises, `isPeriodClosedViolation` already recognises the shape, and the handler must return 409 rather than 500.
+- **The DM §13 drift assertion is unaffected** — no table joins or leaves the array. Re-run it anyway; it is the check that caught this array being wrong once already.
 
-### A3 · Period and write-off reads
+**Done means** — voiding an expense posted into a closed period returns `PERIOD_CLOSED`, voiding one in the open period still works, settling a closed-period obligation with a current-period payment still works (the `0006` regression test), and the golden fixtures still land on 134,000 / 15,000 / 7,500.
 
-**Small.** `GET /api/accounting-period/checklist` and `GET /api/audit-log/{tableName}/{recordId}` already exist and are tested.
+### A6 · The trip receivable — closes GAP-23, needs A9a
 
-**Endpoints** — `GET /api/write-off` (list), and a period list so a screen can show which months are closed.
+**The design is settled** (post at booking, `kind: 'trip_fare'`, `source_type: 'trip'`, `source_id: tripId`, `due_on`/`effective_due_on` = the trip's end date, void on cancel). The reasoning is recorded in TRACKER §4 and is not reopened here. What follows is only what validating it against the code changed.
 
-**Trap** — the checklist **warns and lists; it never blocks** (U-7). Nothing in it is an invariant the schema does not already refuse structurally. Do not add a `canClose` boolean; there isn't one.
+**It is a behaviour change to `bookTrip`, not an addition.** `bookTrip` has never touched `accounting_period` — no `resolvePeriodLinkage`, no `posted_period_id`. An obligation needs one, so **booking a charter becomes refusable with `PERIOD_CLOSED` when no period is open**, exactly as `closeTrip` and `recordPayment` already are. Say so in the route-def's responses and test it; a shipped endpoint quietly gaining a new failure mode is how a screen ends up with an unhandled error path.
 
-**Explicitly out of scope: GAP-12.** Void-and-replace stays `expense`-only. The other twelve W-50 tables carry the `voided_*` trio structurally, but a domain function and endpoint per table is real additional work, and the mechanism is proven rather than each instance of it.
+**`resolvePeriodLinkage` takes a date, but `postedPeriodId` is always the currently open period** — the date only decides `belongs_to_period_id` (W-35). Pass the **booking date**, not the trip's start or end: booking is the fact being posted. `BookTripInput` has no date field today, so it gains one, supplied by the handler from `businessToday()` (never `new Date()`, never `CURRENT_DATE`).
 
-### A4 · Customer-scoped reads — closes GAP-22
+**Only post the obligation when there is a customer and an amount.** `trip.customer_id` is nullable, `BookTripInput.customerId` is optional, and `obligation`'s CHECK demands exactly one party — so an owner-driven charter with no customer row simply raises no receivable. Mirror `closeTrip`'s own guard on the driver-fee side, which already writes nothing when `driverFeeMinor` is 0:
 
-**The gap that fell through four phases.** `/people/customers/:id` renders a placeholder; §3.3 specifies dues, payments, statement.
+```ts
+if (input.customerId !== undefined && input.agreedAmountMinor > 0n) { … }
+```
 
-**Endpoints** — `GET /api/customer/{id}/obligation` and `GET /api/customer/{id}/payment`.
+**The migration widens a CHECK, which the guard treats as destructive.**
 
-**Read `findObligationsForLease` (Web-P6a) before writing either.** It is the same shape of problem solved once already — except `obligation` carries `party_type`/`party_customer_id`, so a customer's dues are reachable **directly by party**. That makes this simpler than the lease case, not harder; the lease query is the reference for the guarded-`OR` and never-`inArray`-on-empty conventions, not for its three-way reassembly.
+- The constraint is **unnamed in `0001`** (`kind text NOT NULL CHECK (kind IN (…))`), so Postgres generated the name. **Look it up on the live branch before writing the migration** (`SELECT conname FROM pg_constraint WHERE conrelid = 'obligation'::regclass AND contype = 'c'`) rather than assuming `obligation_kind_check` — `0006`'s header records that this project confirms against the live branch instead of reading the schema, and that is why it was right.
+- `DROP CONSTRAINT` matches the `migration/destructive` guard pattern. It needs an inline `-- allow: widening a CHECK is additive; the old set stays valid` — the exemption is the point, so it shows up in the diff.
+- Number it after whatever A9a takes. Forward-only, hand-written, one number per migration.
 
-**Trap** — `findOutstandingObligationsForParty` already exists and is what `recordPayment` allocates through. Reuse it rather than writing a second party-scoped obligation query, or the screen and the allocator will disagree about what is outstanding.
+**On cancel, void the obligation — and mind the idempotent path.** `cancelTrip` returns early when `trip.status === 'cancelled'`; that early return must not re-void. Voiding is an `UPDATE` setting `voided_at`, so **it is subject to A9a's new rule** — cancelling a trip booked in a now-closed month will return `PERIOD_CLOSED`. That is correct (it changes a closed month's receivables) and it is exactly why A9a comes first.
 
-### A5 · Driver history reads — closes GAP-24 and GAP-29
+**Done means** — booking a charter for a customer raises a `trip_fare` receivable that `listReceivables` shows and `POST /api/payment` allocates against; cancelling voids it; a charter with no customer raises nothing; income still recognises only at close, off `trip.posted_period_id`, and **G-1 still lands on 134,000**.
 
-`DriverDetailScreen` shows two balances and nothing else; `driverBalancesResponseSchema` has no breakdown, so `TwoBalances` is fed `"—"` for both detail lines. `GET /api/advance` was deliberately skipped in Web-P8b for want of a caller — this is the caller.
+### A10 · The other two silent zeros — closes GAP-39 and GAP-10
 
-**The thing to notice before writing anything:** `GET /api/driver-view` (P12) already returns exactly this data — days including excused ones, closed trips and fees, advances, offsets, held deposit. **It cannot be reused.** It is gated by `viewOwnData`, restricted to the `driver` role alone, and **INV-25 is structural** — there is no slot in that route for a caller-supplied driver id, by construction. A manager-facing equivalent is a genuinely separate route with a genuinely different gate.
+**New item, and it exists because A6 turned out to have siblings.** Three places in this system take an amount somebody has agreed to owe and never turn it into an obligation. A6 fixes the first. These are the other two, and they fail the same way: a real receivable reads as zero, in a report, forever, with nothing on screen to suggest anything is missing.
 
-**Endpoints** — `GET /api/driver/{id}/advance`, `/deposit`, `/day` (or one composed read mirroring `driver-view`'s shape but keyed by an explicit, business-scoped `{id}`), gated `dailyOperations`.
+**GAP-39 — the management fee that has never reduced anything.** `sumVehicleCostsForPeriod` reads `obligation WHERE kind = 'management_fee'`. The enum value exists; the query is written; **nothing has ever inserted one.** W-53's "a management fee reduces that vehicle's profit" has been a no-op since P7, so every managed vehicle's profit has been overstated by exactly the fee. Needs a **generator**, not a read-side fix — the same shape as `generate-billing-periods`, turning a live `management_fee_agreement` into one obligation per period. Decide deliberately whether it runs on the existing billing-period cron or at period close, and record which; A2's `GET /api/partner/{userId}` reads `monthly_amount_minor` directly and must keep agreeing with whatever this writes.
 
-**Trap — this is the W-49 test class's sharpest case.** A route that takes a `driverId` and returns a driver's money is exactly what INV-25 prevents on the driver's own route. It is legitimate here because the caller is staff and the id is business-scoped — but **a linked-driver token must 403 it outright**, and that test is not optional.
+**GAP-10 — the incident contribution nobody can pay.** `recordCustomerContribution` inserts an `incident_recovery` row with `source: 'customer'` and an `agreedAmountMinor`, and leaves `obligation_id` NULL. The customer has agreed to pay toward the damage and it appears in no receivable, no ageing bucket, and no payment allocation. **`0001` even documents the intent on the column** — `obligation_id uuid, -- customer contributions become receivable`. Post an obligation in the same transaction (`kind: 'customer_contribution'`, which already exists in the CHECK — no migration), set `obligation_id`, and mind that `incident_recovery` separates `posted_period_id` from `received_period_id` deliberately: agreeing and receiving are different months and §7.2 reports both.
 
-### A6 · The trip receivable — closes GAP-23
+**Trap shared by both, and by A6:** these each add a place a void can now happen against a closed period, which is why all three sit behind A9a.
 
-F-5.2/F-5.3 were never wired: `bookTrip` raises no obligation for a trip's `agreedAmountMinor`, so there is nothing an ordinary `POST /api/payment` could allocate a customer's trip payment against — the whole amount comes back as `unallocatedMinor` and floats, attached to nothing. `TripDetailScreen`'s "Received" row is `NotAvailable` naming this exact reason.
+**Done means** — a managed vehicle's profit drops by its management fee in UC-70, an agreed customer contribution shows up as a receivable a payment can settle, and G-2 still lands on 15,000.
 
-**The design is resolved. Read this before assuming the obvious precedent applies — it does not.**
+### A7 · R2 upload — closes GAP-16, independent of everything else
 
-An earlier edition of this plan said W-41/INV-30 set the precedent (the driver-fee obligation posts at close, so the customer side must match). **That reasoning does not transfer**, because the two facts live in different places, verified query by query:
+**One endpoint unblocks five recorded gaps**: condition photos at lease start and close, incident damage photos, expense receipts, and the side-by-side comparison. `attachment` (DM §12) is already generic and polymorphic, its `kind` CHECK already lists every value the five need (**no migration**), and `PhotoCapture` + the tested `photo-pipeline.ts` are built with **0 real callers**.
 
-- `sumVehicleEarnedForPeriod` reads trip income **straight off the trip row** — `trip.agreedAmountMinor WHERE trip.postedPeriodId = period AND trip.status = 'closed'` — and `closeTripRow` sets `posted_period_id` **only** at close (its own doc comment: "trip income and cost recognise on close, never on booking"). **INV-30 is enforced by the trip row and does not depend on an obligation existing at all.**
-- That query's obligation branch filters `kind IN ('rent','daily_amount','mileage_excess')`, so a trip obligation **cannot** double-count income, whatever kind it takes.
-- `listReceivables` is kind-agnostic, so a trip obligation appears correctly as a customer receivable the moment it exists.
+**Decide the upload path before writing anything, and record it.** IG §10 requires objects be *served* through presigned expiring URLs, never a public bucket — that is about reads, and it is not negotiable (condition photos are dispute evidence and show number plates). It does **not** dictate how bytes get in. Two options, and the plan's title has been quietly assuming the first:
 
-So posting the receivable at booking violates neither W-41 nor INV-30, and F-5.3 pushes for it: *"advance at booking, balance at the end… partial payments accumulate as owed by the customer."* **Posting at close makes F-5.3's primary case unrepresentable** — money arrives before anything exists to receive it.
+- **Presigned PUT** — the client uploads straight to R2. Needs the S3 API and real credentials signed with `aws4fetch`, i.e. two new secrets, because **a bucket binding cannot presign**. Keeps large bodies out of the Worker entirely.
+- **Upload through the Worker** using the `R2` binding (`env.R2.put()`) — no new secrets, no signing library, and the Worker is already the only thing that can authorise the write and insert the `attachment` row in the same breath. The client pipeline compresses before upload, so the bodies are small.
 
-**Build it this way:**
+**Recommendation: upload through the binding, presign only for reads.** It is fewer moving parts, needs no credential rotation story, and keeps the `attachment` row and the object from ever disagreeing. Write the reason down either way — this is the kind of choice that gets silently reversed later.
 
-- **Post the obligation at booking**, inside `bookTrip`'s existing transaction. Income still recognises at close, from the trip row; the obligation is a balance fact, not a P&L one.
-- **`kind`: add `trip_fare`** via a forward-only migration (`DROP` then `ADD` the CHECK constraint). **Not `'other'`** — `ctx.createObligation()`'s own default is `kind: 'other'` (P11's entry records the report queries this already confused), so real trip fares would be indistinguishable from fixture noise in exactly the reports that filter on kind.
-- **`source_type: 'trip'`, `source_id: tripId`** — no migration needed; the `0001` DDL comment already names `'trip'`.
-- **`due_on`/`effective_due_on`: the trip's end date**, not the closing date, which is unknown at booking. This is what keeps UC-78's ageing from marking the due late before the trip has even run.
-- **`posted_period_id`: the period open at booking.** Settling it after that period closes is already legal — migration `0006` fixed exactly this case.
-- **On cancel: void the obligation.** `obligation` carries the `voided_*` trio and `listReceivables` already filters `isNull(voidedAt)`. This is the one piece of extra work posting at booking costs, and it is small.
-- **The read: `GET /api/trip/{id}/obligation`** — simpler than its lease equivalent, since `source_id` is the trip id directly. One query, not Web-P6a's three-way reassembly.
+**The bucket exists now.** `api/wrangler.jsonc` gained real `fleetsettle-attachments` / `-qa` buckets in the uncommitted deployment work; before A7 that binding was a `todo-provision-before-deploy` placeholder. A7 depends on that work landing, which is the one external dependency on this track.
 
-**Settled by the owner, 5 August 2026: bookings are firm.** Posting at booking creates a receivable for a service not yet delivered, which is correct precisely because a booking here *is* a commitment the customer owes on — confirmed against the absence of any cancellation-fee concept in F-5.1, and consistent with GAP-7's record that the `hold` state (ST-5) was never built, so no booking in this system was ever provisional. Post at booking; no alternative branch remains to design for.
+**Traps:**
+- **`business_id` on the `attachment` row comes from the token**, and reading an object must re-check it. An `r2_key` is guessable if it encodes anything predictable; make it opaque and still verify.
+- **`attachment` has no `voided_at` and no `archived_at`** — there is currently no way to remove a wrongly-uploaded photo, and A9 does not cover it because it is not a money table. Decide whether that is a gap or intended, and record it. Do not add a hard delete without deciding.
+- **GAP-17 stays open** — the pipeline still runs on the main thread with no Worker + 3s timeout. Unchanged by this item; do not let it look closed.
 
-The consequence worth stating once: **a cancelled trip must void its obligation**, or a customer keeps owing for a charter that never ran. That is the one piece of work this choice adds, and it is in the build list above.
+### A8 · Expense odometer wiring and the borne-by preview — independent
 
-### A7 · R2 presigned upload — closes GAP-16
+Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither blocks anything**, both make a shipped form more complete, and validation shrank both.
 
-**One endpoint unblocks five recorded gaps**: condition photos at lease start and close, incident damage photos, expense receipts, and the side-by-side comparison. `attachment` (DM §12) is already generic and polymorphic; `PhotoCapture` and its tested `photo-pipeline.ts` are built and have **0 real callers**.
+**GAP-30 — wire `expense.odometer_reading_id`.** A DB column since P3, never referenced by any schema, query or domain function. The plan called "does a fuel fill create its own `odometer_reading` row transactionally?" the real decision; **the codebase has answered it four times** — `lease.ts`, `mileage.ts` and `trip.ts` (opening and closing) each insert one inside their own transaction, and no standalone odometer endpoint exists at all. Follow the convention: `createExpense` inserts the reading and the expense in one transaction and links them. Its doc comment currently says "a single insert" — update it, since that stops being true. Note the `0005` unique index is partial (`WHERE lease_id IS NOT NULL`), so a fuel-fill reading carries no one-per-day constraint; two fills in a day are two readings, which is correct.
 
-Skipped by decision in the previous edition and still skippable — but it is the highest ratio of unblocked surface to work on either track, and it is pure Track A. Worth re-deciding rather than inheriting.
+**GAP-32 — a borne-by *preview*, not a second lookup.** The lookup already exists: `resolveBorneByDefault` calls `findActiveLeaseForVehicle` and `findCurrentDailyLeaseForVehicle` today. What the form cannot do is **show** the user what the server will decide, because the client is forbidden from computing §6.7's matrix itself — which is why it omits `borne_by` unless overriding to "Us". One small read (`GET /api/expense/borne-by-preview?vehicleId=&category=`, or the same shape folded onto the vehicle read) returns the resolved default and the party's name, and the form can then display it and offer a real override. **Do not copy the matrix into the client** — Web-P8b's trap list forbids exactly that, and it is the reason this gap exists rather than having been quietly closed.
 
-### A8 · Expense odometer wiring and borne-by override
+### A9b · The rest of soft delete — closes GAP-12 and GAP-36
 
-Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither blocks a Track B item**; both make a shipped form more complete.
-
-- **GAP-30** — `expense.odometer_reading_id` has been a DB column since P3 and has never been wired through any schema, query or domain layer (unlike `trip.opening_odometer_id`, which P6 wired). It blocks fuel fill's odometer and trip-link fields, both level 2. **The real decision: does a fuel fill create its own `odometer_reading` row transactionally?** That is what makes this design work rather than plumbing.
-- **GAP-32** — borne-by can only be overridden to "Us". Overriding to a specific driver or customer other than the vehicle's current party needs either a live preview endpoint or a second "who currently holds this vehicle" lookup. **Do not solve it by copying §6.7's matrix into the client** — that is the one thing Web-P8b's trap list forbids outright.
-
-### A9 · Soft delete, everywhere — closes GAP-12, GAP-35, GAP-36
-
-**Nothing in this system is ever hard-deleted, and that must not change.** But a record created by mistake — a test expense, a duplicate driver, a vehicle typed twice — currently has no way out of most tables, and the one table that does have a way out has a hole in it. This item makes "undo" uniformly available without ever removing a row.
+**With A9a's hole fixed, this is ordinary breadth-first work:** ~15 endpoints and one migration. **Nothing in this system is ever hard-deleted, and that must not change** — but a record created by mistake (a test expense, a duplicate driver, a vehicle typed twice) currently has no way out of most tables.
 
 **The rule, stated once:** soft delete only. A money record is **voided** (`voided_at`/`voided_reason`/`voided_by`, with a reason always required — W-50). An entity is **archived** (hidden from pickers and lists, still resolvable by id so historical records that reference it keep rendering). `audit_log` stays undeletable by its own `DO INSTEAD NOTHING` rule, and `accounting_period` is not soft-deletable at all — closing is a structural transition, not a record.
 
@@ -155,22 +227,18 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | Layer | Mechanism | State |
 |---|---|---|
 | 13 money tables | the `voided_*` trio | structural on all 13; only `expense` has a domain function and endpoint (GAP-12) |
-| `trip`, `lease`, `incident` | `status` transitions | built (F-5.5, F-2.6, F-3.4) |
+| the other 6 period-guarded tables | — | `payment`, `day_record`, `mileage_assessment`, `payment_correction`, `insurance_claim`, `trip` have **no `voided_at`**; `payment`'s undo is `POST /api/payment/{id}/correct` (P9) and `trip`/`lease`/`incident` use `status` transitions. Not gaps — do not add the column |
 | `mileage_package` | `archived_at` + endpoint | built — the reference implementation for an entity |
 | `business_member` | `revoked_at` | built |
 | `vehicle` | `lifecycle` column exists | **no endpoint ever sets it** — hardcoded `"active"` at creation, read-only thereafter |
 | `driver`, `customer` | — | **no column at all** (GAP-36); a test row is permanent |
+| `attachment` | — | no column either, and **not covered by this item** — see A7 |
 | `audit_log` | `DO INSTEAD NOTHING` | correct as-is; never make this deletable |
 
-**GAP-35 is a live defect, not a missing feature, and it should be fixed first.** Migration `0006` made `assert_period_open()` return early on any `UPDATE` that leaves `posted_period_id` untouched — correct for its own case (settling a claim months later), but a void sets only `voided_at`, so **voiding a record posted into a closed month is not blocked by anything.** `voidExpense` has no period check either. Today that means voiding a July expense after July closes silently changes July's reported costs — the exact "wrong, plausible, unnoticed for months" failure this project exists to prevent. Rolling void out to twelve more tables without fixing it first would multiply the hole by thirteen.
-
-**Fix it in the trigger, not in thirteen domain functions.** CLAUDE.md is explicit that the period-open trigger is the truth and two implementations of one rule diverge. Extend `assert_period_open()` so it also enforces on an `UPDATE` that transitions `voided_at` from `NULL` to non-`NULL`; every table the trigger already covers is then guarded at once, and a void in a closed period surfaces as the same `PERIOD_CLOSED` every other blocked write already returns. A correction after close goes through the F-8.x post-closure path instead, which is what those flows are for.
-
-**Then the rest, in order:**
-1. **The migration above**, plus a test proving a void into a closed period is refused and one into the open period still succeeds.
-2. **`archived_at` on `driver` and `customer`** (GAP-36), plus archive/unarchive endpoints. `mileage_package`'s "archive, never delete" is the pattern — copy it rather than inventing a second one.
-3. **A `POST /api/vehicle/{id}/archive`** driving the `lifecycle` column that has existed since `0001` and never moved.
-4. **Void endpoints for the remaining twelve money tables** (GAP-12), each mirroring `voidExpense`'s proven shape: find-scoped-to-business → 404, already-voided → its own error, then a `writer.transaction` (never a bare update, or `changed_by` records `NULL`).
+**In order:**
+1. **`archived_at` on `driver` and `customer`** (GAP-36), plus archive/unarchive endpoints. `mileage_package`'s "archive, never delete" is the pattern — copy it rather than inventing a second one.
+2. **A `POST /api/vehicle/{id}/archive`** driving the `lifecycle` column that has existed since `0001` and never moved.
+3. **Void endpoints for the remaining twelve money tables** (GAP-12), each mirroring `voidExpense`'s proven shape: find-scoped-to-business → 404, already-voided → its own error, then a `writer.transaction` (never a bare update, or `changed_by` records `NULL`).
 
 **Traps:**
 - **A void is a money write.** It must open a transaction even though nothing needs atomicity, or `withActor` cannot attribute it (TRACKER.md §5).
@@ -189,14 +257,23 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 
 | id | Item | Needs | Status |
 |---|---|---|---|
+| **B0** | **The `/more` hub** (GAP-37) | **nothing** | ▶ start now — **B2 and B3 are unreachable without it** |
 | **B4** | Review shell + nine reports | **nothing** | ▶ start now |
 | **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
-| **B2** | Partners, banking, cash | A2 | waits |
-| **B3** | Close the month, corrections | A3 | waits |
-| **B6** | Customer detail | A4 | waits |
+| **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
+| **B3** | Close the month, corrections | B0 (A3 ✅) | ▶ ready once B0 lands |
+| **B6** | Customer detail | B0 (A4 ✅) | ▶ ready once B0 lands |
 | **B8** | Real Asgardeo | — | 🔴 blocked externally |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
+
+### B0 · The `/more` hub — closes GAP-37, and both waiting B items need it
+
+**Missed by the previous edition, and it gates two of them.** `/more` renders `NotBuiltYetScreen` (`router.tsx`), and §3.1 puts **Cash, reports, period close, settings, message log, business** behind that tab. §3.3 gives `/cash`, `/partners/:id`, `/reports` and `/period/close` **no other entry point** — the tab bar has five fixed slots and none of them is "Cash". So every screen B2 and B3 build is reachable only by typing a URL until this exists.
+
+Small: one screen, a list of rows, no backend increment. **Rows for what exists only** — a row leading to `NotBuiltYetScreen` is worse than no row. Reports appears when B4 lands, Cash when B2 does, and so on.
+
+**Trap** — the close-month row is **absent for a `manager`, not disabled** (M-22/W-49, the same rule §7.7 states for the close action itself).
 
 ### B1 · Withdrawn, and why
 
@@ -238,9 +315,11 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a linked driver's token renders exactly his own data, and no request shape exists that could return anyone else's.
 
-### B2 · Partners, banking and cash — waits on A2
+### B2 · Partners, banking and cash — A2 done, waits only on B0
 
-**Screens** — `web/src/features/partners/`: `PartnerListScreen`, `PartnerDetailScreen`, `OwnershipSharesForm`, `CapitalContributionSheet`, `ShareVehicleForm` (F-1.4), `BankingEventForm`, `CashPositionScreen`. New routes `/cash` and `/partners/:id`.
+**Screens** — `web/src/features/partners/`: `PartnerDetailScreen`, `OwnershipSharesForm`, `CapitalContributionSheet`, `ShareVehicleForm` (F-1.4), `BankingEventForm`, `CashPositionScreen`. New routes `/cash` and `/partners/:id`.
+
+**`PartnerListScreen` is a section on `/cash`, not a route.** §3.3 has `/partners/:id` and deliberately no `/partners` — and `GET /api/reports/cash-position` already returns every partner with a name and a held figure, which *is* the list. A separate list route would be a second way to reach the same rows, and the route map is the document that decides.
 
 **Traps:**
 - **The shares form submits the whole set at once, never row by row**, and surfaces `OWNERSHIP_SHARES_INVALID` as a 400 rather than pre-checking the sum client-side. The trigger is deferred and fires once at commit — a client-side sum check is a second implementation of it.
@@ -251,12 +330,15 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a 60/40 split saves in one write and reads back; a shared vehicle with a monthly fee grants and revokes.
 
-### B3 · Close the month and corrections — waits on A3
+### B3 · Close the month and corrections — A3 done, waits only on B0
 
 **Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` finally wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
+**`CorrectPaymentSheet` needs a payment row to open from**, which is `GET /api/payment` (GAP-38, shipped in A3). Where that row lives is this item's own decision — the lease hub's dues section and the driver/customer detail screens are all candidates; §7.10 only says "open the receipt."
+
 **Traps:**
 - **The checklist warns and lists; it never blocks** (U-7). The close button stays enabled.
+- **`unconfirmedDays` is the checklist's first row** (§7.7) and is now in the response (A3). Render all five rows — none is missing any longer, so there is no "state plainly which is missing" fallback to reach for.
 - **Closing opens the successor period in the same transaction.** The screen must make clear that this happened, since every later write depends on it.
 - **A correction's `bearer` is the whole decision.** `back_to_arrears` puts the party back in arrears (INV-22); `absorbed_loss` leaves their due settled and the business eats it. Two outcomes from one form, and the copy must say which is which **without using the word "allocation"** (U-6).
 - **A waiver and a write-off never share a bucket** (W-28). Separate entry points, separate reporting, never one combined "reduce this due" control.
@@ -265,7 +347,7 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a month closes end to end with its successor open; a correction moves a party back into arrears and the audit trail shows who did it.
 
-### B6 · Customer detail — waits on A4, closes GAP-22
+### B6 · Customer detail — A4 done, waits only on B0, closes GAP-22
 
 `/people/customers/:id` replaces `PlaceholderDetailRoute`. §3.3: dues, payments, statement.
 
@@ -297,25 +379,28 @@ Cross-cutting: it wraps every screen, so building it before the screens exist me
         Track A (Worker + shared schemas)          Track B (React client)
         ─────────────────────────────────          ──────────────────────
 done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ withdrawn
-
-now     A2  partner/banking/cash + members ──┐      B4  Review shell + 9 reports
-                                             │          (no backend dependency)
-        A3  period/write-off reads ────────┐ │      B5  Mine shell
-                                           │ │          (no backend dependency)
-        A4  customer reads ──────────────┐ │ └───►  B2  partners, banking, cash
-        A5  driver history + advances ─┐ │ └─────►  B3  close the month
-                                       │ └───────►  B6  customer detail
-        A6  trip receivable (design settled — post at booking)
-        A7  R2 upload (unblocks 5 gaps)
-        A8  odometer wiring, borne-by override
-                                       └────────►  B5+ driver detail history
-last                                               B7  offline and the PWA
-blocked                                            B8  real Asgardeo 🔴
+        A2  partner/banking/cash + members ✅        B0  the /more hub (no backend dependency)
+        A3  period/write-off/payment ✅              B4  Review shell + 9 reports
+        A4  customer reads ✅                        B5  Mine shell
+        A5  driver history ✅                        B2  partners, banking, cash (needs B0 only; A2 ✅)
+                                                     B3  close the month, corrections (needs B0 only; A3 ✅)
+                                                     B6  customer detail (needs B0 only; A4 ✅)
+                                                     B5+ driver detail history (A5 ✅)
+now     A9a GAP-35 — the void/closed-period hole  ← do this one first
+        A6  trip receivable (needs A9a)
+        A10 the other two silent zeros (needs A9a)
+        A7  R2 upload (unblocks 5 gaps; independent)
+        A8  odometer wiring, borne-by preview (independent)
+        A9b the rest of soft delete
+last                                                B7  offline and the PWA
+blocked                                             B8  real Asgardeo 🔴
 ```
 
-**Track B never idles.** B4 alone is larger than A2, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A2 through A8 are independent of each other and of every B item.
+**Track B never idles.** B4 alone is larger than A2 was, and B5, B6 and B7 sit behind it with no backend dependency at all — every Track A handoff Track B was ever waiting on has landed.
 
-**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top.
+**Track A's remaining items are no longer independent of each other.** A9a (the GAP-35 trigger fix) gates A6 and A10, because both add new places the defect can fire. A7 and A8 stay genuinely independent and can be picked up at any point.
+
+**There are no Track A → Track B handoffs left.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened; B2, B3, B5+ and B6 wait on B0 alone now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
 
 ---
 
@@ -334,7 +419,7 @@ Unchanged, restated so no session goes looking:
 - **New form → inherit the three structural fixes** (TRACKER.md §5): domain-typed form state with `toWire()` only in `mutationFn`, `blankToUndefined` on optional text, `Disclosure forceOpen` on a level-2 error.
 - **A new money table is not finished until it is in the `assert_period_open()` array** (Track A only).
 - **A new write to a `posted_period_id`-carrying table must open a transaction**, or its audit row records `changed_by` as `NULL` (Track A only).
-- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run alone**, since `check` does not include it and the shared Neon branch drops connections at random.
+- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run alone**, since `check` does not include it and the shared Neon branch drops connections at random. `TEST_PARALLEL=1` against a personal branch (TRACKER.md §5) cuts a full local suite run from ~29 minutes to ~105 seconds — worth setting up before a Track A session, not just for the touched-file re-run.
 - **a11y is axe-core in Playwright**, not `eslint-plugin-jsx-a11y` — its peer range caps at ESLint 8/9 and this repo is on 10.
 - [TRACKER.md](TRACKER.md) updated: the item becomes a **row**, its leftovers become **gap rows with a track**.
 
@@ -352,12 +437,13 @@ Unchanged, restated so no session goes looking:
 
 ---
 
-## Two things that are not code
+## One thing that is not code
 
-Both are external, both are cheap, and both gate something real:
+External, cheap, and gates something real:
 
-1. **CI's integration workflow is blocked on `secrets.NEON_API_KEY` / `vars.NEON_PROJECT_ID`.** Until they exist, no endpoint is tested by CI at all — the integration suite runs only when a person runs it, on a shared branch that drops connections at random. This is the single highest-value non-code fix available.
-2. **Asgardeo's console change** — ten minutes, unblocks B8, blocks nothing else. Fire it early regardless of when B8 runs.
+1. **Asgardeo's console change** — ten minutes, unblocks B8, blocks nothing else. Fire it early regardless of when B8 runs.
+
+**Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 
 ---
 

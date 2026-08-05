@@ -19,7 +19,7 @@ name: integration
 
 on:
   pull_request:
-    branches: [main]
+    branches: [develop, main]
 
 concurrency:
   group: integration-${{ github.event.pull_request.number }}

@@ -2,7 +2,22 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   closeAccountingPeriodResponseSchema,
   closeChecklistResponseSchema,
+  listAccountingPeriodsResponseSchema,
 } from "@fleetsettle/shared/schemas";
+
+/** A3: this business's whole period history, newest first — so a screen can show which months are closed. */
+export const listAccountingPeriodsRoute = createRoute({
+  method: "get",
+  path: "/",
+  responses: {
+    200: {
+      content: { "application/json": { schema: listAccountingPeriodsResponseSchema } },
+      description: "Every accounting period this business has had, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view accounting periods" },
+  },
+});
 
 /** F-9.1 step 1/UC-98: the pre-close checklist, reviewable before committing to close. */
 export const getCloseChecklistRoute = createRoute({

@@ -1,6 +1,6 @@
-import { and, asc, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { accountingPeriod, advance, incident, obligation, trip } from "../db/schema.js";
+import { accountingPeriod, advance, dayRecord, incident, obligation, trip } from "../db/schema.js";
 
 type ReadDb = Reader | Writer | Tx;
 type WriteDb = Writer | Tx;
@@ -131,6 +131,7 @@ export async function openSuccessorPeriod(
 }
 
 export interface CloseChecklist {
+  unconfirmedDays: number;
   openTrips: number;
   unreconciledAdvances: number;
   pendingObligations: number;
@@ -152,12 +153,14 @@ export interface CloseChecklist {
  * still open in July, or an incident still open from last month, is exactly
  * as much this close's business as one from this period.
  *
- * "Unconfirmed days" is deliberately not counted: a day with no `day_record`
- * row is indistinguishable from a day the driver's pattern never scheduled
- * without replaying that pattern, and the logic to do that belongs to P13's
- * `generate-day-cards`, which does not exist yet. Recorded rather than
- * guessed at, the same deferral this tracker has already made for every
- * other P13-shaped gap.
+ * "Unconfirmed days" (GAP-13, A3) counts `day_record` rows still
+ * `state = 'open'`, scoped to `postedPeriodId = periodId` — the same
+ * convention `pendingObligations` uses. This is cheap and exact now that
+ * P13's `generate-day-cards` only ever generates a row for a scheduled
+ * pattern day: an open row *is* a scheduled-but-unconfirmed day, not a guess
+ * requiring a pattern replay (that reasoning held before P13 shipped and no
+ * longer does — TRACKER.md GAP-13). It under-reports honestly if the cron
+ * hasn't run yet for a given date, which is exactly what U-7 permits.
  */
 export async function buildCloseChecklist(
   db: ReadDb,
@@ -165,51 +168,94 @@ export async function buildCloseChecklist(
   periodId: string,
   periodEnd: string,
 ): Promise<CloseChecklist> {
-  const [openTripsRows, unreconciledAdvancesRows, pendingObligationsRows, openIncidentsRows] =
-    await Promise.all([
-      db
-        .select({ count: sql<string>`COUNT(*)` })
-        .from(trip)
-        .where(
-          and(
-            eq(trip.businessId, businessId),
-            sql`${trip.status} IN ('hold', 'booked', 'in_progress')`,
-            lte(trip.startDate, periodEnd),
-          ),
+  const [
+    unconfirmedDaysRows,
+    openTripsRows,
+    unreconciledAdvancesRows,
+    pendingObligationsRows,
+    openIncidentsRows,
+  ] = await Promise.all([
+    db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.businessId, businessId),
+          eq(dayRecord.postedPeriodId, periodId),
+          eq(dayRecord.state, "open"),
         ),
-      db
-        .select({ count: sql<string>`COUNT(*)` })
-        .from(advance)
-        .where(
-          and(
-            eq(advance.businessId, businessId),
-            ne(advance.status, "settled"),
-            sql`${advance.voidedAt} IS NULL`,
-          ),
+      ),
+    db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(trip)
+      .where(
+        and(
+          eq(trip.businessId, businessId),
+          sql`${trip.status} IN ('hold', 'booked', 'in_progress')`,
+          lte(trip.startDate, periodEnd),
         ),
-      db
-        .select({ count: sql<string>`COUNT(*)` })
-        .from(obligation)
-        .where(
-          and(
-            eq(obligation.businessId, businessId),
-            eq(obligation.postedPeriodId, periodId),
-            sql`${obligation.status} IN ('pending', 'part_paid')`,
-            sql`${obligation.voidedAt} IS NULL`,
-          ),
+      ),
+    db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(advance)
+      .where(
+        and(
+          eq(advance.businessId, businessId),
+          ne(advance.status, "settled"),
+          sql`${advance.voidedAt} IS NULL`,
         ),
-      db
-        .select({ count: sql<string>`COUNT(*)` })
-        .from(incident)
-        .where(and(eq(incident.businessId, businessId), eq(incident.status, "open"))),
-    ]);
+      ),
+    db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(obligation)
+      .where(
+        and(
+          eq(obligation.businessId, businessId),
+          eq(obligation.postedPeriodId, periodId),
+          sql`${obligation.status} IN ('pending', 'part_paid')`,
+          sql`${obligation.voidedAt} IS NULL`,
+        ),
+      ),
+    db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(incident)
+      .where(and(eq(incident.businessId, businessId), eq(incident.status, "open"))),
+  ]);
 
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
   const toCount = (rows: { count: string }[]) => Number(rows[0]?.count ?? "0");
   return {
+    unconfirmedDays: toCount(unconfirmedDaysRows),
     openTrips: toCount(openTripsRows),
     unreconciledAdvances: toCount(unreconciledAdvancesRows),
     pendingObligations: toCount(pendingObligationsRows),
     openIncidents: toCount(openIncidentsRows),
   };
+}
+
+export interface AccountingPeriodListRow {
+  id: string;
+  periodStart: string;
+  periodEnd: string;
+  status: "open" | "closed";
+  closedAt: string | null;
+}
+
+/** A3: "which months are closed" — this business's whole period history, newest first. Small by construction: one row per month since go-live. */
+export async function listAccountingPeriodsForBusiness(
+  db: ReadDb,
+  businessId: string,
+): Promise<AccountingPeriodListRow[]> {
+  const rows = await db
+    .select({
+      id: accountingPeriod.id,
+      periodStart: accountingPeriod.periodStart,
+      periodEnd: accountingPeriod.periodEnd,
+      status: accountingPeriod.status,
+      closedAt: accountingPeriod.closedAt,
+    })
+    .from(accountingPeriod)
+    .where(eq(accountingPeriod.businessId, businessId))
+    .orderBy(desc(accountingPeriod.periodStart));
+  return rows as AccountingPeriodListRow[];
 }

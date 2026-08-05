@@ -16,4 +16,35 @@
     "directory": "./dist",
     "not_found_handling": "single-page-application",
   },
+
+  // Deployed environments (DEPLOYMENT.md). `assets` is non-inheritable in
+  // wrangler and must be restated in full in each block below, or the
+  // Worker deploys with no assets at all. No `binding` key here — that is
+  // only valid alongside a `main`, and this Worker deliberately has none.
+  //
+  // `custom_domain: true`, not a `/*` route. A Custom Domain makes
+  // Cloudflare create the DNS record and issue the certificate on deploy,
+  // which is what lets this be provisioned with the wrangler token alone —
+  // no hand-made `100::` placeholder, and nothing to remember to delete.
+  // The api Worker's `/api/*` route still wins for those paths: Cloudflare
+  // runs routes *before* the Custom Domain Worker, so the path split is
+  // unchanged (Cloudflare docs, "Custom Domains → Interaction with Routes").
+  "env": {
+    "qa": {
+      "name": "fleetsettle-web-qa",
+      "routes": [{ "pattern": "qa.fleetsettle.com", "custom_domain": true }],
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application",
+      },
+    },
+    "production": {
+      "name": "fleetsettle-web",
+      "routes": [{ "pattern": "fleetsettle.com", "custom_domain": true }],
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application",
+      },
+    },
+  },
 }

@@ -21,7 +21,9 @@
     "typecheck": "node scripts/workspaces.mjs typecheck",
     "test": "node scripts/workspaces.mjs test",
     "build": "node scripts/workspaces.mjs build",
-    "check": "npm run guard && npm run lint && npm run lint:css && npm run format:check && npm run typecheck && npm run test"
+    "check": "npm run guard && npm run lint && npm run lint:css && npm run format:check && npm run typecheck && npm run test",
+    "deploy:qa": "npm run deploy:qa -w @fleetsettle/web && npm run deploy:qa -w @fleetsettle/api",
+    "deploy:production": "npm run deploy:production -w @fleetsettle/web && npm run deploy:production -w @fleetsettle/api"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

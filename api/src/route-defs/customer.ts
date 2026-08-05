@@ -1,5 +1,10 @@
 import { createRoute } from "@hono/zod-openapi";
-import { createCustomerRequestSchema, customerResponseSchema } from "@fleetsettle/shared/schemas";
+import {
+  createCustomerRequestSchema,
+  customerResponseSchema,
+  listCustomerObligationsResponseSchema,
+  listPaymentsResponseSchema,
+} from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const customerIdParams = z.object({ id: z.string().uuid() });
@@ -49,5 +54,39 @@ export const listCustomersRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read customers" },
+  },
+});
+
+/** A4/GAP-22: the customer detail screen's dues — outstanding obligations only, oldest due first. */
+export const listCustomerObligationsRoute = createRoute({
+  method: "get",
+  path: "/{id}/obligation",
+  request: { params: customerIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listCustomerObligationsResponseSchema } },
+      description: "This customer's outstanding dues, oldest due first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read a customer's dues" },
+    // Cross-tenant is 404, never 403 (CLAUDE.md → Tenancy).
+    404: { description: "No such customer in this business" },
+  },
+});
+
+/** A4/GAP-22: the customer detail screen's payment history, newest first. */
+export const listCustomerPaymentsRoute = createRoute({
+  method: "get",
+  path: "/{id}/payment",
+  request: { params: customerIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listPaymentsResponseSchema } },
+      description: "Every payment this customer has made, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read a customer's payments" },
+    // Cross-tenant is 404, never 403 (CLAUDE.md → Tenancy).
+    404: { description: "No such customer in this business" },
   },
 });

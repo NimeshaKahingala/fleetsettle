@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   bankingEvent,
@@ -200,4 +200,279 @@ export interface PartnerPayoutRow {
   amountMinor: bigint;
   kind: "payout" | "partner_settlement";
   occurredOn: string;
+}
+
+// ---------------------------------------------------------------------------
+// A2/GAP-9/GAP-31: the five reads. Nothing about a partner has been
+// renderable before this — every route above is POST-only.
+// ---------------------------------------------------------------------------
+
+export interface OwnershipShareListFilters {
+  vehicleId?: string;
+}
+
+/**
+ * A2: the currently active split — `effective_to IS NULL`. Safe *because*
+ * of `assert_shares_total` (migration 0001, INV-16), not despite it: that
+ * deferred trigger sums every row whose date range contains a given date
+ * and rejects anything but exactly 10000bp, so two open-ended
+ * (`effective_to IS NULL`) sets for the same vehicle can never coexist —
+ * inserting a second one without first closing the first's range always
+ * fails (every row's range is `[effective_from, ∞)`, which overlaps any
+ * later `effective_from` outright). At most one open set per vehicle is
+ * therefore structural, not a convention this query has to defend itself
+ * against — the same filter `findOwnershipSharesAsOf` (queries/reports.ts)
+ * already uses for "as of a date," simplified here for "as of now."
+ *
+ * No `business_id` column (same as `management_fee_agreement` below) —
+ * tenancy is the `innerJoin(vehicle)`.
+ */
+export async function listOwnershipShares(
+  db: ReadDb,
+  businessId: string,
+  filters: OwnershipShareListFilters = {},
+): Promise<OwnershipShareRow[]> {
+  return db
+    .select({
+      id: ownershipShare.id,
+      vehicleId: ownershipShare.vehicleId,
+      userId: ownershipShare.userId,
+      shareBp: ownershipShare.shareBp,
+      effectiveFrom: ownershipShare.effectiveFrom,
+      effectiveTo: ownershipShare.effectiveTo,
+    })
+    .from(ownershipShare)
+    .innerJoin(vehicle, eq(vehicle.id, ownershipShare.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        isNull(ownershipShare.effectiveTo),
+        filters.vehicleId !== undefined
+          ? eq(ownershipShare.vehicleId, filters.vehicleId)
+          : undefined,
+      ),
+    )
+    .orderBy(ownershipShare.vehicleId, ownershipShare.userId);
+}
+
+export interface CapitalContributionListFilters {
+  userId?: string;
+  vehicleId?: string;
+}
+
+/** A2: newest-contributed-first, `business_id`-scoped directly (unlike shares/agreements, this table carries its own). */
+export async function listCapitalContributions(
+  db: ReadDb,
+  businessId: string,
+  filters: CapitalContributionListFilters = {},
+): Promise<CapitalContributionRow[]> {
+  return db
+    .select({
+      id: capitalContribution.id,
+      businessId: capitalContribution.businessId,
+      vehicleId: capitalContribution.vehicleId,
+      userId: capitalContribution.userId,
+      amountMinor: capitalContribution.amountMinor,
+      contributedOn: capitalContribution.contributedOn,
+      note: capitalContribution.note,
+    })
+    .from(capitalContribution)
+    .where(
+      and(
+        eq(capitalContribution.businessId, businessId),
+        filters.userId !== undefined ? eq(capitalContribution.userId, filters.userId) : undefined,
+        filters.vehicleId !== undefined
+          ? eq(capitalContribution.vehicleId, filters.vehicleId)
+          : undefined,
+      ),
+    )
+    .orderBy(desc(capitalContribution.contributedOn));
+}
+
+export interface ManagementFeeAgreementListFilters {
+  vehicleId?: string;
+  managerUserId?: string;
+}
+
+/** A2: **every agreement, revoked ones included** — F-1.4's "Revoke — access ends, everything they entered stays" means the read must return them, not filter them out. */
+export async function listManagementFeeAgreements(
+  db: ReadDb,
+  businessId: string,
+  filters: ManagementFeeAgreementListFilters = {},
+): Promise<ManagementFeeAgreementRow[]> {
+  return db
+    .select(MANAGEMENT_FEE_AGREEMENT_COLUMNS)
+    .from(managementFeeAgreement)
+    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        filters.vehicleId !== undefined
+          ? eq(managementFeeAgreement.vehicleId, filters.vehicleId)
+          : undefined,
+        filters.managerUserId !== undefined
+          ? eq(managementFeeAgreement.managerUserId, filters.managerUserId)
+          : undefined,
+      ),
+    )
+    .orderBy(managementFeeAgreement.vehicleId, desc(managementFeeAgreement.effectiveFrom));
+}
+
+export interface BankingEventListFilters {
+  userId?: string;
+}
+
+/** A2: newest-banked-first. Voided rows are not filtered here — no void endpoint exists yet for `banking_event` (GAP-12/A9), so `voided_at` is always `NULL` today; when A9 adds one, the response schema and this query's treatment of a voided row need deciding together, not guessed at now. */
+export async function listBankingEvents(
+  db: ReadDb,
+  businessId: string,
+  filters: BankingEventListFilters = {},
+): Promise<BankingEventRow[]> {
+  const rows = await db
+    .select({
+      id: bankingEvent.id,
+      businessId: bankingEvent.businessId,
+      fromUserId: bankingEvent.fromUserId,
+      amountRecordedMinor: bankingEvent.amountRecordedMinor,
+      amountCountedMinor: bankingEvent.amountCountedMinor,
+      bankedOn: bankingEvent.bankedOn,
+      destination: bankingEvent.destination,
+      reference: bankingEvent.reference,
+      discrepancyBearer: bankingEvent.discrepancyBearer,
+    })
+    .from(bankingEvent)
+    .where(
+      and(
+        eq(bankingEvent.businessId, businessId),
+        filters.userId !== undefined ? eq(bankingEvent.fromUserId, filters.userId) : undefined,
+      ),
+    )
+    .orderBy(desc(bankingEvent.bankedOn));
+  // `discrepancy_minor` is a GENERATED ALWAYS column (migration 0001) —
+  // computed here from the two real columns, the same way
+  // `recordBankingEvent` (domain/partner.ts) computes it on write, rather
+  // than trusting Drizzle's nullable type for a column Postgres never
+  // actually leaves null.
+  return rows.map((r) => ({
+    ...r,
+    discrepancyMinor: r.amountRecordedMinor - r.amountCountedMinor,
+    discrepancyBearer: r.discrepancyBearer as BankingEventRow["discrepancyBearer"],
+  }));
+}
+
+export interface PartnerPayoutListFilters {
+  userId?: string;
+  kind?: "payout" | "partner_settlement";
+}
+
+/** A2: newest-occurred-first. Same voided-row note as `listBankingEvents` above — `partner_payout` carries the trio but nothing sets it yet. */
+export async function listPartnerPayouts(
+  db: ReadDb,
+  businessId: string,
+  filters: PartnerPayoutListFilters = {},
+): Promise<PartnerPayoutRow[]> {
+  const rows = await db
+    .select({
+      id: partnerPayout.id,
+      businessId: partnerPayout.businessId,
+      userId: partnerPayout.userId,
+      amountMinor: partnerPayout.amountMinor,
+      kind: partnerPayout.kind,
+      occurredOn: partnerPayout.occurredOn,
+    })
+    .from(partnerPayout)
+    .where(
+      and(
+        eq(partnerPayout.businessId, businessId),
+        filters.userId !== undefined ? eq(partnerPayout.userId, filters.userId) : undefined,
+        filters.kind !== undefined ? eq(partnerPayout.kind, filters.kind) : undefined,
+      ),
+    )
+    .orderBy(desc(partnerPayout.occurredOn));
+  return rows.map((r) => ({ ...r, kind: r.kind as PartnerPayoutRow["kind"] }));
+}
+
+/** A2/UC-67 "put in": all-time, never reset — a contribution from years ago is still something this partner put in. */
+export async function sumCapitalContributionsForUser(
+  db: ReadDb,
+  businessId: string,
+  userId: string,
+): Promise<bigint> {
+  const rows = await db
+    .select({ amountMinor: capitalContribution.amountMinor })
+    .from(capitalContribution)
+    .where(
+      and(
+        eq(capitalContribution.businessId, businessId),
+        eq(capitalContribution.userId, userId),
+        isNull(capitalContribution.voidedAt),
+      ),
+    );
+  return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
+}
+
+export interface PartnerPayoutTotals {
+  payoutsMinor: bigint;
+  settlementsMinor: bigint;
+}
+
+/** A2/UC-67 "taken out": all-time — a payout permanently reduces what this partner is owed, it does not reset month to month. */
+export async function sumPartnerPayoutsForUser(
+  db: ReadDb,
+  businessId: string,
+  userId: string,
+): Promise<PartnerPayoutTotals> {
+  const rows = await db
+    .select({ amountMinor: partnerPayout.amountMinor, kind: partnerPayout.kind })
+    .from(partnerPayout)
+    .where(
+      and(
+        eq(partnerPayout.businessId, businessId),
+        eq(partnerPayout.userId, userId),
+        isNull(partnerPayout.voidedAt),
+      ),
+    );
+  let payoutsMinor = 0n;
+  let settlementsMinor = 0n;
+  for (const row of rows) {
+    if (row.kind === "payout") payoutsMinor += row.amountMinor;
+    else settlementsMinor += row.amountMinor;
+  }
+  return { payoutsMinor, settlementsMinor };
+}
+
+/**
+ * A2/UC-67/W-53 "earned: management fee" — summed directly from
+ * `management_fee_agreement.monthly_amount_minor` for every agreement
+ * active on `asOfDate`, deliberately **not** read from
+ * `obligation WHERE kind = 'management_fee'`. That obligation kind exists
+ * in the enum (`sumVehicleCostsForPeriod` already reads it) but nothing in
+ * this codebase ever writes one — no generator turns a
+ * `management_fee_agreement` into a period obligation the way
+ * `generate-billing-periods` does for rent. Reading the dead path would
+ * return a confident `0` forever (W-56); this reads the one table that is
+ * actually populated. Recorded as a gap rather than silently worked around.
+ */
+export async function sumManagementFeeAsOfDate(
+  db: ReadDb,
+  businessId: string,
+  managerUserId: string,
+  asOfDate: string,
+): Promise<bigint> {
+  const rows = await db
+    .select({ monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor })
+    .from(managementFeeAgreement)
+    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        eq(managementFeeAgreement.managerUserId, managerUserId),
+        lte(managementFeeAgreement.effectiveFrom, asOfDate),
+        or(
+          isNull(managementFeeAgreement.effectiveTo),
+          gte(managementFeeAgreement.effectiveTo, asOfDate),
+        ),
+      ),
+    );
+  return rows.reduce((sum, row) => sum + row.monthlyAmountMinor, 0n);
 }

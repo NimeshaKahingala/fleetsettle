@@ -1,6 +1,8 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   correctPaymentRequestSchema,
+  listPaymentsQuerySchema,
+  listPaymentsResponseSchema,
   paymentCorrectionResponseSchema,
   paymentResponseSchema,
   recordPaymentRequestSchema,
@@ -8,6 +10,21 @@ import {
 import { z } from "zod";
 
 const paymentIdParams = z.object({ id: z.string().uuid() });
+
+/** A3/GAP-38: every filter optional, newest first — F-8.2's "open the receipt" needs somewhere to find the receipt from. */
+export const listPaymentsRoute = createRoute({
+  method: "get",
+  path: "/",
+  request: { query: listPaymentsQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listPaymentsResponseSchema } },
+      description: "Every payment matching the given filters, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view payments" },
+  },
+});
 
 /**
  * F-2.2/UC-11: a generic payment against a party's outstanding `owed_to_us`

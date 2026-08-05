@@ -3,11 +3,15 @@ import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
   createCustomerHandler,
   getCustomerHandler,
+  listCustomerObligationsHandler,
+  listCustomerPaymentsHandler,
   listCustomersHandler,
 } from "../handlers/customer.js";
 import {
   createCustomerRoute,
   getCustomerRoute,
+  listCustomerObligationsRoute,
+  listCustomerPaymentsRoute,
   listCustomersRoute,
 } from "../route-defs/customer.js";
 import type { Env } from "../types.js";
@@ -16,4 +20,6 @@ import type { Env } from "../types.js";
 export const customer = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(createCustomerRoute, createCustomerHandler)
   .openapi(getCustomerRoute, getCustomerHandler)
-  .openapi(listCustomersRoute, listCustomersHandler);
+  .openapi(listCustomersRoute, listCustomersHandler)
+  .openapi(listCustomerObligationsRoute, listCustomerObligationsHandler)
+  .openapi(listCustomerPaymentsRoute, listCustomerPaymentsHandler);
