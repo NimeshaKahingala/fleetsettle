@@ -12,6 +12,10 @@
 
 **Updated 5 August 2026 — A2 done.** Six endpoints, 25 new tests, full suite 31/353. B2's dependency is now only B0. One new gap recorded, **GAP-39** — W-53's management fee has never actually reduced vehicle profit; TRACKER.md §4 has the detail. A2's own write-up is below, under Track A.
 
+**Updated 5 August 2026 — A3 done.** Four endpoints/changes, 13 new tests, full suite 31/366. B3's dependency is now only B0. A3's own write-up is below, under Track A.
+
+**Updated 5 August 2026 — A4 done.** Two endpoints, 8 new tests, full suite 31/374. B6's dependency is now only B0 — every one of A2, A3 and A4's handoffs to Track B has now happened. A4's own write-up is below, under Track A.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -33,15 +37,15 @@
 
 ## Start here
 
-**A2 and A3 are both done** (below) — the A2 → B2 and A3 → B3 handoffs are both live: every schema B2 and B3 need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
+**A2, A3 and A4 are all done** (below) — the A2 → B2, A3 → B3 and A4 → B6 handoffs are all live: every schema B2, B3 and B6 need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested. That is what lets Track B start at full speed regardless of Track A's own pace:
 
 | Track A next | Track B starts |
 |---|---|
-| **A4** — customer-scoped reads (closes GAP-22) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| **A5** — driver history reads (closes GAP-24, GAP-29) | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
 
-**Before B2 or B3, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those two items build is reachable only by typing a URL.
+**Before B2, B3 or B6, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those items build is reachable only by typing a URL.
 
-B2 and B3 can now both start in parallel with A4 — neither waits on anything left in Track A, only on B0.
+B2, B3 and B6 can now all start in parallel with A5 — none of the three waits on anything left in Track A, only on B0.
 
 ---
 
@@ -52,7 +56,7 @@ B2 and B3 can now both start in parallel with A4 — neither waits on anything l
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
 | **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
 | **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
-| **A4** | Customer-scoped reads | GAP-22 | 2 | B6 |
+| **A4** | ✅ Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | Driver history reads | GAP-24, GAP-29 | 1–3 | B5 (partly) |
 | **A6** | The trip receivable — design resolved and settled | GAP-23 | 1 + a migration | — |
 | **A7** | R2 presigned upload — unblocks five gaps | GAP-16 | 1 | B-photos |
@@ -79,15 +83,13 @@ Four endpoints/changes, all shipped: `GET /api/accounting-period` (list, newest 
 
 **Explicitly out of scope, unchanged: GAP-12.** Void-and-replace stays `expense`-only — that is A9's job, not this one's.
 
-### A4 · Customer-scoped reads — closes GAP-22
+### A4 · Done
 
-**The gap that fell through four phases.** `/people/customers/:id` renders a placeholder; §3.3 specifies dues, payments, statement.
+Two endpoints, both shipped: `GET /api/customer/{id}/obligation` (outstanding dues only, oldest due first — reuses `findOutstandingObligationsForParty` rather than a second party-scoped query, exactly the trap this item was written to avoid, so this screen can never disagree with what `recordPayment` actually allocates against) and `GET /api/customer/{id}/payment` (reuses `listPaymentsForBusiness` scoped by `partyCustomerId`). Both `dailyOperations`, 404 cross-tenant, both proven against the W-49 linked-driver 403 class. No new table, no new write, no domain layer. 8 new integration tests in the existing `customer.test.ts`; full suite 31/374, all green. TRACKER.md §2 carries the row.
 
-**Endpoints** — `GET /api/customer/{id}/obligation` and `GET /api/customer/{id}/payment`.
+**GAP-22 closes on its backend half only.** `/people/customers/:id` itself still renders `NotBuiltYetScreen` — that placeholder is B6's own item, not a backend gap, and B6 now waits only on B0.
 
-**Read `findObligationsForLease` (Web-P6a) before writing either.** It is the same shape of problem solved once already — except `obligation` carries `party_type`/`party_customer_id`, so a customer's dues are reachable **directly by party**. That makes this simpler than the lease case, not harder; the lease query is the reference for the guarded-`OR` and never-`inArray`-on-empty conventions, not for its three-way reassembly.
-
-**Trap** — `findOutstandingObligationsForParty` already exists and is what `recordPayment` allocates through. Reuse it rather than writing a second party-scoped obligation query, or the screen and the allocator will disagree about what is outstanding.
+**One shortcut this item confirmed rather than avoided:** `obligation` carries `party_customer_id` directly (set at insert, even for a rent due whose `source_type` is `billing_period`), so a customer's dues never needed the lease hub's three-way source reassembly — one direct filter was enough, as the plan predicted.
 
 ### A5 · Driver history reads — closes GAP-24 and GAP-29
 
@@ -191,7 +193,7 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
 | **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
 | **B3** | Close the month, corrections | B0 (A3 ✅) | ▶ ready once B0 lands |
-| **B6** | Customer detail | A4 | waits |
+| **B6** | Customer detail | B0 (A4 ✅) | ▶ ready once B0 lands |
 | **B8** | Real Asgardeo | — | 🔴 blocked externally |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
 
@@ -275,7 +277,7 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a month closes end to end with its successor open; a correction moves a party back into arrears and the audit trail shows who did it.
 
-### B6 · Customer detail — waits on A4, closes GAP-22
+### B6 · Customer detail — A4 done, waits only on B0, closes GAP-22
 
 `/people/customers/:id` replaces `PlaceholderDetailRoute`. §3.3: dues, payments, statement.
 
@@ -309,11 +311,11 @@ Cross-cutting: it wraps every screen, so building it before the screens exist me
 done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ withdrawn
         A2  partner/banking/cash + members ✅        B0  the /more hub (no backend dependency)
         A3  period/write-off/payment ✅              B4  Review shell + 9 reports
-                                                     B5  Mine shell
+        A4  customer reads ✅                        B5  Mine shell
                                                      B2  partners, banking, cash (needs B0 only; A2 ✅)
                                                      B3  close the month, corrections (needs B0 only; A3 ✅)
-now     A4  customer reads ────────────────────►    B6  customer detail (waits on A4)
-        A5  driver history + advances ─────────►    B5+ driver detail history (partial)
+                                                     B6  customer detail (needs B0 only; A4 ✅)
+now     A5  driver history + advances ─────────►    B5+ driver detail history (partial)
         A6  trip receivable (design settled — post at booking)
         A7  R2 upload (unblocks 5 gaps)
         A8  odometer wiring, borne-by override
@@ -321,9 +323,9 @@ last                                                B7  offline and the PWA
 blocked                                             B8  real Asgardeo 🔴
 ```
 
-**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A4 through A8 are independent of each other and of every B item; A2 and A3 are already done.
+**Track B never idles.** B4 alone is larger than A2 was, and B5 and B7 sit behind it with no backend dependency at all. **Track A never idles either** — A5 through A8 are independent of each other and of every B item; A2, A3 and A4 are already done.
 
-**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top — the first two have already happened, so B2 and B3 wait on B0 alone now.
+**The only real handoffs are A2 → B2, A3 → B3, A4 → B6.** Each is one schema commit, per the contract at the top — all three have already happened, so B2, B3 and B6 wait on B0 alone now.
 
 ---
 

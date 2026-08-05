@@ -18,7 +18,7 @@ import type {
 } from "../route-defs/payment.js";
 import type { Env } from "../types.js";
 
-function toListRow(row: PaymentListRow) {
+export function toListRow(row: PaymentListRow) {
   return {
     id: row.id,
     direction: row.direction,
