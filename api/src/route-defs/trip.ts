@@ -32,6 +32,12 @@ export const listInProgressTripsRoute = createRoute({
  * is always fully materialised at booking (DM §4.1), so INV-1 is enforced
  * immediately here, unlike lease/daily-lease (see route-defs/lease.ts,
  * route-defs/dailyLease.ts). Does not touch `day_record` — P3's table.
+ *
+ * GAP-23/A6 made this period-dependent for the first time: when there is a
+ * customer and an agreed amount, booking also posts a `trip_fare`
+ * obligation, which needs an open accounting period the same way any other
+ * money write does — PERIOD_CLOSED is a new failure mode on an
+ * already-shipped endpoint, not a hypothetical one.
  */
 export const bookTripRoute = createRoute({
   method: "post",
@@ -48,7 +54,10 @@ export const bookTripRoute = createRoute({
     403: { description: "This role cannot book a trip" },
     404: { description: "No such vehicle, customer or driver in this business" },
     // INV-1 (UC-20): the vehicle is already allocated for one or more of these dates.
-    409: { description: "This vehicle is already allocated for one or more of these dates" },
+    409: {
+      description:
+        "This vehicle is already allocated for one or more of these dates, or PERIOD_CLOSED (GAP-23)",
+    },
   },
 });
 
@@ -113,7 +122,14 @@ export const closeTripRoute = createRoute({
   },
 });
 
-/** F-5.5/UC-45: cancellation never blocks — an open advance is given a disposition here, not left implied. */
+/**
+ * F-5.5/UC-45: cancellation never blocks — an open advance is given a
+ * disposition here, not left implied. GAP-23/A6: also voids any
+ * `trip_fare` obligation this booking raised, which is why a trip booked
+ * in a now-closed accounting period 409s PERIOD_CLOSED on cancel — voiding
+ * a receivable changes that closed month's own figures (A9a/migration
+ * 0008), the same rule any other void obeys.
+ */
 export const cancelTripRoute = createRoute({
   method: "post",
   path: "/{id}/cancel",
@@ -130,6 +146,9 @@ export const cancelTripRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot cancel a trip" },
     404: { description: "No such trip in this business" },
-    409: { description: "An advance against this trip needs a disposition (INV-17)" },
+    409: {
+      description:
+        "An advance against this trip needs a disposition (INV-17), or PERIOD_CLOSED (GAP-23)",
+    },
   },
 });

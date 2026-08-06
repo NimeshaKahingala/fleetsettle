@@ -21,6 +21,7 @@ export interface NewObligation {
     | "post_closure_charge"
     | "customer_contribution"
     | "management_fee"
+    | "trip_fare"
     | "other";
   sourceType: string;
   sourceId?: string;
@@ -206,6 +207,36 @@ export async function updateObligationSettled(
     .update(obligation)
     .set({ settledMinor: values.settledMinor, status: values.status })
     .where(eq(obligation.id, obligationId));
+}
+
+/**
+ * A9's void, applied to whichever obligation (if any) a source row raised —
+ * A6's own use is `cancelTrip` voiding a `trip_fare` obligation. `WHERE …
+ * voided_at IS NULL` makes 0 rows affected legitimate in two separate
+ * cases, neither an error: nothing was ever raised for this source (a
+ * charter with no customer never posts one), or it was already voided
+ * (the caller's own idempotent-on-status guard already prevents a second
+ * call in the ordinary path, but the guard here costs nothing and matches
+ * every other void in this codebase). A void into a closed period is still
+ * refused by the trigger (migration 0008/GAP-35) — the caller maps that the
+ * same way every other write does.
+ */
+export async function voidObligationBySource(
+  db: WriteDb,
+  sourceType: string,
+  sourceId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<void> {
+  await db
+    .update(obligation)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(
+      and(
+        eq(obligation.sourceType, sourceType),
+        eq(obligation.sourceId, sourceId),
+        isNull(obligation.voidedAt),
+      ),
+    );
 }
 
 /** W-2: two sums, one per direction, never netted here or anywhere else in the schema — only an `offset_record` moves both. */

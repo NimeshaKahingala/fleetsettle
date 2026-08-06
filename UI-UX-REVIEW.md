@@ -137,3 +137,21 @@ In priority order:
 5. **Run the project's own gates that this review didn't**: `npm run test:e2e` (Playwright + the 320/360px reflow assertions already written) and an `axe-core` pass on every route, both themes, per §10. This review found the calendar accessibility gap (§2.3) by hand; an automated pass may find more of the same class faster than manual review will.
 6. **§2.1 (INV-1's missing Dialog) needs a product decision, not just a component swap**: what should the "fix offered inline" actually say for a double-booked vehicle-day? UI §9.3 requires it but doesn't wireframe it the way INV-17's dialog is wireframed in §7.5 — that copy needs writing, not just wiring.
 7. **§2.4 (landscape)** is real but is the one finding here that's genuinely new scope, not a bug in something already built. It needs to be sized and placed in Plan.md rather than picked up ad hoc — M-26 touches `AppShell`, `Screen`, and potentially every screen built on top of them.
+
+---
+
+## 7. Additional Gaps Found on Further Validation
+
+The following items were found on a subsequent pass against `docs/design/ui-ux-guidelines.md` and are appended here for completeness:
+
+### 7.1 M-11: Undo functionality is completely unbuilt
+UI §6.5/M-11 requires: *"Undo is a 5-second toast, and only for writes that sent no message and settled no obligation"*. 
+However, in `web/src/design/primitives/AppShell.tsx`, the toast host is a bare `<div id="toast-root" />` with a comment explicitly stating no component renders into it yet. Any action qualifying for M-11's undo window currently has no way to be undone in the UI.
+
+### 7.2 M-25: Vocabulary slip ("Rate" used in forms)
+M-25 mandates: *"The interface has no accounting vocabulary... 'Daily lease amount' is never shortened to 'rate' on a screen where 'driver day fee' could also appear"*.
+While the primary lease amount correctly avoids the word "rate", it still slipped into `StartLeaseScreen.tsx` and `RenewLeaseSheet.tsx`. Both components render an input with `label="Excess rate per km"`. To strictly adhere to M-25, this should be labelled "Excess fee per km" or "Excess charge per km".
+
+### 7.3 M-10: `DialogConfirmFooter` defaults to a forbidden label
+M-10 states: *"Irreversible actions get a two-step confirm with the consequence stated in the button — 'Close July permanently', not 'Confirm'"*. 
+In `web/src/design/primitives/Dialog.tsx`, the `DialogConfirmFooter` component defaults its primary button text to exactly the forbidden word (`"Confirm"`) if a `confirmLabel` isn't provided. While existing usages (like sign out) override this correctly, having the default fall back to `"Confirm"` creates a trap for future irreversible actions to violate the guideline by omission.

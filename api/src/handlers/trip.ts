@@ -1,6 +1,11 @@
 import { businessToday, toWire, ZERO, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
+import {
+  requireBusinessId,
+  requireBusinessTimezone,
+  requireCapability,
+  requireUserId,
+} from "../auth/context.js";
 import {
   bookTrip,
   cancelTrip,
@@ -98,6 +103,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
   const businessId = requireBusinessId(c);
   const body = c.req.valid("json");
   const reader = c.get("reader");
+  const bookingDate = businessToday(requireBusinessTimezone(c));
 
   const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
@@ -120,6 +126,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
     ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
     startDate: body.startDate,
     endDate: body.endDate,
+    bookingDate,
     ...(body.destination !== undefined ? { destination: body.destination } : {}),
     agreedAmountMinor,
     driverFeeMinor,
@@ -228,6 +235,7 @@ export const cancelTripHandler: RouteHandler<typeof cancelTripRoute, Env> = asyn
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
   const cancelledOn = businessToday(requireBusinessTimezone(c));
+  const userId = requireUserId(c);
 
   const trip = await findTripForBusiness(c.get("reader"), businessId, id);
   if (!trip) throw new NotFoundError();
@@ -236,6 +244,7 @@ export const cancelTripHandler: RouteHandler<typeof cancelTripRoute, Env> = asyn
     businessId,
     trip,
     cancelledOn,
+    userId,
     ...(body.cancelReason !== undefined ? { cancelReason: body.cancelReason } : {}),
     ...(body.advanceDisposition !== undefined
       ? { advanceDisposition: body.advanceDisposition }

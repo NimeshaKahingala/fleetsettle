@@ -26,7 +26,9 @@
 
 **Updated 6 August 2026 — GAP-3 fixed out of sequence, ahead of A6.** Not an item this plan had scheduled: an independent UI/UX review of the built client (`UI-UX-REVIEW.md`) found that `confirmDay`'s idempotency check had been silently discarding real confirmations in production since P13 shipped — the daily-confirmation flow, F-4.2, "the flow the product is optimised around." A row's mere *existence* was being read as "already confirmed," and P13's `generate-day-cards` cron has pre-inserted an existence-only `open` placeholder for every scheduled day, on both live environments, since 5 Aug. This outranked "do A6 next" on its own terms — CLAUDE.md's ordering, not this plan's — because it is live data loss on the core loop, not an unbuilt receivable on a secondary flow. Fixed same-day: `confirmOpenDayRecord` turns the placeholder into the real row via a guarded `UPDATE`; `ConfirmDayCard.tsx` stops treating `state: "open"` as settled. Full account, including why this sat mis-filed as "correct to leave" since before P13 existed, in [TRACKER.md](TRACKER.md) §4 (GAP-3) and its dated entry above §1. **A6 is next, unchanged** — this didn't reorder anything behind it, it ran ahead of the queue.
 
-**Updated 5 August 2026 — A9a done, closing GAP-35.** Migration `0008`, exactly as sketched below. Verified on a fresh ephemeral Neon branch rather than the shared dev one — 378/378, one pass, no connection flakiness, which is itself evidence for the process change recorded in the same commit: **stop running the full integration suite locally; push the touched-file-verified commit, open a PR into `develop`, and let `integration.yml`'s own fresh-branch-per-PR run carry that cost instead**, in parallel with the next item rather than blocking it. TRACKER.md §5 has the full account, including that this also caught a stale `388` test count this file and that one had both been carrying. A6 and A10, both gated on this, are unblocked. Next: **A6**, the trip receivable.
+**Updated 5 August 2026 — A9a done, closing GAP-35.** Migration `0008`, exactly as sketched below. Verified on a fresh ephemeral Neon branch rather than the shared dev one — 378/378, one pass, no connection flakiness, which is itself evidence for the process change recorded in the same commit: **stop running the full integration suite locally; push the touched-file-verified commit, open a PR into `develop`, and let `integration.yml`'s own fresh-branch-per-PR run carry that cost instead**, in parallel with the next item rather than blocking it. TRACKER.md §5 has the full account, including that this also caught a stale `388` test count this file and that one had both been carrying. A6 and A10, both gated on this, are unblocked.
+
+**Updated 6 August 2026 — A6 done, closing GAP-23.** Exactly the design sketched below, with one deliberate narrowing found while implementing it: the period requirement is scoped to the `customerId !== undefined && agreedAmountMinor > 0n` guard, not the whole endpoint — an owner-driven charter with no customer touches no period-scoped table, so it stays bookable with no accounting period open at all, per CLAUDE.md's "only validate at system boundaries" rather than this section's broader-sounding "booking a charter becomes refusable" phrasing. Migration `0009` widens `obligation_kind_check`, confirmed against the live branch first (`obligation_kind_check`, exactly as guessed, but looked up rather than assumed). `cancelTrip` voids the receivable through a new source-scoped `voidObligationBySource`, general enough that A9b's remaining void endpoints can likely reuse the same shape rather than each writing their own. **Found while fixing the golden fixture's own test, not the domain code**: G-1's 134,000 test and the §7.1 close-trip test both had an ad-hoc `WHERE source_type = 'trip' AND source_id = tripId` query that implicitly meant "the driver-fee obligation" — A6 gave `trip_fare` the same source, and both queries started summing a receivable into "costs." Production's `sumVehicleCostsForPeriod` was never at risk (it already filters `direction = 'owed_by_us'`); both test queries fixed to match. 7 new tests, `trip.test.ts` 26→33; full account, including the closed-period-on-cancel test proving A9a's own rule, in TRACKER.md (GAP-23). Next: **A10**, the other two silent zeros (GAP-39, GAP-10) — free of any remaining gate.
 
 ---
 
@@ -59,7 +61,7 @@
 | `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
 | `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
 
-**B0 and A9a are both done** (5 August 2026) — `/more` is real, sign-out works, B2/B3/B6 no longer wait on anything, and GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch). **Do this next: A6**, the trip receivable — it was gated on A9a and now isn't; the reasoning for going there next (over B4, the largest item on either track) is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
+**B0, A9a and A6 are all done** — `/more` is real, sign-out works, B2/B3/B6 no longer wait on anything, GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch), and GAP-23's trip receivable posts and voids correctly (386/386, G-1 unmoved). **Do this next: A10**, the other two silent zeros (GAP-39, GAP-10) — the same defect class A6 just closed, free of any remaining gate; the reasoning for going there next (over B4, the largest item on either track) is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
@@ -75,7 +77,7 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 
 | | Order | Note |
 |---|---|---|
-| **Track A** | ~~A9a~~ → A6 → A10 → A8 → A7 → A9b | A9a done 5 Aug; A6/A10/A8/A7 are all free, A9b last |
+| **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A8 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A8/A7 are all free, A9b last |
 | **Track B** | B0 → B4 → B5 → B3 → B6 → B2 → B7 | B0 gates B2, B3 and B6; B7 is cross-cutting and goes last |
 
 ### One person, one queue
@@ -86,7 +88,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 |---|---|---|---|
 | 1 | ~~**B0** · `/more` hub~~ | S | ✅ **Done 5 Aug 2026.** Unblocked B2, B3 and B6; sign-out (GAP-40) shipped with it |
 | 2 | ~~**A9a** · the void/period trigger~~ | S | ✅ **Done 5 Aug 2026.** Unblocked A6 and A10 |
-| 3 | **A6** · trip receivable | M | The first real-money hole a user will hit. A charter payment today floats as `unallocatedMinor`, attached to nothing — and the bus is the flagship asset |
+| 3 | ~~**A6** · trip receivable~~ | M | ✅ **Done 6 Aug 2026.** The first real-money hole a user will hit, closed — a charter with a customer now raises a real `trip_fare` receivable instead of floating as `unallocatedMinor` |
 | 4 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
 | 5 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
 | 6 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
@@ -121,7 +123,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | **A4** | ✅ Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | ✅ Driver history reads | GAP-24, GAP-29 | 1 | B5 (partly) |
 | **A9a** | ✅ The void/closed-period hole | GAP-35 | 0 + a migration | — |
-| **A6** | The trip receivable — design settled, A9a done | GAP-23 | 0 + a migration | — |
+| **A6** | ✅ The trip receivable | GAP-23 | 0 + a migration | — |
 | **A10** | The other two silent zeros — **new** | GAP-39, GAP-10 | 0–1 + a generator | — |
 | **A7** | R2 upload — unblocks five gaps, independent | GAP-16 | 1–2 | B-photos |
 | **A8** | Odometer wiring + borne-by preview, independent | GAP-30, GAP-32 | 1 | — |
@@ -192,7 +194,7 @@ Migration `0008` is exactly what was sketched above: `0006`'s exception narrowed
 
 **Done means, all met:** voiding an expense posted into a closed period returns `PERIOD_CLOSED`; voiding one in the open period still works; settling a closed-period obligation with a current-period payment still works (the existing `0006` regression tests, unaffected — they never touch `voided_at`); the golden fixtures still land on 134,000 / 15,000 / 7,500 (their own integration tests are part of the 378, all green).
 
-### A6 · The trip receivable — closes GAP-23, A9a done, ready
+### A6 · The trip receivable — ✅ Done 6 Aug 2026, closed GAP-23
 
 **The design is settled** (post at booking, `kind: 'trip_fare'`, `source_type: 'trip'`, `source_id: tripId`, `due_on`/`effective_due_on` = the trip's end date, void on cancel). The reasoning is recorded in TRACKER §4 and is not reopened here. What follows is only what validating it against the code changed.
 
@@ -215,6 +217,8 @@ if (input.customerId !== undefined && input.agreedAmountMinor > 0n) { … }
 **On cancel, void the obligation — and mind the idempotent path.** `cancelTrip` returns early when `trip.status === 'cancelled'`; that early return must not re-void. Voiding is an `UPDATE` setting `voided_at`, so **it is subject to A9a's new rule** — cancelling a trip booked in a now-closed month will return `PERIOD_CLOSED`. That is correct (it changes a closed month's receivables) and it is exactly why A9a comes first.
 
 **Done means** — booking a charter for a customer raises a `trip_fare` receivable that `listReceivables` shows and `POST /api/payment` allocates against; cancelling voids it; a charter with no customer raises nothing; income still recognises only at close, off `trip.posted_period_id`, and **G-1 still lands on 134,000**.
+
+**What shipped, and the one place it narrowed the sketch above:** everything here landed as written, except the period requirement is scoped to the `customerId !== undefined && agreedAmountMinor > 0n` guard rather than the top of the transaction — an owner-driven charter with no customer touches no period-scoped table at all (the allocation and day-record pause carry no `posted_period_id`), so it stays bookable with no accounting period open, which this section's "booking a charter becomes refusable" line reads more broadly than the actual behaviour turned out to need. `voidObligationBySource` (`queries/obligation.ts`) is source-scoped rather than `trip`-specific, so A9b's remaining void endpoints can likely reuse it. **The one thing this section didn't anticipate:** fixing it broke two *tests*, not the code under test — `accounting-period.test.ts`'s G-1 fixture and `trip.test.ts`'s §7.1 close test both had an ad-hoc `WHERE source_type = 'trip' AND source_id = tripId` query that implicitly meant "the driver-fee obligation" only because nothing else ever shared that source; `trip_fare` now does, and both queries needed the same `direction`/`kind` scoping `sumVehicleCostsForPeriod` (the real report query) already used. Full account in TRACKER.md (GAP-23); 7 new tests, `trip.test.ts` 26→33, G-1 unmoved at 134,000.
 
 ### A10 · The other two silent zeros — closes GAP-39 and GAP-10
 
@@ -439,11 +443,10 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A3  period/write-off/payment ✅              B8  real Asgardeo ✅
         A4  customer reads ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
         A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
-                                                     B6  customer detail — ready (A4 ✅, B0 ✅)
-                                                     B5+ driver detail history — ready (A5 ✅)
-now     A6  trip receivable ← do this next             B4  Review shell + 9 reports
-        A10 the other two silent zeros (A9a done; not blocked)   B5  Mine shell
-        A7  R2 upload (unblocks 5 gaps; independent)
+        A9a the void/period trigger ✅                B6  customer detail — ready (A4 ✅, B0 ✅)
+        A6  trip receivable ✅                        B5+ driver detail history — ready (A5 ✅)
+now     A10 the other two silent zeros ← do this next  B4  Review shell + 9 reports
+        A7  R2 upload (unblocks 5 gaps; independent)   B5  Mine shell
         A8  odometer wiring, borne-by preview (independent)
         A9b the rest of soft delete
 last                                                B7  offline and the PWA
