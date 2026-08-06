@@ -18,6 +18,8 @@
 
 **Updated 5 August 2026 — A5 done.** One endpoint, 4 new tests, full suite 31/388. **Track A's read backlog is finished**; everything left on it writes, migrates, or both. A5's own write-up is below, and the section after the Track A table has been re-planned against the code — see "What the A6–A10 validation pass found".
 
+**Updated 5 August 2026 — B8 done, and it was mis-sized here.** Real Asgardeo auth is wired (`96301f8`): SDK, PKCE, callback, sign-in gate, 12 new tests. This plan costed B8 at "ten minutes of console work" — that covered the console; **the client half was unbuilt and unscoped**, and until it landed nobody could log in to a deployed build at all. It also surfaced a stale client id in all three Worker environments and a QA build that would have shipped production's. Both fixed. **The lesson worth keeping: "blocked externally" hid an unsized item on the critical path** — B8 was ranked last precisely because the blocker was cheap, which said nothing about the work behind it. Its write-up is under Track B.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -264,7 +266,7 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
 | **B3** | Close the month, corrections | B0 (A3 ✅) | ▶ ready once B0 lands |
 | **B6** | Customer detail | B0 (A4 ✅) | ▶ ready once B0 lands |
-| **B8** | Real Asgardeo | — | 🔴 blocked externally |
+| **B8** | ✅ Real Asgardeo | — | done 5 Aug 2026 |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
 
 ### B0 · The `/more` hub — closes GAP-37, and both waiting B items need it
@@ -367,9 +369,22 @@ Cross-cutting: it wraps every screen, so building it before the screens exist me
 
 **Done means** — four days confirmed on a Sunday with no signal replay silently on Monday, and the money lands once.
 
-### B8 · Real Asgardeo 🔴
+### B8 · Done
 
-**Blocked**, least priority, and unblocking costs about ten minutes of console work: token type → JWT, binding → None, redirect URL cleanup. Nothing above waits on it — `web/src/lib/auth-stub.ts` exists precisely so nothing does. **Fire the console change early anyway**; it has no cost and it is the last gate before anyone outside this repository can log in.
+**Shipped 5 August 2026** (`96301f8`), and it was larger than this plan said. The previous edition costed B8 at "about ten minutes of console work" — true of the console half only. The client half was **unbuilt and unscoped**: no SDK in `web/package.json`, no PKCE flow, no login screen, no real `TokenGetter`. `auth-stub.ts` issues an unsigned token that `verifyAccessToken` was always going to refuse, so until this landed **nobody could log in to a deployed build at all.**
+
+What shipped: `@asgardeo/auth-react` ^5.6.2 (the SDK UI § settled on in July) · `lib/auth-asgardeo.ts` — config from `VITE_*`, PKCE on, redirect derived from the serving origin · `app/AuthGate.tsx` — completes the code exchange on `/auth/callback`, offers sign-in otherwise, blocks until there is a session. 12 new tests.
+
+**§12.1's contract paid for itself.** Because the token getter is *injected* into `createApiClient` rather than imported, swapping the stub for the real thing changed `main.tsx` and nothing else — no screen, no query, no test of either.
+
+**Three defects it surfaced, none of which were auth code:**
+- **The client id in `api/wrangler.jsonc` was stale in all three environments.** It is checked as `aud`, so every token from the real apps would have 401'd with nothing in the message to say why (IG §10.6's undifferentiated 401, working exactly as designed and costing an afternoon to diagnose if it had reached QA).
+- **`deploy:qa` ran plain `vite build`**, whose default mode is `production` — QA would have silently shipped production's client id. Now `--mode qa`, proven by building both and grepping each bundle for the other's id.
+- **The callback cannot use `history.replaceState`.** The router is built once at module scope over browser history, so rewriting the URL underneath it leaves it resolving the callback path it captured at creation.
+
+**Verified against the live tenant, not assumed:** the OIDC discovery document's `issuer` and `jwks_uri` match `ASGARDEO_ISSUER`/`ASGARDEO_JWKS_URL` exactly, `authorization_code` + S256 PKCE are supported, and the JWKS serves one RS256 key. The console now has JWT token type, PKCE mandatory, hybrid flow off, and all four redirect URLs — both `/auth/callback` paths and both bare origins, the latter because `signOutRedirectURL` is the origin.
+
+**Not yet done: one real browser round trip.** Everything either side of it is verified; the flow itself needs a human with a password.
 
 ---
 
@@ -393,7 +408,7 @@ now     A9a GAP-35 — the void/closed-period hole  ← do this one first
         A8  odometer wiring, borne-by preview (independent)
         A9b the rest of soft delete
 last                                                B7  offline and the PWA
-blocked                                             B8  real Asgardeo 🔴
+                                                     B8  real Asgardeo ✅
 ```
 
 **Track B never idles.** B4 alone is larger than A2 was, and B5, B6 and B7 sit behind it with no backend dependency at all — every Track A handoff Track B was ever waiting on has landed.
@@ -441,7 +456,7 @@ Unchanged, restated so no session goes looking:
 
 External, cheap, and gates something real:
 
-1. **Asgardeo's console change** — ten minutes, unblocks B8, blocks nothing else. Fire it early regardless of when B8 runs.
+1. ~~**Asgardeo's console change**~~ — ✅ **done 5 August 2026.** JWT token type, PKCE mandatory, hybrid flow off, and four redirect URLs registered. B8 shipped with it; see Track B.
 
 **Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 

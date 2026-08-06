@@ -4,7 +4,9 @@ A ledger for a small Sri Lankan vehicle-rental business — a bus and two cars, 
 
 **Its whole promise is being believed about money.** Every rule below exists because breaking it produces a number that is wrong, plausible, and not noticed until someone argues about it months later.
 
-**Repository state: documentation only.** No application code exists yet. `docs/` is complete and implementation-ready; the schema has been executed against live Postgres 17 and the golden fixtures pass 39 of 39.
+**Repository state: deployed and running.** The Worker is complete through P13, the React client through Web-P8b, and both environments are live — `fleetsettle.com` (production) and `qa.fleetsettle.com` (QA), each backed by its own Neon branch carrying migrations `0001`–`0007`. `docs/` remains the specification and still decides; the golden fixtures pass 39 of 39 against live Postgres 17.
+
+[TRACKER.md](TRACKER.md) is what is built and every open gap; [Plan.md](Plan.md) is what remains; [DEPLOYMENT.md](DEPLOYMENT.md) is how it ships. **Merging to `main` deploys production automatically and nothing pauses afterwards** — the pull request is the deploy decision.
 
 ---
 
