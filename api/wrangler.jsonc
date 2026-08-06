@@ -17,7 +17,10 @@
     "ENVIRONMENT": "development",
     "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
     "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
-    "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+    // The SPA's client id. `verifyAccessToken` checks this as `aud`, so it must
+    // be the id of the app that ISSUED the token — a mismatch is an
+    // undifferentiated 401 with nothing in the message to say why (IG §10.6).
+    "ASGARDEO_AUDIENCE": "h8HJK3NgWyj6qPndmaKYrhh8d8Ma",
   },
 
   // KV/R2/Queue bindings (TS §8). The ids below are placeholders — nothing in
@@ -67,7 +70,11 @@
         "ENVIRONMENT": "preview",
         "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
         "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
-        "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+        // Shares local dev's app registration (redirect URLs
+        // https://qa.fleetsettle.com/auth/callback and
+        // http://localhost:5173/auth/callback). Production uses a different
+        // app entirely — see below.
+        "ASGARDEO_AUDIENCE": "h8HJK3NgWyj6qPndmaKYrhh8d8Ma",
       },
       // fleetsettle-kv-qa / fleetsettle-attachments-qa / fleetsettle-messages-qa
       // (DEPLOYMENT.md "Progress" — all three provisioned and isolated from prod).
@@ -96,7 +103,10 @@
         "ENVIRONMENT": "production",
         "ASGARDEO_ISSUER": "https://api.asgardeo.io/t/fleetsettle/oauth2/token",
         "ASGARDEO_JWKS_URL": "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
-        "ASGARDEO_AUDIENCE": "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
+        // Production has its OWN Asgardeo app, separate from local/QA's —
+        // a leaked or rotated QA client must never be able to mint a token
+        // this Worker accepts.
+        "ASGARDEO_AUDIENCE": "Xamk7r3_kvklplKYz3qz0KL2cdga",
       },
       // fleetsettle-kv / fleetsettle-attachments / fleetsettle-messages
       // (DEPLOYMENT.md "Progress" — all three provisioned, isolated from QA).
