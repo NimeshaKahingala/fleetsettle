@@ -70,7 +70,12 @@ describe("POST /api/business (P2, F-0.1/UC-08)", () => {
       .from(businessMember)
       .where(eq(businessMember.businessId, body.id));
     expect(memberRows).toHaveLength(1);
-    expect(memberRows[0]).toMatchObject({ userId: userRows[0]!.id, role: "owner" });
+    // `owner_manager`, not `owner` — F-0.1 step 3 lands the creator on a home
+    // screen whose one action is "Add a vehicle", i.e. the Operate shell, and
+    // UI §1.1 gives `owner` the read-only Review shell instead. This assertion
+    // pinned `owner` and so pinned the defect: every real signup reached a
+    // shell with nothing in it.
+    expect(memberRows[0]).toMatchObject({ userId: userRows[0]!.id, role: "owner_manager" });
 
     const settingsRows = await db
       .select()

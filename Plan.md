@@ -49,19 +49,49 @@
 
 ---
 
+## Nobody could use the product at all — 6 August 2026
+
+**Reported from the deployed app: "when I log into the application I actually cannot do anything, I just see *Review — Not built yet*."** That is not one user's misconfiguration. It was every user, and the built product — Web-P1 through Web-P8b, months of screens — was unreachable in production by anyone.
+
+**The chain, verified in code rather than inferred:**
+
+1. `createBusiness` (`api/src/domain/setup.ts`) assigned the creator **`role: "owner"`**, hardcoded.
+2. UI §1.1 maps `owner` to the **Review** shell — the passive partner who reads reports monthly — and `owner_manager`/`manager` to **Operate**.
+3. Review is unbuilt, so `FirstRunGate` renders `NotBuiltYetScreen`.
+4. **There is no endpoint that can add a member or change a role.** `business-member` is GET-only; no `POST`, no `PATCH`.
+
+So the only role obtainable through the product was the one role with no interface, and nothing in the product could change it. **`role: "owner"` was also the single word standing between a working app and a dead end** — the backend never cared: `owner` is in `STAFF` in `auth/policy.ts` and holds *every* capability except `viewOwnData`. The client turned away a user the server would have served.
+
+**Fixed, `A0` below: the creator is now `owner_manager`.** F-0.1 step 3 says the creator lands "on an empty home screen with one action: *Add a vehicle*" — the Operate shell, stated outright — and F-0.2, the next flow over the same business, has **Owner-manager** as its actor. F-0.1's accept clause "a new business has exactly one owner" still holds, because `OWNERS` is `["owner", "owner_manager"]`.
+
+**Two things this leaves open, and neither was on any list before today:**
+
+- **The existing production row still says `owner`.** The code fix only governs new signups. Whoever is already signed up stays stuck until their `business_member.role` is updated — a **live data change on production**, which is a decision, not a deploy step.
+- **The second partner, a manager, and any driver still cannot get in.** CLAUDE.md describes *two* partners; only one can ever have an account. And `driver.linked_user_id` is **read** by identity resolution and **written by nothing** — so no driver can ever sign in, which makes B5's Mine shell unreachable for exactly the same reason Review was. That is **A11**, new. **Update, same day: it now has a specified mechanism.** `docs/product/use-cases.md` W-57 (v1.2.3) settles it — an invite code scoped to a role, redeemed at first sign-in, the same shape W-42 already used for a driver — and `user-flows.md` F-1.4/F-1.8 (v1.1.3) carry the steps, with F-1.8 moved from phase 2 to phase 1 alongside it. A11 is a real, sized build now, not a product decision waiting on anyone.
+
+**The lesson, and it is the same one this repository keeps relearning:** the tracker recorded the Operate shell as "Complete" and it was — for a role no real user could hold. *Built* and *reachable* are different claims, and only one of them was ever tested.
+
+---
+
 ## Start here
 
 **As of 5 August 2026 the product is deployed and a real person can log in to it.** That was the whole of the critical path a day ago, and it is gone: `fleetsettle.com` and `qa.fleetsettle.com` are live, and B8 replaced an auth stub whose token the Worker was always going to refuse. **Nothing on either track now waits on anyone outside this repository** except P14's Meta approvals.
 
-**So the question stopped being "what unblocks this" and became "who still cannot use it".** Three roles; one of them has a product:
+**So the question stopped being "what unblocks this" and became "who still cannot use it".** Three roles — and until A0 landed on 6 August, the honest answer was *all of them*, because the only role a signup could obtain was the one with no interface (above).
 
-| Role | Today |
-|---|---|
-| `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people |
-| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
-| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
+| Role | Today | Can anyone actually be this? |
+|---|---|---|
+| `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people | **Yes, since A0** — the business creator. A *second* one still needs **A11** built |
+| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** | **Not yet.** The invite flow is specified (W-57) but unbuilt — **A11** |
+| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** | **Not yet.** `driver.linked_user_id` is read by identity resolution and written by nothing — same **A11** |
 
-**B0, A9a and A6 are all done** — `/more` is real, sign-out works, B2/B3/B6 no longer wait on anything, GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch), and GAP-23's trip receivable posts and voids correctly (386/386, G-1 unmoved). **Do this next: A10**, the other two silent zeros (GAP-39, GAP-10) — the same defect class A6 just closed, free of any remaining gate; the reasoning for going there next (over B4, the largest item on either track) is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
+**Read that last column before ranking anything below it.** Two of the three shells have no user who could reach them even once built, so A11 is a prerequisite for B4 and B5 *mattering*, not merely for them working. It is no longer a product question waiting on anyone — W-57 (UC §1.1) settled the mechanism the same day this table was written — so it is purely a matter of building it.
+
+**B0, A9a and A6 are all done** — `/more` is real, sign-out works, GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch), and GAP-23's trip receivable posts and voids correctly (386/386, G-1 unmoved).
+
+**A 6 August validation pass over Track B changed what "ready" means for three of its items.** B4 and B5 were both marked "needs nothing" and neither was buildable: `RootLayout` hardcodes `shell="operate"`, `FirstRunGate` has only a `renderOperate` branch, the role is unreadable outside that one file, and UI §12.4's `capabilities.ts`/`<Can>` do not exist — so B3's "absent for a manager" rule had nothing to gate with either. That plumbing is now **B0b**, and it goes first, exactly as B0 did for the same reason. The pass also found **GAP-41**: §7.8's overheads block has no endpoint that can produce it. Full findings under [Track B](#track-b--the-react-client); a box-by-box build order is in the [Track B implementation checklist](#track-b-implementation-checklist).
+
+**Do this next, in this order: (1) update the existing production `business_member` row** — a live data decision, not a deploy step; **(2) A11**, without which two of the three shells have no possible user; then **(3) B0b**, then B3. **If Track A is being worked in parallel, A10** (the other two silent zeros — GAP-39, GAP-10, the same defect class A6 just closed) **is free of any gate.** The full reasoning is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
@@ -78,7 +108,7 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 | | Order | Note |
 |---|---|---|
 | **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A8 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A8/A7 are all free, A9b last |
-| **Track B** | B0 → B4 → B5 → B3 → B6 → B2 → B7 | B0 gates B2, B3 and B6; B7 is cross-cutting and goes last |
+| **Track B** | ~~B0~~ → **B0b** → B3 → B4 → B5 → B6 → B2 → B7 | **B0b gates B3, B4 and B5** (found 6 Aug); B6 and B2 need neither and can go any time; B7 last |
 
 ### One person, one queue
 
@@ -89,20 +119,27 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 1 | ~~**B0** · `/more` hub~~ | S | ✅ **Done 5 Aug 2026.** Unblocked B2, B3 and B6; sign-out (GAP-40) shipped with it |
 | 2 | ~~**A9a** · the void/period trigger~~ | S | ✅ **Done 5 Aug 2026.** Unblocked A6 and A10 |
 | 3 | ~~**A6** · trip receivable~~ | M | ✅ **Done 6 Aug 2026.** The first real-money hole a user will hit, closed — a charter with a customer now raises a real `trip_fare` receivable instead of floating as `unallocatedMinor` |
-| 4 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
-| 5 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
-| 6 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
-| 7 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
-| 8 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists |
-| 9 | **B2** · partners, banking, cash | M | Six screens, all backed by A2 |
-| 10 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
-| 11 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
-| 12 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
-| 13 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
+| 3a | ~~**A0** · the creator's role~~ | **XS** | ✅ **Done 6 Aug 2026.** One word. Every signup landed in an unbuilt shell with no way out; the whole Operate product was unreachable in production |
+| 3b | **Production data fix** · the existing `business_member` row | **XS** | **Not code.** A0 governs new signups only. The account already stuck on `owner` stays stuck until its row is updated — a live money-database change, so it is a decision, not a step |
+| 3c | **A11** · member and driver access | **L** | **New, 6 Aug — now spec'd, same day.** No second partner, no manager, no linked driver can exist — `business-member` is GET-only and `driver.linked_user_id` is never written. **B4 and B5 build shells nobody can reach until this lands.** The flow is settled (`use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8) — an invite code scoped to a role, redeemed at sign-in |
+| 4 | **B0b** · three shells + capability gate | S | **New, 6 Aug.** B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. Nothing downstream can gate an action by role until it exists |
+| 5 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
+| 6 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. Small — a filter, not an endpoint |
+| 7 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
+| 8 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
+| 9 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
+| 10 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists. Needs no B0b |
+| 11 | **B2** · partners, banking, cash | M | Six screens, all backed by A2. Needs no B0b |
+| 12 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
+| 13 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
+| 14 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
+| 15 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
 
 ### Two orderings worth arguing with
 
-**4 before 5 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show.
+**5 before 7 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show. **Both now sit behind B0b either way**, which is small and shared.
+
+**6 is a Track A item inside the Track B queue, deliberately.** GAP-41 is a filter on an existing endpoint, but scheduling it on Track A's own list would put it behind A10/A8/A7 and B4 would arrive at the overheads block with nothing to call. It is listed where its consumer needs it, not where its code lives.
 
 **11 low (A7).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
 
@@ -117,6 +154,8 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 | id | Item | Gaps | Endpoints | Blocks |
 |---|---|---|---|---|
+| **A0** | ✅ **The creator's role** — `owner` → `owner_manager` | GAP-42 | 0 | **everything** |
+| **A11** | **Member and driver access** — **new**, spec'd (W-57) | GAP-43 | ~3 + a migration | B4, B5 |
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
 | **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
 | **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
@@ -130,6 +169,33 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | **A9b** | The rest of soft delete | GAP-12, GAP-36 | ~15 + a migration | — |
 
 **Endpoint counts are lower than the previous edition's** because validation moved work out of handlers: A6 and A10 add **no new endpoints at all** — they change what existing writes do inside their existing transactions — and A9a is a migration with no endpoint. What is left on this track is mostly domain-layer and SQL, which is also why it is the half that needs the golden fixtures re-run rather than a new screen.
+
+### A0 · Done — the creator's role, and why one word hid the whole product
+
+`createBusiness` assigned `role: "owner"`; it now assigns `owner_manager`. Full chain and reasoning at the top of this document. One word, one test assertion inverted (`business.test.ts` had *pinned* `owner`, so the suite was green while the product was unreachable — the same shape as A9a's own regression test asserting the bug it was meant to catch), and `npm run check` clean.
+
+**Why this was invisible for so long:** every integration test mints its users with `mintUser(db, ctx, businessId, "owner")` — an explicit role argument — so no test ever exercised the role `POST /api/business` actually assigns. The one that did assert it asserted the wrong value. And the web test covering `FirstRunGate`'s `owner` → Review branch was *correct*: the routing was never the bug.
+
+**It does not fix the deployed account.** A0 governs new signups; an existing `business_member` row still reads `owner`. That is a live-data decision (queue item 3b), and it is the difference between "the code is right" and "the user can work."
+
+### A11 · Member and driver access — spec'd same day (W-57), ready to build
+
+**No second person can exist in a business.** `business-member` is GET-only — no `POST`, no `PATCH`, no revoke. `driver.linked_user_id` is read by `queries/identity.ts` and written by nothing at all. So:
+
+- The passive owner partner — the second of CLAUDE.md's *two* partners, and B4's entire audience — **cannot get an account**.
+- A `manager` cannot be added, so W-49's manager column and every `<Can>` gate B0b builds are untestable against a real user.
+- No driver can ever sign in, so **B5's Mine shell would ship with no possible user**, exactly as Review did.
+
+**The mechanism is now settled — `docs/product/use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8 (v1.2.3/v1.1.3), done the same day this gap was found.** It reuses W-42's driver-linking shape rather than inventing a second one: the owner/owner-manager generates an **invite code** scoped to a role and this business, hands it over out of band, the invitee redeems it at their first sign-in — creating their `app_user` if they've never signed in before, exactly the just-in-time provisioning `createBusiness` already does for the first user. One mechanism, three destinations (`owner_manager`/`manager` via `business_member`, `driver` via `driver.linked_user_id`), which is also why F-1.8 moved to phase one alongside F-1.4 rather than staying a phase-two nicety.
+
+**What building it needs, now that the shape is fixed rather than open:**
+- A table for the invite code itself — role, business, an expiry, redeemed-or-not, who issued it. Not a money table, so none of `assert_period_open()`'s checklist applies, but it does need the usual `business_id` scoping.
+- `POST /api/business-member/invite` (`managePartnerCapital`-adjacent gate — owner/owner-manager only) issuing a code for `manager` or `owner_manager`; a driver-scoped equivalent for `driver.linked_user_id`, likely hung off the existing driver resource rather than a new one, mirroring F-1.8's "on the driver's page" framing.
+- `POST /api/invite/redeem` (or folded into `/api/me`'s first-run path) — no capability gate, since redeeming is how a capability is *granted*; validates the code, creates `app_user` just-in-time the same way `createBusiness` does, writes the `business_member` or `driver.linked_user_id` row.
+- `business_member.revoked_at` and migration `0003`'s single-active-membership index already constrain re-invites correctly — no schema change needed there, only a re-issue path when a code is issued twice.
+- **`FirstRunGate` gains a second option** alongside `CreateBusinessForm`: join with a code. Track B's half, not Track A's — small, and it belongs with B0b since both touch the same first-run branch point.
+
+**Do the `doc-change` skill's remaining half — data-model.md — before the migration**, since W-57/F-1.4/F-1.8 are now real enough to need the invite-code table in DM §16's own DDL, not just a description here.
 
 ### A1 · Done
 
@@ -300,14 +366,48 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | id | Item | Needs | Status |
 |---|---|---|---|
 | **B0** | ✅ **The `/more` hub** (GAP-37, GAP-40) | — | done 5 Aug 2026 |
-| **B4** | Review shell + nine reports | **nothing** | ▶ **do this next** — the largest item left, and B0 no longer gates anything ahead of it |
-| **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
+| **B0b** | **The three shells and the capability gate** — **new**, found 6 Aug | — | ▶ **do this first** — B3, B4 and B5 all need it and none owns it |
+| **B3** | Close the month, corrections | B0b (for M-22) | ready behind B0b |
+| **B4** | Review shell + nine reports | **B0b** | the largest item left |
+| **B5** | Mine shell | **B0b** | ready behind B0b |
+| **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready now, no B0b needed |
+| **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready now, no B0b needed |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
-| **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready |
-| **B3** | Close the month, corrections | — (A3 ✅, B0 ✅) | ▶ ready |
-| **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready |
 | **B8** | ✅ Real Asgardeo | — | done 5 Aug 2026 |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
+
+### What the Track B validation pass found — 6 August 2026
+
+Read screen by screen and route-def by route-def against `web/src/` and `api/src/route-defs/`, the same kind of pass that preceded A2/A3 and A6–A10. **The headline finding is structural and it is the same shape as GAP-37**: three items depend on plumbing that does not exist and none of them owns it.
+
+1. **There is no way to render anything but the Operate shell.** `RootLayout` (`router.tsx`) hardcodes `shell="operate"`, and `FirstRunGate` takes exactly one render prop, `renderOperate` — `owner` and `driver` both fall through to `NotBuiltYetScreen` with no branch to fill. `AppShell` itself is ready (`shell="review"` renders `REVIEW_TABS`, `shell="mine"` renders no tab bar, both tested), but nothing can reach either. **B4 and B5 are each blocked on the same missing branch**, and the Review shell additionally needs its four tabs wired to routes that do not exist yet.
+2. **The role is not available anywhere outside `FirstRunGate`'s own local query.** `MeResponse` is a local interface in that file (documented as the one deliberate exception to the shared-schema rule). B3's close action must be **absent for a `manager`** (M-22/W-49) and B4's catalogue must not offer a card the role cannot fetch — neither can be built without reading the role somewhere else.
+3. **`lib/capabilities.ts` and `<Can>` do not exist**, though UI §12.4 specifies both concretely, down to the signature. B3 and B4 are their first two callers. This is the third leg of the same prerequisite.
+4. **§7.8's "Overheads (no vehicle)" block cannot be built from any endpoint that exists.** `GET /api/reports/vehicle-month` returns `{ period, vehicles[] }` — per-vehicle only, no overheads row. `GET /api/expense`'s `vehicleId` filter is *optional-means-unfiltered* (`filters.vehicleId !== undefined ? eq(…) : undefined`, `queries/expense.ts`), so there is no way to ask it for "expenses with **no** vehicle" — omitting the filter returns every expense including the vehicle-attributed ones. W-32 makes this block load-bearing (overheads are never spread across vehicles), so it is not droppable. **New gap, GAP-41**, and it needs a small Track A increment, not a client workaround — summing a full expense list client-side to derive a report figure is aggregation outside SQL.
+5. **The chart palette in UI §11.2 is eight raw hex pairs, and raw hex is forbidden.** CLAUDE.md is unambiguous ("No raw hex anywhere… colour comes from `--color-*` tokens"), and §11.2's values are validated for CVD contrast against this project's own surfaces, so they are correct values in a form the rules refuse. They become `--color-chart-1…8` tokens in `tokens.css` with both light and dark values, **and each one must also be added to `cn.ts`** or tailwind-merge silently drops it. Not a gap — a conversion step B4 must not skip.
+6. **`GET /api/audit-log/{tableName}/{recordId}` is per-record, not a feed.** B3's line "`Timeline` finally wired to real `audit_log` data" is buildable for *one record's* history (a corrected payment's trail, which is what F-8.6/UC-97 actually asks for) but not for a "what happened this month" list on the close screen. Wire it to the record, not the month.
+7. **Two of the nine reports are owner-only and three need parameters the catalogue must collect before it can fetch.** Detail in B4 below — this is the one place where "nine tested endpoints, no interface" understates the work, because a catalogue of nine links is not sufficient for four of them.
+
+### B0b · The three shells and the capability gate — **do this first**
+
+**Small, and it unblocks three items.** Exactly the B0 situation: two or more items need it, none owns it, and each would otherwise build its own half-version. Nothing here is a screen; it is the plumbing every role-aware screen after it assumes.
+
+**What lands:**
+
+1. **`meResponseSchema` in `packages/shared`**, replacing `FirstRunGate`'s local `MeResponse` interface. That interface is documented as the one exception to clause 2 of the two-track contract, and the exception only held while exactly one screen read it — B3 and B4 make it three. `/api/me` is a plain Hono route with no route-def; giving it one is a Track A commit, and it is the only backend work B0b needs.
+2. **A `useMe()` hook over the existing `["me"]` query key**, so role is read the same way from anywhere without a second fetch. `FirstRunGate` already populates that cache entry.
+3. **`lib/capabilities.ts` — the W-49 matrix, client-side**, exactly as UI §12.4 specifies: `can(role, cap)`, one entry per row. Copy the rows from `api/src/auth/policy.ts` and say in the file that it is convenience only and the Worker re-checks every one.
+4. **`<Can cap="…">`** — renders nothing when the role lacks it. **Absent, never disabled** (M-22): a disabled control tells a manager the feature exists and he is untrusted, which is a different message from the one the product intends.
+5. **`FirstRunGate` gains `renderReview` and `renderMine`**, and `RootLayout` stops hardcoding `shell="operate"`. Review renders `AppShell shell="review"` with its four tabs (`This month · Vehicles · My money · Reports`) wired to real routes; Mine renders `shell="mine"` with no tab bar at all.
+6. **The Mine shell is a different component tree, not a filtered Operate** (§7.9: "not disabled, not hidden behind a role check in a shared component"). B0b establishes that boundary; B5 fills it in.
+
+**Traps:**
+
+- **`REVIEW_TABS` already exists and is already tested** — do not add a fifth or reorder it. `AppShell` takes `activeTab`/`onTabChange`; the work is routes and a `tabForPathname` equivalent, not a new shell component.
+- **The owner-manager is not a fourth shell** (§3.1, M-3). He gets Operate, and reaches the Review screens through **More → My share** as the same components rendered read-only. Do not branch him into `shell="review"`.
+- **`can()` is never the security boundary.** Every capability is re-checked in the Worker and the driver boundary is `driver_id` scoping in the data layer (§12.4, TS §2). A test asserting the client matrix must not read as if it were proving access control.
+
+**Done means** — an `owner` token lands in the Review shell with four working tabs, a `driver` token lands in a tab-less Mine shell, a `manager` sees no close-month affordance anywhere, and `can()` has a unit test per W-49 row.
 
 ### B0 · Done — closed GAP-37 and GAP-40, and three B items no longer wait on anything
 
@@ -327,37 +427,60 @@ The previous edition named an `ExpenseListScreen` for Web-P8b. **It was not buil
 
 Recorded rather than quietly dropped, so the same screen is not proposed a third time. `GET /api/expense` keeps its own value and its own gap id (GAP-33).
 
-### B4 · The Review shell and nine reports — start now
+### B4 · The Review shell and nine reports — needs B0b first
 
 **Nine tested endpoints and no interface. The partner whose entire use of this product is reading reports has nothing until this ships** — `FirstRunGate` sends the `owner` role to `NotBuiltYetScreen` today.
 
-**Backend increment: none.** All nine exist, capability-gated, proven linked-driver-safe in one loop.
+**Backend increment: one small one, not none** — the previous edition said none. §7.8's overheads block has no endpoint that can produce it (**GAP-41**, finding 4 above). Everything else is read-only and shipped.
 
-**Screens** — `web/src/features/reports/`: the Review shell's own tab set (`AppShell` already accepts `shell="review"` and renders it), a report catalogue, one screen per report. New routes `/reports` and `/reports/:key`.
+**Screens** — `web/src/features/reports/` and `web/src/features/review/`: the Review shell's four tabs, a report catalogue, one screen per report. New routes `/reports`, `/reports/:key`, and whatever the three non-Reports tabs resolve to.
 
-**The one hard problem, and it needs deciding before any chart is drawn:** money is `bigint` in the client and **must never become a `number`, "not even for a chart axis"** ([web/CLAUDE.md](web/CLAUDE.md)). Recharts wants numbers. Resolve it deliberately — scale to a display unit at the very edge, in one place, isolated and tested exactly as the money codec is. Do not let a `Number(minor)` leak into a component. The backend already solved this twice for *ratios* (`profitPerKm`, `kmPerLitre` each carry their own lint disable and a recorded reason); follow that precedent rather than inventing a third convention.
+**The nine, with what each one actually needs from the caller.** This is the part "nine tested endpoints, no interface" understates — four of them cannot be fetched from a bare catalogue link, because the endpoint requires parameters the catalogue has to collect first:
+
+| Report | Endpoint | Caller must supply | Gate | Form (§11.1) |
+|---|---|---|---|---|
+| UC-70 this month | `/reports/vehicle-month` | **`periodId`** (+ optional `vehicleId`) | `viewReports` | KPI row + horizontal bar per vehicle |
+| UC-71 trips that made money | `/reports/trips` | — | `viewReports` | Ranked horizontal bar, direct-labelled |
+| UC-72 fuel efficiency | `/reports/fuel-efficiency` | **`vehicleId` + `from` + `to`** | `viewReports` | Line, single series |
+| UC-74 who owes us | `/reports/receivables` | — | `viewReports` | **Table**, not a chart |
+| UC-75 where is our cash | `/reports/cash-position` | — | `viewReports` | Stat tiles + stacked bar (held vs ours) |
+| UC-76 lost days | `/reports/lost-days` | **`from` + `to`** | `viewReports` | Column per month + weekday distribution |
+| UC-77 goodwill given | `/reports/goodwill` | **`from` + `to`** | **`viewOwnerOnlyReports`** | Single number + table by reason |
+| UC-78 ageing | `/reports/ageing` | **`asOfDate`** | `viewReports` | Stacked bar of buckets + table |
+| UC-79 utilisation | `/reports/utilisation` | **`vehicleId` + `from` + `to`** | **`viewOwnerOnlyReports`** | Stacked bar per vehicle |
+
+**`periodId` comes from `GET /api/accounting-period`** (A3), which is also §7.8's own `July 2026 ▾` picker — one query serving both. **A vehicle picker is needed for two reports** (UC-72, UC-79) and `EntityPicker` already exists. **UC-73 (the year) is not in this list and must not be built** — it is GAP-18, product-phase Second, even though §11.1's table has a row for it.
+
+**§7.8's hero comparison is two fetches, and the delta is a percentage of money.** `▲ 12% vs June` needs `vehicle-month` for the current period *and* the one before it, then a ratio. That ratio is a `number` derived from two `bigint`s — legitimate, and it needs the same treatment `profitPerKm`/`kmPerLitre` already carry: an explicit lint disable with the reason recorded, computed in one place, never a `Number()` on either operand independently.
+
+**The one hard problem, and it needs deciding before any chart is drawn:** money is `bigint` in the client and **must never become a `number`, "not even for a chart axis"** ([web/CLAUDE.md](web/CLAUDE.md)). Recharts wants numbers. Resolve it deliberately — scale to a display unit at the very edge, in one place, isolated and tested exactly as the money codec is. Do not let a `Number(minor)` leak into a component. The backend already solved this twice for *ratios*; follow that precedent rather than inventing a third convention.
 
 **Traps:**
-- **Two capability gates.** `viewReports` (STAFF) covers seven; `viewOwnerOnlyReports` (OWNERS) covers UC-77 and UC-79. **The catalogue must not render a card the role cannot fetch** — a 403 the user could have been spared is a bug.
-- **Degrade to "not available", never zero** (W-56). `profitPerKm` and `kmPerLitre` come back `null` **by design**; `NotAvailable` and `Rs 0` must look different on screen.
-- **The lost-day denominator is `ran + lost`.** Display it as the backend computed it; never recompute a percentage client-side.
-- **No accounting vocabulary reaches the interface** (U-6) — no "accrual", "receivable", "allocation" in any title or axis label.
+- **Two capability gates.** `viewReports` (STAFF) covers seven; `viewOwnerOnlyReports` (OWNERS) covers UC-77 and UC-79. **The catalogue must not render a card the role cannot fetch** — a 403 the user could have been spared is a bug. `<Can>` from B0b is how, not an inline role check.
+- **The §11.2 palette becomes tokens before any chart uses it** (finding 5). Eight `--color-chart-*` pairs in `tokens.css`, light and dark, **and every one added to `cn.ts`** or tailwind-merge drops it silently. Three light-mode slots sit below 3:1 on the surface, which **obligates direct labels or a table view** on any chart using them — §11.2 states that as a requirement, not a preference.
+- **Every chart has a table view, one tap away** (§11.3). It is also the accessibility relief for those three slots, so it is not optional polish.
+- **Degrade to "not available", never zero** (W-56). `profitPerKm`, `kmPerLitre` and `litres` all come back `null` **by design**; §11.4 makes this a *visual* rule — `NotAvailable` in place of the mark, reason in the caption. A zero-height bar and a missing bar must never look the same.
+- **The lost-day denominator is `leaseEligible`** — the endpoint returns `ran`, `lost` and `leaseEligible` as separate counts. Display what it computed; never recompute a percentage client-side.
+- **No accounting vocabulary reaches the interface** (U-6) — no "accrual", "receivable", "allocation" in any title or axis label. UC-74's own screen title cannot be the word the use case is named after.
+- **`partyName`, `displayName` and `driverName` are all `.nullable()`** across these schemas. A missing name is not an empty string and not "Unknown" — decide once and apply it everywhere.
 - **GAP-19**: UC-79 ships without `revenuePerAvailableDayMinor`. Do not draw an axis for a figure the endpoint does not return.
+- **No pie charts, never a dual axis, one chart per viewport** (§11.3).
 
-**Done means** — all nine render from real data, correctly gated per role, both themes, 360×640.
+**Done means** — all nine render from real data, correctly gated per role, both themes, 360×640, each with a table view, and no `Number()` on a money value anywhere in the feature.
 
-### B5 · The Mine shell — start now
+### B5 · The Mine shell — needs B0b's `renderMine` branch
 
-**Backend increment: none.** `GET /api/driver-view` has been ready since P12.
+**Backend increment: none.** `GET /api/driver-view` has been ready since P12, and `driverViewResponseSchema` already carries days, trips, advances, offsets and the deposit in one response.
 
-**Screens** — `web/src/features/mine/`: `MineScreen` on `/me` — `TwoBalances`, his days including excused ones, closed trips and fees, advances, offsets, the held deposit, a Statement link. `AppShell` already accepts `shell="mine"` and renders no tabs for it. Replaces `FirstRunGate`'s `driver` → `NotBuiltYetScreen` branch.
+**Screens** — `web/src/features/mine/`: `MineScreen` on `/me` — `TwoBalances`, his days including excused ones, closed trips and fees, advances, offsets, the held deposit, a Statement link. `AppShell` already accepts `shell="mine"` and renders no tabs for it; B0b supplies the branch that reaches it.
 
 **Traps:**
 - **There is no `driverId` anywhere in this route, by construction** (INV-25). The client must never introduce one — not as a prop, not as a query param, not "for testing". The endpoint has no slot for it; keep it that way on this side too.
+- **A different component tree, not a filtered Operate** (§7.9): "no write affordance exists in this shell at all — not disabled, not hidden behind a role check in a shared component." Reusing an Operate screen with actions conditionally hidden is the one implementation this explicitly forbids.
 - **`TwoBalances` never nets** (W-2), and this is the screen where a driver would most want it to.
 - **Excused days are included** (§7.9) — they are the thing he would otherwise argue about. Do not filter them out to tidy the list.
 
-**Note the overlap with A5.** This screen and a fuller `DriverDetailScreen` render nearly the same facts from two different endpoints under two different gates. Build `MineScreen` first — its endpoint exists — and factor the shared presentation only once A5 lands, not speculatively.
+**Note the overlap with A5, which has now landed.** This screen and `DriverDetailScreen` render nearly the same facts from two endpoints under two gates — and A5 deliberately made them one domain function and one wire mapper server-side, so the *figures* already cannot disagree. Factor the shared presentation only if it falls out naturally; the two screens have different affordances (Mine has none) and forcing one component to serve both reintroduces exactly the shared-tree risk §7.9 forbids.
 
 **Done means** — a linked driver's token renders exactly his own data, and no request shape exists that could return anyone else's.
 
@@ -376,14 +499,20 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a 60/40 split saves in one write and reads back; a shared vehicle with a monthly fee grants and revokes.
 
-### B3 · Close the month and corrections — A3 done, B0 done, ready
+### B3 · Close the month and corrections — needs B0b for M-22
 
-**Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` finally wired to real `audit_log` data** — it has one caller today and was built for exactly this.
+**Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
 **`CorrectPaymentSheet` needs a payment row to open from**, which is `GET /api/payment` (GAP-38, shipped in A3). Where that row lives is this item's own decision — the lease hub's dues section and the driver/customer detail screens are all candidates; §7.10 only says "open the receipt."
 
+**`Timeline` attaches to a record, not to the month** (finding 6). The endpoint is `GET /api/audit-log/{tableName}/{recordId}` — per-record by design, which is exactly what F-8.6/UC-97 asks for ("readable from the record itself, not only down a global log"). A corrected payment's own trail is the caller. There is no month-wide feed endpoint and the close screen must not imply one.
+
+**The checklist is five counts and they are all live now** — `unconfirmedDays`, `openTrips`, `unreconciledAdvances`, `pendingObligations`, `openIncidents` (`closeChecklistSchema`). Each is a row with a count and a link that goes and fixes it (§7.7).
+
 **Traps:**
 - **The checklist warns and lists; it never blocks** (U-7). The close button stays enabled.
+- **The close action is absent for a `manager`, not disabled** (M-22/W-49) — `<Can>` from B0b, and the same gate on `MoreScreen`'s row pointing here. This is B3's single hardest dependency and the reason B0b exists.
+- **The primary action states the consequence** — `Close July permanently`, never `Confirm` (M-10). `DialogConfirmFooter`'s `confirmLabel` **defaults to the forbidden word**, so it must be passed explicitly here; this is one of the three call sites `Dialog` is actually reserved for.
 - **`unconfirmedDays` is the checklist's first row** (§7.7) and is now in the response (A3). Render all five rows — none is missing any longer, so there is no "state plainly which is missing" fallback to reach for.
 - **Closing opens the successor period in the same transaction.** The screen must make clear that this happened, since every later write depends on it.
 - **A correction's `bearer` is the whole decision.** `back_to_arrears` puts the party back in arrears (INV-22); `absorbed_loss` leaves their due settled and the business eats it. Two outcomes from one form, and the copy must say which is which **without using the word "allocation"** (U-6).
@@ -433,6 +562,117 @@ What shipped: `@asgardeo/auth-react` ^5.6.2 (the SDK UI § settled on in July) �
 
 ---
 
+## Track B implementation checklist
+
+Written 6 August 2026 from the validation pass above. **Order matters within an item; items are in build order.** Every box is something a reviewer can check by reading a diff or running a test — "understand the spec" is not a box.
+
+### B0b · The three shells and the capability gate
+
+- [ ] `meResponseSchema` in `packages/shared/src/schemas/me.ts`, exported from `index.ts` — role, `userId`, `businessId`, optional `driverId`
+- [ ] `api/src/route-defs/me.ts` + handler validating against it — the only Track A commit B0b needs
+- [ ] Delete `FirstRunGate`'s local `MeResponse` interface and its "one documented exception" comment; import the shared type
+- [ ] `web/src/lib/useMe.ts` — reads the existing `["me"]` query key, no second fetch
+- [ ] `web/src/lib/capabilities.ts` — `can(role, cap)` over a `MATRIX` copied row-for-row from `api/src/auth/policy.ts`, with the "convenience only, the Worker re-checks" comment §12.4 requires
+- [ ] `web/src/components/Can.tsx` — renders `null` when the role lacks the capability. **Never renders a disabled child**
+- [ ] `capabilities.test.ts` — one assertion per W-49 row, and one asserting a `driver` has no STAFF capability
+- [ ] `FirstRunGate` gains `renderReview` / `renderMine`; `RootLayout` stops hardcoding `shell="operate"`
+- [ ] Review shell renders `AppShell shell="review"` with the existing four `REVIEW_TABS` wired to routes — **do not reorder or extend the tab list**
+- [ ] Mine shell renders `shell="mine"` (no tab bar) over its own component tree
+- [ ] `owner_manager` still routes to **Operate**, not Review (M-3) — assert it
+- [ ] Tests: one per role → correct shell; `<Can>` absent-not-disabled; `npm run check` clean
+
+### B3 · Close the month and corrections
+
+- [ ] Route `/period/close` + `CloseMonthScreen` in `web/src/features/period/`
+- [ ] `GET /api/accounting-period/close-checklist` wired; **all five counts rendered** as rows with a count and a link
+- [ ] Close action wrapped in `<Can cap="closeAccountingPeriod">` — **absent for `manager`**, asserted in a test
+- [ ] `MoreScreen` gains a close-month row under the **same** `<Can>` — not a hidden destination behind a visible door
+- [ ] Confirm is `Dialog` (one of its three reserved call sites) with `confirmLabel="Close July permanently"` — never the default `"Confirm"` (M-10)
+- [ ] Second confirm states that closing cannot be undone **and** that the next period opens in the same action (§7.7)
+- [ ] Success surfaces the newly opened successor period — every later write depends on it
+- [ ] The close button stays **enabled** regardless of checklist counts (U-7)
+- [ ] `CorrectPaymentSheet` over `GET /api/payment` + `POST /api/payment/{id}/correct`; `bearer` is an explicit two-outcome choice, worded without "allocation" (U-6)
+- [ ] `WriteOffSheet` and `PostClosureChargeSheet` as **separate entry points** — a waiver and a write-off never share a control (W-28)
+- [ ] `Timeline` wired to `GET /api/audit-log/{tableName}/{recordId}` for a corrected payment — **per record, not per month**
+- [ ] `PERIOD_CLOSED` caught and explained; no client-side pre-check anywhere
+- [ ] U-2 test on every new form: saves with level-1 fields alone
+
+### B4 · Review shell + nine reports
+
+**Do the palette and the money-to-axis codec before the first chart, not after.**
+
+- [ ] `--color-chart-1…8` in `tokens.css`, light **and** dark, from §11.2's validated values — no raw hex in any component
+- [ ] Every new token added to `theme` in `cn.ts` (tailwind-merge drops unknown tokens silently) + a `cn.test.ts` case
+- [ ] One isolated money→axis scaling module, unit-tested like the money codec; **no `Number(minor)` outside it**
+- [ ] A lint-visible reason on the one legitimate ratio (§7.8's `▲ 12% vs June`), following `profitPerKm`'s precedent
+- [ ] `/reports` catalogue — cards gated by `<Can>`, so **no card the role cannot fetch** (UC-77 and UC-79 are `viewOwnerOnlyReports`)
+- [ ] Parameter collection before fetch: **`periodId`** (from `GET /api/accounting-period`), **vehicle picker** (`EntityPicker`, for UC-72/UC-79), **date window**, **`asOfDate`**
+- [ ] `/reports/:key` — one screen per report, nine of them, each in §11.1's specified form
+- [ ] **Every chart has a table view one tap away** (§11.3) — required, not polish
+- [ ] Direct labels on any chart using the three low-contrast light slots (§11.2)
+- [ ] `NotAvailable` **in place of the mark** with the reason in the caption wherever a value is `null` (§11.4) — never a zero-height bar
+- [ ] A test per report against an **empty** and a **partial** fixture asserting `NotAvailable`, not `0` (§12.6)
+- [ ] Nullable `partyName` / `displayName` / `driverName` handled by one decided convention, applied everywhere
+- [ ] Review shell's other three tabs (`This month`, `Vehicles`, `My money`) — §7.8's layout, overheads as **their own block** beneath vehicle totals (W-32)
+- [ ] **GAP-41 first, or the overheads block is a lie** — a way to ask for expenses with no vehicle (Track A)
+- [ ] UC-73 (the year) **not built** — GAP-18, phase Second, despite §11.1 listing it
+- [ ] No pie charts, no dual axis, one chart per viewport, charts scroll in their own container (§11.3)
+- [ ] No accounting vocabulary in any title, axis label or caption (U-6)
+
+### B5 · Mine shell
+
+- [ ] Route `/me` + `MineScreen` in `web/src/features/mine/` — **its own component tree**, sharing no screen with Operate (§7.9)
+- [ ] `GET /api/driver-view` wired; `TwoBalances` at the top, never netted (W-2)
+- [ ] Days rendered **including excused ones** (§7.9)
+- [ ] Trips and fees, advances, offsets, held deposit
+- [ ] Statement link producing the same content as the printed slip (UC-57)
+- [ ] **Zero write affordances** — asserted by a test that fails if any `button` with a mutation appears in the tree
+- [ ] **No `driverId` anywhere** — not a prop, not a param, not in a test helper (INV-25)
+
+### B6 · Customer detail
+
+- [ ] `/people/customers/:id` replaces `PlaceholderDetailRoute`
+- [ ] `GET /api/customer/{id}/obligation` + `/payment` wired (both A4)
+- [ ] **Reuse `LeaseHubScreen`'s dues section wholesale** — same rows, same "tappable only while `pending`/`part_paid`", same `ActionSheet` → `CollectPaymentSheet` / `AdjustObligationSheet`
+- [ ] Statement view
+
+### B2 · Partners, banking, cash
+
+- [ ] Routes `/cash` and `/partners/:id`; **no `/partners` list route** — the partner list is a section on `/cash`, fed by `cash-position`
+- [ ] `PartnerDetailScreen` over `GET /api/partner/{userId}` (A2)
+- [ ] `OwnershipSharesForm` — submits the **whole set in one write**, surfaces `OWNERSHIP_SHARES_INVALID` as a 400, **no client-side sum pre-check**
+- [ ] `CapitalContributionSheet` — capital rendered as capital, never as ownership (W-52)
+- [ ] `ShareVehicleForm` (F-1.4) — overlap is a 409 from the `EXCLUDE` constraint, caught not pre-checked
+- [ ] `BankingEventForm` — bearer required exactly when recorded ≠ counted, offering **only** `absorbed` / `unattributed`
+- [ ] `CashPositionScreen` — deposits held shown **beside** partner cash, never netted into it
+- [ ] `BorneByPaidBy`'s paid-by picker wired to `GET /api/business-member` (GAP-31's remaining half)
+- [ ] **No UI implying per-vehicle capability scoping exists** (GAP-1)
+
+### B7 · Offline and the PWA — last
+
+- [ ] TanStack Query persistence + the paused-mutation queue (M-12)
+- [ ] Replay with a **fresh token per attempt**; a 401 on replay pauses and re-authenticates, **never discards** — a discarded mutation is a lost money record
+- [ ] Eviction warning while the queue is non-empty
+- [ ] `OfflineBanner` finally given a caller (it has zero today)
+- [ ] Runtime caching, stale-while-revalidate reads, short TTL on money reads (§12.5)
+- [ ] iOS "Add to Home Screen" hint, dismissible forever
+- [ ] **Verify `HomeScreen`'s skeleton branch**, reachable for the first time once a warm cache exists
+- [ ] Decide `Provisional`'s fate — 0 callers, and this is the only item that could claim it. Record either way
+
+### The gate every one of these clears
+
+- [ ] 360 × 640, one thumb, no horizontal scroll; reflows at 320px
+- [ ] 44 × 44 minimum, ≥ 8px apart, ≥ 16px when one is destructive
+- [ ] Money `string` on the wire, `bigint` in the client, **never `number`**
+- [ ] `Rs 0` and `NotAvailable` visibly different
+- [ ] `--color-*` tokens only; colour never carries meaning alone
+- [ ] Reserved vocabulary, never abbreviated; no accounting words
+- [ ] New token → `cn.ts`; new form → the three structural fixes (TRACKER §5)
+- [ ] `npm run check` clean; axe-core clean, both themes
+- [ ] TRACKER.md updated: the item becomes a **row**, its leftovers become **gap rows with a track**
+
+---
+
 ## How the tracks run
 
 ```
@@ -444,15 +684,16 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A4  customer reads ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
         A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
         A9a the void/period trigger ✅                B6  customer detail — ready (A4 ✅, B0 ✅)
-        A6  trip receivable ✅                        B5+ driver detail history — ready (A5 ✅)
-now     A10 the other two silent zeros ← do this next  B4  Review shell + 9 reports
-        A7  R2 upload (unblocks 5 gaps; independent)   B5  Mine shell
-        A8  odometer wiring, borne-by preview (independent)
+        A6  trip receivable ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
+now     A10 the other two silent zeros                 B0b three shells + capability gate ← first
+        GAP-41 overheads filter (B4 needs it)          B3  close the month  (needs B0b)
+        A7  R2 upload (unblocks 5 gaps; independent)   B4  Review shell + 9 reports (needs B0b, GAP-41)
+        A8  odometer wiring, borne-by preview          B5  Mine shell      (needs B0b)
         A9b the rest of soft delete
 last                                                B7  offline and the PWA
 ```
 
-**Track B never idles.** B4 alone is larger than A2 was, and B2, B3, B5, B5+, B6 and B7 all sit ready with no dependency left at all — every Track A handoff and B0 itself have both landed.
+**Track B no longer "never idles" without qualification** — B3, B4 and B5 all queue behind **B0b**, which is small. B6 and B2 need neither B0b nor anything on Track A, so they are the two items a second person can start on immediately without waiting.
 
 **Track A's remaining items are now all independent again.** A9a (the GAP-35 trigger fix) gated A6 and A10, because both add new places the defect could have fired — it shipped 5 August, so A6, A10, A7 and A8 can all be picked up in any order.
 
