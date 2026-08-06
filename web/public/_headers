@@ -2,11 +2,23 @@
 # every static asset response; Worker-generated responses would need their
 # own headers, but this Worker has none (wrangler.jsonc has no `main`).
 #
-# connect-src is 'self' only for now: the deployed API Worker and the
-# Asgardeo issuer are different origins once P1 wires real auth, and their
-# domains get added here alongside that work rather than guessed at now.
+# connect-src carries two origins and no more:
+#
+#   'self'                  — the API Worker. It is routed at
+#                             fleetsettle.com/api/* on the SAME host that
+#                             serves this SPA, so it needs no entry of its
+#                             own and no CORS anywhere. Worth not undoing.
+#   https://api.asgardeo.io — the authorization-code exchange and token
+#                             refresh (B8). Sign-in and sign-out are
+#                             top-level navigations, which no directive
+#                             here governs; this covers only the SDK's XHR
+#                             to the token endpoint.
+#
+# No frame-src: the SDK's OIDC session-management iframe is off by default
+# (`enableOIDCSessionManagement: false`) and we do not turn it on. Add one
+# only alongside enabling it, never in advance.
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; font-src 'self'; connect-src 'self' https://api.asgardeo.io; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
