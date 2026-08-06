@@ -55,13 +55,7 @@
 | `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
 | `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
 
-**B0 is done** (5 August 2026) — `/more` is real, sign-out works, and B2/B3/B6 no longer wait on anything. **Do this next:**
-
-| # | | Why it is next |
-|---|---|---|
-| 1 | **B4** — the Review shell and nine reports | The largest single item left on either track, and the entire product for the partner this system was built to be believed by |
-
-**Then, on the backend, A9a before anything else that writes.** GAP-35 is a live defect — voiding a record posted into a closed month silently changes that month's reported figures — and **A6 and A10 each add a fourteenth and fifteenth place it can fire.** One trigger change, half a day. Doing it after them means shipping a known hole into new code.
+**B0 is done** (5 August 2026) — `/more` is real, sign-out works, and B2/B3/B6 no longer wait on anything. **Do this next: A9a.** GAP-35 is a live defect — voiding a record posted into a closed month silently changes that month's reported figures — and **A6 and A10 each add a fourteenth and fifteenth place it can fire.** One trigger change, half a day. Doing it after them means shipping a known hole into new code. B4 (the Review shell, largest item on either track — the entire product for the partner who reads rather than enters) is next after that; ["The order, end to end"](#the-order-end-to-end) below is the full sequence, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
