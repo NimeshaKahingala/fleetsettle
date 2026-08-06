@@ -109,7 +109,17 @@ export function ConfirmDayCard({
 
   if (dayQuery.data === undefined || leaseQuery.data === undefined) return null;
 
-  const expectedMinor = parse(leaseQuery.data.dailyLeaseAmountMinor);
+  // P13's generate-day-cards pre-inserts a day_record in `open` state for
+  // every scheduled day up to 90 days out — a placeholder, not a confirmed
+  // fact (GAP-3). Its own expectedMinor is the authoritative figure for
+  // this specific date once it exists, so prefer it over the lease's
+  // current rate the same way domain/confirmDay.ts prefers the row it's
+  // about to UPDATE over generating a fresh one.
+  const openRecord =
+    dayQuery.data !== null && dayQuery.data.state === "open" ? dayQuery.data : null;
+  const expectedMinor = openRecord
+    ? parse(openRecord.expectedMinor)
+    : parse(leaseQuery.data.dailyLeaseAmountMinor);
 
   // Optimistic: while the mutation is in flight, the values it was called
   // with already determine the outcome (the same derivation domain/confirmDay.ts
@@ -119,7 +129,13 @@ export function ConfirmDayCard({
       ? toOptimisticRecord(confirmMutation.variables, expectedMinor)
       : null;
 
-  const settled = dayQuery.data ?? optimistic;
+  // A fetched row in `open` state is that same placeholder, not a settled
+  // fact — it must not short-circuit into the settled summary below, or the
+  // card renders "Confirmed / Rs 0" with no buttons for a day nobody has
+  // touched (GAP-3, found live: the tap this card should offer was silently
+  // discarded because this exact check used to accept any non-null row).
+  const settled: DayRecordResponse | null =
+    dayQuery.data !== null && dayQuery.data.state !== "open" ? dayQuery.data : optimistic;
 
   if (settled) {
     return (
