@@ -66,6 +66,52 @@
 
 ---
 
+## The order, end to end
+
+Every remaining item on both tracks, sequenced. **Sizes are relative to each other, not calendar estimates** — S is a sitting, XL is the largest thing left on either track.
+
+### The two tracks are independent
+
+There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened, and every schema Track B needs is already in `packages/shared`. So if two people are working, they never block each other:
+
+| | Order | Note |
+|---|---|---|
+| **Track A** | A9a → A6 → A10 → A8 → A7 → A9b | A9a gates A6 and A10; the last three are free |
+| **Track B** | B0 → B4 → B5 → B3 → B6 → B2 → B7 | B0 gates B2, B3 and B6; B7 is cross-cutting and goes last |
+
+### One person, one queue
+
+If it is one person, this is the order, and the reasoning is *what breaks first in real use* rather than what is most interesting to build.
+
+| # | Item | Size | Why here |
+|---|---|---|---|
+| 1 | **B0** · `/more` hub | S | Half a day, unblocks three items, and carries sign-out — **the only one of these that is already wrong in production.** On a shared phone a session ends when the token expires or the browser is cleared |
+| 2 | **A9a** · the void/period trigger | S | Half a day, and it gates 3 and 7. Cheap now, expensive to retrofit through two more call sites |
+| 3 | **A6** · trip receivable | M | The first real-money hole a user will hit. A charter payment today floats as `unallocatedMinor`, attached to nothing — and the bus is the flagship asset |
+| 4 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
+| 5 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
+| 6 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
+| 7 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
+| 8 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists |
+| 9 | **B2** · partners, banking, cash | M | Six screens, all backed by A2 |
+| 10 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
+| 11 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
+| 12 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
+| 13 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
+
+### Two orderings worth arguing with
+
+**4 before 5 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show.
+
+**11 low (A7).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
+
+### What is deliberately not in this list
+
+- **P14 messaging** — twelve Meta approvals outstanding. Fire them now regardless; they queue, and `dispatch-messages` plus six templates are unsized work behind a label that says "external" ([TRACKER.md](TRACKER.md) → Blocked).
+- **The 19 gaps in [TRACKER.md](TRACKER.md) §4's "recorded, unowned, and correct to leave"** — each unreachable, unbacked by the schema, or out of scope. Two worth re-reading before a real user arrives: **GAP-25** (nothing ever ends a daily lease) and **GAP-1** (per-vehicle capability scoping is a business-wide stand-in — do not build UI implying it exists).
+
+---
+
 ## Track A — the Worker and shared schemas
 
 | id | Item | Gaps | Endpoints | Blocks |
