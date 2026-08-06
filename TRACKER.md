@@ -32,16 +32,22 @@
 
 ## 1. Where things stand
 
-**Backend is complete through P13.** **Frontend is complete through Web-P8b.** P14 and real Asgardeo are blocked on external work. CI's integration workflow is configured and verified — every PR into `main` now runs all seven migrations from scratch, the DM §13 drift check, and the full integration suite against a fresh Neon branch.
+**Backend is complete through P13. Frontend is complete through Web-P8b. Both environments are deployed, and a real person can now log in to them.** As of 5 August 2026 the only thing still blocked on anyone outside this repository is **P14 messaging**, waiting on twelve Meta template approvals.
+
+That changes what "remaining work" means. Until today the product could not be reached at all — no deployment, and an auth stub whose token the Worker was always going to refuse. Both are gone. **What is left is no longer plumbing; it is screens two of the three roles still do not have, and three money facts that read as zero.** [Plan.md](Plan.md) sequences it.
+
+CI runs the full gate and the integration suite on every PR, `develop` deploys to QA and `main` to production, both on merge.
 
 | Gate | Result |
 |---|---|
 | `npm run check` | clean across `api` / `web` / `packages/shared` |
-| `web` | 76 files / 276 tests |
+| `web` | 77 files / 280 tests |
 | `packages/shared` | 11 files / 78 tests |
 | `api` unit | 3 files / 10 tests |
 | **`api` integration** | 31 files / 388 tests — **not in `check`** locally ([§5](#5-the-traps)); runs on every PR via `integration.yml`, verified green 5 Aug 2026 |
 | `npm run lint` | 0 errors, 15 warnings — all `react-refresh/only-export-components`, expected ([§5](#5-the-traps)) |
+| **Deployed** | `fleetsettle.com` and `qa.fleetsettle.com` live since 5 Aug 2026; Neon `main` and `qa` both at migration `0007` |
+| **Login** | Real Asgardeo, PKCE, JWT access tokens — one browser round trip still unexercised by a human |
 
 The client reaches **14 routes**. §3.3's map names 19 paths; the five with no screen are `/cash`, `/partners/:id`, `/reports`, `/reports/:key`, `/period/close`, plus `/settings/*` (level-3 config, unscoped) and `/me`. `/people/customers/:id` exists but renders a placeholder — **and so does `/more`, which is the only route the other five can be reached from** (GAP-37).
 
@@ -129,6 +135,7 @@ One table, because scattering these is what let GAP-22 sit unowned through four 
 | ~~**GAP-4**~~ | ✅ **Closed 5 Aug 2026 (A2).** `paid_by_user_id` is recorded but raised no partner current-account entry — F-3.1's "no extra step" is unmet no longer: `GET /api/partner/{userId}` sums `expense.paid_by_user_id` at read time. A current-account *entry* would have been a new money table — a new `assert_period_open()` array entry, a new void path, a row that can disagree with the expense it came from. A `SUM` cannot drift from its own source | — |
 | ~~**GAP-9**~~ | ✅ **Closed 5 Aug 2026 (A2), F-7.6/F-7.3 half.** F-7.1/F-7.5 already had endpoints (`GET /api/reports/vehicle-month`/`cash-position`, P11, not duplicated); F-7.6 and F-7.3 are now the composed `GET /api/partner/{userId}` — `putIn`, `takenOut`, `earned`, `holding`, one page per partner. B2 still owns rendering it | B2 |
 | **GAP-10** | **An agreed customer contribution to an incident never becomes a receivable.** `recordCustomerContribution` writes `incident_recovery` with an `agreedAmountMinor` and leaves `obligation_id` NULL, so the money appears in no receivable, no ageing bucket and no payment allocation — `0001` documents the intent on the column itself (`-- customer contributions become receivable`). Re-scoped 5 Aug 2026 out of "correct to leave": this half is the same defect class as GAP-23 and GAP-39 and is now **A10**. The other half — `incident.status` never auto-advancing to `repairs_recorded`/`recovery_pending` — stays unowned and correct to leave, since the container design (P8) makes every action available regardless of status | **A10** (receivable half) |
+| **GAP-40** | **Nothing signs the user out.** B8 wired `signOutRedirectURL` and the SDK's `signOut` exists, but no control calls it — a session ends when its token expires or the browser is cleared, and on a shared phone that is the wrong answer. UI §3.1 puts account actions behind the `/more` tab, which is also unbuilt, so this belongs with **B0** rather than as its own item. Small: one row, one call, one confirm. Recorded 5 Aug 2026 rather than quietly added, because "log out" is the kind of thing everyone assumes someone else built | **B0** |
 | **GAP-12** | **Void-and-replace exists for `expense` only.** The other twelve W-50 tables carry the `voided_*` trio structurally, so the mechanism is proven — not each instance of it. A record created by mistake in any of the twelve cannot currently be reversed | **A9** |
 | ~~**GAP-13**~~ | ✅ **Closed 5 Aug 2026 (A3).** The close checklist's `unconfirmedDays` is a `COUNT(*)` on `day_record` where `state = 'open'` and `posted_period_id = periodId` — the same scoping convention `pendingObligations` already used. Cheap and exact since P13 (a `day_record` only exists for a scheduled pattern day), UI §7.7's first row, under-reports honestly if the cron hasn't run for a date yet (U-7) | B3 |
 | **GAP-15** | F-8.4's "deduct it from his fee" is `POST /api/offset` applied afterward, not a code path. A combined one-tap endpoint is UI-shaped work | B3 |
@@ -238,8 +245,11 @@ UC §9.1 phase Third and UI §15 phase Third, listed so their absence is a decis
 
 | Blocked | Waiting on |
 |---|---|
-| **Real Asgardeo** (Track B, last) | Console: token type → JWT, binding → None, redirect URL cleanup. ~10 minutes; blocks nothing else |
-| **P14** — messaging | Twelve Meta template approvals |
+| **P14** — messaging | Twelve Meta template approvals (6 messages × 2 languages), minutes to ~2 days each. `dispatch-messages`, the fifth Cron Trigger, waits with it |
+
+Nothing else on either track waits on anyone outside this repository.
+
+**Read this before writing "blocked externally" against anything again.** Real Asgardeo sat in this table for months described as "~10 minutes; blocks nothing else." The console change *was* ten minutes. The client half — SDK, PKCE flow, callback, sign-in screen, a real token getter — was unbuilt, unsized, and blocked **everything**: nobody could log in to a deployed build at all. The label described the blocker's cost and said nothing about the work behind it, and it kept the item ranked last for exactly that reason. P14 carries the same label today; its Meta approvals are genuinely external, but `dispatch-messages` and six message templates are not, and no one has sized them either.
 
 ## One open question, still unresolved
 

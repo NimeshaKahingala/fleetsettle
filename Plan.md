@@ -18,6 +18,8 @@
 
 **Updated 5 August 2026 — A5 done.** One endpoint, 4 new tests, full suite 31/388. **Track A's read backlog is finished**; everything left on it writes, migrates, or both. A5's own write-up is below, and the section after the Track A table has been re-planned against the code — see "What the A6–A10 validation pass found".
 
+**Updated 5 August 2026 — re-pointed at what is actually left.** Deployment and auth both landed today, and between them they *were* the critical path. With them gone this plan's framing was stale: it still sequenced around unblocking things, when nothing on either track is blocked any more. "Start here" is rewritten around **who still cannot use the product** — one of three roles has a working app — and B0 is now explicitly first. One new gap, **GAP-40**: nothing signs the user out.
+
 **Updated 5 August 2026 — B8 done, and it was mis-sized here.** Real Asgardeo auth is wired (`96301f8`): SDK, PKCE, callback, sign-in gate, 12 new tests. This plan costed B8 at "ten minutes of console work" — that covered the console; **the client half was unbuilt and unscoped**, and until it landed nobody could log in to a deployed build at all. It also surfaced a stale client id in all three Worker environments and a QA build that would have shipped production's. Both fixed. **The lesson worth keeping: "blocked externally" hid an unsized item on the critical path** — B8 was ranked last precisely because the blocker was cheap, which said nothing about the work behind it. Its write-up is under Track B.
 
 ---
@@ -41,19 +43,26 @@
 
 ## Start here
 
-**A1 through A5 are all done — Track A's entire read backlog is finished.** Every handoff to Track B has happened: A2 → B2, A3 → B3, A4 → B6, A5 → B5's staff-side twin. Every schema those items need is in `packages/shared`. **Four Track B items need no backend work at all.** All nine report endpoints, `GET /api/driver-view`, and every offline prerequisite already exist, capability-gated and tested.
+**As of 5 August 2026 the product is deployed and a real person can log in to it.** That was the whole of the critical path a day ago, and it is gone: `fleetsettle.com` and `qa.fleetsettle.com` are live, and B8 replaced an auth stub whose token the Worker was always going to refuse. **Nothing on either track now waits on anyone outside this repository** except P14's Meta approvals.
 
-**Everything left on Track A writes, migrates, or both** — which changes how it should be sequenced. A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter, and one entirely new item came out of it. The findings are below the Track A table.
+**So the question stopped being "what unblocks this" and became "who still cannot use it".** Three roles; one of them has a product:
 
-| Track A next | Track B starts |
+| Role | Today |
 |---|---|
-| **A9** — the period-close void hole (a live defect, ~half a day) then the rest of soft delete | **B4** — the Review shell and nine reports (the largest screen increment, zero backend dependency) |
+| `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people |
+| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
+| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
 
-**A9 goes first now, and only its first step.** GAP-35 is a live defect: voiding a record posted into a closed month silently changes that month's reported figures, and **A6 and A10 each add a fourteenth and fifteenth place it can happen.** Fixing it is one trigger change; doing it after A6 means shipping a known hole into new code.
+**Do these two things first, in this order:**
 
-**Before B2, B3 or B6, `/more` must exist (B0).** It is half a day, needs no backend, and without it every screen those items build is reachable only by typing a URL.
+| # | | Why it is first |
+|---|---|---|
+| 1 | **B0** — the `/more` hub | Half a day, no backend. It gates B2, B3 and B6, and it is where sign-out goes (GAP-40 — nothing signs the user out today) |
+| 2 | **B4** — the Review shell and nine reports | The largest single item left on either track, and the entire product for the partner this system was built to be believed by |
 
-B2, B3, B4, B5 and B6 can all start in parallel with any of A6–A10 — none of them waits on anything left in Track A, only on B0.
+**Then, on the backend, A9a before anything else that writes.** GAP-35 is a live defect — voiding a record posted into a closed month silently changes that month's reported figures — and **A6 and A10 each add a fourteenth and fifteenth place it can fire.** One trigger change, half a day. Doing it after them means shipping a known hole into new code.
+
+**Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
 ---
 
@@ -259,7 +268,7 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 
 | id | Item | Needs | Status |
 |---|---|---|---|
-| **B0** | **The `/more` hub** (GAP-37) | **nothing** | ▶ start now — **B2 and B3 are unreachable without it** |
+| **B0** | **The `/more` hub** (GAP-37, GAP-40) | **nothing** | ▶ **do this first** — B2, B3 and B6 are unreachable without it, and nothing signs the user out |
 | **B4** | Review shell + nine reports | **nothing** | ▶ start now |
 | **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
@@ -269,13 +278,17 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B8** | ✅ Real Asgardeo | — | done 5 Aug 2026 |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
 
-### B0 · The `/more` hub — closes GAP-37, and both waiting B items need it
+### B0 · The `/more` hub — closes GAP-37 and GAP-40, and three B items need it
 
 **Missed by the previous edition, and it gates two of them.** `/more` renders `NotBuiltYetScreen` (`router.tsx`), and §3.1 puts **Cash, reports, period close, settings, message log, business** behind that tab. §3.3 gives `/cash`, `/partners/:id`, `/reports` and `/period/close` **no other entry point** — the tab bar has five fixed slots and none of them is "Cash". So every screen B2 and B3 build is reachable only by typing a URL until this exists.
 
 Small: one screen, a list of rows, no backend increment. **Rows for what exists only** — a row leading to `NotBuiltYetScreen` is worse than no row. Reports appears when B4 lands, Cash when B2 does, and so on.
 
-**Trap** — the close-month row is **absent for a `manager`, not disabled** (M-22/W-49, the same rule §7.7 states for the close action itself).
+**It also carries sign-out (GAP-40).** B8 wired `signOutRedirectURL` and the SDK's `signOut` exists, but **nothing calls it** — a session currently ends when its token expires or the browser is cleared, which on a shared phone is the wrong answer. §3.1 puts account actions behind this tab, so it belongs here rather than as an item of its own. One row, one call, one confirm.
+
+**Traps:**
+- The close-month row is **absent for a `manager`, not disabled** (M-22/W-49, the same rule §7.7 states for the close action itself).
+- **Sign-out must clear the query cache**, not only the token. TanStack Query holds one person's money on screen; the next sign-in on the same device must not paint it before the first fetch returns.
 
 ### B1 · Withdrawn, and why
 
@@ -452,11 +465,15 @@ Unchanged, restated so no session goes looking:
 
 ---
 
-## One thing that is not code
+## The things that were not code — all of them now done
 
-External, cheap, and gates something real:
+This section listed the external work that gated something real. **It is empty.** Kept as a record, because two of the three cost far more than their entry said they would.
 
-1. ~~**Asgardeo's console change**~~ — ✅ **done 5 August 2026.** JWT token type, PKCE mandatory, hybrid flow off, and four redirect URLs registered. B8 shipped with it; see Track B.
+1. ✅ **Asgardeo's console change** — 5 August 2026. JWT token type, PKCE mandatory, hybrid flow off, four redirect URLs. **This entry read "ten minutes, blocks nothing else" and both halves were wrong**: it blocked every deployed login, and the client work behind it was unbuilt and unsized. See B8.
+2. ✅ **Deployment** — 5 August 2026. Both environments live, both Neon branches migrated, deploy-on-merge for each. It needed **no application code at all**, because every route already sat under `/api/*` and the client already defaulted its base URL to `""`.
+3. ✅ **CI's integration workflow** — below.
+
+**The one still outstanding is P14's twelve Meta template approvals**, and it is the only thing on either track waiting on anybody else. Worth firing now regardless of when P14 runs — each approval is minutes to two days, and they queue.
 
 **Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 
