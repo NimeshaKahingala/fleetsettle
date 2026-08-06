@@ -116,6 +116,25 @@ test("tapping a tab navigates and the tab bar's active state follows the URL", a
   expect(screen.getByRole("button", { name: "People" })).toHaveAttribute("aria-current", "page");
 });
 
+test("the More tab reaches the /more hub (GAP-37), no longer NotBuiltYetScreen", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/vehicles", { get });
+  await screen.findByText("No vehicles yet.");
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/more"));
+  expect(screen.getByText("Sign out")).toBeInTheDocument();
+  expect(screen.queryByText("Not built yet.")).not.toBeInTheDocument();
+});
+
 test('the quick-add ("+") tab never changes the route (§3.1: "no route change" — the sheet itself is a later phase\'s gap, tracked separately)', async () => {
   const user = userEvent.setup();
   const get = vi.fn();

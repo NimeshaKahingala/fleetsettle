@@ -46,6 +46,18 @@ export function createStubTokenGetter(): TokenGetter {
   return () => Promise.resolve(STUB_TOKEN);
 }
 
+/**
+ * Stub mode never mounts `AuthGate`, so there is no session to end and
+ * nowhere to redirect to — the app renders unconditionally either way. This
+ * exists so B0's sign-out row still has something to call in `npm run dev`
+ * and the e2e suite; the query-cache clear it triggers (`useAuthActions`,
+ * the composition-root layer above this) is the part actually worth
+ * exercising there.
+ */
+export function createStubSignOut(): () => Promise<void> {
+  return () => Promise.resolve();
+}
+
 // `createUnwiredTokenGetter` lived here until Asgardeo was wired (B8). Its job
 // was to fail loudly at the first request instead of producing an opaque 401,
 // and it is gone rather than kept "just in case": the real getter

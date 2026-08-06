@@ -62,6 +62,6 @@ export const voidExpenseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot void an expense" },
     404: { description: "No such expense in this business" },
-    409: { description: "This expense has already been voided" },
+    409: { description: "This expense has already been voided, or PERIOD_CLOSED (GAP-35)" },
   },
 });

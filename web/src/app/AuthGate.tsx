@@ -2,7 +2,11 @@ import { useAuthContext } from "@asgardeo/auth-react";
 import { useEffect, useRef } from "react";
 import { Button } from "../design/primitives/Button.js";
 import { Screen } from "../design/primitives/Screen.js";
-import { AUTH_CALLBACK_PATH, registerAsgardeoTokenSource } from "../lib/auth-asgardeo.js";
+import {
+  AUTH_CALLBACK_PATH,
+  registerAsgardeoSignOutSource,
+  registerAsgardeoTokenSource,
+} from "../lib/auth-asgardeo.js";
 
 /** Asgardeo's redirect lands here; nothing else in §3.3's route map does. */
 function isOnCallbackPath(location: Location): boolean {
@@ -27,8 +31,9 @@ export interface AuthGateProps {
  * Everything behind this is authenticated. It does three things and nothing
  * else — it is not a screen with logic of its own:
  *
- * 1. Registers the SDK's `getAccessToken` as the API client's token source
- *    (see `auth-asgardeo.ts` for why that is a slot rather than a hook).
+ * 1. Registers the SDK's `getAccessToken` and `signOut` as slots the
+ *    composition root reads from (see `auth-asgardeo.ts` for why these are
+ *    slots rather than a hook — both are built before React mounts).
  * 2. Completes the authorization-code exchange when Asgardeo redirects back.
  * 3. Offers sign-in when there is no session, and blocks until there is one.
  *
@@ -53,6 +58,12 @@ export function AuthGate({ children }: AuthGateProps) {
     // asks the *current* context — which is what keeps a background-refreshed
     // token reaching the next request (M-12).
     registerAsgardeoTokenSource(() => authRef.current.getAccessToken());
+    // The SDK's `signOut` takes an optional callback and resolves `boolean`;
+    // the slot's contract is `() => Promise<void>` (GAP-40's caller does not
+    // need either), so this is the one place that shape gets narrowed.
+    registerAsgardeoSignOutSource(async () => {
+      await authRef.current.signOut();
+    });
   }, []);
 
   useEffect(() => {
