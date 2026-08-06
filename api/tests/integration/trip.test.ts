@@ -88,6 +88,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
   it("happy path — writes the trip and one allocation row per day in the range", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
     const customerId = await ctx.createCustomer(businessId);
     const driverId = await ctx.createDriver(businessId);
@@ -272,6 +273,127 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
 
     await ctx.cleanup();
   });
+
+  it("GAP-23/A6 — raises a trip_fare receivable when there's a customer and an agreed amount", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-06-01",
+      endDate: "2026-06-03",
+      agreedAmountMinor: "4500000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, body.id)));
+    expect(obligationRows).toHaveLength(1);
+    expect(obligationRows[0]).toMatchObject({
+      direction: "owed_to_us",
+      partyType: "customer",
+      partyCustomerId: customerId,
+      kind: "trip_fare",
+      amountMinor: 4_500_000n,
+      settledMinor: 0n,
+      // Due once the trip is over, not the day it was booked.
+      dueOn: "2026-06-03",
+      effectiveDueOn: "2026-06-03",
+      status: "pending",
+      postedPeriodId: periodId,
+      voidedAt: null,
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-23/A6 — an owner-driven charter with no customer raises no receivable", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-06-05",
+      endDate: "2026-06-06",
+      agreedAmountMinor: "1000000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, body.id)));
+    expect(obligationRows).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-23/A6 — a charter with no customer needs no accounting period at all", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    // Deliberately no ctx.createOpenPeriod — proves a charter that never
+    // raises an obligation is never refused for one either.
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-06-12",
+      endDate: "2026-06-12",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("409 PERIOD_CLOSED — booking a charter for a customer with no accounting period open (GAP-23/A6)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-06-10",
+      endDate: "2026-06-11",
+      agreedAmountMinor: "1000000",
+    });
+    expect(res.status).toBe(409);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    // The whole booking is one transaction — the obligation insert fails
+    // last, but nothing earlier in it (the allocation rows) is left behind.
+    const leftoverAllocations = await db
+      .select()
+      .from(vehicleDayAllocation)
+      .where(eq(vehicleDayAllocation.vehicleId, vehicleId));
+    expect(leftoverAllocations).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
 });
 
 /**
@@ -372,10 +494,42 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
       ],
     );
 
+    // GAP-23/A6: booking with a customer and an agreed amount already raised
+    // the trip_fare receivable — same sourceType/sourceId as the driver-fee
+    // obligation close is about to add, so every query below is scoped by
+    // `kind` to stay about the one it's actually testing.
+    const fareObligations = await db
+      .select()
+      .from(obligation)
+      .where(
+        and(
+          eq(obligation.sourceType, "trip"),
+          eq(obligation.sourceId, tripBody.id),
+          eq(obligation.kind, "trip_fare"),
+        ),
+      );
+    expect(fareObligations).toHaveLength(1);
+    expect(fareObligations[0]).toMatchObject({
+      direction: "owed_to_us",
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: 6_000_000n,
+      dueOn: "2026-07-31",
+      status: "pending",
+      postedPeriodId: periodId,
+      vehicleId,
+    });
+
     const feeObligations = await db
       .select()
       .from(obligation)
-      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+      .where(
+        and(
+          eq(obligation.sourceType, "trip"),
+          eq(obligation.sourceId, tripBody.id),
+          eq(obligation.kind, "driver_fee"),
+        ),
+      );
     expect(feeObligations).toHaveLength(1);
     expect(feeObligations[0]).toMatchObject({
       direction: "owed_by_us",
@@ -400,7 +554,13 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const feeObligationsAfterReplay = await db
       .select()
       .from(obligation)
-      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+      .where(
+        and(
+          eq(obligation.sourceType, "trip"),
+          eq(obligation.sourceId, tripBody.id),
+          eq(obligation.kind, "driver_fee"),
+        ),
+      );
     expect(feeObligationsAfterReplay).toHaveLength(1);
 
     await ctx.cleanup();
@@ -750,6 +910,116 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
 
     const res = await postCancelTrip(token, tripBody.id, {});
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-23/A6 — cancelling voids the trip_fare obligation this booking raised", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-07-24",
+      endDate: "2026-07-25",
+      agreedAmountMinor: "2000000",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const cancelled = await postCancelTrip(token, tripBody.id, { cancelReason: "rained out" });
+    expect(cancelled.status).toBe(200);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+    expect(obligationRows).toHaveLength(1);
+    expect(obligationRows[0]?.voidedAt).not.toBeNull();
+    expect(obligationRows[0]).toMatchObject({ voidedReason: "rained out" });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-23/A6 — cancelling without a cancelReason still voids the receivable, with a system-supplied reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-07-26",
+      endDate: "2026-07-26",
+      agreedAmountMinor: "800000",
+    });
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const cancelled = await postCancelTrip(token, tripBody.id, {});
+    expect(cancelled.status).toBe(200);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+    expect(obligationRows[0]?.voidedAt).not.toBeNull();
+    expect(obligationRows[0]?.voidedReason).not.toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("409 PERIOD_CLOSED — cancelling a trip whose trip_fare posted into a now-closed period (A9a)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-07-27",
+      endDate: "2026-07-28",
+      agreedAmountMinor: "1500000",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    await ctx.closePeriod(periodId);
+
+    const cancelled = await postCancelTrip(token, tripBody.id, {});
+    expect(cancelled.status).toBe(409);
+    const body: { code: string } = await cancelled.json();
+    expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    // The whole cancel is one transaction — the receivable is refused
+    // unvoided, and nothing earlier in it (day records, allocation) unwound either.
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+    expect(obligationRows[0]?.voidedAt).toBeNull();
+
+    const allocationRows = await db
+      .select()
+      .from(vehicleDayAllocation)
+      .where(eq(vehicleDayAllocation.sourceId, tripBody.id));
+    expect(allocationRows).toHaveLength(2);
 
     await ctx.cleanup();
   });

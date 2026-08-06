@@ -490,6 +490,10 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     expect(busEarned).toBe(18_000_000n);
 
     // Bus July costs = charter's own us-borne costs (22,000+3,000+9,000) + the 12,000 repair = 46,000.
+    // GAP-23/A6: booking the charter above also raised a trip_fare receivable
+    // under this same sourceType/sourceId — a cost, `direction = 'owed_by_us'`,
+    // is the same scoping sumVehicleCostsForPeriod (queries/reports.ts) uses,
+    // so a receivable can never be mistaken for one here either.
     const vehicleExpenseRows = await db
       .select({ amountMinor: expense.amountMinor })
       .from(expense)
@@ -498,7 +502,13 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     const driverFeeRows = await db
       .select({ amountMinor: obligation.amountMinor })
       .from(obligation)
-      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+      .where(
+        and(
+          eq(obligation.sourceType, "trip"),
+          eq(obligation.sourceId, tripBody.id),
+          eq(obligation.direction, "owed_by_us"),
+        ),
+      );
     const driverFeeTotal = driverFeeRows.reduce((sum, r) => sum + r.amountMinor, 0n);
     const busCosts = expenseTotal + driverFeeTotal;
     expect(busCosts).toBe(4_600_000n); // Rs 46,000

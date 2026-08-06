@@ -17,7 +17,7 @@ import {
   updateAdvanceStatus,
 } from "../queries/driver-money.js";
 import { sumTripCostsByCategory, sumTripFuelLitres } from "../queries/expense.js";
-import { insertObligation } from "../queries/obligation.js";
+import { insertObligation, voidObligationBySource } from "../queries/obligation.js";
 import {
   findOdometerReadingForBusiness,
   insertOdometerReading,
@@ -38,6 +38,8 @@ export interface BookTripInput {
   driverId?: string;
   startDate: BusinessDate;
   endDate: BusinessDate;
+  /** GAP-23/A6: the fact being posted is the booking, not the trip's own dates — supplied by the handler from `businessToday()`, never `new Date()`. */
+  bookingDate: BusinessDate;
   destination?: string;
   agreedAmountMinor: Minor;
   driverFeeMinor: Minor;
@@ -61,15 +63,31 @@ function dateRange(start: BusinessDate, end: BusinessDate): BusinessDate[] {
 /**
  * F-5.1 / UC-20, one transaction: the `trip` row, its full-range
  * `vehicle_day_allocation` (DM §4.1: a trip's allocation is always written in
- * full at booking, unlike a lease or daily lease's rolling horizon), and any
+ * full at booking, unlike a lease or daily lease's rolling horizon), any
  * existing `day_record` rows in range moving to `paused_for_trip` — "a
  * future trip has no day records to pause" (F-5.1's own trap): a charter
  * booked beyond the rolling horizon has nothing to update here, and P13's
  * card generation later finds the date already allocated and creates no
  * card at all, which is the *other* half of the same mechanism, not a bug in
- * this one. INV-1 — "the car cannot also be on a monthly rental for those
- * dates" — is the `one_arrangement_per_vehicle_day` unique index, not a
- * pre-check; a violation is caught here and mapped to 409.
+ * this one — and, when there is a customer and an agreed amount, a
+ * `trip_fare` `obligation` (GAP-23/A6). INV-1 — "the car cannot also be on a
+ * monthly rental for those dates" — is the `one_arrangement_per_vehicle_day`
+ * unique index, not a pre-check; a violation is caught here and mapped to
+ * 409.
+ *
+ * GAP-23/A6 made this endpoint period-dependent for the first time, but
+ * only when there is actually money to post: a charter with a customer and
+ * a nonzero agreed amount needs a `posted_period_id` for its `obligation`,
+ * so booking one now 409s `PERIOD_CLOSED` when no accounting period is
+ * open, exactly as `closeTrip`/`recordPayment` already do — an owner-driven
+ * charter with no customer touches no period-scoped table at all (the
+ * allocation and pause above carry no `posted_period_id`) and is refused
+ * nothing new. `resolvePeriodLinkage` is resolved off `input.bookingDate`
+ * (today, per W-35) — the trip's own `startDate`/`endDate` only ever decide
+ * `belongs_to_period_id`, never `posted_period_id`; booking is the fact
+ * being posted, not the trip's travel dates. `due_on`/`effective_due_on` on
+ * the obligation are the trip's `endDate` — the charter's fare falls due
+ * once the trip is over, not the day it was booked.
  */
 export async function bookTrip(writer: Writer, input: BookTripInput): Promise<BookedTrip> {
   try {
@@ -118,9 +136,39 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
 
       await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
 
+      if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
+        const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bookingDate);
+        if (!linkage) {
+          throw new PeriodClosedError("No accounting period covers this business date yet");
+        }
+
+        await insertObligation(tx, {
+          id: newId(),
+          businessId: input.businessId,
+          direction: "owed_to_us",
+          partyType: "customer",
+          partyCustomerId: input.customerId,
+          kind: "trip_fare",
+          sourceType: "trip",
+          sourceId: tripId,
+          vehicleId: input.vehicleId,
+          amountMinor: input.agreedAmountMinor,
+          settledMinor: 0n,
+          waivedMinor: 0n,
+          dueOn: input.endDate,
+          effectiveDueOn: input.endDate,
+          status: "pending",
+          postedPeriodId: linkage.postedPeriodId,
+          ...(linkage.belongsToPeriodId !== null
+            ? { belongsToPeriodId: linkage.belongsToPeriodId }
+            : {}),
+        });
+      }
+
       return { tripId };
     });
   } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "one_arrangement_per_vehicle_day")) {
       throw new VehicleDoubleBookedError();
     }
@@ -316,6 +364,8 @@ export interface CancelTripInput {
   businessId: string;
   trip: TripRow;
   cancelledOn: BusinessDate;
+  /** GAP-23/A6: attributes the trip_fare obligation's void, the same way any other void names who did it. */
+  userId: string;
   cancelReason?: string;
   advanceDisposition?: "refunded" | "retained";
 }
@@ -330,16 +380,26 @@ export interface CancelledTrip {
 /**
  * F-5.5/UC-45, one transaction: any unsettled advance against the trip
  * reconciled one way or the other (a `spent` disposition makes no sense on
- * cancellation, so only `returned`/`kept_as_fee` apply here), the daily
- * arrangement's day records resumed, the trip's own `vehicle_day_allocation`
- * rows freed, and the trip itself moving to `cancelled` — never touching
- * `posted_period_id` (only a close ever recognises a trip into a period).
- * Costs already incurred stay exactly where they are: `expense` rows keyed
- * to this trip are never voided by a cancellation.
+ * cancellation, so only `returned`/`kept_as_fee` apply here), any
+ * `trip_fare` obligation this booking raised voided (GAP-23/A6 — a
+ * cancelled charter owes nothing), the daily arrangement's day records
+ * resumed, the trip's own `vehicle_day_allocation` rows freed, and the trip
+ * itself moving to `cancelled` — never touching `posted_period_id` (only a
+ * close ever recognises a trip into a period). Costs already incurred stay
+ * exactly where they are: `expense` rows keyed to this trip are never
+ * voided by a cancellation.
  *
  * Idempotent on the trip's own `status`, the same pattern `closeTrip` uses:
  * a trip already `cancelled` is read back rather than re-cancelled, so a
- * double-submit cannot double-settle the same advance.
+ * double-submit cannot double-settle the same advance or re-void an
+ * already-voided obligation. `voidObligationBySource` is itself a no-op —
+ * 0 rows, not an error — for a charter that never raised one (no customer,
+ * or a zero agreed amount).
+ *
+ * The void is subject to A9a's rule (migration 0008): cancelling a trip
+ * booked in a now-closed accounting period 409s `PERIOD_CLOSED`, because
+ * voiding a receivable changes that closed month's own figures — the same
+ * reason A9a had to land before this item could.
  */
 export async function cancelTrip(writer: Writer, input: CancelTripInput): Promise<CancelledTrip> {
   const { trip } = input;
@@ -394,6 +454,11 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
           await updateAdvanceStatus(tx, advance.id, "settled");
         }
       }
+
+      await voidObligationBySource(tx, "trip", trip.id, {
+        voidedReason: input.cancelReason ?? "Trip cancelled",
+        voidedBy: input.userId,
+      });
 
       await resumeDayRecordsForTrip(tx, trip.id);
       await deleteAllocationDaysForTrip(tx, trip.id);

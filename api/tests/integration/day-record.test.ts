@@ -201,6 +201,73 @@ describe("confirm the day (P3, F-4.2/F-4.4)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-3 — a pre-generated `open` row (P13's generate-day-cards) is filled in by confirm, not silently discarded", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+    // The exact shape the cron leaves behind: a bare `open` row, already
+    // sitting under the unique (daily_lease_id, business_date) key confirm
+    // is idempotent on — before this fix, `existing` alone short-circuited
+    // confirmDay into a no-op regardless of state, discarding the tap.
+    const dayRecordId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-15",
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-15",
+      action: "paid_in_full",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    expect(body).toMatchObject({
+      id: dayRecordId,
+      state: "ran_paid_full",
+      earnedMinor: "500000",
+      expectedMinor: "500000",
+      receivedMinor: "500000",
+    });
+
+    // The row itself is the same one the cron created (an UPDATE, not a
+    // second row), and the real obligation/payment it should have written
+    // all along are there on a plain read, not just in this response.
+    const readBack = await getDayRecord(token, dailyLeaseId, "2026-07-15");
+    expect(readBack.status).toBe(200);
+    const readBody: { id: string; state: string; receivedMinor: string } = await readBack.json();
+    expect(readBody).toMatchObject({
+      id: dayRecordId,
+      state: "ran_paid_full",
+      receivedMinor: "500000",
+    });
+
+    // A second tap against the now-confirmed row is still the ordinary no-op — filling in the placeholder didn't lose that guarantee.
+    const second = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-15",
+      action: "did_not_run",
+      lostReason: "breakdown",
+    });
+    expect(second.status).toBe(200);
+    const secondBody: { id: string; state: string } = await second.json();
+    expect(secondBody).toMatchObject({ id: dayRecordId, state: "ran_paid_full" });
+
+    ctx.trackCreatedDayRecord(dayRecordId);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await confirmDay("", { dailyLeaseId: "x", businessDate: "2026-07-15" });
     expect(res.status).toBe(401);
