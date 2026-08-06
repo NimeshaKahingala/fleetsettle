@@ -1,7 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.4 — §5's primary-key bullet corrected to match `data-model.md` §2: UUIDv7 generated in the app, not `DEFAULT gen_random_uuid()`
-**Date:** 31 July 2026
+**Status:** v1.5 — §9 rewritten against the shipped pipeline: QA/production environments, deploy safety, the non-inheritable-binding and rate-limit-namespace traps
+**Date:** 5 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -378,11 +378,20 @@ if (devUrl && TEST_DATABASE_URL === devUrl) throw new Error("TEST_DATABASE_URL m
 
 ### 9.1 Environments
 
-| Env | Git branch | Neon branch |
-|---|---|---|
-| Local | any | personal branch |
-| Preview | any PR | ephemeral branch, seeded with §9.1 fixtures |
-| Production | `main` | `main` |
+Live since 5 August 2026. `DEPLOYMENT.md` at the repository root is the runbook; this is the shape.
+
+| Env | Git branch | Hostname | Workers | Neon branch |
+|---|---|---|---|---|
+| Local | any | — | `fleetsettle-{api,web}-local` | personal branch |
+| PR gate | PR → `develop` or `main` | — | — | ephemeral, deleted after |
+| QA | `develop` | `qa.fleetsettle.com` | `fleetsettle-{api,web}-qa` | `qa` |
+| Production | `main` | `fleetsettle.com` | `fleetsettle-{api,web}` | `main` |
+
+**Two Workers per environment share one hostname.** The client takes the hostname as a Workers **Custom Domain**; the API takes a `/api/*` **route**, which Cloudflare runs *first*. Same origin, so there is no CORS layer and no preflight — `connect-src 'self'` in `web/public/_headers` is true rather than aspirational, and `VITE_API_BASE_URL` stays empty.
+
+The Custom Domain is not cosmetic: a `/*` route requires a DNS record to already exist, and Cloudflare creates one automatically for a Custom Domain. That removed the only step in the whole deployment that needed a DNS credential.
+
+**Promotion is `develop` → QA, `main` → production, both automatic on merge.** There is no approval step after the merge to `main`: required reviewers are a GitHub environment protection rule, and those are unavailable on a private repository on the free plan. **The pull request into `main` is therefore the only human decision in the production path** — review it as the deploy it is. `checks.yml`, the `migrate:check` guard and the post-deploy smoke suite all still run, but they check correctness, not intent.
 
 ### 9.2 The Neon free-plan constraints are load-bearing
 
@@ -393,21 +402,34 @@ if (devUrl && TEST_DATABASE_URL === devUrl) throw new Error("TEST_DATABASE_URL m
 
 ### 9.3 The gate
 
-One reusable `checks.yml` called by every deploy workflow, so preview and production clear a bit-identical bar: `lint`, `typecheck`, unit tests, web tests, build. Integration tests run after migration against the seeded preview branch.
+One reusable `checks.yml` called by every deploy workflow, so QA and production clear a bit-identical bar: `guard`, `lint`, `lint:css`, `format:check`, `typecheck`, unit and component tests, build. Integration tests run separately, against an ephemeral Neon branch per PR (`integration.yml`).
+
+The gate carries `NODE_OPTIONS: --max-old-space-size=4096`. Node's default old-space heap is roughly 2 GB and `eslint .` across this workspace exceeds it — type-aware `typescript-eslint` rules hold the whole program graph in memory, so the ceiling rises with the project. It surfaces as **exit 134**, which is SIGABRT and reads like a crashed runner rather than a lint failure. 4 GB and not more: a private repository's runner has 7 GB total.
 
 ### 9.4 Deploy safety
 
+The top level of each `wrangler.jsonc` is local-only and names no deployed Worker, so a bare `wrangler deploy` cannot reach a deployed environment. Everything real lives under `env.qa` / `env.production` and requires an explicit `--env`.
+
 ```jsonc
-// wrangler.jsonc
+// api/wrangler.jsonc
 {
   "name": "fleetsettle-api-local",   // differs from every deployed Worker, so a bare
                                      // `wrangler deploy` can never overwrite production
   "workers_dev": false,
-  "preview_urls": false
+  "preview_urls": false,
+  "env": { "qa": { "name": "fleetsettle-api-qa" }, "production": { "name": "fleetsettle-api" } }
 }
 ```
 
-Secrets via `wrangler secret put`, never in `vars` — those are plaintext in the deployed bundle.
+**`vars`, `kv_namespaces`, `r2_buckets`, `queues` and `ratelimits` are non-inheritable.** Override one in an environment and every one of them must be restated there, or the binding silently vanishes from the deployed Worker — and `/api/health` still answers 200, because it deliberately touches nothing. `wrangler deploy --env <name> --dry-run` prints the resolved binding list; read the list, not the exit code.
+
+**`ratelimits.namespace_id` must differ per environment** (local `1001`, QA `1002`, production `1003`). Counters are keyed on `namespace_id` account-wide rather than per Worker, so a shared id lets QA traffic consume production's budget.
+
+Secrets via `wrangler secret put --env <name>`, never in `vars` — those are plaintext in the deployed bundle. **A secret in Cloudflare is invisible to a CI runner**: `migrate.mjs` and `check-drift.mjs` read `process.env.DATABASE_URL`, so the same value must also exist as a GitHub environment secret.
+
+**Migrations never run automatically against production.** `deploy-production.yml` opens with a `migrate:check` guard that fails the deploy when any migration is pending, so code can never arrive ahead of its schema; applying one is its own `workflow_dispatch` workflow.
+
+**The post-deploy smoke suite retries every assertion** (`.github/scripts/smoke.sh`). For a few seconds after a deploy the new route has not propagated and `/api/*` still falls through to the client Worker, answering 200 with `index.html` — indistinguishable from a real routing bug if asserted once. The `/api/home` 401 is the load-bearing check: it proves the request reached the API Worker.
 
 ---
 
