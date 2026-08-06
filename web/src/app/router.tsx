@@ -23,6 +23,7 @@ import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
+import { MoreScreen } from "../features/more/MoreScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
@@ -398,7 +399,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const moreRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/more",
-    component: () => <NotBuiltYetScreen title="More" />,
+    component: MoreScreen,
   });
 
   const routeTree = rootRoute.addChildren([

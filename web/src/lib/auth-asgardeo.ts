@@ -86,3 +86,38 @@ export function createAsgardeoTokenGetter(): TokenGetter {
     return tokenSource();
   };
 }
+
+/**
+ * The same slot-and-getter shape as the token source above, for the same
+ * reason: `useAuthContext()`'s `signOut` is a hook value, and the composition
+ * root (`main.tsx`) builds its sign-out function before React mounts.
+ * `AuthGate` fills this on mount, alongside the token source.
+ */
+let signOutSource: (() => Promise<void>) | null = null;
+
+export function registerAsgardeoSignOutSource(signOut: () => Promise<void>): void {
+  signOutSource = signOut;
+}
+
+/** Test seam — mirrors `clearAsgardeoTokenSource`. */
+export function clearAsgardeoSignOutSource(): void {
+  signOutSource = null;
+}
+
+/**
+ * Deliberately does not touch the query cache itself — that is
+ * `useAuthActions`'s job (`AuthActionsContext.tsx`), since only the
+ * composition root holds the `QueryClient`. This is the SDK bridge alone,
+ * exactly as `createAsgardeoTokenGetter` is above it.
+ */
+export function createAsgardeoSignOutGetter(): () => Promise<void> {
+  return async () => {
+    if (!signOutSource) {
+      throw new Error(
+        "The Asgardeo sign-out source is not registered yet — sign-out was called " +
+          "before AuthGate mounted.",
+      );
+    }
+    await signOutSource();
+  };
+}

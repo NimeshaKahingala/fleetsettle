@@ -7,8 +7,12 @@ import { App } from "./app/App.js";
 import { AuthGate } from "./app/AuthGate.js";
 import { createAppRouteTree } from "./app/router.js";
 import { createApiClient } from "./lib/api.js";
-import { asgardeoConfig, createAsgardeoTokenGetter } from "./lib/auth-asgardeo.js";
-import { createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
+import {
+  asgardeoConfig,
+  createAsgardeoSignOutGetter,
+  createAsgardeoTokenGetter,
+} from "./lib/auth-asgardeo.js";
+import { createStubSignOut, createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
 import "./design/tokens.css";
 
 const root = document.getElementById("root");
@@ -22,11 +26,14 @@ const apiBaseUrl = (import.meta.env["VITE_API_BASE_URL"] as string | undefined) 
 // alone, touching no screen and no query.
 const stubbed = isStubAuthEnabled();
 const getToken = stubbed ? createStubTokenGetter() : createAsgardeoTokenGetter();
+const signOut = stubbed ? createStubSignOut() : createAsgardeoSignOutGetter();
 
 const queryClient = new QueryClient();
 const apiClient = createApiClient(apiBaseUrl, getToken);
 const router = createAppRouteTree(businessToday());
-const app = <App router={router} queryClient={queryClient} apiClient={apiClient} />;
+const app = (
+  <App router={router} queryClient={queryClient} apiClient={apiClient} signOut={signOut} />
+);
 
 // The stub path renders no AuthProvider at all, rather than an AuthProvider in
 // a disabled mode: `npm run dev` and the e2e suite must not reach Asgardeo, and

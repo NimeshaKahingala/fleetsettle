@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AUTH_CALLBACK_PATH,
   asgardeoConfig,
+  clearAsgardeoSignOutSource,
   clearAsgardeoTokenSource,
+  createAsgardeoSignOutGetter,
   createAsgardeoTokenGetter,
+  registerAsgardeoSignOutSource,
   registerAsgardeoTokenSource,
 } from "./auth-asgardeo.js";
 
 afterEach(() => {
   clearAsgardeoTokenSource();
+  clearAsgardeoSignOutSource();
   vi.unstubAllEnvs();
 });
 
@@ -63,5 +67,22 @@ describe("the token getter", () => {
   it("throws a named error when a request is issued before the gate mounted", async () => {
     const getToken = createAsgardeoTokenGetter();
     await expect(getToken()).rejects.toThrow("not registered");
+  });
+});
+
+describe("the sign-out getter (GAP-40)", () => {
+  it("calls through to whatever AuthGate registered", async () => {
+    const signOut = createAsgardeoSignOutGetter();
+    const source = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    registerAsgardeoSignOutSource(source);
+
+    await signOut();
+
+    expect(source).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws a named error when called before the gate mounted", async () => {
+    const signOut = createAsgardeoSignOutGetter();
+    await expect(signOut()).rejects.toThrow("not registered");
   });
 });

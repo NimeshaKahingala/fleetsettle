@@ -1,15 +1,21 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearAsgardeoTokenSource, createAsgardeoTokenGetter } from "../lib/auth-asgardeo.js";
+import {
+  clearAsgardeoSignOutSource,
+  clearAsgardeoTokenSource,
+  createAsgardeoSignOutGetter,
+  createAsgardeoTokenGetter,
+} from "../lib/auth-asgardeo.js";
 import { AuthGate } from "./AuthGate.js";
 
 const signIn = vi.fn<() => Promise<void>>();
 const getAccessToken = vi.fn<() => Promise<string>>();
+const signOut = vi.fn<() => Promise<boolean>>();
 let authState = { isAuthenticated: false, isLoading: false };
 
 vi.mock("@asgardeo/auth-react", () => ({
-  useAuthContext: () => ({ state: authState, signIn, getAccessToken }),
+  useAuthContext: () => ({ state: authState, signIn, getAccessToken, signOut }),
 }));
 
 /** jsdom refuses a real navigation, so `location` is replaced with a plain object per test. Returns the `replace` spy so assertions never reach through `window` for it. */
@@ -26,12 +32,14 @@ function setLocation(href: string) {
 beforeEach(() => {
   signIn.mockReset().mockResolvedValue(undefined);
   getAccessToken.mockReset().mockResolvedValue("real-token");
+  signOut.mockReset().mockResolvedValue(true);
   authState = { isAuthenticated: false, isLoading: false };
   setLocation("http://localhost:5173/");
 });
 
 afterEach(() => {
   clearAsgardeoTokenSource();
+  clearAsgardeoSignOutSource();
 });
 
 describe("AuthGate", () => {
@@ -69,6 +77,22 @@ describe("AuthGate", () => {
     await waitFor(async () => {
       expect(await createAsgardeoTokenGetter()()).toBe("real-token");
     });
+  });
+
+  it("also registers the SDK's signOut, narrowed to () => Promise<void> (GAP-40)", async () => {
+    authState = { isAuthenticated: true, isLoading: false };
+    render(
+      <AuthGate>
+        <p>the app</p>
+      </AuthGate>,
+    );
+
+    // Registration happens in a `useEffect` with no async gap, so it has
+    // already run by the time `render` returns (RTL flushes effects
+    // synchronously) — no `waitFor` needed, and none of `waitFor`'s retries
+    // would risk double-counting the call below.
+    await createAsgardeoSignOutGetter()();
+    expect(signOut).toHaveBeenCalledTimes(1);
   });
 
   it("completes the code exchange on the callback path, then leaves it by real navigation", async () => {

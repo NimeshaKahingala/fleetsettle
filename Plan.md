@@ -22,6 +22,8 @@
 
 **Updated 5 August 2026 — B8 done, and it was mis-sized here.** Real Asgardeo auth is wired (`96301f8`): SDK, PKCE, callback, sign-in gate, 12 new tests. This plan costed B8 at "ten minutes of console work" — that covered the console; **the client half was unbuilt and unscoped**, and until it landed nobody could log in to a deployed build at all. It also surfaced a stale client id in all three Worker environments and a QA build that would have shipped production's. Both fixed. **The lesson worth keeping: "blocked externally" hid an unsized item on the critical path** — B8 was ranked last precisely because the blocker was cheap, which said nothing about the work behind it. Its write-up is under Track B.
 
+**Updated 5 August 2026 — B0 done.** `/more` is real and carries sign-out (GAP-40, GAP-37 both closed); B2, B3 and B6 are no longer waiting on anything. Its own write-up, including the `AuthActionsContext` plumbing sign-out needed and why the confirm is a `Sheet` rather than `Dialog`, is below under Track B. Next: **B4**, the Review shell.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -53,12 +55,11 @@
 | `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
 | `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
 
-**Do these two things first, in this order:**
+**B0 is done** (5 August 2026) — `/more` is real, sign-out works, and B2/B3/B6 no longer wait on anything. **Do this next:**
 
-| # | | Why it is first |
+| # | | Why it is next |
 |---|---|---|
-| 1 | **B0** — the `/more` hub | Half a day, no backend. It gates B2, B3 and B6, and it is where sign-out goes (GAP-40 — nothing signs the user out today) |
-| 2 | **B4** — the Review shell and nine reports | The largest single item left on either track, and the entire product for the partner this system was built to be believed by |
+| 1 | **B4** — the Review shell and nine reports | The largest single item left on either track, and the entire product for the partner this system was built to be believed by |
 
 **Then, on the backend, A9a before anything else that writes.** GAP-35 is a live defect — voiding a record posted into a closed month silently changes that month's reported figures — and **A6 and A10 each add a fourteenth and fifteenth place it can fire.** One trigger change, half a day. Doing it after them means shipping a known hole into new code.
 
@@ -85,7 +86,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 | # | Item | Size | Why here |
 |---|---|---|---|
-| 1 | **B0** · `/more` hub | S | Half a day, unblocks three items, and carries sign-out — **the only one of these that is already wrong in production.** On a shared phone a session ends when the token expires or the browser is cleared |
+| 1 | ~~**B0** · `/more` hub~~ | S | ✅ **Done 5 Aug 2026.** Unblocked B2, B3 and B6; sign-out (GAP-40) shipped with it |
 | 2 | **A9a** · the void/period trigger | S | Half a day, and it gates 3 and 7. Cheap now, expensive to retrofit through two more call sites |
 | 3 | **A6** · trip receivable | M | The first real-money hole a user will hit. A charter payment today floats as `unallocatedMinor`, attached to nothing — and the bus is the flagship asset |
 | 4 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
@@ -154,7 +155,7 @@ Four endpoints/changes, all shipped: `GET /api/accounting-period` (list, newest 
 
 Two endpoints, both shipped: `GET /api/customer/{id}/obligation` (outstanding dues only, oldest due first — reuses `findOutstandingObligationsForParty` rather than a second party-scoped query, exactly the trap this item was written to avoid, so this screen can never disagree with what `recordPayment` actually allocates against) and `GET /api/customer/{id}/payment` (reuses `listPaymentsForBusiness` scoped by `partyCustomerId`). Both `dailyOperations`, 404 cross-tenant, both proven against the W-49 linked-driver 403 class. No new table, no new write, no domain layer. 8 new integration tests in the existing `customer.test.ts`; full suite 31/374, all green. TRACKER.md §2 carries the row.
 
-**GAP-22 closes on its backend half only.** `/people/customers/:id` itself still renders `NotBuiltYetScreen` — that placeholder is B6's own item, not a backend gap, and B6 now waits only on B0.
+**GAP-22 closes on its backend half only.** `/people/customers/:id` itself still renders `NotBuiltYetScreen` — that placeholder is B6's own item, not a backend gap, and B6 is now ready (B0 done).
 
 **One shortcut this item confirmed rather than avoided:** `obligation` carries `party_customer_id` directly (set at insert, even for a rent due whose `source_type` is `billing_period`), so a customer's dues never needed the lease hub's three-way source reassembly — one direct filter was enough, as the plan predicted.
 
@@ -314,27 +315,27 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 
 | id | Item | Needs | Status |
 |---|---|---|---|
-| **B0** | **The `/more` hub** (GAP-37, GAP-40) | **nothing** | ▶ **do this first** — B2, B3 and B6 are unreachable without it, and nothing signs the user out |
-| **B4** | Review shell + nine reports | **nothing** | ▶ start now |
+| **B0** | ✅ **The `/more` hub** (GAP-37, GAP-40) | — | done 5 Aug 2026 |
+| **B4** | Review shell + nine reports | **nothing** | ▶ **do this next** — the largest item left, and B0 no longer gates anything ahead of it |
 | **B5** | Mine shell | **nothing** (A5 for the staff-side twin) | ▶ start now |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
-| **B2** | Partners, banking, cash | B0 (A2 ✅) | ▶ ready once B0 lands |
-| **B3** | Close the month, corrections | B0 (A3 ✅) | ▶ ready once B0 lands |
-| **B6** | Customer detail | B0 (A4 ✅) | ▶ ready once B0 lands |
+| **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready |
+| **B3** | Close the month, corrections | — (A3 ✅, B0 ✅) | ▶ ready |
+| **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready |
 | **B8** | ✅ Real Asgardeo | — | done 5 Aug 2026 |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
 
-### B0 · The `/more` hub — closes GAP-37 and GAP-40, and three B items need it
+### B0 · Done — closed GAP-37 and GAP-40, and three B items no longer wait on anything
 
-**Missed by the previous edition, and it gates two of them.** `/more` renders `NotBuiltYetScreen` (`router.tsx`), and §3.1 puts **Cash, reports, period close, settings, message log, business** behind that tab. §3.3 gives `/cash`, `/partners/:id`, `/reports` and `/period/close` **no other entry point** — the tab bar has five fixed slots and none of them is "Cash". So every screen B2 and B3 build is reachable only by typing a URL until this exists.
+`/more` is a real screen now (`MoreScreen.tsx`), not `NotBuiltYetScreen` — the door §3.3 gives `/cash`, `/partners/:id`, `/reports` and `/period/close` exists, even though none of them has anything on the other side of it yet. **Rows for what exists only**, as planned: today it is one row, sign-out; Reports arrives with B4, Cash with B2, Close the month with B3, each adding its own row rather than the hub pointing at a placeholder.
 
-Small: one screen, a list of rows, no backend increment. **Rows for what exists only** — a row leading to `NotBuiltYetScreen` is worse than no row. Reports appears when B4 lands, Cash when B2 does, and so on.
+**Sign-out (GAP-40) needed a second piece of plumbing, not just a button.** `useAuthContext().signOut` is a hook value, and B8 had already solved the same problem once for `getAccessToken` — a module-level slot in `auth-asgardeo.ts` that `AuthGate` fills on mount, read by code built before React exists. `registerAsgardeoSignOutSource`/`createAsgardeoSignOutGetter` is the same shape, added alongside it. A new `AuthActionsContext` (mirrors `ApiContext` exactly — same `createContext`/`useX`/"throws if called outside its provider" shape) is what lets `MoreScreen` reach `signOut()` without importing the SDK, and it is the layer that owns the trap below: `useAuthActions().signOut()` calls `queryClient.clear()` **before** the raw sign-out, never after, because the raw call is a real navigation in real auth mode and nothing queued behind it would run.
 
-**It also carries sign-out (GAP-40).** B8 wired `signOutRedirectURL` and the SDK's `signOut` exists, but **nothing calls it** — a session currently ends when its token expires or the browser is cleared, which on a shared phone is the wrong answer. §3.1 puts account actions behind this tab, so it belongs here rather than as an item of its own. One row, one call, one confirm.
+**The confirm is a `Sheet`, not `Dialog`.** `Dialog.tsx`'s own docstring reserves it to INV-1, INV-17 and M-10 — three call sites, never a general "are you sure" — and sign-out is reversible (sign back in) and not one of them. Worth recording since this plan's own earlier wording ("one row, one call, one confirm") could have been read as calling for the reserved component.
 
-**Traps:**
-- The close-month row is **absent for a `manager`, not disabled** (M-22/W-49, the same rule §7.7 states for the close action itself).
-- **Sign-out must clear the query cache**, not only the token. TanStack Query holds one person's money on screen; the next sign-in on the same device must not paint it before the first fetch returns.
+**The close-month row trap (M-22/W-49: absent for a `manager`, not disabled) doesn't apply yet** — there is no close-month row until B3 lands. Carried forward to B3's own section rather than dropped.
+
+20 new tests across 5 files (2 new: `AuthActionsContext.test.tsx`, `MoreScreen.test.tsx`); web 79 files / 290 tests, `npm run check` clean.
 
 ### B1 · Withdrawn, and why
 
@@ -376,7 +377,7 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a linked driver's token renders exactly his own data, and no request shape exists that could return anyone else's.
 
-### B2 · Partners, banking and cash — A2 done, waits only on B0
+### B2 · Partners, banking and cash — A2 done, B0 done, ready
 
 **Screens** — `web/src/features/partners/`: `PartnerDetailScreen`, `OwnershipSharesForm`, `CapitalContributionSheet`, `ShareVehicleForm` (F-1.4), `BankingEventForm`, `CashPositionScreen`. New routes `/cash` and `/partners/:id`.
 
@@ -391,7 +392,7 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a 60/40 split saves in one write and reads back; a shared vehicle with a monthly fee grants and revokes.
 
-### B3 · Close the month and corrections — A3 done, waits only on B0
+### B3 · Close the month and corrections — A3 done, B0 done, ready
 
 **Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` finally wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
@@ -405,10 +406,11 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 - **A waiver and a write-off never share a bucket** (W-28). Separate entry points, separate reporting, never one combined "reduce this due" control.
 - **`PERIOD_CLOSED` comes from the trigger**, never a client pre-check. Catch it and explain it.
 - **GAP-15**: "deduct it from his fee" is `POST /api/offset` applied afterward. Either wire it as two explicit steps or leave it out — do not imply a combined endpoint exists.
+- **B0's trap, carried forward:** once `MoreScreen` gains a close-month row pointing here, that row is **absent for a `manager` role, not disabled** (M-22/W-49 — the same rule this screen's own close action must already honour). Gate the row the same way the action itself is gated, not by hiding the destination and leaving the door open.
 
 **Done means** — a month closes end to end with its successor open; a correction moves a party back into arrears and the audit trail shows who did it.
 
-### B6 · Customer detail — A4 done, waits only on B0, closes GAP-22
+### B6 · Customer detail — A4 done, B0 done, ready, closes GAP-22
 
 `/people/customers/:id` replaces `PlaceholderDetailRoute`. §3.3: dues, payments, statement.
 
@@ -453,28 +455,26 @@ What shipped: `@asgardeo/auth-react` ^5.6.2 (the SDK UI § settled on in July) �
         Track A (Worker + shared schemas)          Track B (React client)
         ─────────────────────────────────          ──────────────────────
 done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ withdrawn
-        A2  partner/banking/cash + members ✅        B0  the /more hub (no backend dependency)
-        A3  period/write-off/payment ✅              B4  Review shell + 9 reports
-        A4  customer reads ✅                        B5  Mine shell
-        A5  driver history ✅                        B2  partners, banking, cash (needs B0 only; A2 ✅)
-                                                     B3  close the month, corrections (needs B0 only; A3 ✅)
-                                                     B6  customer detail (needs B0 only; A4 ✅)
-                                                     B5+ driver detail history (A5 ✅)
-now     A9a GAP-35 — the void/closed-period hole  ← do this one first
-        A6  trip receivable (needs A9a)
+        A2  partner/banking/cash + members ✅        B0  the /more hub + sign-out ✅
+        A3  period/write-off/payment ✅              B8  real Asgardeo ✅
+        A4  customer reads ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
+        A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
+                                                     B6  customer detail — ready (A4 ✅, B0 ✅)
+                                                     B5+ driver detail history — ready (A5 ✅)
+now     A9a GAP-35 — the void/closed-period hole  ← do this one first     B4  Review shell + 9 reports  ← do this next
+        A6  trip receivable (needs A9a)              B5  Mine shell
         A10 the other two silent zeros (needs A9a)
         A7  R2 upload (unblocks 5 gaps; independent)
         A8  odometer wiring, borne-by preview (independent)
         A9b the rest of soft delete
 last                                                B7  offline and the PWA
-                                                     B8  real Asgardeo ✅
 ```
 
-**Track B never idles.** B4 alone is larger than A2 was, and B5, B6 and B7 sit behind it with no backend dependency at all — every Track A handoff Track B was ever waiting on has landed.
+**Track B never idles.** B4 alone is larger than A2 was, and B2, B3, B5, B5+, B6 and B7 all sit ready with no dependency left at all — every Track A handoff and B0 itself have both landed.
 
 **Track A's remaining items are no longer independent of each other.** A9a (the GAP-35 trigger fix) gates A6 and A10, because both add new places the defect can fire. A7 and A8 stay genuinely independent and can be picked up at any point.
 
-**There are no Track A → Track B handoffs left.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened; B2, B3, B5+ and B6 wait on B0 alone now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
+**There are no Track A → Track B handoffs left, and B0 no longer gates anything either.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened, and B0 shipped 5 August — every item in Track B's column above is buildable right now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
 
 ---
 
