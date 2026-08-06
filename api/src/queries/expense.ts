@@ -58,12 +58,15 @@ export async function findExpenseForBusiness(
 
 /**
  * F-8.5/UC-96/W-50: void, never delete — `posted_period_id` is deliberately
- * untouched, which is what lets this land even after the expense's own
- * period has closed (migration 0006's "an update that never touches
- * `posted_period_id` succeeds"). "Replace" is simply recording a fresh,
- * correct expense afterward through the ordinary create endpoint — this
- * schema carries no `replaces_id` column to link the two formally (DM §9's
- * own DDL has none), so there is nothing further to wire.
+ * untouched, since a void is a correction to *this* row, not a repost into
+ * a different period. It is still refused once that period has closed
+ * (migration 0008/GAP-35): `assert_period_open()` treats the resulting
+ * `voided_at` transition as a post in its own right, on top of 0006's
+ * "an update that never touches `posted_period_id` succeeds". "Replace" is
+ * simply recording a fresh, correct expense afterward through the ordinary
+ * create endpoint — this schema carries no `replaces_id` column to link the
+ * two formally (DM §9's own DDL has none), so there is nothing further to
+ * wire.
  */
 export async function voidExpenseRow(
   db: WriteDb,

@@ -312,7 +312,7 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
     await other.cleanup();
   });
 
-  it("succeeds even after the expense's own period has closed (migration 0006)", async () => {
+  it("409 PERIOD_CLOSED — voiding after the expense's own period has closed is refused (GAP-35, migration 0008)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId, {
@@ -332,8 +332,14 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
 
     await ctx.closePeriod(periodId);
 
+    // Before migration 0008 this returned 200: `posted_period_id` stays
+    // untouched by a void, and 0006 let any such update through — silently
+    // changing July's reported costs after July closed. It must now be
+    // refused the same way creating a new July expense already is.
     const res = await postVoidExpense(token, createdBody.id, { reason: "found after close" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
 
     await ctx.cleanup();
   });

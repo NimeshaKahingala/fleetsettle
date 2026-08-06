@@ -22,7 +22,9 @@
 
 **Updated 5 August 2026 — B8 done, and it was mis-sized here.** Real Asgardeo auth is wired (`96301f8`): SDK, PKCE, callback, sign-in gate, 12 new tests. This plan costed B8 at "ten minutes of console work" — that covered the console; **the client half was unbuilt and unscoped**, and until it landed nobody could log in to a deployed build at all. It also surfaced a stale client id in all three Worker environments and a QA build that would have shipped production's. Both fixed. **The lesson worth keeping: "blocked externally" hid an unsized item on the critical path** — B8 was ranked last precisely because the blocker was cheap, which said nothing about the work behind it. Its write-up is under Track B.
 
-**Updated 5 August 2026 — B0 done.** `/more` is real and carries sign-out (GAP-40, GAP-37 both closed); B2, B3 and B6 are no longer waiting on anything. Its own write-up, including the `AuthActionsContext` plumbing sign-out needed and why the confirm is a `Sheet` rather than `Dialog`, is below under Track B. Next: **B4**, the Review shell.
+**Updated 5 August 2026 — B0 done.** `/more` is real and carries sign-out (GAP-40, GAP-37 both closed); B2, B3 and B6 are no longer waiting on anything. Its own write-up, including the `AuthActionsContext` plumbing sign-out needed and why the confirm is a `Sheet` rather than `Dialog`, is below under Track B.
+
+**Updated 5 August 2026 — A9a done, closing GAP-35.** Migration `0008`, exactly as sketched below. Verified on a fresh ephemeral Neon branch rather than the shared dev one — 378/378, one pass, no connection flakiness, which is itself evidence for the process change recorded in the same commit: **stop running the full integration suite locally; push the touched-file-verified commit, open a PR into `develop`, and let `integration.yml`'s own fresh-branch-per-PR run carry that cost instead**, in parallel with the next item rather than blocking it. TRACKER.md §5 has the full account, including that this also caught a stale `388` test count this file and that one had both been carrying. A6 and A10, both gated on this, are unblocked. Next: **A6**, the trip receivable.
 
 ---
 
@@ -55,7 +57,7 @@
 | `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** |
 | `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** |
 
-**B0 is done** (5 August 2026) — `/more` is real, sign-out works, and B2/B3/B6 no longer wait on anything. **Do this next: A9a.** GAP-35 is a live defect — voiding a record posted into a closed month silently changes that month's reported figures — and **A6 and A10 each add a fourteenth and fifteenth place it can fire.** One trigger change, half a day. Doing it after them means shipping a known hole into new code. B4 (the Review shell, largest item on either track — the entire product for the partner who reads rather than enters) is next after that; ["The order, end to end"](#the-order-end-to-end) below is the full sequence, kept in one place rather than restated here.
+**B0 and A9a are both done** (5 August 2026) — `/more` is real, sign-out works, B2/B3/B6 no longer wait on anything, and GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch). **Do this next: A6**, the trip receivable — it was gated on A9a and now isn't; the reasoning for going there next (over B4, the largest item on either track) is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
@@ -71,7 +73,7 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 
 | | Order | Note |
 |---|---|---|
-| **Track A** | A9a → A6 → A10 → A8 → A7 → A9b | A9a gates A6 and A10; the last three are free |
+| **Track A** | ~~A9a~~ → A6 → A10 → A8 → A7 → A9b | A9a done 5 Aug; A6/A10/A8/A7 are all free, A9b last |
 | **Track B** | B0 → B4 → B5 → B3 → B6 → B2 → B7 | B0 gates B2, B3 and B6; B7 is cross-cutting and goes last |
 
 ### One person, one queue
@@ -81,7 +83,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | # | Item | Size | Why here |
 |---|---|---|---|
 | 1 | ~~**B0** · `/more` hub~~ | S | ✅ **Done 5 Aug 2026.** Unblocked B2, B3 and B6; sign-out (GAP-40) shipped with it |
-| 2 | **A9a** · the void/period trigger | S | Half a day, and it gates 3 and 7. Cheap now, expensive to retrofit through two more call sites |
+| 2 | ~~**A9a** · the void/period trigger~~ | S | ✅ **Done 5 Aug 2026.** Unblocked A6 and A10 |
 | 3 | **A6** · trip receivable | M | The first real-money hole a user will hit. A charter payment today floats as `unallocatedMinor`, attached to nothing — and the bus is the flagship asset |
 | 4 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
 | 5 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
@@ -116,8 +118,8 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
 | **A4** | ✅ Customer-scoped reads | GAP-22 | 2 | B6 |
 | **A5** | ✅ Driver history reads | GAP-24, GAP-29 | 1 | B5 (partly) |
-| **A9a** | ⚠️ **The void/closed-period hole — a live defect** | GAP-35 | 0 + a migration | **A6, A10** |
-| **A6** | The trip receivable — design settled, needs A9a | GAP-23 | 0 + a migration | — |
+| **A9a** | ✅ The void/closed-period hole | GAP-35 | 0 + a migration | — |
+| **A6** | The trip receivable — design settled, A9a done | GAP-23 | 0 + a migration | — |
 | **A10** | The other two silent zeros — **new** | GAP-39, GAP-10 | 0–1 + a generator | — |
 | **A7** | R2 upload — unblocks five gaps, independent | GAP-16 | 1–2 | B-photos |
 | **A8** | Odometer wiring + borne-by preview, independent | GAP-30, GAP-32 | 1 | — |
@@ -171,42 +173,24 @@ Re-validated against the code, not against this file, the same way the A2/A3 pas
 2. **A trip need not have a customer.** `trip.customer_id` is nullable and `BookTripInput.customerId` is optional, but `obligation` has a CHECK forcing exactly one party. A trip fare therefore cannot always be posted — the branch is real and the plan never mentioned it.
 3. **A8's "real decision" is already decided, four times over.** Whether a fuel fill writes its own `odometer_reading` row transactionally is settled by precedent: `lease.ts`, `mileage.ts` and `trip.ts` (twice) all insert one inside their own transaction, and **there is no standalone odometer endpoint at all.** A8 follows the convention rather than opening the question.
 4. **A8's borne-by lookup already exists.** `resolveBorneByDefault` already calls `findActiveLeaseForVehicle`/`findCurrentDailyLeaseForVehicle`. What is missing is not a lookup but a way for the form to *show* what the server would decide — a preview read, which is why the client currently has to omit `borne_by` entirely rather than display a default it is forbidden to compute.
-5. **GAP-35's fix cannot be a straight revert of `0006`, and cannot reference `NEW.voided_at` unguarded.** `assert_period_open()` is one function shared by **19** tables; only **13** of them have a `voided_at` column. A function reading `NEW.voided_at` raises `record "new" has no field` on the other six. The fix is a column-presence-safe test, sketched in A9a.
+5. **GAP-35's fix cannot be a straight revert of `0006`, and cannot reference `NEW.voided_at` unguarded.** `assert_period_open()` is one function shared by **19** tables; only **13** of them have a `voided_at` column. A function reading `NEW.voided_at` raises `record "new" has no field` on the other six. The fix is a column-presence-safe test — ✅ shipped as migration `0008`, A9a below.
 6. **GAP-23 is not the only silent zero — it is one of three, and the other two are unowned.** GAP-39 (management fee) is marked `—`, and GAP-10 (an incident's customer contribution) is filed under "correct to leave." All three are the same defect: **an amount somebody has agreed to owe never becomes an obligation, so it reads as zero everywhere.** `incident_recovery.obligation_id` even carries the comment `-- customer contributions become receivable`. They are now **A10**, and A6 is the first of the family rather than a one-off.
 
 ---
 
-### A9a · The void/closed-period hole — GAP-35, and it goes first
+### A9a · Done — closed GAP-35
 
-**A live defect, roughly half a day, and it grows with every item built before it.** Migration `0006` made `assert_period_open()` return early on any `UPDATE` that leaves `posted_period_id` untouched — correct for its own case (settling a July rent with an August payment) and correct for the twelve others it silently fixed. But **a void sets only `voided_at`**, so voiding a record posted into a closed month is refused by nothing, and July's reported costs change after July closed. `voidExpense` has no period check either. This is precisely the "wrong, plausible, unnoticed for months" failure the project exists to prevent, and it is live today.
+Migration `0008` is exactly what was sketched above: `0006`'s exception narrowed to exclude the `voided_at` `NULL → NOT NULL` transition, tested via `to_jsonb(OLD/NEW) ->> 'voided_at'` rather than a direct field reference so the six trigger tables with no such column (`payment`, `day_record`, `mileage_assessment`, `payment_correction`, `insurance_claim`, `trip`) stay legal. `voidExpense` gained the same `isPeriodClosedViolation` → `PeriodClosedError` mapping every other write already had — it was the one gap the sketch called out and the only place it could be observed today, since GAP-12/A9b's other twelve void-and-replace paths don't exist yet.
 
-**Fix it in the trigger, not in thirteen domain functions.** Two implementations of one rule diverge, and the one that loses is the database.
+**Its own regression test previously asserted the bug.** `expense.test.ts` had "succeeds even after the expense's own period has closed (migration 0006)" — written correctly against `0006`'s actual behaviour at the time, which is exactly the problem: the behaviour it was pinning was wrong. Inverted to assert 409 `PERIOD_CLOSED`, named for GAP-35/migration `0008` instead.
 
-**The shape, and why it is not obvious.** `assert_period_open()` is attached to **19** tables (`0001`'s `FOREACH t IN ARRAY` block); only **13** carry `voided_at` — `payment`, `day_record`, `mileage_assessment`, `payment_correction`, `insurance_claim` and `trip` do not. A function that names `NEW.voided_at` directly fails on those six with `record "new" has no field "voided_at"`. So the test must be column-presence-safe:
+**Two stale comments corrected in the same commit.** Both `domain/expense.ts`'s and `queries/expense.ts`'s doc comments described voiding-after-close as the intended design ("which is what lets this land even after the expense's own period has closed") — accurate when written, wrong now, and exactly the kind of comment that outlives the code it described if nobody reads it against the fix.
 
-```sql
-IF TG_OP = 'UPDATE' AND NEW.posted_period_id IS NOT DISTINCT FROM OLD.posted_period_id THEN
-  -- A void is a new reversal fact, not an incidental update: it must obey
-  -- the closed-period rule even though posted_period_id is unchanged.
-  -- to_jsonb keeps this legal on the six trigger tables with no voided_at.
-  IF (to_jsonb(OLD) ->> 'voided_at') IS NULL
-     AND (to_jsonb(NEW) ->> 'voided_at') IS NOT NULL THEN
-    NULL;                     -- fall through to the closed check below
-  ELSE
-    RETURN NEW;               -- 0006's case, unchanged
-  END IF;
-END IF;
-```
+**Verified on a fresh ephemeral Neon branch, not the shared dev one** — created via the Neon MCP tools, migrated from `0001` through `0008`, DM §13 drift check clean, then the full suite: **378/378, one pass, no connection flakiness.** That absence is itself informative: every documented flaky run this project has had was on the long-lived shared branch multiple sessions contend for; a branch nobody else touches had none of that. Also surfaced that TRACKER's `api` integration count had drifted to a stale `388` before this item touched anything — corrected there, not a regression here.
 
-**Traps:**
-- **Do not narrow `0006`.** Settling an obligation, correcting a payment and every other posted-period-preserving update must stay legal. Only the `NULL → NOT NULL` transition on `voided_at` is caught.
-- **Un-voiding is not a thing.** There is no path that clears `voided_at`; do not add one to make the test symmetric.
-- **`voidExpense` still needs its `PERIOD_CLOSED` mapping** — the trigger raises, `isPeriodClosedViolation` already recognises the shape, and the handler must return 409 rather than 500.
-- **The DM §13 drift assertion is unaffected** — no table joins or leaves the array. Re-run it anyway; it is the check that caught this array being wrong once already.
+**Done means, all met:** voiding an expense posted into a closed period returns `PERIOD_CLOSED`; voiding one in the open period still works; settling a closed-period obligation with a current-period payment still works (the existing `0006` regression tests, unaffected — they never touch `voided_at`); the golden fixtures still land on 134,000 / 15,000 / 7,500 (their own integration tests are part of the 378, all green).
 
-**Done means** — voiding an expense posted into a closed period returns `PERIOD_CLOSED`, voiding one in the open period still works, settling a closed-period obligation with a current-period payment still works (the `0006` regression test), and the golden fixtures still land on 134,000 / 15,000 / 7,500.
-
-### A6 · The trip receivable — closes GAP-23, needs A9a
+### A6 · The trip receivable — closes GAP-23, A9a done, ready
 
 **The design is settled** (post at booking, `kind: 'trip_fare'`, `source_type: 'trip'`, `source_id: tripId`, `due_on`/`effective_due_on` = the trip's end date, void on cancel). The reasoning is recorded in TRACKER §4 and is not reopened here. What follows is only what validating it against the code changed.
 
@@ -455,9 +439,8 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
                                                      B6  customer detail — ready (A4 ✅, B0 ✅)
                                                      B5+ driver detail history — ready (A5 ✅)
-now     A9a GAP-35 — the void/closed-period hole  ← do this one first     B4  Review shell + 9 reports  ← do this next
-        A6  trip receivable (needs A9a)              B5  Mine shell
-        A10 the other two silent zeros (needs A9a)
+now     A6  trip receivable ← do this next             B4  Review shell + 9 reports
+        A10 the other two silent zeros (A9a done; not blocked)   B5  Mine shell
         A7  R2 upload (unblocks 5 gaps; independent)
         A8  odometer wiring, borne-by preview (independent)
         A9b the rest of soft delete
@@ -466,7 +449,7 @@ last                                                B7  offline and the PWA
 
 **Track B never idles.** B4 alone is larger than A2 was, and B2, B3, B5, B5+, B6 and B7 all sit ready with no dependency left at all — every Track A handoff and B0 itself have both landed.
 
-**Track A's remaining items are no longer independent of each other.** A9a (the GAP-35 trigger fix) gates A6 and A10, because both add new places the defect can fire. A7 and A8 stay genuinely independent and can be picked up at any point.
+**Track A's remaining items are now all independent again.** A9a (the GAP-35 trigger fix) gated A6 and A10, because both add new places the defect could have fired — it shipped 5 August, so A6, A10, A7 and A8 can all be picked up in any order.
 
 **There are no Track A → Track B handoffs left, and B0 no longer gates anything either.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened, and B0 shipped 5 August — every item in Track B's column above is buildable right now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
 
@@ -487,7 +470,7 @@ Unchanged, restated so no session goes looking:
 - **New form → inherit the three structural fixes** (TRACKER.md §5): domain-typed form state with `toWire()` only in `mutationFn`, `blankToUndefined` on optional text, `Disclosure forceOpen` on a level-2 error.
 - **A new money table is not finished until it is in the `assert_period_open()` array** (Track A only).
 - **A new write to a `posted_period_id`-carrying table must open a transaction**, or its audit row records `changed_by` as `NULL` (Track A only).
-- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run alone**, since `check` does not include it and the shared Neon branch drops connections at random. `TEST_PARALLEL=1` against a personal branch (TRACKER.md §5) cuts a full local suite run from ~29 minutes to ~105 seconds — worth setting up before a Track A session, not just for the touched-file re-run.
+- `npm run check` clean across all three workspaces — **and, for Track A, the touched integration file re-run locally** (`check` does not include the integration suite at all, by design). **Do not chase the full local suite past that.** It runs against the long-lived shared branch every session contends for and has produced repeated, undiagnosable flakiness (TRACKER.md §5); `integration.yml` provisions a fresh ephemeral branch per PR and has none of that contention — A9a's own verification (5 Aug) ran 378/378 clean in one pass on a throwaway branch, no flakes, where the shared branch has needed re-runs before. Push the touched-file-verified commit, open the PR into `develop`, and let CI carry the full-suite cost while the next item starts — don't block on a local run CI is about to do anyway.
 - **a11y is axe-core in Playwright**, not `eslint-plugin-jsx-a11y` — its peer range caps at ESLint 8/9 and this repo is on 10.
 - [TRACKER.md](TRACKER.md) updated: the item becomes a **row**, its leftovers become **gap rows with a track**.
 
