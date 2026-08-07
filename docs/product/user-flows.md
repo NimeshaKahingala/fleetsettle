@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.3 — F-1.4 gains the mechanism UC-03 never specified (W-57); F-1.8 moves to phase one alongside it
-**Date:** 31 July 2026
+**Status:** v1.1.4 — §2.3 gains a member-administration row (W-49); F-1.4 corrected to offer the passive `owner` role, not just manager/owner-manager; F-1.8's steps reconciled with its own OQ-2 resolution (code, never phone matching); INV-31 added — a business always keeps at least one active owner
+**Date:** 7 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -125,6 +125,7 @@ Not stated anywhere in v1.1 of the use-case document, and it blocked row-level d
 | Close a period (F-9.1) | ✓ | ✓ | ✗ | — |
 | Ownership shares, capital, payouts | ✓ | ✓ (own vehicles) | **✗** | — |
 | Messaging config + kill switch | ✓ | ✓ | ✓ (kill switch only) | — |
+| Invite, revoke or change a member's role (F-1.4) | ✓ | ✓ | **✗** | — |
 | See another driver's data | ✓ | ✓ | ✓ | **✗ — hard boundary** |
 | Any write at all | — | — | — | **✗ (W-3)** |
 
@@ -297,6 +298,7 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-28** | Every money-bearing record carries an audit trail readable from the record itself, not only from a global log | W-50, UC-97 |
 | **INV-29** | A lease ends the day before the next begins; a vehicle-day is never claimed by two leases | W-46 |
 | **INV-30** | Trip income recognises on the trip's closing date, in exactly one accounting period | W-41 |
+| **INV-31** | A business always retains at least one active `owner` or `owner_manager`. Revoking or demoting the last one is refused, never merely warned | §2.3, W-49, W-57 |
 
 ---
 
@@ -364,12 +366,12 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Writes** `OwnershipShare` (effective-dated — INV-16), `CapitalContribution`.
 **Accept** · Shares not totalling 100% are refused · a share change dated today does not alter last year's profit split · the gap between contribution and share persists and never nags.
 
-#### F-1.4 Share a vehicle with a manager
+#### F-1.4 Bring in a partner or a manager
 *Actor:* Owner or owner-manager · *Source:* UC-03, W-57 · *Phase:* 1
 **Pre** none — the invitee need not have signed in before.
-**Steps** 1. Choose the role (manager, or a second owner-manager). 2. System generates an **invite code**, scoped to that role and this business. 3. Hand it over out of band — the same "however you'd normally reach them" as a driver's own code (F-1.8). 4. Invitee signs in and enters the code: joins the business in that role, creating their account if this is their first time. 5. Grant manage rights on the vehicle. 6. Optional monthly fee.
+**Steps** 1. Choose the role — **owner** (reports only), **owner-manager** (a second person entering everything), or **manager** (operational, no ownership/capital block). 2. System generates an **invite code**, scoped to that role and this business. 3. Hand it over out of band — the same "however you'd normally reach them" as a driver's own code (F-1.8). 4. Invitee signs in and enters the code: joins the business in that role, creating their account if this is their first time. 5. **If the role is manager:** grant manage rights on the vehicle and, optionally, a monthly fee — the owner/owner-manager roles skip this step, since they are not scoped to a vehicle at all.
 **Alternates** · Revoke — access ends, everything they entered stays · a code not yet redeemed can be reissued, which invalidates the old one.
-**Accept** · **A second owner-manager is possible, not just a manager** — F-0.1 grants the *creator* the role; this is how anyone after the first person gets in · a revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block · redeeming a code never lets the invitee pick their own role.
+**Accept** · **A second owner-manager is possible, not just a manager** — F-0.1 grants the *creator* the role; this is how anyone after the first person gets in · **a plain `owner` is reachable too, and it is the more common of the two for a real two-partner business** (⚑, corrected 7 Aug 2026 — v1.2.3's own text named only manager/owner-manager and left the passive partner this project is built around with no way in at all, the same shape of bug A0 fixed for the creator) · a revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block · redeeming a code never lets the invitee pick their own role.
 
 #### F-1.5 See a vehicle's calendar
 *Actor:* Manager · *Source:* UC-95 · *Phase:* 1
@@ -388,13 +390,13 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Accept** · Cards generate from the effective date forward, on pattern days only (§4.2) · borne-by defaults come from W-7 with no per-vehicle configuration · setting an end date stops generation without deleting past cards.
 
 #### F-1.8 Link a driver's own account
-*Actor:* Manager · *Source:* UC-07, W-13 · *Phase:* 1 *(moved from 2 in v1.1.3 — §11.2)*
-**Pre** the driver has created his own profile.
-**Steps** 1. On the driver's page, *Link account*. 2. Match by phone number, confirm identity. 3. Driver's view opens read-only.
-**Alternates** · Unlink — his access ends, his record and history are untouched.
-**Accept** · **INV-25 holds** · the driver record works identically whether or not it is ever linked · an unlinked driver loses nothing but sight.
+*Actor:* Manager · *Source:* UC-07, W-13, W-42 · *Phase:* 1 *(moved from 2 in v1.1.3 — §11.2)*
+**Pre** none — the driver need not have signed in before, the same shape F-1.4 uses (W-57).
+**Steps** 1. On the driver's page, *Link account*. 2. System generates a **linking code**, scoped to this driver record and this business. 3. Hand it over out of band — however you'd normally reach him. 4. Driver enters the code at his own sign-in: linked, creating his account if this is his first time. 5. Driver's view opens read-only.
+**Alternates** · Unlink — his access ends, his record and history are untouched · a code not yet redeemed can be reissued, which invalidates the old one (the same alternate F-1.4 offers).
+**Accept** · **INV-25 holds** · the driver record works identically whether or not it is ever linked · an unlinked driver loses nothing but sight · redeeming a code never lets the driver pick which driver record it links to — that comes from the code.
 
-> **OQ-2 — resolved as W-42.** The manager generates a linking code on the driver's page; the driver enters it at sign-up. Manager-initiated only, because the alternative — the driver searching by his own phone number — lets anyone who knows a number attach themselves to a balance.
+> **OQ-2 — resolved as W-42, reconciled with the steps above 7 Aug 2026.** An earlier draft of this flow still described matching by the driver's phone number; that was never the resolution — W-42 rejected phone matching outright, because it lets anyone who knows a number attach himself to a balance. The manager generates a linking code on the driver's page; the driver enters it at his own sign-in. Manager-initiated only, same reasoning as F-1.4's invite code (W-57), which is why the two now share one mechanism rather than two.
 
 #### F-1.9 Keep the mileage packages
 *Actor:* Manager · *Source:* UC-18, W-19 · *Phase:* 1

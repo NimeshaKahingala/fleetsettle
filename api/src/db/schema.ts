@@ -76,6 +76,18 @@ export const businessMember = pgTable("business_member", {
   revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
 });
 
+// A11/W-57, migration 0010.
+export const businessMemberInvite = pgTable("business_member_invite", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  role: text("role").notNull(),
+  codeHash: text("code_hash").notNull(),
+  createdBy: uuid("created_by").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true, mode: "string" }),
+  consumedBy: uuid("consumed_by"),
+});
+
 export const vehicle = pgTable("vehicle", {
   id: uuid("id").primaryKey(),
   businessId: uuid("business_id").notNull(),
@@ -132,6 +144,17 @@ export const driver = pgTable("driver", {
   numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
   settlementRhythm: text("settlement_rhythm").notNull().default("daily"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+// W-42, migration 0001 — existed unused until A11 gave it a writer.
+export const driverLinkInvite = pgTable("driver_link_invite", {
+  id: uuid("id").primaryKey(),
+  driverId: uuid("driver_id").notNull(),
+  codeHash: text("code_hash").notNull(),
+  createdBy: uuid("created_by").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true, mode: "string" }),
+  consumedBy: uuid("consumed_by"),
 });
 
 export const mileagePackage = pgTable("mileage_package", {

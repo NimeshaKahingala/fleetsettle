@@ -63,3 +63,12 @@ export function isSharesNotFullViolation(err: unknown): boolean {
   const pgError = pgErrorOf(err);
   return pgError?.code === RAISE_EXCEPTION && (pgError.message?.includes("must be 10000") ?? false);
 }
+
+/** True if `err` is `assert_business_has_owner()`'s `RAISE EXCEPTION` (INV-31, migrations/0010) — a revoke or role change that would leave a business with no active owner/owner-manager. */
+export function isBusinessHasNoOwnerViolation(err: unknown): boolean {
+  const pgError = pgErrorOf(err);
+  return (
+    pgError?.code === RAISE_EXCEPTION &&
+    (pgError.message?.includes("would have no active owner") ?? false)
+  );
+}

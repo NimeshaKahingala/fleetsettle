@@ -3,6 +3,7 @@ import {
   businessDateSchema,
   createDriverRequestSchema,
   driverBalancesResponseSchema,
+  driverLinkInviteResponseSchema,
   driverResponseSchema,
   driverViewResponseSchema,
 } from "@fleetsettle/shared/schemas";
@@ -94,6 +95,38 @@ export const getDriverHistoryRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read a driver's history" },
     // Cross-tenant is 404, never 403 (CLAUDE.md → Tenancy).
+    404: { description: "No such driver in this business" },
+  },
+});
+
+/** F-1.8/W-42/A11: `manageEntities` — the same gate as F-1.6 (add a driver), since F-1.8's own actor is "Manager" and this never touches `business_member`. Generates the code that lets this driver's own account reach `GET /api/driver-view` (INV-25 unaffected — that route still takes no `driverId`). */
+export const inviteDriverLinkRoute = createRoute({
+  method: "post",
+  path: "/{id}/link-invite",
+  request: { params: driverIdParams },
+  responses: {
+    201: {
+      content: { "application/json": { schema: driverLinkInviteResponseSchema } },
+      description: "The plaintext code — shown once, never retrievable again",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot link a driver's account" },
+    404: { description: "No such driver in this business" },
+  },
+});
+
+/** F-1.8's "Unlink" alternate: "his access ends, his record and history are untouched." */
+export const unlinkDriverRoute = createRoute({
+  method: "post",
+  path: "/{id}/unlink",
+  request: { params: driverIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: driverResponseSchema } },
+      description: "The driver, no longer linked to any account",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot unlink a driver's account" },
     404: { description: "No such driver in this business" },
   },
 });

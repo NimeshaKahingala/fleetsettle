@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BusinessResponse } from "@fleetsettle/shared/schemas";
+import type { BusinessResponse, RedeemInviteResponse } from "@fleetsettle/shared/schemas";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
+import { RedeemInviteForm } from "./RedeemInviteForm.js";
 import { NotBuiltYetScreen } from "../../app/NotBuiltYetScreen.js";
 
 /**
@@ -28,8 +29,15 @@ export interface FirstRunGateProps {
  * F-0.1's own documented exception: a brand-new identity has no
  * `business_member` row yet, so `authMiddleware` throws the same 404 a
  * foreign business would (`api/src/middleware/auth.ts`). That 404 is the
- * signal this identity hasn't created a business yet — not an error to
- * surface, the expected first-run state.
+ * signal this identity has no access yet — not an error to surface, the
+ * expected first-run state.
+ *
+ * A11/W-57: this is also where a *revoked* member lands, and deliberately
+ * not distinguished from brand-new — `resolveMembership` filters
+ * `revoked_at IS NULL` and returns the same `null` for both, on the hottest
+ * query in the system, so telling them apart would cost a join for a purely
+ * cosmetic difference. One honest screen — create a business, or redeem a
+ * code someone already gave you — serves both.
  *
  * Role → shell per UI §1.1: `owner_manager`/`manager` get the Operate shell
  * (built this phase); `owner`/`driver` get Review/Mine, which render a
@@ -77,12 +85,27 @@ export function FirstRunGate({ renderOperate }: FirstRunGateProps) {
 
   if (meQuery.data === null) {
     return (
-      <div className="p-4">
-        <CreateBusinessForm
-          onCreated={(_business: BusinessResponse) => {
-            void queryClient.invalidateQueries({ queryKey: ["me"] });
-          }}
-        />
+      <div className="flex flex-col gap-8 p-4">
+        <h1 className="text-title-lg text-ink-primary">Get started</h1>
+        <div className="flex flex-col gap-3">
+          <h2 className="text-label font-medium text-ink-secondary">Create a business</h2>
+          <CreateBusinessForm
+            onCreated={(_business: BusinessResponse) => {
+              void queryClient.invalidateQueries({ queryKey: ["me"] });
+            }}
+          />
+        </div>
+        <div className="flex flex-col gap-3 border-t border-line-hairline pt-8">
+          <h2 className="text-label font-medium text-ink-secondary">Join a business</h2>
+          <p className="text-body-sm text-ink-muted">
+            Already invited? Enter the code you were given.
+          </p>
+          <RedeemInviteForm
+            onRedeemed={(_result: RedeemInviteResponse) => {
+              void queryClient.invalidateQueries({ queryKey: ["me"] });
+            }}
+          />
+        </div>
       </div>
     );
   }

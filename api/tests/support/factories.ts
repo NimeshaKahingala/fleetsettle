@@ -10,6 +10,7 @@ import {
   billingPeriod,
   business,
   businessMember,
+  businessMemberInvite,
   businessSettings,
   capitalContribution,
   customer,
@@ -19,6 +20,7 @@ import {
   deposit,
   depositMovement,
   driver,
+  driverLinkInvite,
   expense,
   incident,
   incidentRecovery,
@@ -749,6 +751,31 @@ export class TestContext {
   trackCreatedDriver(driverId: string): void {
     this.track(async () => {
       await this.#db.delete(driver).where(eq(driver.id, driverId));
+    });
+  }
+
+  /**
+   * A11/W-57: `POST /api/business-member/invite` writes a single
+   * `business_member_invite` row per call, and `POST /api/invite/redeem`
+   * writes no row of its own on this table (it only ever updates one) — so
+   * this sweeps by `businessId` rather than tracking a single row id, since
+   * the invite response returns no id to track by. Must be tracked *after*
+   * `createBusiness()`/the business is otherwise known to the context, so it
+   * unwinds before the business's own teardown (FK: `business_member_invite
+   * .business_id REFERENCES business(id)`, no cascade).
+   */
+  trackCreatedBusinessMemberInvites(businessId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(businessMemberInvite)
+        .where(eq(businessMemberInvite.businessId, businessId));
+    });
+  }
+
+  /** A11/W-57/F-1.8: the `driver_link_invite` counterpart to `trackCreatedBusinessMemberInvites` above — same reasoning, swept by `driverId`, tracked after the driver is known to the context so it unwinds first (FK: `driver_link_invite.driver_id REFERENCES driver(id)`). */
+  trackCreatedDriverLinkInvites(driverId: string): void {
+    this.track(async () => {
+      await this.#db.delete(driverLinkInvite).where(eq(driverLinkInvite.driverId, driverId));
     });
   }
 

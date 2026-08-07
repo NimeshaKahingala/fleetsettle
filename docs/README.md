@@ -62,9 +62,9 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.3 | 6 Aug 2026 |
-| user-flows | v1.1.3 | 6 Aug 2026 |
-| data-model | v1.0 | 30 Jul 2026 |
+| use-cases | v1.2.4 | 7 Aug 2026 |
+| user-flows | v1.1.4 | 7 Aug 2026 |
+| data-model | v1.1 | 7 Aug 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
 | implementation-guidelines | v1.5 | 5 Aug 2026 |
 | ui-ux-guidelines | v1.2.2 | 3 Aug 2026 |

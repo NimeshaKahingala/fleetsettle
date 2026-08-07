@@ -1,11 +1,11 @@
 # Data Model
 
-**Status:** v1.0
-**Date:** 30 July 2026
-**Derived from:** `use-cases.md` v1.2 · `user-flows.md` v1.1
+**Status:** v1.1 — A11/W-57: `business_member`'s pair-unique made partial (GAP-52), an explicit audit trigger (GAP-53), `business_member_invite`, and INV-31 (a business always keeps an active owner)
+**Date:** 7 August 2026
+**Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.4
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
-**Validation:** §9 checks every one of the 62 flows and 30 invariants against these tables. That section is the point of the document; the DDL is what it validates.
+**Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
 
 ---
 
@@ -124,21 +124,46 @@ CREATE TABLE business_member (
   user_id         uuid NOT NULL REFERENCES app_user(id),
   role            text NOT NULL CHECK (role IN ('owner','owner_manager','manager')),
   granted_at      timestamptz NOT NULL DEFAULT now(),
-  revoked_at      timestamptz,                   -- UC-03: revoke without losing their records
-  UNIQUE (business_id, user_id)
+  revoked_at      timestamptz                    -- UC-03: revoke without losing their records
 );
 
 -- This product has no multi-business membership (nothing in use-cases.md or
 -- user-flows.md describes one user across two businesses, or a switcher) —
 -- the sub → app_user → business_member resolution (IG §7.1) assumes at most
--- one active row per user and takes it on faith. The plain
--- UNIQUE above only stops the same (business, user) pair twice; it does not
--- stop the same user acquiring a second business_id, which a double-submitted
+-- one active row per user and takes it on faith. It does not stop the same
+-- user acquiring a second business_id, which a double-submitted
 -- "create business" request or a client retry after a timeout can otherwise
 -- do. Revoked rows are excluded so a revoked manager (F-1.4) can be
 -- re-granted, or someone start a second business after leaving the first,
 -- without this index in the way.
 CREATE UNIQUE INDEX one_active_business_per_user ON business_member (user_id) WHERE revoked_at IS NULL;
+
+-- GAP-52. Until migration 0010 this pair was a plain table-level UNIQUE, and an
+-- earlier draft of the paragraph above claimed revoked rows were "excluded so a
+-- revoked manager can be re-granted" — true of the index above, false of this
+-- constraint, which still blocked the exact re-grant F-1.4 names as its own
+-- alternate: revoke, then invite the same person back into the same business.
+-- The comment was right about the object it examined and wrong about the
+-- conclusion, because it never checked the constraint one line above it. A
+-- partial unique index — scoped to the active pair only — is what the flow
+-- actually needs; a revoked row no longer occupies the slot.
+CREATE UNIQUE INDEX business_member_active_pair
+  ON business_member (business_id, user_id) WHERE revoked_at IS NULL;
+
+-- W-57: the same shape as driver_link_invite (§5, W-42) — a code scoped to a
+-- business and a chosen role rather than to one driver record. The plaintext
+-- code is returned once, in the invite response; only its hash is stored, the
+-- same pattern driver_link_invite already established.
+CREATE TABLE business_member_invite (
+  id          uuid PRIMARY KEY,
+  business_id uuid NOT NULL REFERENCES business(id),
+  role        text NOT NULL CHECK (role IN ('owner','owner_manager','manager')),
+  code_hash   text NOT NULL,
+  created_by  uuid NOT NULL REFERENCES app_user(id),
+  expires_at  timestamptz NOT NULL,
+  consumed_at timestamptz,
+  consumed_by uuid REFERENCES app_user(id)
+);
 
 CREATE TABLE business_settings (
   business_id             uuid PRIMARY KEY REFERENCES business(id),
@@ -1206,11 +1231,23 @@ CREATE RULE audit_log_no_update AS ON UPDATE TO audit_log DO INSTEAD NOTHING;
 CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
 ```
 
+**`write_audit_log()` (migration `0002`) attaches itself by discovery, not by a hand-maintained list**: it walks every table carrying `posted_period_id` and attaches to each. `business_member` carries no such column — it is not a money table — so the discovery loop has never covered it, and **who granted or revoked a role has been recorded nowhere** (GAP-53). The fix is one explicit attachment, since `write_audit_log()` reads only `NEW.business_id` and `NEW.id`, both present on this table already:
+
+```sql
+-- GAP-53. Outside the posted_period_id discovery loop by design (not a money
+-- table), so it needs the one thing that loop exists to avoid: a hand-written
+-- attachment. Worth remembering next time a table is added that should be
+-- audited for a reason other than money — the loop will not find it either.
+CREATE TRIGGER business_member_audit
+  AFTER INSERT OR UPDATE ON business_member
+  FOR EACH ROW EXECUTE FUNCTION write_audit_log();
+```
+
 ---
 
 ## 13. Triggers that carry the remaining invariants
 
-Four rules cannot be expressed as a constraint and need a trigger. They are listed together because they are the places where the schema stops defending itself.
+Five rules cannot be expressed as a constraint and need a trigger. They are listed together because they are the places where the schema stops defending itself.
 
 ```sql
 -- INV-10. No write may touch a closed accounting period.
@@ -1262,6 +1299,30 @@ BEGIN
   END IF;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
+
+-- INV-31. A11/GAP-53's prerequisite: revoking or demoting the business's only
+-- active owner locks it out with nothing able to undo it — no endpoint could
+-- ever grant again. Fires on UPDATE only, not INSERT: an INSERT can only
+-- ever add a row, so by itself it can never reduce a business's active-owner
+-- count to zero — every real removal path is an UPDATE that sets
+-- revoked_at. A role change is revoke-and-grant, two statements in one
+-- transaction (never an in-place UPDATE — that would lose the history), so
+-- this must be deferred exactly as assert_shares_total is: an immediate check
+-- would reject the revoke half before the grant half lands.
+CREATE OR REPLACE FUNCTION assert_business_has_owner() RETURNS trigger AS $$
+DECLARE remaining int;
+BEGIN
+  SELECT count(*) INTO remaining FROM business_member
+   WHERE business_id = NEW.business_id
+     AND role IN ('owner','owner_manager')
+     AND revoked_at IS NULL;
+  IF remaining = 0 THEN
+    RAISE EXCEPTION 'business % would have no active owner or owner-manager (INV-31)',
+                    NEW.business_id;
+  END IF;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+-- CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED, so revoke-then-grant lands as one legal transaction.
 ```
 
 ### 13.1 Attaching them — the step that is easy to skip
@@ -1314,9 +1375,17 @@ CREATE CONSTRAINT TRIGGER split_sums
   AFTER INSERT OR UPDATE ON mileage_assessment_split
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION assert_split_sums();
+
+-- INV-31. UPDATE only — an INSERT can never by itself remove the last owner.
+-- Deferred, so a role change (revoke, then grant — two statements) lands as
+-- one legal transaction rather than being rejected on its own revoke half.
+CREATE CONSTRAINT TRIGGER business_has_owner
+  AFTER UPDATE ON business_member
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_business_has_owner();
 ```
 
-**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods.
+**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods, and for a role change against `business_member`.
 
 **Verification, after any migration:**
 
@@ -1364,8 +1433,9 @@ Every invariant in `user-flows.md` §5, and where it actually lives.
 | 28 audit trail on money tables | `audit_log` table + index exist; **the writer is not yet built** (D-8) | **Pending** |
 | 29 lease boundary day | Falls out of INV-1's unique index | **DB** |
 | 30 trip in exactly one period | `CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))` | **DB** |
+| 31 business always has an active owner | `assert_business_has_owner()` constraint trigger on `business_member` | **DB** |
 
-**22 of 30 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
+**23 of 31 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
 
 ---
 
@@ -1514,7 +1584,7 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-1.1 add vehicle | `vehicle`, `vehicle_arrangement`, `vehicle_document` |
 | F-1.2 change arrangement | `vehicle_arrangement` (exclusion constraint prevents overlap) |
 | F-1.3 ownership | `ownership_share`, `capital_contribution` |
-| F-1.4 share with manager | `business_member`, `management_fee_agreement` |
+| F-1.4 bring in a partner or a manager | `business_member`, `business_member_invite`, `management_fee_agreement` |
 | F-1.5 vehicle calendar | `vehicle_day_allocation` |
 | F-1.6 add driver | `driver` |
 | F-1.7 set up daily lease | `daily_lease`, `daily_lease_rate` |
@@ -1656,3 +1726,20 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 This document follows `use-cases.md` and `user-flows.md`, never the reverse. A schema change that is not traceable to a `W-nn` decision or an `INV-n` invariant is a schema change without a reason.
 
 When a decision changes: update the use cases, update the flows, update §14 and §16 here, and re-run the §16.1 fixtures. **If a fixture number moves, stop** — that is the signal the model changed rather than the schema.
+
+---
+
+## 19. What changed in v1.1
+
+Driven by `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (W-57, A11 — member and driver access). None of it touches a money table, so none of §16.1's three fixtures move.
+
+| | |
+|---|---|
+| §3 | `business_member`'s table-level `UNIQUE (business_id, user_id)` replaced by the partial index `business_member_active_pair` (`WHERE revoked_at IS NULL`) — **GAP-52**. The prior comment above `one_active_business_per_user` claimed a revoked row could be re-granted; the pair-unique it sat next to still blocked exactly that, and the comment never checked |
+| §3 | `business_member_invite` — the F-1.4 counterpart to the existing `driver_link_invite` (§5, W-42), same shape: a hashed code, shown once, scoped to a business and a role |
+| §12 | `business_member_audit`, an explicit attachment of `write_audit_log()` — **GAP-53**. `business_member` carries no `posted_period_id`, so the discovery loop that attaches audit triggers to every money table has never covered it; who granted or revoked a role was recorded nowhere |
+| §5 (`user-flows.md`) | **INV-31** — a business always retains at least one active `owner`/`owner_manager`. Enforced by `assert_business_has_owner()`, a deferred constraint trigger shaped exactly like `assert_shares_total()`, for the same reason: a role change is revoke-then-grant in one transaction, and an immediate check would reject the revoke half before the grant half lands |
+| §14 | INV-31 added to the enforcement map — 23 of 31 invariants now DB-enforced |
+| §16 | F-1.4's table list gains `business_member_invite` |
+
+**One correction found reading UC-03 closely while writing this:** its invite-role list named only `manager` and a second `owner_manager` — the passive `owner` role this project's own two-partner example is built around had no invite path at all. Fixed in `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (F-1.4); `business_member_invite.role` and `business_member.role` both already admitted `owner`, so no schema change was needed for that half, only the flow text and the endpoint's accepted values.

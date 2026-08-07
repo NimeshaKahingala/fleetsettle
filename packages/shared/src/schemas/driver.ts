@@ -25,3 +25,10 @@ export const driverResponseSchema = z.object({
   licenceExpiry: z.string().nullable(),
 });
 export type DriverResponse = z.infer<typeof driverResponseSchema>;
+
+/** F-1.8/W-42/A11: no request body — the driver comes from the route, matching F-1.8's "on the driver's page" step. */
+export const driverLinkInviteResponseSchema = z.object({
+  code: z.string(),
+  expiresAt: z.string(),
+});
+export type DriverLinkInviteResponse = z.infer<typeof driverLinkInviteResponseSchema>;
