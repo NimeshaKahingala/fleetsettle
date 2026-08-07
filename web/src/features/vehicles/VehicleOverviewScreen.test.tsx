@@ -40,6 +40,7 @@ test("renders the vehicle's fields once loaded", async () => {
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -60,6 +61,7 @@ test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", 
       onViewCalendar={onViewCalendar}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -101,6 +103,7 @@ test("Report incident, via the Vehicle actions menu, opens the sheet and onSelec
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
+      onStartDailyLease={() => undefined}
     />,
     { get, post },
   );
@@ -140,6 +143,7 @@ test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled t
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get, post },
   );
@@ -176,6 +180,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -192,6 +197,7 @@ test("nothing recorded in any scoped read renders no Paperwork, Costs, Incidents
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -216,6 +222,7 @@ test("paperwork lists every document type with a date set", async () => {
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -271,6 +278,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -315,6 +323,7 @@ test("history merges lease and daily-lease periods into one chronological list",
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -361,6 +370,7 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
       onViewCalendar={() => {}}
       onSelectLease={onSelectLease}
       onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -411,6 +421,7 @@ test("Incidents lists every one with its own status, and each row is tappable (W
       onViewCalendar={() => {}}
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
+      onStartDailyLease={() => undefined}
     />,
     { get },
   );
@@ -423,4 +434,69 @@ test("Incidents lists every one with its own status, and each row is tappable (W
 
   await user.click(screen.getByText("Rear bumper damage"));
   expect(onSelectIncident).toHaveBeenCalledWith("inc1");
+});
+
+/**
+ * F-1.7's entry point (B10, GAP-51). Until this shipped there was no screen
+ * anywhere that could start a daily lease, so arrangement B — the model the
+ * bus in this project's own running example runs on — could not be started
+ * by anyone. The gating is asserted both ways because "offered everywhere"
+ * and "offered nowhere" are both wrong and only one of them is obvious.
+ */
+test.each([
+  ["B", true],
+  [undefined, true],
+  ["A", false],
+  ["C", false],
+] as const)(
+  "Start a daily lease is offered for arrangement %s: %s",
+  async (arrangement, expected) => {
+    const user = userEvent.setup();
+    // `arrangement` is destructured off rather than overwritten: spreading
+    // `{...baseVehicle}` and omitting the key leaves `baseVehicle`'s own "B"
+    // in place, so the undefined case would silently re-test B.
+    const { arrangement: _ignored, ...withoutArrangement } = baseVehicle;
+    const get = baseGet({
+      "/api/vehicle/v1":
+        arrangement === undefined ? withoutArrangement : { ...baseVehicle, arrangement },
+    });
+    renderWithProviders(
+      <VehicleOverviewScreen
+        vehicleId="v1"
+        onBack={() => {}}
+        onViewCalendar={() => {}}
+        onSelectLease={() => {}}
+        onSelectIncident={() => {}}
+        onStartDailyLease={() => undefined}
+      />,
+      { get },
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+
+    const action = screen.queryByRole("button", { name: "Start a daily lease" });
+    if (expected) expect(action).toBeInTheDocument();
+    else expect(action).not.toBeInTheDocument();
+  },
+);
+
+test("Start a daily lease, via the Vehicle actions menu, calls onStartDailyLease", async () => {
+  const user = userEvent.setup();
+  const onStartDailyLease = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={onStartDailyLease}
+    />,
+    { get: baseGet() },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Start a daily lease" }));
+
+  expect(onStartDailyLease).toHaveBeenCalledOnce();
 });

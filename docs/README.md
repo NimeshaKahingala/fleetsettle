@@ -4,7 +4,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 
 | # | Document | Owns | Never decides |
 |---|---|---|---|
-| 1 | [product/use-cases.md](product/use-cases.md) | **Intent.** What the business does, the 56 `W-n` decisions, the usability contract `U-1…U-9` | Screens, schema, technology |
+| 1 | [product/use-cases.md](product/use-cases.md) | **Intent.** What the business does, the 57 `W-n` decisions, the usability contract `U-1…U-9` | Screens, schema, technology |
 | 2 | [product/user-flows.md](product/user-flows.md) | **Mechanics.** State machines, the 30 invariants `INV-n`, the 62 flows `F-n`, acceptance criteria, the test plan | Intent — it executes §1, it does not revise it |
 | 3 | [engineering/data-model.md](engineering/data-model.md) | **The schema.** DDL, constraints, triggers, the report queries, the flow-to-table matrix | Behaviour |
 | 4 | [engineering/tech-stack.md](engineering/tech-stack.md) | **The stack.** Runtime, database, driver, auth, storage, and the four platform constraints that shaped the schema | How to build on it |
@@ -62,8 +62,8 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.2 | 31 Jul 2026 |
-| user-flows | v1.1.2 | 31 Jul 2026 |
+| use-cases | v1.2.3 | 6 Aug 2026 |
+| user-flows | v1.1.3 | 6 Aug 2026 |
 | data-model | v1.0 | 30 Jul 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
 | implementation-guidelines | v1.5 | 5 Aug 2026 |
@@ -76,3 +76,5 @@ Three rules that have already earned their place:
 
 - **WhatsApp dispatch is built last** (UC §9.1). Meta template approval leaves the critical path; the Queue binding and the kill switch are not needed at bootstrap. What messaging depends on — condition photo capture (W-30) and the message ↔ record link (UC §9.2) — stays in phase one, or it gets built twice.
 - **Auth is Asgardeo**, with the application registration owned by the business rather than by this repository (TS §2, IG §1.2).
+
+**One gap closed 6 August 2026, found by a business trying to add its second partner: nothing ever specified how anyone after the first user gets an account.** UC-03 said "pick the user" without saying from where. **W-57** (⚑ proposed, UC §1.1) settles it — code-based, the same shape W-42 already used for a driver — and folds UC-07 (the driver's own view) into phase one alongside it (UC §9.1, FL §11.2), since both were the identical unanswered question.

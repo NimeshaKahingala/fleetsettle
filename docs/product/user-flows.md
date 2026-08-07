@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.2 — OQ-6 closed (Sinhala)
+**Status:** v1.1.3 — F-1.4 gains the mechanism UC-03 never specified (W-57); F-1.8 moves to phase one alongside it
 **Date:** 31 July 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
@@ -365,10 +365,11 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Accept** · Shares not totalling 100% are refused · a share change dated today does not alter last year's profit split · the gap between contribution and share persists and never nags.
 
 #### F-1.4 Share a vehicle with a manager
-*Actor:* Owner · *Source:* UC-03 · *Phase:* 1
-**Steps** 1. Pick the user. 2. Grant manage rights. 3. Optional monthly fee.
-**Alternates** · Revoke — access ends, everything they entered stays.
-**Accept** · A revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block.
+*Actor:* Owner or owner-manager · *Source:* UC-03, W-57 · *Phase:* 1
+**Pre** none — the invitee need not have signed in before.
+**Steps** 1. Choose the role (manager, or a second owner-manager). 2. System generates an **invite code**, scoped to that role and this business. 3. Hand it over out of band — the same "however you'd normally reach them" as a driver's own code (F-1.8). 4. Invitee signs in and enters the code: joins the business in that role, creating their account if this is their first time. 5. Grant manage rights on the vehicle. 6. Optional monthly fee.
+**Alternates** · Revoke — access ends, everything they entered stays · a code not yet redeemed can be reissued, which invalidates the old one.
+**Accept** · **A second owner-manager is possible, not just a manager** — F-0.1 grants the *creator* the role; this is how anyone after the first person gets in · a revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block · redeeming a code never lets the invitee pick their own role.
 
 #### F-1.5 See a vehicle's calendar
 *Actor:* Manager · *Source:* UC-95 · *Phase:* 1
@@ -387,7 +388,7 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Accept** · Cards generate from the effective date forward, on pattern days only (§4.2) · borne-by defaults come from W-7 with no per-vehicle configuration · setting an end date stops generation without deleting past cards.
 
 #### F-1.8 Link a driver's own account
-*Actor:* Manager · *Source:* UC-07, W-13 · *Phase:* 2
+*Actor:* Manager · *Source:* UC-07, W-13 · *Phase:* 1 *(moved from 2 in v1.1.3 — §11.2)*
 **Pre** the driver has created his own profile.
 **Steps** 1. On the driver's page, *Link account*. 2. Match by phone number, confirm identity. 3. Driver's view opens read-only.
 **Alternates** · Unlink — his access ends, his record and history are untouched.
@@ -935,7 +936,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | Flow | Use cases | Decisions |
 |---|---|---|
 | F-0.1, F-0.2 | UC-08, UC-09 | W-39, W-51, W-54 |
-| F-1.1–F-1.8 | UC-01…UC-07, UC-92 | W-3, W-13, W-31 |
+| F-1.1–F-1.8 | UC-01…UC-07, UC-92 | W-3, W-13, W-31, W-42, W-57 |
 | F-1.2, F-1.5 | UC-94, UC-95 | §6.3, W-46 |
 | F-2.1–F-2.8 | UC-10…UC-17, UC-80…UC-83 | W-9…W-11, W-15…W-19, W-24…W-26, W-29, W-30, W-38 |
 | F-2.8 | UC-19 | W-44, W-55 |
@@ -1105,6 +1106,7 @@ The four corrections proposed in v1.0 were **adopted in use-cases v1.2 §9.1**. 
 | **Paperwork expiry (F-10.1)** | Phase 2 | **Phase 1** | The use-case document already argued this in its own closing note, then scheduled it second anyway |
 | **Condition photo capture (F-2.1, F-2.6)** | Phase 3 | **Phase 1** | UC-80 in phase 2 sends the photos with the confirmation. Only capture moves; side-by-side comparison stays in phase 3 |
 | **Audit trail (F-8.6)** | absent | **Phase 1** | Retrofitting audit onto money tables holding live data is materially harder than building it in, and §2's arrangement needs it from the first month |
+| **Link a driver's own account (F-1.8)** | Phase 2 | **Phase 1** *(v1.1.3)* | Not a change of mind about the driver's own screen — it moved because **F-1.4 did**. UC §9.1 found that UC-03 (share a vehicle with a manager, always phase one) and UC-07 (a driver's own view, phase two) are the same unanswered question: how does a second person get an account at all. W-57 answers it once, for both, so building one without the other leaves half a mechanism live and the other half stubbed |
 
 ## 12. Change control
 

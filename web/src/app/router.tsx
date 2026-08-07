@@ -29,6 +29,7 @@ import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { BookTripScreen } from "../features/trips/BookTripScreen.js";
 import { TripDetailScreen } from "../features/trips/TripDetailScreen.js";
+import { StartDailyLeaseScreen } from "../features/vehicles/StartDailyLeaseScreen.js";
 import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
@@ -79,6 +80,9 @@ function VehicleDetailRoute() {
       vehicleId={vehicleId}
       onBack={() => {
         void navigate({ to: "/vehicles" });
+      }}
+      onStartDailyLease={() => {
+        void navigate({ to: "/vehicles/$vehicleId/daily-lease/new", params: { vehicleId } });
       }}
       onViewCalendar={() => {
         void navigate({ to: "/vehicles/$vehicleId/calendar", params: { vehicleId } });
@@ -169,6 +173,33 @@ function StartLeaseRoute({ today }: { today: BusinessDate }) {
       }}
       onCreated={(leaseId) => {
         void navigate({ to: "/leases/$leaseId", params: { leaseId } });
+      }}
+    />
+  );
+}
+
+/**
+ * F-1.7 (B10) — arrangement B's own start flow, reached from the vehicle's
+ * "Vehicle actions" menu. No `?startDate=` search param, unlike its two
+ * neighbours: F-1.5's calendar tap-through is scoped to F-2.1 and F-5.1 by
+ * its own spec, so nothing routes here with a date already chosen.
+ * `onCreated` lands back on the vehicle, which is where the new arrangement
+ * and its day cards will show — a daily lease has no hub screen of its own
+ * (the same reason `VehicleOverviewScreen`'s history rows only make lease
+ * entries tappable).
+ */
+function StartDailyLeaseRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/daily-lease/new" });
+  const navigate = useNavigate();
+  return (
+    <StartDailyLeaseScreen
+      vehicleId={vehicleId}
+      today={today}
+      onBack={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onCreated={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
       }}
     />
   );
@@ -342,6 +373,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <StartLeaseRoute today={today} />,
   });
 
+  const startDailyLeaseRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicles/$vehicleId/daily-lease/new",
+    component: () => <StartDailyLeaseRoute today={today} />,
+  });
+
   const bookTripRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/vehicles/$vehicleId/trip/new",
@@ -408,6 +445,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehicleDetailRoute,
     vehicleCalendarRoute,
     startLeaseRoute,
+    startDailyLeaseRoute,
     bookTripRoute,
     tripDetailRoute,
     incidentDetailRoute,

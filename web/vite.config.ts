@@ -7,6 +7,16 @@ import { VitePWA } from "vite-plugin-pwa";
 // background_color/theme_color/icons are identity decisions (BR §5.2) — the
 // content below is copied from that section verbatim, not re-derived.
 export default defineConfig({
+  // DEPLOYMENT.md §"local dev": relative `/api` paths otherwise resolve
+  // against this dev server, not `wrangler dev` on :8787, and fall through
+  // to the SPA's index.html. Requires `wrangler dev` running locally and
+  // `npm run dev:no-auth-stub` (a real Asgardeo login) — the stub token
+  // cannot pass `authMiddleware`'s JWKS verification either way.
+  server: {
+    proxy: {
+      "/api": "http://localhost:8787",
+    },
+  },
   plugins: [
     react(),
     tailwindcss(),

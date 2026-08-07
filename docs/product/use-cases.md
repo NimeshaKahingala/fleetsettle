@@ -1,6 +1,6 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2.2 — language closed (Sinhala); WhatsApp dispatch sequenced last (§9.1)
+**Status:** v1.2.3 — how a second partner or manager actually gets in (W-57); the driver's own view moved to phase one (§9.1)
 **Date:** 31 July 2026
 **Companion:** `user-flows.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
@@ -99,6 +99,7 @@ These eighteen close gaps the document relied on without stating, or fill values
 | **W-54** ⚑ | **One currency, one business timezone, integer minor units, half-up rounding, largest-remainder splits, inclusive-start/inclusive-end periods.** | Unstated conventions are where off-by-one bugs live. These are the rules that make §7.3's 31 / 28 / 31 / 30 come out right and its 152 / 148 split add back to 300. UC-08, §6.16 |
 | **W-55** ⚑ | A customer is a **person** (NIC) or an **organisation** (registration number). | UC-10 assumes a person with an NIC. Charters are booked by schools, companies and temples, which have neither. UC-10, UC-40 |
 | **W-56** ⚑ | **Reports degrade to "not available", never to zero.** | Promoted from prose in §6.9 to a decision, because it now binds every report in Group H and it is the difference between "no data" and a confident wrong number. §6.9, Group H |
+| **W-57** ⚑ *(added v1.2.3)* | **Joining a second partner or a manager is code-based, the same shape as W-42's driver linking**: the owner (or owner-manager) generates an **invite code** scoped to a role, hands it over out of band, and the invitee redeems it the first time they sign in. Never a search, never an email the app sends on your behalf. | UC-03 said "pick the user" and never said from where — the only identity this system has before someone signs in at all is whatever Asgardeo hands back, so there is no list to pick from. A solo business never needs a second account, which is exactly why this gap stayed invisible until a real one tried to add its second partner. Reuses W-42's reasoning exactly — the alternative, an invitee searching for and attaching themselves to a business, hands a stranger who guesses a business name the ability to request its books. UC-03 |
 
 ---
 
@@ -231,8 +232,9 @@ Owner or manager — got a new vehicle. Enter registration, type, and pick its d
 Owner — at purchase. Add co-owners with percentage shares; record what each person actually paid toward the purchase.
 *System:* refuses shares that don't total 100%. Remembers the difference between what someone paid and their share, permanently, without nagging about it.
 
-**UC-03 Share a vehicle with a manager** *(W-49, W-53)*
-Owner — handing operations to someone. Pick the user, grant manage rights, optionally set the monthly fee.
+**UC-03 Share a vehicle with a manager** *(W-49, W-53, W-57)*
+Owner or owner-manager — handing operations to someone. Generate an **invite code** for the role (manager, or a second owner-manager), hand it to them however you'd normally reach them, grant manage rights on the vehicle once they've joined, optionally set the monthly fee.
+*How the invitee joins (W-57):* the same shape as a driver's own linking (UC-07) — they redeem the code the first time they sign in, which is also what creates their account if they've never used the app before. Nobody searches for a business by name and asks to see its books.
 *Variation:* revoke later without losing anything they entered — access ends, their records stay attributed to them.
 
 **What a manager may and may not do (W-49).** v1.1 named the role without bounding it, which leaves the sharpest questions unanswered: may a manager forgive a debt? See what the vehicle cost to buy?
@@ -1262,8 +1264,8 @@ Not everything specified here belongs in the first build. My suggested split, fo
 
 | Phase | Includes |
 |---|---|
-| **First** | The three arrangements, the daily card, expenses with funding source, rent schedules and collection, trips with trip P&L, driver balances both ways, partner capital and current accounts (UC-67), mileage limits and excess, adjustments and waivers, banking cash (UC-65), costs with no vehicle (UC-66), business setup and opening balances (UC-08, UC-09), the vehicle calendar (UC-95), corrections and the audit trail (UC-96, UC-97), **period close (UC-98)**, **paperwork expiry (UC-92)**, **condition photo capture (W-30)** |
-| **Second** | Notifications and the message log, write-offs (UC-90), post-closure charges (UC-91), receivables ageing (UC-78), utilisation and per-km reporting (UC-79), the driver's own view (UC-07), export (UC-99), side-by-side condition comparison |
+| **First** | The three arrangements, the daily card, expenses with funding source, rent schedules and collection, trips with trip P&L, driver balances both ways, partner capital and current accounts (UC-67), mileage limits and excess, adjustments and waivers, banking cash (UC-65), costs with no vehicle (UC-66), business setup and opening balances (UC-08, UC-09), the vehicle calendar (UC-95), corrections and the audit trail (UC-96, UC-97), **period close (UC-98)**, **paperwork expiry (UC-92)**, **condition photo capture (W-30)**, **joining a second partner, a manager, or a driver's own view (UC-03, UC-07, W-57)** |
+| **Second** | Notifications and the message log, write-offs (UC-90), post-closure charges (UC-91), receivables ageing (UC-78), utilisation and per-km reporting (UC-79), export (UC-99), side-by-side condition comparison |
 | **Third** | Depreciation and disposal, driver retainers and spare-vehicle reassignment (relevant once there is a spare vehicle), loan and lease schedules, tax if it applies, offline capture |
 
 **WhatsApp dispatch is built last** — decided by the owner, 31 July 2026. Sending (UC-80…UC-87, W-14/W-21) comes after everything else in this table, including the phase-three items. Three consequences, because deferring a feature is not the same as forgetting it:
@@ -1284,6 +1286,8 @@ The transport stays swappable regardless (W-14). Sequencing it last makes that e
 | **The audit trail (UC-97)** | Not a report but a shape. Retrofitting audit onto money tables that already hold live data is materially harder than building it in, and §2's arrangement — one person entering, another consuming — needs it from the first month |
 
 The two originally flagged here still stand. **Paperwork expiry (UC-92)** costs almost nothing and prevents an uninsured accident, which is the largest single unbudgeted loss available to this business. And **banking cash (UC-65)** belongs in the first build despite looking like an afterthought, because without it the cash position report degrades from day one.
+
+**One more moved in v1.2.3, for a different reason than any of the four above:** **the driver's own view (UC-07)** was scheduled second because it looked like a nicety — read access, not a money flow. It is not optional, because **UC-03 and UC-07 turned out to be the same problem.** Neither this document nor `user-flows.md` ever specified how a second person — partner, manager or driver — actually gets an account; UC-03 said "pick the user" without saying from where. A business with one owner never needs the answer, which is exactly why nobody noticed. **W-57** answers it once, the same code-based shape for all three, so UC-07 moves with UC-03 rather than waiting for a phase of its own.
 
 ### 9.2 Links the entity phase must not lose
 
