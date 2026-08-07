@@ -8,7 +8,7 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
+import { CalendarDays, CalendarPlus, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/cn.js";
 import { Money } from "../../components/Money.js";
@@ -52,6 +52,8 @@ export interface VehicleOverviewScreenProps {
   onSelectLease: (leaseId: string) => void;
   /** Incidents section's own tap-through (Web-P8a) — also where a just-reported incident lands, from `ReportIncidentSheet`'s own `onCreated`. */
   onSelectIncident: (incidentId: string) => void;
+  /** F-1.7 (B10) — offered only for a vehicle that could actually take one; see `vehicleActions` below. */
+  onStartDailyLease: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -111,6 +113,7 @@ export function VehicleOverviewScreen({
   onViewCalendar,
   onSelectLease,
   onSelectIncident,
+  onStartDailyLease,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
   const today = businessToday();
@@ -151,8 +154,26 @@ export function VehicleOverviewScreen({
     onSelectLease,
   );
 
+  // F-1.7's entry point, and the one this flow was missing entirely until
+  // B10 (GAP-51). Offered when the vehicle is on arrangement B **or has no
+  // active arrangement at all** — the latter is precisely the vehicle you
+  // would start one on, and `arrangement` is undefined exactly then. Hidden
+  // for A and C, whose own start flows live on the calendar (F-2.1/F-5.1);
+  // `VehicleCalendarScreen`'s `canStartLease`/`canBookTrip` gate the same way.
+  const canStartDailyLease = vehicle?.arrangement === undefined || vehicle.arrangement === "B";
+
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    ...(canStartDailyLease
+      ? [
+          {
+            key: "daily-lease",
+            label: "Start a daily lease",
+            icon: CalendarPlus,
+            onSelect: onStartDailyLease,
+          },
+        ]
+      : []),
     {
       key: "expense",
       label: "Record expense",

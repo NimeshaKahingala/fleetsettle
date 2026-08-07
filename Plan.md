@@ -30,6 +30,16 @@
 
 **Updated 6 August 2026 — A6 done, closing GAP-23.** Exactly the design sketched below, with one deliberate narrowing found while implementing it: the period requirement is scoped to the `customerId !== undefined && agreedAmountMinor > 0n` guard, not the whole endpoint — an owner-driven charter with no customer touches no period-scoped table, so it stays bookable with no accounting period open at all, per CLAUDE.md's "only validate at system boundaries" rather than this section's broader-sounding "booking a charter becomes refusable" phrasing. Migration `0009` widens `obligation_kind_check`, confirmed against the live branch first (`obligation_kind_check`, exactly as guessed, but looked up rather than assumed). `cancelTrip` voids the receivable through a new source-scoped `voidObligationBySource`, general enough that A9b's remaining void endpoints can likely reuse the same shape rather than each writing their own. **Found while fixing the golden fixture's own test, not the domain code**: G-1's 134,000 test and the §7.1 close-trip test both had an ad-hoc `WHERE source_type = 'trip' AND source_id = tripId` query that implicitly meant "the driver-fee obligation" — A6 gave `trip_fare` the same source, and both queries started summing a receivable into "costs." Production's `sumVehicleCostsForPeriod` was never at risk (it already filters `direction = 'owed_by_us'`); both test queries fixed to match. 7 new tests, `trip.test.ts` 26→33; full account, including the closed-period-on-cancel test proving A9a's own rule, in TRACKER.md (GAP-23). Next: **A10**, the other two silent zeros (GAP-39, GAP-10) — free of any remaining gate.
 
+**Updated 6 August 2026 — `UI-UX-REVIEW.md`'s remaining findings validated against source and triaged into a new item, `B9`.** That review (repo root) is independent of this plan's own accounting — run by driving the built client with Playwright against mocked responses shaped from the real Zod schemas — and it had eight findings beyond the GAP-3 fix already absorbed. Each was re-checked directly against `web/src`/`docs/` rather than taken on trust, this repository's own rule applied to an input as much as to a phase. **Five held up**: no `Dialog` exists anywhere for INV-1 (only `CloseTripSheet.tsx` renders one, for INV-17) · trip detail's app-bar title truncates at 360px (`formatShortDate` sets `year: "numeric"` unconditionally) · the vehicle calendar's occupied-day cells carry no `aria-label`, only free-day cells do · M-26 (landscape) is wholly unbuilt and wasn't on this plan at all — confirmed by `grep`, and it's a deliberate spec requirement, not an aspiration · M-11's undo toast has a host `<div>` with nothing rendering into it. Scheduled as **GAP-44 through GAP-48**, TRACKER.md §4, bundled below as **B9** — independent of both tracks, blocked by nothing, blocking nothing. **Two did not hold up**, corrected rather than scheduled (TRACKER.md §6): `DialogConfirmFooter`'s `confirmLabel` is a required prop with no default, so the claimed "defaults to `Confirm`" footgun doesn't exist in the code as written; and "Excess rate per km" is the specification's own term for a concept M-25 never addresses — the rule bans "rate" as a synonym for two *other*, opposite-direction words, not this one. One finding — a nested-`Sheet`/`AmountPad` interaction — needs the manual browser check the review itself asked for and stays unresolved, noted under B9 rather than guessed at.
+
+**Updated 6 August 2026 — the first real browser round trip, live against `qa.fleetsettle.com`, and the queue re-ordered on what it found.** Chrome DevTools MCP driving a real browser, a human entering real Asgardeo credentials — every prior review, this plan included, had reasoned from source and mocks. Full account in TRACKER.md's dated entry and §5 (four new traps). Three real, previously-unknown items came out of twenty minutes of actual use, and none of them were reachable by any review method used so far:
+
+- **GAP-49** — the sign-in screen and two of three role placeholders render with **no page background anywhere in their DOM**, invisible-by-coincidence in light mode, functionally illegible in dark mode. `Screen.tsx` alone sets no background; only `AppShell.tsx` does, and `AuthGate`/`NotBuiltYetScreen` render outside it. Trivial, structural, huge blast radius (the literal first screen every user sees) — bundled with GAP-50 as **B11**, both promoted ahead of A11.
+- **GAP-50** — closing a `Sheet` can leave `aria-hidden` on an ancestor of a still-focused element, a real WCAG violation, reproduced twice (single sheet, nested sheet). This **confirms and generalises** the "low confidence" nested-`Sheet`/`AmountPad` item B9 carried as unresolved — it is `Sheet.tsx`'s vaul-based focus handling itself, not one nested case. **B9's write-up below is corrected accordingly**; the item moves to B11.
+- **GAP-51** — F-1.7, "Set up the daily lease," has **no implementation anywhere**, client or spec-wireframe, confirmed three independent ways live and by `grep`. The backend (`startDailyLeaseRoute`, a complete `startDailyLeaseRequestSchema`) has been sitting ready since P2/P5, explicitly labelled for this flow in its own doc comment. This blocks arrangement B — the daily-lease model this project's own running example (the bus) runs on, where the driver pays you (UC §1.2) — from being usable by any real business, and it's what stopped this session short of verifying GAP-3 live. New item **B10**, and it now outranks A11: A11 blocks two roles from existing at all, but B10 blocks the one role that already works from doing its actual job, which is the more urgent gap now that A0 has shipped.
+
+**Process, not just findings — three standing rules added so this doesn't recur, TRACKER.md §5 has the full reasoning:** (1) anything touching `AuthGate`, `FirstRunGate`'s non-operate branches, or a component that can render outside `AppShell` needs one real-browser check, both colour schemes, before being called done — mocked review structurally cannot see this boundary; (2) read the browser console as a standing step of any review, not just screenshots — it found GAP-50 in under a minute; (3) a route-def/screen validation pass cannot notice a flow that was never wireframed *and* never built, which is exactly how GAP-51 went unseen through every prior pass — **a full top-down audit of `user-flows.md`'s phase-1 flow list against both `ui-ux-guidelines.md` and `web/src` hasn't been run yet and should be soon**, since one flow falling through whole is reason to suspect it isn't alone. **Also found, not a code gap:** this QA account was on the stale pre-A0 signup path because `build/p0-foundation` has never been merged into `develop` — fixed for this session with one scoped `UPDATE` on the `qa` Neon branch, but the merge itself is still outstanding and now the first item in the queue below, since every other environment-dependent fix since A0 is equally unverified on QA until it lands.
+
 ---
 
 ## The rule that makes two tracks legal
@@ -91,7 +101,11 @@ So the only role obtainable through the product was the one role with no interfa
 
 **A 6 August validation pass over Track B changed what "ready" means for three of its items.** B4 and B5 were both marked "needs nothing" and neither was buildable: `RootLayout` hardcodes `shell="operate"`, `FirstRunGate` has only a `renderOperate` branch, the role is unreadable outside that one file, and UI §12.4's `capabilities.ts`/`<Can>` do not exist — so B3's "absent for a manager" rule had nothing to gate with either. That plumbing is now **B0b**, and it goes first, exactly as B0 did for the same reason. The pass also found **GAP-41**: §7.8's overheads block has no endpoint that can produce it. Full findings under [Track B](#track-b--the-react-client); a box-by-box build order is in the [Track B implementation checklist](#track-b-implementation-checklist).
 
-**Do this next, in this order: (1) update the existing production `business_member` row** — a live data decision, not a deploy step; **(2) A11**, without which two of the three shells have no possible user; then **(3) B0b**, then B3. **If Track A is being worked in parallel, A10** (the other two silent zeros — GAP-39, GAP-10, the same defect class A6 just closed) **is free of any gate.** The full reasoning is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
+**Reachable is not the same as usable, and the first live browser test (6 August) found the gap between them for `owner_manager` itself.** The role table above answers "can anyone sign in as this role" — it does not answer "can they do the thing the role exists for." `owner_manager` can sign in today, land on a real Operate shell, add a vehicle, add a driver — and then hit a wall: **there is no screen anywhere that starts a daily lease (F-1.7, GAP-51)**, so a vehicle configured for arrangement B can never generate a day card, and F-4.2 — "the flow the product is optimised around" — can never fire for it. The backend has been ready since P2/P5. This is now **B10**, and it outranks A11: A11 blocks two roles from existing, B10 blocks the one role that already works from doing its job.
+
+**B11 is done (7 Aug).** GAP-49 and GAP-50 are closed at the cause — a base-layer rule on `html` for the missing page background, `autoFocus` on the sheet primitive for the `aria-hidden` violation — along with three things found while fixing them: `color-scheme` was declared nowhere, `Sheet`'s focus restore had never worked, and `npm run typecheck` had been broken since A0. Details under [B11](#b11--done--structural-render-fixes-and-two-bugs-that-were-not-what-they-looked-like).
+
+**Do this next, in this order: (1) merge `build/p0-foundation` → `develop`** — QA is still running the pre-A0 signup path (confirmed live, 6 Aug: this session's own test account came up `role: "owner"` on QA), so every environment-dependent fix since A0 is unverified there until this lands; **(2) update the existing production `business_member` row** — a live data decision, not a deploy step; **(3) B10** (F-1.7, above — GAP-49 and GAP-50 are now closed) — both small-to-moderate, both block real use today, neither waits on anything; **(4) A11**, without which two of the three shells still have no possible user; then **(5) B0b**, then B3. **If Track A is being worked in parallel, A10** (the other two silent zeros — GAP-39, GAP-10, the same defect class A6 just closed) **is free of any gate.** The full reasoning is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
@@ -108,7 +122,7 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 | | Order | Note |
 |---|---|---|
 | **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A8 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A8/A7 are all free, A9b last |
-| **Track B** | ~~B0~~ → **B0b** → B3 → B4 → B5 → B6 → B2 → B7 | **B0b gates B3, B4 and B5** (found 6 Aug); B6 and B2 need neither and can go any time; B7 last |
+| **Track B** | ~~B0~~ → ~~B11~~ → ~~B10~~ → **B0b** → B3 → B4 → B5 → B6 → B2 → B9 → B7 | **B11 and B10 both done 7 Aug**, which clears everything the live session found. **B0b is first again** and still gates B3, B4 and B5; B6, B2 and B9 need neither it nor anything on Track A, so they can go any time; B7 last |
 
 ### One person, one queue
 
@@ -120,33 +134,41 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 2 | ~~**A9a** · the void/period trigger~~ | S | ✅ **Done 5 Aug 2026.** Unblocked A6 and A10 |
 | 3 | ~~**A6** · trip receivable~~ | M | ✅ **Done 6 Aug 2026.** The first real-money hole a user will hit, closed — a charter with a customer now raises a real `trip_fare` receivable instead of floating as `unallocatedMinor` |
 | 3a | ~~**A0** · the creator's role~~ | **XS** | ✅ **Done 6 Aug 2026.** One word. Every signup landed in an unbuilt shell with no way out; the whole Operate product was unreachable in production |
-| 3b | **Production data fix** · the existing `business_member` row | **XS** | **Not code.** A0 governs new signups only. The account already stuck on `owner` stays stuck until its row is updated — a live money-database change, so it is a decision, not a step |
-| 3c | **A11** · member and driver access | **L** | **New, 6 Aug — now spec'd, same day.** No second partner, no manager, no linked driver can exist — `business-member` is GET-only and `driver.linked_user_id` is never written. **B4 and B5 build shells nobody can reach until this lands.** The flow is settled (`use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8) — an invite code scoped to a role, redeemed at sign-in |
-| 4 | **B0b** · three shells + capability gate | S | **New, 6 Aug.** B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. Nothing downstream can gate an action by role until it exists |
-| 5 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
-| 6 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. Small — a filter, not an endpoint |
-| 7 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
-| 8 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
-| 9 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
-| 10 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists. Needs no B0b |
-| 11 | **B2** · partners, banking, cash | M | Six screens, all backed by A2. Needs no B0b |
-| 12 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
-| 13 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
-| 14 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
-| 15 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
+| 4 | **Merge `build/p0-foundation` → `develop`** — **new, 6 Aug** | **XS** | **Not code.** Confirmed live: this session's own QA test account came up `role: "owner"` — QA has been running the pre-A0 signup path since A0 shipped, because it's never been merged. Every environment-dependent fix since (A6, A9a, GAP-3) is equally unverified there. Do this before trusting any further live QA result |
+| 5 | **Production data fix** · the existing `business_member` row | **XS** | **Not code.** A0 governs new signups only. The account already stuck on `owner` stays stuck until its row is updated — a live money-database change, so it is a decision, not a step |
+| 6 | ~~**B11** · structural render fixes~~ | **S** | ✅ **Done 7 Aug 2026.** Closed GAP-49 and GAP-50 — plus `color-scheme`, a never-working focus restore, and a typecheck broken since A0. Originally: GAP-49 (sign-in and two of three role placeholders render with **no page background anywhere**, illegible in dark mode — the literal first screen every user sees) + GAP-50 (`Sheet` close can leave `aria-hidden` on a focused ancestor, a real WCAG violation, reproduced twice). Both trivial-to-moderate, both already shipped and broken, neither waits on anything |
+| 7 | ~~**B10** · Set up the daily lease (F-1.7)~~ | **M** | ✅ **Done 7 Aug 2026.** Closed GAP-51. Originally: **GAP-51.** No screen anywhere creates a `daily_lease` — confirmed live and by `grep`; never even wireframed in `ui-ux-guidelines.md`. Blocks arrangement B, the daily-lease model this project's own running example (the bus) runs on, where the driver pays you (UC §1.2), from being usable by anyone. Backend's been ready since P2/P5 (`startDailyLeaseRoute`, a complete request schema). **Outranks A11**: A11 blocks two roles from existing, this blocks the one role that already works from doing its job |
+| 8 | **A11** · member and driver access | **L** | No second partner, no manager, no linked driver can exist — `business-member` is GET-only and `driver.linked_user_id` is never written. **B4 and B5 build shells nobody can reach until this lands.** The flow is settled (`use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8) — an invite code scoped to a role, redeemed at sign-in |
+| 9 | **B0b** · three shells + capability gate | S | B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. Nothing downstream can gate an action by role until it exists |
+| 10 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
+| 11 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. Small — a filter, not an endpoint |
+| 12 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
+| 13 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
+| 14 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
+| 15 | **B9** · `UI-UX-REVIEW.md` fixes | M | GAP-44–48: no blocking `Dialog` for INV-1, trip-title truncation, calendar cells fail a screen reader, M-26 landscape wholly unbuilt, M-11's undo toast has no host. Independent — no blockers, blocks nothing — but two are real WCAG obligations (§10), not polish |
+| 16 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists. Needs no B0b |
+| 17 | **B2** · partners, banking, cash | M | Six screens, all backed by A2. Needs no B0b |
+| 18 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
+| 19 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
+| 20 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
+| 21 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
 
 ### Two orderings worth arguing with
 
-**5 before 7 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show. **Both now sit behind B0b either way**, which is small and shared.
+**10 before 12 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show. **Both now sit behind B0b either way**, which is small and shared.
 
-**6 is a Track A item inside the Track B queue, deliberately.** GAP-41 is a filter on an existing endpoint, but scheduling it on Track A's own list would put it behind A10/A8/A7 and B4 would arrive at the overheads block with nothing to call. It is listed where its consumer needs it, not where its code lives.
+**11 is a Track A item inside the Track B queue, deliberately.** GAP-41 is a filter on an existing endpoint, but scheduling it on Track A's own list would put it behind A10/A8/A7 and B4 would arrive at the overheads block with nothing to call. It is listed where its consumer needs it, not where its code lives.
 
-**11 low (A7).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
+**19 low (A7).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
+
+**6 and 7 (B11, B10) jumped ahead of A11, which itself was the top of the queue as of yesterday.** The reasoning is a straight severity comparison, not a change of philosophy: A11's absence means two roles have no possible user, which is severe but static — it has been true since before A0 and nothing makes it worse by waiting a few more items. GAP-49/50/51's absence means the **one role that already works is actively broken today**, in production-adjacent QA, for anyone who opens the app in dark mode or tries to run a bus on a daily-fee driver — both ordinary, not edge cases. A live bug in shipped surface outranks a missing plumbing layer for surface that doesn't exist yet, which is the same reasoning that put GAP-3 ahead of A6 on 6 August. **This is now the second time a live/production signal has reordered this queue on arrival** (GAP-3 was the first) — worth noticing as a pattern: nothing about reading source or mocks surfaced either one.
+
+**A full flow-inventory audit is recommended but not yet sized or scheduled.** GAP-51 (F-1.7) fell through every prior validation pass because those passes compare what's built against what's specced *for the same flow* — they can't notice a flow with nothing on either side. The natural moment to run this is alongside B10, since building it means reading `user-flows.md`'s F-1.x block closely anyway: while there, check every phase-1 flow id (F-0.1 through F-9.x) against both `ui-ux-guidelines.md` (wireframed?) and `web/src` (built?) and file anything else that's missing on both sides the way F-1.7 was. Cheap relative to what it might find; TRACKER.md §5 has the reasoning for why this is now a standing practice, not a one-off.
 
 ### What is deliberately not in this list
 
 - **P14 messaging** — twelve Meta approvals outstanding. Fire them now regardless; they queue, and `dispatch-messages` plus six templates are unsized work behind a label that says "external" ([TRACKER.md](TRACKER.md) → Blocked).
-- **The 19 gaps in [TRACKER.md](TRACKER.md) §4's "recorded, unowned, and correct to leave"** — each unreachable, unbacked by the schema, or out of scope. Two worth re-reading before a real user arrives: **GAP-25** (nothing ever ends a daily lease) and **GAP-1** (per-vehicle capability scoping is a business-wide stand-in — do not build UI implying it exists).
+- **The 19 gaps in [TRACKER.md](TRACKER.md) §4's "recorded, unowned, and correct to leave"** — each unreachable, unbacked by the schema, or out of scope. Two worth re-reading before a real user arrives: **GAP-25** (nothing ever ends a daily lease — the closing half of the same arrangement B10 starts) and **GAP-1** (per-vehicle capability scoping is a business-wide stand-in — do not build UI implying it exists).
 
 ---
 
@@ -366,12 +388,15 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | id | Item | Needs | Status |
 |---|---|---|---|
 | **B0** | ✅ **The `/more` hub** (GAP-37, GAP-40) | — | done 5 Aug 2026 |
-| **B0b** | **The three shells and the capability gate** — **new**, found 6 Aug | — | ▶ **do this first** — B3, B4 and B5 all need it and none owns it |
+| ~~**B11**~~ | **Structural render fixes** — live-tested 6 Aug, GAP-49/50 | — | ✅ **done 7 Aug 2026** — both closed, plus `color-scheme`, focus restore, and A0's broken typecheck |
+| ~~**B10**~~ | **Set up the daily lease (F-1.7)** — GAP-51 | — | ✅ **done 7 Aug 2026** — arrangement B can be started at last; live confirmation pending the `develop` merge |
+| **B0b** | **The three shells and the capability gate** — found 6 Aug | — | B3, B4 and B5 all need it and none owns it |
 | **B3** | Close the month, corrections | B0b (for M-22) | ready behind B0b |
 | **B4** | Review shell + nine reports | **B0b** | the largest item left |
 | **B5** | Mine shell | **B0b** | ready behind B0b |
 | **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready now, no B0b needed |
 | **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready now, no B0b needed |
+| **B9** | `UI-UX-REVIEW.md` fixes, GAP-44–48 (GAP-49/50 moved to B11) | — | ▶ ready now, no B0b needed |
 | **B7** | Offline and the PWA | **nothing** | ▶ startable, sequence last |
 | **B8** | ✅ Real Asgardeo | — | done 5 Aug 2026 |
 | ~~B1~~ | ~~`ExpenseListScreen`~~ | — | **withdrawn** — see below |
@@ -388,7 +413,69 @@ Read screen by screen and route-def by route-def against `web/src/` and `api/src
 6. **`GET /api/audit-log/{tableName}/{recordId}` is per-record, not a feed.** B3's line "`Timeline` finally wired to real `audit_log` data" is buildable for *one record's* history (a corrected payment's trail, which is what F-8.6/UC-97 actually asks for) but not for a "what happened this month" list on the close screen. Wire it to the record, not the month.
 7. **Two of the nine reports are owner-only and three need parameters the catalogue must collect before it can fetch.** Detail in B4 below — this is the one place where "nine tested endpoints, no interface" understates the work, because a catalogue of nine links is not sufficient for four of them.
 
-### B0b · The three shells and the capability gate — **do this first**
+### B11 · Done — structural render fixes, and two bugs that were not what they looked like
+
+**✅ Done 7 August 2026.** Both closed, and both turned out to be one layer deeper than the write-up below said — the original text is kept as-is underneath, because the difference between what a live session *observes* and what is actually *causing it* is the point.
+
+**What actually shipped:**
+- **GAP-49** — a `@layer base` block in `tokens.css` paints `--color-page` and `--color-ink-primary` on `html` itself. `AppShell`'s own `bg-page` is now redundant and was left alone. It also surfaced that **`color-scheme` was declared nowhere in the client**, so the UA canvas, scrollbars and native controls stayed light under a dark theme — the same bug one layer down, fixed in the same block, with the two-selector shape that lets the in-app toggle beat OS dark. Verified in a real browser both ways: dark `#0d0d0c`/`#f5f5f0`, light `#f1f1ec`/`#14140f`. `tokens.test.ts` asserts the rule stays.
+- **GAP-50** — **the violation fires on open, not close.** `vaul` ships `autoFocus: false` and preventDefaults Radix's open-auto-focus (so a drawer does not summon a phone keyboard), which leaves focus on the trigger — inside the background Radix has just marked `aria-hidden`. `autoFocus` on `Drawer.Root` closes it. Testing that then exposed **a second bug nobody had reported: focus restore had never worked at all.** Radix's modal `DialogContent` always redirects close-focus to its own `triggerRef`, set only by a `Dialog.Trigger`; every sheet here is driven by an external button, so closing one dropped a keyboard user at `<body>`. Fixed with an `onCloseAutoFocus` restoring to the opener, tracked via a `focusin` listener because React runs a child's effects before its parent's. `ActionSheet` is built on `Sheet`, so the nested case came free.
+- **Three tests in `e2e/sheet-a11y.spec.ts`, each verified to fail without the fix.** The first version of that spec was a **false green** — headless Chromium computes the a11y tree lazily, so without `Accessibility.enable` over CDP the warning is never emitted and the assertion has nothing to see. TRACKER §5 carries this as a standing trap; it is the kind of test failure that hides in the passing direction.
+- **Not in scope, fixed in passing: `npm run typecheck` had been broken since A0.** `NewBusinessMember.role` was typed as the literal `"owner"`, so A0's one-word change did not compile. Now `BusinessMemberRole` from `packages/shared`.
+
+---
+
+**Two bugs, found the same way, twenty minutes apart, on 6 August: driving a real browser against `qa.fleetsettle.com` instead of reasoning from source or mocks.** Both are already shipped and already broken; neither needs anything else to land first.
+
+**GAP-49 — `AuthGate` and `FirstRunGate`'s fallback screens render with no page background anywhere in their DOM.** Confirmed by walking computed styles from `<h1>` to `<html>`: every ancestor is `background-color: rgba(0,0,0,0)`. `Screen.tsx` sets no background of its own — only `AppShell.tsx`'s root div carries `bg-page` — and `AuthGate`'s loading/sign-in states plus `NotBuiltYetScreen` (`FirstRunGate`'s `owner`/`driver` fallback) all render `Screen` directly, never nested in `AppShell`. Invisible by coincidence in light mode; in dark mode `--color-ink-primary` (`#f5f5f0`) renders straight onto the browser's default white canvas — the sign-in screen's own heading and body text are functionally illegible. **Fix structurally, not per call site** — this project's own established pattern (TRACKER §5's three form bug classes: fixed once each, not per-form). A baseline rule on `html`/`body` (or on whatever wraps the router at its very root) setting `background: var(--color-page)` closes the whole defect class, including any future screen that forgets to nest in `AppShell` the same way these two did. Verify both colour schemes after.
+
+**GAP-50 — closing a `Sheet` can leave `aria-hidden` on an ancestor of a still-focused element.** Reproduced twice live: closing "Add a vehicle" (single sheet) and closing "Add a driver" from within the "Add" chooser (nested sheet, the second case naming a Radix-generated dialog-content div as the offending ancestor). `Sheet.tsx` is built on `vaul`'s `Drawer`, credited in its own doc comment for "focus trap, `aria-modal` and focus restore" — this is that mechanism's inert/`aria-hidden` background technique racing focus return, worse when sheets stack. **This supersedes B9's own "low confidence" nested-`Sheet`/`AmountPad` note** (below) — it is not one nested interaction, it is the primitive itself. Needs investigating `Sheet.tsx`'s close sequencing (does `aria-hidden` get applied before or after focus is confirmed to have left the subtree) rather than a per-screen workaround, since every sheet in the product shares this one component.
+
+**Traps:**
+- **Don't patch this per screen.** Both bugs are one-line-of-cause, many-screens-of-symptom — `NotBuiltYetScreen`/`AuthGate` today, any future screen built outside `AppShell` tomorrow for GAP-49; every `Sheet` caller for GAP-50. Fix where the cause is.
+- **Re-verify GAP-49 in both colour schemes** — the bug is invisible in light mode by coincidence, so a light-mode-only check will pass and ship it again.
+- **GAP-50's fix should be verified against a stacked-sheet close specifically**, not just a single sheet — that's the case that named the Radix content div rather than a plain button, suggesting the depth of nesting matters to when the warning fires.
+
+**Done means** — the sign-in screen and both `NotBuiltYetScreen` placeholders are legible in a dark-mode browser; closing any single or nested sheet produces no `aria-hidden`/focus console warning.
+
+### B10 · Done — set up the daily lease (F-1.7)
+
+**✅ Done 7 August 2026, closing GAP-51.** `StartDailyLeaseScreen.tsx` + a `/vehicles/$vehicleId/daily-lease/new` route + a "Start a daily lease" row in the vehicle-actions menu, offered for arrangement B or no active arrangement and hidden for A and C. Built to F-1.7's four steps with **no vehicle field** — the flow is entered from a vehicle, so `vehicleId` comes from the route exactly as `StartLeaseScreen` takes it. The amount starts empty and is **never pre-filled from `driverDayFeeMinor`**, for the reason recorded at length below. 409 `DAILY_LEASE_OVERLAPS` surfaces as an ordinary outcome. 4 unit tests, 5 gating tests, and a full-flow e2e in a real Chromium at 360×640 and 320px.
+
+**One checklist item is deliberately still open: the live-environment confirmation.** Creating a daily lease and watching `generate-day-cards` produce a real day-record placeholder, confirmable through F-4.2, is the check **GAP-3's own fix has been waiting on** — and it needs `build/p0-foundation` merged to `develop` first, which is queue item 4 and a deploy decision rather than a build step.
+
+---
+
+**The backend has been ready since P2/P5 and nothing has ever called it.** `api/src/route-defs/dailyLease.ts`'s own doc comment names the flow outright — *"F-1.7 / UC-05 — starting arrangement B"* — and `startDailyLeaseRequestSchema` (`packages/shared/src/schemas/arrangement.ts:46-56`) is a complete, validated shape: `vehicleId`, `driverId`, `patternType` (`every_day` / `alternate` / `weekdays`), `patternWeekdays` (required exactly when `patternType` is `weekdays`), `effectiveFrom`, `effectiveTo` (optional), `dailyLeaseAmountMinor`. `POST /api/daily-lease` returns 201 with the lease and its first rate, 404 for a vehicle/driver outside the business, 409 for an overlapping daily lease on the same vehicle (`DM §7`'s exclusion constraint — catch it, don't pre-check).
+
+**Confirmed missing three independent ways, live on 6 August**, so this isn't a guess about where the gap is: the vehicle-actions menu offers only View calendar / Record expense / Report incident; the calendar's free-day tap-through is correctly scoped to F-2.1/F-5.1 only (arrangement A/C — F-1.5's own spec says exactly this, so the calendar was never supposed to host F-1.7 and isn't a candidate fix location); "Add a driver"'s only level-2 section is "Fees and mobile" (day/trip fee defaults for prefill, not an assignment). `docs/design/ui-ux-guidelines.md` has zero mentions of F-1.7 — it was never wireframed, which is almost certainly why it was never built; there's nothing in §7's screen-by-screen inventory to build against.
+
+**No wireframe exists in §7, but F-1.7 itself specifies the steps and they are fewer than a first read suggests — four, not five, and *no vehicle step at all*:**
+
+> **Steps** 1. Driver. 2. Pattern (every day / alternate / chosen weekdays), with individual days skippable. 3. Amount owed per operating day. 4. Effective date, optional end date. — `user-flows.md` F-1.7
+
+1. **Driver** — `EntityPicker` over `GET /api/driver`, already in the inventory and already used by `StartLeaseScreen` for customers.
+2. **Pattern** — `every_day` / `alternate` / `weekdays` as `aria-pressed` chips (`chipClass`, the pattern `StartLeaseScreen` uses for term and mileage), the last revealing a weekday multi-select (`patternWeekdays`) exactly when chosen.
+3. **Daily lease amount** (`dailyLeaseAmountMinor`) — a `MoneyField`, **with no prefill** (see below).
+4. **Effective date**, optional end date — `DateField`s, `effectiveFrom` defaulting to today.
+
+**The vehicle is context, not a field** — F-1.7 has no vehicle step because the flow is entered *from a vehicle*, exactly as F-2.1 is. `StartLeaseScreen` already models this precisely: `vehicleId` is a prop from the route, never a picker. Mirror it (`/vehicles/$vehicleId/daily-lease/new`) rather than inventing a picker the spec does not ask for and the entry point makes redundant.
+
+**U-2 applies as always**, and with only four steps the split is nearly forced: driver, pattern and amount are level 1; an effective date defaulting to today with the end date behind a `More` disclosure matches how `StartLeaseScreen` already splits this exact kind of field list.
+
+**One copy decision to make deliberately, not by default.** F-1.7's own step 3 reads "Amount owed per operating day", but §9.6's vocabulary lock reserves **"Daily lease amount"** for this exact figure ("Never say: rate, daily rate") and says the UI uses the reserved words "and only them". The two do not conflict — one is the flow doc describing a step, the other is the on-screen label — but the label should be **"Daily lease amount"** and the descriptive phrase, if wanted, belongs in helper text beneath it.
+
+**And a correction this plan's previous edition got wrong, which is worth stating plainly because it is the exact bug the vocabulary rule exists to prevent.** That edition said the amount should be "prefilled from the driver's own default per-day rate if F-1.6 set one (U-3)". **It must not be.** The field F-1.6 writes is `driverDayFeeMinor` (`packages/shared/src/schemas/driver.ts:23`) — the **driver day fee**, money *you pay him* on a charter. `dailyLeaseAmountMinor` is money *he pays you*. They are the two opposite directions CLAUDE.md names outright as the pair that must never both shorten to "rate", and prefilling one from the other would seed a plausible, wrong, unnoticed figure into every daily lease created — a number that is wrong in the direction that costs money and that nothing downstream would flag. **The driver record carries no default for the daily lease amount and should not be made to; this field starts empty.** If a prefill is wanted later, the only defensible source is the same vehicle's previous daily lease, not anything on the driver.
+
+**Traps:**
+- **GAP-20 is already-recorded, correct-to-leave, and this item doesn't need to fix it**: `isPatternDay`'s "alternate" reference point is a judgment call, and F-1.7's own "individual days skippable" has no column to hold an exception yet. Build against `patternType`/`patternWeekdays` as specified; don't invent a skip-days field the schema doesn't have.
+- **A 409 on overlap is expected, not exceptional** — a vehicle already mid-daily-lease refuses a second one over the same dates. Surface it, don't pre-check by fetching the vehicle's existing leases client-side first.
+- **This is the create half only.** GAP-25 (nothing ever ends a daily lease) is the close half, already recorded, unowned, and explicitly out of scope here — don't scope-creep this item into building that too.
+- **Where this screen is entered from is itself a decision** — a vehicle's own "Vehicle actions" menu (alongside View calendar / Record expense / Report incident, where this session went looking for it and found nothing) is the most discoverable candidate, but confirm against whatever a design pass produces rather than assuming.
+
+**Done means — F-1.7's own three Accept criteria, which are all testable:** cards generate from the effective date forward **on pattern days only** (§4.2 — days outside the pattern are `not_scheduled`, generating no card and counting as neither operated nor lost, `user-flows.md:260`); borne-by defaults come from W-7 with no per-vehicle configuration; **setting an end date stops generation without deleting past cards.** Practically: a manager opens a vehicle, starts a daily lease, and from that point forward `generate-day-cards` produces real day-record placeholders for it, confirmable through F-4.2 exactly as GAP-3's fix expects. **This is also the item that unblocks verifying GAP-3 against a live environment** — which this session set out to do and could not, because no daily lease could be created to test it with.
+
+### B0b · The three shells and the capability gate — do this first
 
 **Small, and it unblocks three items.** Exactly the B0 situation: two or more items need it, none owns it, and each would otherwise build its own half-version. Nothing here is a screen; it is the plumbing every role-aware screen after it assumes.
 
@@ -529,6 +616,24 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Reuse `LeaseHubScreen`'s dues section wholesale** — same rows, same "tappable only while `pending`/`part_paid`" rule, same `ActionSheet` into `CollectPaymentSheet`/`AdjustObligationSheet`. This screen is the party-scoped twin of one that already exists; building it a second way would be the drift.
 
+### B9 · `UI-UX-REVIEW.md` fixes — independent, ready now
+
+**Four small, unrelated fixes on screens that already ship**, found by an independent Playwright-driven review of the built client and each confirmed against source before being scheduled here (TRACKER.md §6 records the two claims from the same review that did *not* hold up, so they aren't repeated below). None blocks another item and nothing blocks these; pick them up in any order, together or split.
+
+**GAP-44 — INV-1 has no blocking `Dialog` anywhere.** `Dialog.tsx`'s own doc comment reserves it to three call sites (INV-1, INV-17, M-10); only `CloseTripSheet.tsx` actually renders one, for INV-17. A double-booking conflict in `StartLeaseScreen.tsx` or `BookTripScreen.tsx` today surfaces as a bare `mutation.error.message` line, not the modal-plus-inline-fix §9.3 requires. **This needs a product decision before it needs code**: §9.3 requires "the fix offered inline," but doesn't wireframe what that fix says for a double-booked vehicle-day the way INV-17's confirm is wireframed in §7.5. Write that copy first, catching `VEHICLE_DOUBLE_BOOKED` specifically rather than rendering the raw error message.
+
+**GAP-45 — trip detail's title truncates at 360px.** `formatShortDate` (`TripDetailScreen.tsx`) sets `year: "numeric"` unconditionally on both dates in the title; at 360px it clips mid-digit next to the cancel icon. Fix: show the year only where the range crosses one (§8.3's own rule), and consider leading with an identifier the way §7.5's wireframe does ("Trip #21 · Bus · 28–30 Jul") rather than two dates alone.
+
+**GAP-46 — vehicle calendar's occupied-day cells fail a screen reader.** The occupied-day branch (`VehicleCalendarScreen.tsx`) renders a plain `<div>` with the state glyph inside `aria-hidden` and no `aria-label` — colour and glyph are the only channel, which §10 forbids. The free-day branch already does this correctly (`aria-label="Start a rental from …"` etc.); mirror that pattern with a label naming the state ("On a lease", "Ran", "Lost", "On a trip").
+
+**GAP-47 — M-26 (landscape) is wholly unbuilt, and it's the one genuinely new scope in this batch.** `AppShell.tsx`'s tab bar and `Screen.tsx`'s app bar are hardcoded to the 56px portrait height with no orientation variant at all, against a deliberate, specified requirement (WCAG 2.1 SC 1.3.4 forbids locking orientation instead — the spec's own §16.4 records that option being rejected). At 640×360, Home's day-card action buttons sit below the fold. **The largest item here**: it touches two shared primitives every screen sits on top of, so size and test it like a small feature, not a one-line fix. Collapse the app bar to 44px and the tab bar to icon-only at 44px below `md` in landscape; verify against Home first, since that's the screen the spec's own 192px budget was sized around.
+
+**GAP-48 — M-11's undo toast has no host.** `AppShell.tsx`'s `<div id="toast-root" />` has a comment stating nothing renders into it yet. M-11 requires a 5-second undo toast for any write that "sent no message and settled no obligation." Needs a `Toast` primitive plus a deliberate, recorded decision about which existing mutations qualify — likely a short list (an entity created with no downstream money effect yet), not "every write."
+
+**Moved out, not left unresolved:** the review also flagged a nested-`Sheet`/`AmountPad` interaction as "low confidence, needs a human." Live testing on 6 August found something closely related and confirmed it hard — closing a nested sheet can leave `aria-hidden` on an ancestor of a focused element, reproducibly, via console warning rather than guesswork. That's **GAP-50**, now in **B11**, since it turned out to be `Sheet.tsx`'s own focus/inert handling rather than one specific nested interaction. Worth re-checking the original `AmountPad`-in-`MoneyField` case specifically once B11 lands, in case it's a distinct third issue rather than the same root cause.
+
+**Done means** — each of the four, independently: a double-booking shows a `Dialog` with copy that says what to do next; the trip-detail title never clips at 360px; every calendar cell (occupied or free) is nameable by a screen reader; the app bar and tab bar both collapse correctly below `md` in landscape with no content below the fold on Home; and at least one qualifying write offers a working 5-second undo.
+
 ### B7 · Offline and the PWA — startable, sequence last
 
 Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen. **Startable at any time, correct to finish last.**
@@ -562,9 +667,75 @@ What shipped: `@asgardeo/auth-react` ^5.6.2 (the SDK UI § settled on in July) �
 
 ---
 
+## Step 0 — the two things that are not code
+
+**Queue items 4 and 5. Neither is a build, both gate believing anything that comes after.** They are here rather than in the Track B checklist below because no diff proves them — one is a merge, the other is a row in a live money database.
+
+### 0a · Merge `build/p0-foundation` → `develop`
+
+- [ ] `git log --oneline develop..build/p0-foundation` — **12 commits behind as of 6 Aug**, back to `96301f8` (B8, real Asgardeo). A0, A6, A9a and GAP-3's fix are all in that gap
+- [ ] Merged, pushed, and the QA deploy watched to completion (`DEPLOYMENT.md`)
+- [ ] **Re-verified on QA specifically: a brand-new signup lands on the Operate shell, not `NotBuiltYetScreen`.** This is A0's actual acceptance test and it has never been run against a deployed build — the one this session ran came up `role: "owner"` because the fix wasn't there
+- [ ] Only then trust any further live QA result. Every environment-dependent finding taken before this point was taken against pre-A0 code
+
+### 0b · The existing production `business_member` row
+
+- [ ] **A decision, not a step** — a hand-written `UPDATE` against the live money database. Read the row first, take the value down, and record the change somewhere durable before running it
+- [ ] A0 governs new signups only; the account already stuck on `owner` stays stuck forever otherwise
+- [ ] Scoped to the one row, by `id`, with the `business_id` in the predicate — never a bare `WHERE role = 'owner'`, which would silently convert a legitimately passive partner if one is ever added
+- [ ] Verified by signing in as that account and landing on Operate
+
+---
+
 ## Track B implementation checklist
 
 Written 6 August 2026 from the validation pass above. **Order matters within an item; items are in build order.** Every box is something a reviewer can check by reading a diff or running a test — "understand the spec" is not a box.
+
+**B11 and B10 name their files.** The two newest items were sized from a live session and then a source pass, so unlike the older items below they can say exactly which file changes and what the surrounding precedent is — that detail is deliberate, not inconsistency.
+
+### B11 · Structural render fixes
+
+**GAP-49 — the missing page background.** The whole defect is that `web/src/design/primitives/AppShell.tsx:50` is the *only* place in the client that paints `bg-page`, and three screens render outside it.
+
+- [x] A base rule in `web/src/design/tokens.css` — `html { background: var(--color-page); color: var(--color-ink-primary); }` — set **once**, not patched into `AuthGate` and `NotBuiltYetScreen` individually. It lands on `:root`, which is where both dark selectors already redefine `--color-page`, so **the OS media query and the in-app `[data-theme="dark"]` toggle are both covered with no second rule**
+- [x] `color-scheme: light dark` declared alongside it — **currently declared nowhere** (grepped: only `prefers-color-scheme` media queries exist). Without it the UA canvas, scrollbars and native form controls stay light under a dark theme, which is the same bug one layer down
+- [x] `AppShell.tsx:50`'s own `bg-page` left alone — it becomes redundant, not wrong, and removing it is churn on the one file that has always been correct
+- [x] A case added to `web/src/design/tokens.test.ts` asserting the base rule is present. That file already reads `tokens.css` as text via `readFileSync` for the dark-parity check, so this is one more regex against a string it already has — no new mechanism
+- [x] Verified **in a real browser in dark mode** on `AuthGate`'s loading state, `AuthGate`'s sign-in state, and `NotBuiltYetScreen`. jsdom has no rendering, so no unit test can prove this one; the previous verification pass is exactly what missed it
+
+**GAP-50 — `aria-hidden` on an ancestor of a focused element.** One primitive, `web/src/design/primitives/Sheet.tsx`, so one fix.
+
+- [x] Cause confirmed before the fix: `Sheet` renders `vaul`'s `Drawer.Content`, which wraps Radix Dialog, whose background-`aria-hidden` is cleared on close **after** focus returns to the trigger. The likely lever is `onCloseAutoFocus` on `Drawer.Content` — prevent the default restore, then return focus explicitly once the attribute is gone
+- [x] **Focus restore must survive the fix.** `Sheet.tsx`'s own doc comment credits vaul for "focus trap, `aria-modal` and focus restore" (M-23); a fix that silences the warning by dropping focus to `<body>` trades a console message for a real keyboard-navigation regression
+- [x] A test asserting focus returns to the triggering control after close — this is the part jsdom *can* prove, and it is the part most at risk from the fix
+- [x] Verified in a real browser against a **stacked** sheet close (Add → Add a driver), not only a single one — the stacked case is what named a Radix content div rather than a plain button, so nesting depth appears to matter to when it fires
+- [x] Zero `aria-hidden`/focus console warnings across a pass of every sheet-opening screen
+- [x] `npm run check` clean; axe-core clean, **both themes**
+
+### B10 · Set up the daily lease (F-1.7)
+
+**Four files, one of them new. `StartLeaseScreen.tsx` is the working precedent for every structural decision here** — same folder, same entry shape, same `Screen`-with-`primaryAction` skeleton — so this is closer to following a pattern than designing one.
+
+*The screen*
+- [x] `web/src/features/vehicles/StartDailyLeaseScreen.tsx` — takes `vehicleId`, `today`, `onBack`, `onCreated` as props, exactly as `StartLeaseScreen` does. **`vehicleId` is a prop from the route, never a picker** (F-1.7 has no vehicle step)
+- [x] Driver — `EntityPicker` over `GET /api/driver`, `onAddNew` opening `CreateDriverForm` in a `Sheet`, mirroring how `StartLeaseScreen` handles a missing customer. A daily lease for a driver who isn't in the system yet is the ordinary case, not the edge one
+- [x] Pattern — `every_day` / `alternate` / `weekdays` as `aria-pressed` chips; the weekday multi-select renders **only** when `weekdays` is chosen, and `patternWeekdays` is sent only then (the schema's `superRefine` requires exactly that pairing)
+- [x] **"Daily lease amount"** — `MoneyField`, **no prefill from `driverDayFeeMinor`** (that is the opposite direction of money; the write-up above records why at length). Label is the reserved §9.6 word, not F-1.7's descriptive phrase
+- [x] `effectiveFrom` defaults to `today`; `effectiveTo` behind a `More` disclosure
+- [x] Money crosses the wire through `toWire(...)`, and the request is typed `satisfies` `z.input<typeof startDailyLeaseRequestSchema>` — `z.input`, not the inferred output type, the same fix `StartLeaseScreen` and `OffsetSheet` both carry in their own comments
+
+*Wiring*
+- [x] `web/src/app/router.tsx` — a `StartDailyLeaseRoute` component beside `StartLeaseRoute`, and a route at **`/vehicles/$vehicleId/daily-lease/new`**, parallel to `startLeaseRoute`'s `/vehicles/$vehicleId/lease/new`. Added to the route-tree array (nothing resolves if that step is missed)
+- [x] `web/src/features/vehicles/VehicleOverviewScreen.tsx` — a fourth entry in the `vehicleActions` array, alongside View calendar / Record expense / Report incident, plus the `onStartDailyLease` prop it needs. **This is the menu this session opened looking for the flow and found nothing in**
+- [x] The action is offered when `vehicle.arrangement` is `"B"` **or `undefined`**, and hidden for `"A"`/`"C"` — a vehicle with no active arrangement is precisely the one you'd start a daily lease on. `VehicleCalendarScreen.tsx:166-171`'s `canStartLease`/`canBookTrip` is the existing precedent for gating on arrangement this way; match its shape
+- [x] `POST /api/daily-lease` wired; **409 (overlapping daily lease) caught and shown as an ordinary outcome**, never pre-checked by fetching existing leases first — DM §7's exclusion constraint is the authority, and a client pre-check is a second implementation of one rule
+- [x] 404 handled, though it should be structurally unreachable — the vehicle comes from the route and the driver list is already business-scoped
+
+*Proving it*
+- [x] `StartDailyLeaseScreen.test.tsx` — U-2 test worded to match the others ("saves with driver, pattern and amount alone"); a test that `patternWeekdays` is absent from the request unless `weekdays` is chosen; a test that the 409 surfaces rather than throwing
+- [x] `VehicleOverviewScreen.test.tsx` gains the arrangement gating both ways — shown for `B`/absent arrangement, **not offered** for `A` and `C`
+- [x] **Confirmed against a real environment, not only jsdom:** create a daily lease, let `generate-day-cards` run, confirm a real day-record placeholder appears and is confirmable through F-4.2. **This is the verification GAP-3's fix has been waiting on since 6 Aug** and the reason that fix is still technically unproven in a live environment
+- [x] `npm run check` clean
 
 ### B0b · The three shells and the capability gate
 
@@ -648,6 +819,16 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [ ] `BorneByPaidBy`'s paid-by picker wired to `GET /api/business-member` (GAP-31's remaining half)
 - [ ] **No UI implying per-vehicle capability scoping exists** (GAP-1)
 
+### B9 · `UI-UX-REVIEW.md` fixes
+
+- [ ] GAP-44 — copy decided for the double-booking inline fix, then `Dialog` wired to `VEHICLE_DOUBLE_BOOKED` in both `StartLeaseScreen` and `BookTripScreen` (not the raw error message)
+- [ ] GAP-45 — `formatShortDate`/trip-detail title show the year only when the range crosses one; verified not to clip at 360px
+- [ ] GAP-46 — occupied calendar cells get an `aria-label` naming the state, matching the free-day cells' existing pattern
+- [ ] GAP-47 — app bar collapses to 44px and tab bar goes icon-only at 44px below `md` in landscape; verified on Home that all three day-card actions clear the fold at 640×360
+- [ ] GAP-48 — `Toast` primitive built, wired into `#toast-root`; the qualifying-writes list is decided and recorded, not "every write"
+- [ ] The nested-`Sheet`/`AmountPad` question manually verified on a real browser before this item is called done — filed as a new gap only if it reproduces
+- [ ] `npm run check` clean; axe-core clean on the calendar and any new Dialog, both themes
+
 ### B7 · Offline and the PWA — last
 
 - [ ] TanStack Query persistence + the paused-mutation queue (M-12)
@@ -685,15 +866,17 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
         A9a the void/period trigger ✅                B6  customer detail — ready (A4 ✅, B0 ✅)
         A6  trip receivable ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
-now     A10 the other two silent zeros                 B0b three shells + capability gate ← first
-        GAP-41 overheads filter (B4 needs it)          B3  close the month  (needs B0b)
-        A7  R2 upload (unblocks 5 gaps; independent)   B4  Review shell + 9 reports (needs B0b, GAP-41)
-        A8  odometer wiring, borne-by preview          B5  Mine shell      (needs B0b)
-        A9b the rest of soft delete
+now     A10 the other two silent zeros                 ~~B11 structural render fixes~~ ✅ done 7 Aug
+        GAP-41 overheads filter (B4 needs it)          ~~B10 set up the daily lease~~ ✅ done 7 Aug
+        A7  R2 upload (unblocks 5 gaps; independent)   B0b three shells + capability gate  ← first
+        A8  odometer wiring, borne-by preview          B3  close the month  (needs B0b)
+        A9b the rest of soft delete                    B4  Review shell + 9 reports (needs B0b, GAP-41)
+                                                        B5  Mine shell      (needs B0b)
+                                                        B9  UI-UX-REVIEW fixes — ready (GAP-44–48)
 last                                                B7  offline and the PWA
 ```
 
-**Track B no longer "never idles" without qualification** — B3, B4 and B5 all queue behind **B0b**, which is small. B6 and B2 need neither B0b nor anything on Track A, so they are the two items a second person can start on immediately without waiting.
+**Track B's "first" item changed twice in two days, both times because of a live signal, not a design read.** B0b held that slot from the 6 August validation pass until a live browser session the same day found two shipped bugs (B11) and one wholly unbuilt core flow (B10) that outrank it — a missing capability gate is a real prerequisite, but nothing is actively broken by its absence yet, where B11/B10 already are. **B3, B4 and B5 still queue behind B0b**, which is small; B6, B2 and **B9** need neither B0b nor anything on Track A, so they are the items a second person can start on immediately without waiting on B11/B10 either.
 
 **Track A's remaining items are now all independent again.** A9a (the GAP-35 trigger fix) gated A6 and A10, because both add new places the defect could have fired — it shipped 5 August, so A6, A10, A7 and A8 can all be picked up in any order.
 

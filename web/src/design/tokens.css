@@ -126,6 +126,44 @@
   --color-critical-ink: #f0736f;
 }
 
+/* 4 — the base layer. The page colour is painted once, on the root element,
+   so no screen is ever responsible for its own background.
+
+   Before this existed, `AppShell` was the only thing in the client carrying
+   `bg-page`, and three screens render outside it — `AuthGate`'s loading and
+   sign-in states, and `NotBuiltYetScreen` (`FirstRunGate`'s `owner`/`driver`
+   fallback). All three had no background anywhere in their DOM: invisible in
+   light mode by coincidence, and in dark mode `--color-ink-primary` on the
+   browser's default white canvas, which made the sign-in screen — the first
+   thing every user sees — functionally illegible (GAP-49, found 6 Aug 2026
+   driving a real browser). Fixed here rather than at the three call sites so
+   that a screen built outside `AppShell` tomorrow inherits the fix.
+
+   `color-scheme` is the same bug one layer down: without it the UA canvas,
+   scrollbars and native form controls stay light under a dark theme. It
+   follows the same two-selector shape as block 3 — the media query for the OS
+   setting, the attribute for the in-app toggle — so a manual light choice
+   still beats OS dark. `html` rather than `:root` deliberately: identical
+   element, but it keeps these rules out of the way of tokens.test.ts's
+   dark-parity regexes, which key on `:root`. */
+@layer base {
+  html {
+    background-color: var(--color-page);
+    color: var(--color-ink-primary);
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+    }
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
+}
+
 :lang(si) {
   font-family: "Noto Sans Sinhala", system-ui, sans-serif;
   line-height: 1.72;

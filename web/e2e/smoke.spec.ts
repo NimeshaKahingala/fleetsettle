@@ -104,3 +104,58 @@ test("tapping a tab changes the URL, so a reload keeps the manager where they we
   await expect(page).toHaveURL(/\/people$/);
   await expect(page.getByRole("heading", { name: "People" })).toBeVisible();
 });
+
+test("F-1.7: a manager can start a daily lease from a vehicle, the flow GAP-51 found missing entirely", async ({
+  page,
+}) => {
+  await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/vehicle/v1", 200, {
+    id: "v1",
+    registration: "CAB-1234",
+    vehicleType: "Bus",
+    lifecycle: "active",
+    arrangement: "B",
+  });
+  await mockJson(page, "**/api/driver", 200, [
+    {
+      id: "d1",
+      name: "Sunil Perera",
+      mobile: "0771234567",
+      driverDayFeeMinor: "300000",
+      driverTripFeeMinor: "500000",
+      licenceExpiry: null,
+    },
+  ]);
+
+  let posted: unknown = null;
+  await page.route("**/api/daily-lease", async (route) => {
+    posted = route.request().postDataJSON();
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ id: "dl1" }),
+    });
+  });
+
+  await page.goto("/vehicles/v1/daily-lease/new");
+
+  await page.getByRole("button", { name: "Choose driver" }).click();
+  await page.getByText("Sunil Perera").click();
+  await page.getByRole("button", { name: "Rs 0" }).click();
+  for (const digit of "500000") {
+    await page.getByRole("button", { name: digit, exact: true }).click();
+  }
+  await page.getByRole("button", { name: "Save" }).click();
+  await expectNoHorizontalScrollAt360And320(page);
+  await page.setViewportSize({ width: 360, height: 640 });
+  await page.getByRole("button", { name: "Start daily lease" }).click();
+
+  await expect(page).toHaveURL(/\/vehicles\/v1$/);
+  expect(posted).toEqual({
+    vehicleId: "v1",
+    driverId: "d1",
+    patternType: "every_day",
+    effectiveFrom: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    dailyLeaseAmountMinor: "500000",
+  });
+});

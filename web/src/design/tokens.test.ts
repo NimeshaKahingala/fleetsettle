@@ -41,3 +41,29 @@ describe("tokens.css dark-mode parity", () => {
     expect(mediaQueryBlock).toEqual(dataThemeBlock);
   });
 });
+
+// GAP-49: `AppShell` was the only thing painting `bg-page`, and three screens
+// render outside it — both `AuthGate` states and `NotBuiltYetScreen`. In dark
+// mode that put `--color-ink-primary` on the browser's default white canvas
+// and made the sign-in screen illegible. jsdom does not render, so no
+// component test can catch a missing background; this asserts the structural
+// fix is still in the file, which is the part a future edit could quietly
+// remove. Whether it *looks* right stays a real-browser check, both schemes.
+describe("tokens.css base layer", () => {
+  const base = /@layer base\s*\{([\s\S]*?)\n\}/.exec(css)?.[1];
+
+  test("the root element paints the page colour, so no screen has to", () => {
+    expect(base).toBeDefined();
+    expect(base).toMatch(/html\s*\{[^}]*background-color:\s*var\(--color-page\)/);
+    expect(base).toMatch(/html\s*\{[^}]*color:\s*var\(--color-ink-primary\)/);
+  });
+
+  // The lookbehind is load-bearing: `prefers-color-scheme: dark` ends with the
+  // same characters as the declaration being counted, so without it the media
+  // query counts itself and the assertion passes for the wrong reason.
+  test("color-scheme follows the theme, so UA surfaces match it too", () => {
+    expect(base).toMatch(/(?<!prefers-)color-scheme:\s*light/);
+    // Both switches, same as block 3: the OS setting and the in-app toggle.
+    expect(base?.match(/(?<!prefers-)color-scheme:\s*dark/g)).toHaveLength(2);
+  });
+});

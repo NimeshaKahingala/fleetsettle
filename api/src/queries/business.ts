@@ -1,3 +1,4 @@
+import type { BusinessMemberRole } from "@fleetsettle/shared/schemas";
 import { eq } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
@@ -50,7 +51,20 @@ export interface NewBusinessMember {
   id: string;
   businessId: string;
   userId: string;
-  role: "owner";
+  /**
+   * The membership roles DM §3's CHECK constraint allows, which is exactly
+   * what `businessMemberRoleSchema` already enumerates — `driver` is not one
+   * of them, because a driver is reached through `driver.linked_user_id` and
+   * never holds a `business_member` row.
+   *
+   * This was the literal `"owner"` until A0 changed the one call site to
+   * `owner_manager` and left the type behind, so `npm run typecheck` has been
+   * failing on `domain/setup.ts` ever since — the second time a commit has
+   * shipped with a broken typecheck (TRACKER §5 records the first). Narrowing
+   * a field to the single value its only caller happened to pass is what
+   * turned a one-word fix into a type error.
+   */
+  role: BusinessMemberRole;
 }
 
 /** DM §3's `one_active_business_per_user` index is the truth on the "exactly one owner" rule (F-0.1) — this insert is what can violate it, never a pre-check. */
