@@ -1,12 +1,12 @@
 import { AuthProvider } from "@asgardeo/auth-react";
 import { businessToday } from "@fleetsettle/shared";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App.js";
 import { AuthGate } from "./app/AuthGate.js";
 import { createAppRouteTree } from "./app/router.js";
-import { createApiClient } from "./lib/api.js";
+import { ApiError, createApiClient } from "./lib/api.js";
 import {
   asgardeoConfig,
   createAsgardeoSignOutGetter,
@@ -28,7 +28,22 @@ const stubbed = isStubAuthEnabled();
 const getToken = stubbed ? createStubTokenGetter() : createAsgardeoTokenGetter();
 const signOut = stubbed ? createStubSignOut() : createAsgardeoSignOutGetter();
 
-const queryClient = new QueryClient();
+// A11: a role change never invalidates a token — resolveMembership runs per
+// request (api/src/queries/identity.ts), so the server side of a demotion is
+// already live on the next call. The client's own stale copy of "what can I
+// do" is `["me"]`'s cached role, and nothing refetches it on its own; without
+// this, a demoted user keeps seeing affordances they can no longer use until
+// they happen to reload. One handler here covers every screen, rather than
+// each mutation remembering to invalidate ["me"] on its own 403.
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 403) {
+        void queryClient.invalidateQueries({ queryKey: ["me"] });
+      }
+    },
+  }),
+});
 const apiClient = createApiClient(apiBaseUrl, getToken);
 const router = createAppRouteTree(businessToday());
 const app = (

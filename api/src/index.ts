@@ -11,6 +11,7 @@ import { ready } from "./routes/ready.js";
 import { me } from "./routes/me.js";
 import { probe } from "./routes/_probe.js";
 import { business } from "./routes/business.js";
+import { invite } from "./routes/invite.js";
 import { vehicle } from "./routes/vehicle.js";
 import { driver } from "./routes/driver.js";
 import { customer } from "./routes/customer.js";
@@ -69,6 +70,13 @@ app.route("/api/_probe", probe);
 // nothing yet for authMiddleware's resolveMembership to resolve.
 app.use("/api/business", dbMiddleware(), verifyTokenMiddleware());
 app.route("/api/business", business);
+
+// W-57: `verifyTokenMiddleware`, never `authMiddleware` — the same reasoning
+// as `/api/business` above. Redeeming a code is how a business_member row or
+// a driver's linked_user_id is created; there is nothing yet for
+// authMiddleware's resolveMembership to resolve for a brand-new identity.
+app.use("/api/invite/*", dbMiddleware(), verifyTokenMiddleware());
+app.route("/api/invite", invite);
 
 app.use("/api/vehicle/*", dbMiddleware(), authMiddleware());
 app.route("/api/vehicle", vehicle);

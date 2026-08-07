@@ -174,3 +174,25 @@ export class OpeningBalanceLockedError extends AppError {
     super(409, "OPENING_BALANCE_LOCKED", message);
   }
 }
+
+// INV-31/A11: `assert_business_has_owner()` (migration 0010) is the truth —
+// a revoke or role change that would leave a business with no active
+// owner/owner-manager is refused rather than merely warned, because nothing
+// could ever undo it once it happened.
+export class LastOwnerRequiredError extends AppError {
+  constructor(
+    message = "This business must always have at least one active owner or owner-manager",
+  ) {
+    super(409, "LAST_OWNER_REQUIRED", message);
+  }
+}
+
+// W-57/W-42: a code that does not match any live, unexpired, unconsumed
+// business_member_invite or driver_link_invite row. One message regardless
+// of which of "never existed", "expired" or "already redeemed" is true —
+// distinguishing them would let an attacker enumerate which reason applied.
+export class InviteCodeInvalidError extends AppError {
+  constructor(message = "This code is invalid or has expired") {
+    super(400, "INVITE_CODE_INVALID", message);
+  }
+}

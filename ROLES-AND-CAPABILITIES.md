@@ -30,9 +30,10 @@ Source: `api/src/auth/policy.ts`, one function (`can(role, capability)`) checked
 |---|:---:|:---:|:---:|:---:|
 | Daily cards, trips, expenses, collections (`dailyOperations`) | ✓ | ✓ | ✓ | ✗ |
 | Start/close a lease, close a trip (`leaseAndTripLifecycle`) | ✓ | ✓ | ✓ | ✗ |
-| Add/read vehicles, drivers, customers (`manageEntities`) | ✓ | ✓ | ✓ | ✗ |
+| Add/read vehicles, drivers, customers; link/unlink a driver's account (`manageEntities`) | ✓ | ✓ | ✓ | ✗ |
 | Set go-live opening balances (`manageOpeningBalances`) | ✓ | ✓ | ✗ | ✗ |
 | Ownership shares, capital, management fees, payouts (`managePartnerCapital`) | ✓ | ✓ | ✗ | ✗ |
+| Invite, revoke or change a member's role (`manageMembers`, A11) | ✓ | ✓ | ✗ | ✗ |
 | Write-off / waive above threshold (`writeOffOrWaiveAboveThreshold`) | ✓ | ✓ | ✗ | ✗ |
 | Reverse a receipt (`reverseReceipt`, F-8.2) | ✓ | ✓ | ✗ | ✗ |
 | Close an accounting period (`closePeriod`, F-9.1) | ✓ | ✓ | ✗ | ✗ |
@@ -66,13 +67,13 @@ Both are recorded as intentional, provisional simplifications — not bugs — b
 | **Data-layer driver isolation** (`driver_id` scoping) | W-49's hard boundary | **Built.** Covered by the linked-driver test class on every driver-touching endpoint |
 | **Client convenience gating** (`web/src/lib/capabilities.ts`, `<Can>`) | UI §12.4 / M-22 | **Not built.** Confirmed absent as of the 6 Aug 2026 Track B validation pass — no file exists yet |
 | **Role-based shell routing** (`RootLayout`, `FirstRunGate`) | UI §1.1 | **Partially built.** `RootLayout` currently hardcodes `shell="operate"`; `FirstRunGate` only has a `renderOperate` branch — `owner` (passive) and `driver` both fall through to `NotBuiltYetScreen`. `AppShell` itself supports `shell="review"` and `shell="mine"` and both are already built/tested, but nothing routes to them yet |
-| **Invite / join flow** (a second person actually getting a role) | W-57, F-1.4/F-1.8 | **Not built.** `GET /api/business-member` is read-only — no `POST`/`PATCH`/revoke — and `driver.linked_user_id` is written by nothing. Specified (v1.2.3) but not implemented |
+| **Invite / join flow** (a second person actually getting a role) | W-57, F-1.4/F-1.8 | **Built (A11, 7 Aug 2026).** `POST /api/business-member/invite` + `POST /api/invite/redeem` (owner/owner-manager/manager) and `POST /api/driver/{id}/link-invite` (a driver's own account) — an owner can now actually bring in a second person of any role, and a driver can link. `FirstRunGate` offers redeeming a code alongside creating a business. **No in-app "invite a member" screen yet** — the endpoints exist and are tested but have no caller; that needs B0b's role-aware shells first |
 
-This is why the client-visible product today is narrower than the matrix in §2 suggests: the *backend* already refuses a manager a write-off correctly, but the *client* has no owner-passive or driver screen to reach at all, and there is currently no way for a second person to be given any role but the one `POST /api/business` assigns its creator (`owner_manager`, since the A0/GAP-42 fix on 6 Aug 2026 — it previously mis-assigned `owner`, a role the client has no screen for, which made every fresh signup dead-end at "Not built yet").
+This is why the client-visible product today is narrower than the matrix in §2 suggests: the *backend* already refuses a manager a write-off correctly, but the *client* still has no owner-passive or driver **screen** to land on once they join (B4/B5), even though A11 means they can now get an account at all — `owner_manager` was the only role reachable at all until A0 (6 Aug), and every role but `owner_manager`/`manager` was reachable by no one until A11 (7 Aug).
 
 Tracked as:
 - **B0b** (Plan.md) — build `lib/capabilities.ts` + `<Can>`, make role readable outside `MeResponse`, wire `RootLayout`/`FirstRunGate` branches for `renderReview` / `renderMine`.
-- **A11** (Plan.md, GAP-43) — the invite-code join flow (W-57) so an owner can actually bring in a passive-owner partner, a manager, or link a driver.
+- ~~**A11**~~ (Plan.md, GAP-43) — ✅ done 7 Aug 2026. B4/B5 (Plan.md) still own the screens a newly-joined `owner`/`driver` lands on.
 
 ---
 
@@ -84,4 +85,4 @@ Tracked as:
 
 ---
 
-*Sources: `docs/product/user-flows.md` §2.3 (FL §2.3), `docs/product/use-cases.md` W-49/W-53/W-57/UC-03, `docs/design/ui-ux-guidelines.md` §12.4, `api/src/auth/policy.ts`, `api/src/queries/identity.ts`, `TRACKER.md` (6–7 Aug 2026 entries, GAP-42/GAP-43).*
+*Sources: `docs/product/user-flows.md` §2.3 (FL §2.3), `docs/product/use-cases.md` W-49/W-53/W-57/UC-03, `docs/design/ui-ux-guidelines.md` §12.4, `api/src/auth/policy.ts`, `api/src/queries/identity.ts`, `TRACKER.md` (6–7 Aug 2026 entries, GAP-42/GAP-43/GAP-52/GAP-53). Updated 7 Aug 2026 for A11.*

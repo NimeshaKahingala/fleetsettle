@@ -28,6 +28,8 @@ export const ERROR_CODES = [
   "PAYMENT_ALREADY_REVERSED",
   "EXPENSE_ALREADY_VOIDED",
   "OPENING_BALANCE_LOCKED",
+  "LAST_OWNER_REQUIRED",
+  "INVITE_CODE_INVALID",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

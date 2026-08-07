@@ -91,11 +91,11 @@ So the only role obtainable through the product was the one role with no interfa
 
 | Role | Today | Can anyone actually be this? |
 |---|---|---|
-| `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people | **Yes, since A0** — the business creator. A *second* one still needs **A11** built |
-| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** | **Not yet.** The invite flow is specified (W-57) but unbuilt — **A11** |
-| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** | **Not yet.** `driver.linked_user_id` is read by identity resolution and written by nothing — same **A11** |
+| `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people | **Yes, since A0** — the business creator. A *second* one can now join too, since A11 |
+| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** | **Yes, since A11 (7 Aug)** — `POST /api/business-member/invite` (role `owner`) + `POST /api/invite/redeem`. Lands with a real account and nowhere real to go until B4 ships |
+| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** | **Yes, since A11 (7 Aug)** — `POST /api/driver/{id}/link-invite` + the same redeem endpoint. Same "nowhere to go yet" as `owner`, until B5 ships |
 
-**Read that last column before ranking anything below it.** Two of the three shells have no user who could reach them even once built, so A11 is a prerequisite for B4 and B5 *mattering*, not merely for them working. It is no longer a product question waiting on anyone — W-57 (UC §1.1) settled the mechanism the same day this table was written — so it is purely a matter of building it.
+**A11 is done (7 Aug) — the "can anyone actually be this" column flipped from no to yes for both remaining roles.** What it did not do is give either of them a screen: `owner` and `driver` can now get a real account, backed by a real `business_member`/`driver.linked_user_id` row, and both still land on `NotBuiltYetScreen` today, because B4 and B5 are what render something once they're there. A11 stops being "why can nobody try this" and starts being "why does trying this show nothing" — a smaller, more specific problem, and the reason B4/B5 now rank above everything else Track B has left.
 
 **B0, A9a and A6 are all done** — `/more` is real, sign-out works, GAP-35's void/closed-period hole is fixed and verified (378/378 against a fresh Neon branch), and GAP-23's trip receivable posts and voids correctly (386/386, G-1 unmoved).
 
@@ -105,7 +105,9 @@ So the only role obtainable through the product was the one role with no interfa
 
 **B11 is done (7 Aug).** GAP-49 and GAP-50 are closed at the cause — a base-layer rule on `html` for the missing page background, `autoFocus` on the sheet primitive for the `aria-hidden` violation — along with three things found while fixing them: `color-scheme` was declared nowhere, `Sheet`'s focus restore had never worked, and `npm run typecheck` had been broken since A0. Details under [B11](#b11--done--structural-render-fixes-and-two-bugs-that-were-not-what-they-looked-like).
 
-**Do this next, in this order: (1) merge `build/p0-foundation` → `develop`** — QA is still running the pre-A0 signup path (confirmed live, 6 Aug: this session's own test account came up `role: "owner"` on QA), so every environment-dependent fix since A0 is unverified there until this lands; **(2) update the existing production `business_member` row** — a live data decision, not a deploy step; **(3) B10** (F-1.7, above — GAP-49 and GAP-50 are now closed) — both small-to-moderate, both block real use today, neither waits on anything; **(4) A11**, without which two of the three shells still have no possible user; then **(5) B0b**, then B3. **If Track A is being worked in parallel, A10** (the other two silent zeros — GAP-39, GAP-10, the same defect class A6 just closed) **is free of any gate.** The full reasoning is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
+**A11 is done (7 Aug).** Migration `0010` (GAP-52's partial unique index, GAP-53's audit trigger, `business_member_invite`, INV-31) plus six endpoints — invite/revoke/change-role for `business_member`, one shared `POST /api/invite/redeem`, link-invite/unlink for a driver's own account. 39 new integration tests, full suite 32 files/406 green against a fresh branch; `FirstRunGate` offers redeeming a code alongside creating a business. Two things caught before shipping, both recorded in [TRACKER.md](TRACKER.md): UC-03 itself named only two of the three invitable roles, and the first draft of INV-31's trigger fired on `INSERT` as well as `UPDATE`, breaking a dozen fixtures for no protective benefit. **What A11 does not include, deliberately** — Plan.md's own checklist scoped it to the entry point only: there is no in-app "invite a member" screen (an owner generating a code from inside the product). That needs B0b's role-aware shells to have somewhere to live, same as before.
+
+**Do this next, in this order: (1) merge `build/p0-foundation` → `develop`** — QA is still running the pre-A0 signup path as of the last live check (6 Aug: this session's own test account came up `role: "owner"` on QA), so every environment-dependent fix since A0 — B10, B11, and now A11 — is unverified there until this lands; **(2) update the existing production `business_member` row** — a live data decision, not a deploy step; **(3) B0b** — the three shells and the capability gate, now the only thing standing between A11's newly-reachable `owner`/`driver` accounts and an actual screen; then **(4) B3** (has a real deadline — month end) **and (5) B4/B5** in either order, per the reasoning already below. **If Track A is being worked in parallel, A10** (the other two silent zeros — GAP-39, GAP-10, the same defect class A6 closed) **is free of any gate.** The full reasoning is in ["The order, end to end"](#the-order-end-to-end) below, kept in one place rather than restated here.
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
@@ -138,12 +140,12 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 5 | **Production data fix** · the existing `business_member` row | **XS** | **Not code.** A0 governs new signups only. The account already stuck on `owner` stays stuck until its row is updated — a live money-database change, so it is a decision, not a step |
 | 6 | ~~**B11** · structural render fixes~~ | **S** | ✅ **Done 7 Aug 2026.** Closed GAP-49 and GAP-50 — plus `color-scheme`, a never-working focus restore, and a typecheck broken since A0. Originally: GAP-49 (sign-in and two of three role placeholders render with **no page background anywhere**, illegible in dark mode — the literal first screen every user sees) + GAP-50 (`Sheet` close can leave `aria-hidden` on a focused ancestor, a real WCAG violation, reproduced twice). Both trivial-to-moderate, both already shipped and broken, neither waits on anything |
 | 7 | ~~**B10** · Set up the daily lease (F-1.7)~~ | **M** | ✅ **Done 7 Aug 2026.** Closed GAP-51. Originally: **GAP-51.** No screen anywhere creates a `daily_lease` — confirmed live and by `grep`; never even wireframed in `ui-ux-guidelines.md`. Blocks arrangement B, the daily-lease model this project's own running example (the bus) runs on, where the driver pays you (UC §1.2), from being usable by anyone. Backend's been ready since P2/P5 (`startDailyLeaseRoute`, a complete request schema). **Outranks A11**: A11 blocks two roles from existing, this blocks the one role that already works from doing its job |
-| 8 | **A11** · member and driver access | **L** | No second partner, no manager, no linked driver can exist — `business-member` is GET-only and `driver.linked_user_id` is never written. **B4 and B5 build shells nobody can reach until this lands.** The flow is settled (`use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8) — an invite code scoped to a role, redeemed at sign-in. **Access model settled 7 Aug** (one role per user, no switcher, no fourth role) and it grew two prerequisites: **GAP-52** (the pair-unique blocks the spec's own re-grant path) and **GAP-53** (membership changes are unaudited) |
-| 9 | **B0b** · three shells + capability gate | S | B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. Nothing downstream can gate an action by role until it exists |
+| 8 | ~~**A11** · member and driver access~~ | **L** | ✅ **Done 7 Aug 2026.** Migration `0010` (GAP-52, GAP-53, `business_member_invite`, INV-31) + six endpoints (invite/revoke/change-role, one shared redeem, driver link-invite/unlink). 39 new integration tests, 32 files/406 green. `FirstRunGate` offers redeeming a code. Originally: no second partner, no manager, no linked driver could exist — `business-member` was GET-only and `driver.linked_user_id` was never written. **B4 and B5 still build the shells those roles land on** — A11 only got them an account, not a screen |
+| 9 | **B0b** · three shells + capability gate | S | **Now the actual gate.** B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. A11's newly-reachable `owner`/`driver` accounts have nowhere to land until this exists |
 | 10 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
 | 11 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. Small — a filter, not an endpoint |
-| 12 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
-| 13 | **B5** · Mine shell | M | The entire product for the linked driver. `GET /api/driver-view` has been ready since P12 |
+| 12 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters — a real role now, since A11. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
+| 13 | **B5** · Mine shell | M | The entire product for the linked driver — a real role now, since A11. `GET /api/driver-view` has been ready since P12 |
 | 14 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
 | 15 | **B9** · `UI-UX-REVIEW.md` fixes | M | GAP-44–48: no blocking `Dialog` for INV-1, trip-title truncation, calendar cells fail a screen reader, M-26 landscape wholly unbuilt, M-11's undo toast has no host. Independent — no blockers, blocks nothing — but two are real WCAG obligations (§10), not polish |
 | 16 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists. Needs no B0b |
@@ -152,6 +154,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 19 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
 | 20 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
 | 21 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
+| — | **In-app "invite a member" screen** — **new, 7 Aug** | S | Not yet its own item. A11 built and tested `POST /api/business-member/invite`/`POST /api/driver/{id}/link-invite` with no caller, the same "endpoint ahead of screen" shape A1/GET-expense already established — deliberately, since it needs B0b's role-aware shell to live in. Size it and give it a letter once B0b lands |
 
 ### Two orderings worth arguing with
 
@@ -177,7 +180,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | id | Item | Gaps | Endpoints | Blocks |
 |---|---|---|---|---|
 | **A0** | ✅ **The creator's role** — `owner` → `owner_manager` | GAP-42 | 0 | **everything** |
-| **A11** | **Member and driver access** — spec'd (W-57), access model settled 7 Aug | GAP-43, **GAP-52**, **GAP-53** | ~4 + a migration | B4, B5 |
+| **A11** | ✅ **Member and driver access** — done 7 Aug | GAP-43 ✅, GAP-52 ✅, GAP-53 ✅ | 6 + a migration | B4, B5 (get an audience; still need their own screens) |
 | **A1** | ✅ Web-P8b's `GET /api/expense` | GAP-33 | 1 | — |
 | **A2** | ✅ Partner, banking and cash reads | GAP-9, GAP-4, GAP-31 | 6 | B2 |
 | **A3** | ✅ Period, write-off and payment reads | GAP-13, GAP-38 | 4 | B3 |
@@ -200,13 +203,17 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 **It does not fix the deployed account.** A0 governs new signups; an existing `business_member` row still reads `owner`. That is a live-data decision (queue item 3b), and it is the difference between "the code is right" and "the user can work."
 
-### A11 · Member and driver access — spec'd same day (W-57), ready to build
+### A11 · Done — member and driver access
 
-**No second person can exist in a business.** `business-member` is GET-only — no `POST`, no `PATCH`, no revoke. `driver.linked_user_id` is read by `queries/identity.ts` and written by nothing at all. So:
+**Shipped 7 August 2026, everything below built as specified except two corrections found along the way** (recorded where they land, further down): migration `0010` (the partial unique index, the audit trigger, `business_member_invite`, INV-31 — `AFTER UPDATE` only, not `INSERT OR UPDATE` as first drafted), six endpoints, `FirstRunGate`'s redeem option. 39 new integration tests; full suite 32 files / 406 tests, 406/406 green against a fresh ephemeral Neon branch; web 81 files / 306 tests. `npm run check` clean. The rest of this section is the plan as it stood going in, kept as the record of what was decided and why — TRACKER.md carries the finished item as one row.
 
-- The passive owner partner — the second of CLAUDE.md's *two* partners, and B4's entire audience — **cannot get an account**.
-- A `manager` cannot be added, so W-49's manager column and every `<Can>` gate B0b builds are untestable against a real user.
-- No driver can ever sign in, so **B5's Mine shell would ship with no possible user**, exactly as Review did.
+**No second person could exist in a business.** `business-member` was GET-only — no `POST`, no `PATCH`, no revoke. `driver.linked_user_id` was read by `queries/identity.ts` and written by nothing at all. So:
+
+- The passive owner partner — the second of CLAUDE.md's *two* partners, and B4's entire audience — **could not get an account**.
+- A `manager` could not be added, so W-49's manager column and every `<Can>` gate B0b builds would have been untestable against a real user.
+- No driver could ever sign in, so **B5's Mine shell would have shipped with no possible user**, exactly as Review did until A0.
+
+All three are fixed now — see the "done" summary above.
 
 **The mechanism is now settled — `docs/product/use-cases.md` W-57, `user-flows.md` F-1.4/F-1.8 (v1.2.3/v1.1.3), done the same day this gap was found.** It reuses W-42's driver-linking shape rather than inventing a second one: the owner/owner-manager generates an **invite code** scoped to a role and this business, hands it over out of band, the invitee redeems it at their first sign-in — creating their `app_user` if they've never signed in before, exactly the just-in-time provisioning `createBusiness` already does for the first user. One mechanism, three destinations (`owner_manager`/`manager` via `business_member`, `driver` via `driver.linked_user_id`), which is also why F-1.8 moved to phase one alongside F-1.4 rather than staying a phase-two nicety.
 
@@ -225,30 +232,31 @@ A design pass asked whether users should hold **multiple roles**, with a **role 
 - **A super-admin role.** `owner` already is one. A fourth staff role above owner, in a two-partner business, has one holder and nobody to administer. What is genuinely missing is not a role but **revoke and re-grant**.
 - **Collapsing `owner` into `owner_manager`.** Correct in principle — identical capabilities, and the split has already cost one outage — but it changes UI §1.1, W-49 and DM §3's CHECK, so it is its own `doc-change` pass, not something smuggled into A11. **If a switcher is ever genuinely wanted, this is where it lives honestly: one role, two views, never an authorization input.**
 
-#### What building it needs
+#### What building it needed — done, checked off against what actually shipped
 
-**Migration — three things, one file:**
-- **Replace `UNIQUE (business_id, user_id)` with a partial unique index `WHERE revoked_at IS NULL`.** This is a prerequisite, not an enhancement — **GAP-52**: without it F-1.4's own alternate (revoke, then re-invite the same person) fails on a unique violation. An earlier edition of this section said the opposite ("no schema change needed there"); it was wrong, for the same reason `0003`'s own comment is.
-- **`CREATE TRIGGER business_member_audit` explicitly.** `0002` discovers its audit targets by querying for tables carrying `posted_period_id`, and `business_member` has none — so grants and revokes are unattributable (**GAP-53**). `write_audit_log()` reads `NEW.business_id` and `NEW.id`, both present, so nothing else changes.
-- **A deferred constraint trigger: every business retains at least one active `owner`/`owner_manager`.** Copy `assert_shares_total`'s shape (`0001`, `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED`). Without it, the first thing member administration enables is an owner demoting or revoking themselves and locking the business out permanently with no endpoint able to undo it. **Deferred matters**: `createBusiness` inserts its first member inside a transaction, so the check must run at commit, not mid-statement.
+**Migration `0010` — four things, one file** (a fourth, `business_member_invite`, was always implied by "Worker" below but is worth listing with its prerequisites):
+- ✅ **Replaced `UNIQUE (business_id, user_id)` with a partial unique index `WHERE revoked_at IS NULL`.** **GAP-52** — without it F-1.4's own alternate (revoke, then re-invite the same person) failed on a unique violation. Proven both ways against a real branch: same role and a different role.
+- ✅ **`CREATE TRIGGER business_member_audit` explicitly.** **GAP-53** — `write_audit_log()` reads `NEW.business_id` and `NEW.id`, both present, so nothing else changed. Verified rows land in `audit_log` for both an insert and a revoke.
+- ✅ **A deferred constraint trigger, INV-31: every business retains at least one active `owner`/`owner_manager`.** **Shipped narrower than first drafted** — `AFTER UPDATE` only, not `AFTER INSERT OR UPDATE` the way `assert_shares_total`'s shape was copied at first. An `INSERT` can only ever add a row, so it can never by itself zero out the active-owner count; every real removal path (`revokeBusinessMember`, and `changeBusinessMemberRole`'s revoke half) is an `UPDATE`. The `INSERT OR UPDATE` draft broke roughly a dozen existing test fixtures that mint a manager as a business's sole member — TRACKER.md §5 carries the general lesson (don't copy a trigger's statement-type list without re-deriving which statements can actually violate the *new* invariant).
+- ✅ **`business_member_invite`** — the F-1.4 counterpart to the pre-existing, previously-unused `driver_link_invite`. Same shape: a hashed code, the plaintext returned once.
 
-**No change to the role CHECK** — all three roles are already admitted.
+**No change to the role CHECK** — all three roles were already admitted, which mattered more than planned: see the UC-03 correction below.
 
-**Worker:**
-- **A new capability, `manageMembers: OWNERS`** — not `managePartnerCapital`, which is already a flat stand-in (GAP-1) and means something else. F-1.4's actor line ("Owner or owner-manager") is the authority for the value. **W-49 has no row for member administration at all**, so this is a real doc change, not a formality.
-- `POST /api/business-member/invite` — a code scoped to a role and this business. **Reissuing invalidates the prior unredeemed code** (F-1.4's alternate).
-- `POST /api/business-member/{id}/revoke` — sets `revoked_at`. The column has existed since `0001` and **nothing has ever written it**: three readers, no writer.
-- **Role change is revoke-and-grant, never an in-place `UPDATE`** — one call for the user, two rows in the table. It is this system's own "void and replace, never overwrite" rule applied to access, it keeps the audit trail readable as two facts with times on them, and it is only legal once the partial index above lands. An in-place `PATCH` would have silently routed around GAP-52 while losing the history.
-- `POST /api/invite/redeem` — **no capability gate**, since redeeming is how a capability is granted. Creates `app_user` just-in-time exactly as `createBusiness` already does. **The role comes from the code, never from the request** (F-1.4: "redeeming a code never lets the invitee pick their own role").
-- **Both writes open a transaction** even though neither needs atomicity, or `withActor` cannot attribute them and `changed_by` records `NULL` — the trap that bit nine functions in P9.
-- Cross-tenant stays **404, never 403**.
+**Worker — six endpoints, one new capability:**
+- ✅ `manageMembers: OWNERS` — not `managePartnerCapital`. `W-49` gained the member-administration row this needed (`user-flows.md` v1.1.4).
+- ✅ `POST /api/business-member/invite` — reissuing invalidates the prior unredeemed code for the same (business, role).
+- ✅ `POST /api/business-member/{id}/revoke` — sets `revoked_at`, guarded in the `WHERE` clause, not read-then-write.
+- ✅ `POST /api/business-member/{id}/change-role` — revoke-and-grant, two rows, one call. Never an in-place `UPDATE`.
+- ✅ `POST /api/invite/redeem` — no capability gate, one mechanism for both `business_member` and `driver_link` destinations, decided by the code alone. Creates `app_user` just-in-time. The role/driver never comes from the request.
+- ✅ `POST /api/driver/{id}/link-invite` + `.../unlink` — **`manageEntities`, not `manageMembers`**, corrected before shipping: F-1.8's own actor is "Manager" (the same as F-1.6, add a driver), and neither ever touches `business_member`. The original plan's assumption that this shared F-1.4's gate didn't survive re-reading the flow doc it cited.
+- ✅ Both writes open a transaction (`c.get("writer")` is already wrapped in `withActor`, so this fell out of using it rather than needing a separate reminder).
+- ✅ Cross-tenant 404, never 403, proven for every endpoint.
 
-**Client** — `FirstRunGate` has exactly one non-role branch today (`/api/me` 404 → `CreateBusinessForm`). It gains a second action on that same screen: **create a business** *or* **redeem a code**.
-- **Deliberately not distinguishing "brand new" from "revoked".** `resolveMembership` filters `isNull(revokedAt)` and returns `null` for both, and it runs on **every authenticated request** — adding a revoked-row lookup to tell them apart would cost a join on the hottest query in the system for a cosmetic distinction. One honest screen ("you have no access here; here is how to get some") serves both.
-- **Copy:** "admin" and "role" are not words this product has (U-6). *"Ask [owner name] to invite you"*, never *"ask an admin to assign a role."*
-- **No token invalidation needed** on a role change — `resolveMembership` runs per request. The one client obligation is invalidating the `["me"]` query on a 403, or a demoted user keeps seeing affordances until they reload.
+**Client** — `FirstRunGate` gained a second action alongside `CreateBusinessForm`: `RedeemInviteForm`, one field (the code), never a role or business picker. Not distinguishing "brand new" from "revoked", as planned. Copy carries no "admin", no "role". **The `["me"]`-on-403 invalidation landed globally**, not per-screen — a `QueryCache.onError` in `main.tsx`, so every mutation gets it for free rather than each one remembering.
 
-**One open question this pass did not resolve, and `docs/` must:** F-1.8's steps read *"Match by phone number, confirm identity"*, but the OQ-2 note directly beneath resolves the mechanism as W-42's manager-generated code and **explicitly rejects phone matching** as the attach path. Manager-initiated matching is arguably compatible with both, but the two readings differ enough to need a deliberate call before the driver-linking half is built.
+**The one open question this pass didn't resolve got resolved in the docs pass that came first:** F-1.8's steps read *"Match by phone number, confirm identity"* against OQ-2's own resolution rejecting phone matching — `user-flows.md` v1.1.4 rewrote F-1.8's steps to the code mechanism before any code was written, so the endpoint was never built against the stale text.
+
+**A third correction, found reading UC-03 itself while writing the migration:** v1.2.3's invite-role list named only "manager, or a second owner-manager" — the plain, passive `owner` role this project's own two-partner example is built around had no invite path at all, the identical shape of bug A0 fixed for the creator. Fixed in `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (F-1.4) before the endpoint shipped — `business_member_invite.role` and `business_member.role` both already admitted `owner`, so this cost no schema change, only the flow text and confirming the endpoint's accepted values matched.
 
 **Do the `doc-change` skill's remaining half — data-model.md — before the migration**, since W-57/F-1.4/F-1.8 are now real enough to need the invite-code table in DM §16's own DDL, not just a description here. The full list of documents this owes is in the [A11 checklist](#a11--member-and-driver-access).
 
@@ -720,37 +728,39 @@ What shipped: `@asgardeo/auth-react` ^5.6.2 (the SDK UI § settled on in July) �
 
 ---
 
-## A11 · Member and driver access
+## A11 · Member and driver access — done 7 August 2026
 
-Written 7 August 2026 from the access design pass above. **The migration comes first and three of its four parts are prerequisites, not enhancements** — two of them close gaps that would otherwise make the feature quietly wrong rather than merely incomplete.
+Written 7 August 2026 from the access design pass above; built the same day. **The migration came first, as planned.** Two boxes shipped differently from how they were written here — both noted inline, both already recorded in TRACKER.md and in the A11 section above.
 
 *Documents, before the code*
-- [ ] `docs/product/user-flows.md` — W-49 gains a **member administration** row (owner ✓, owner-manager ✓, manager ✗). It has no such row today, so `manageMembers` has no specification to point at until this lands
-- [ ] `docs/product/user-flows.md` — F-1.8's steps reconciled with its own OQ-2 resolution: the steps say "match by phone number", the note beneath rejects phone matching. **The document must say one thing** before the driver-linking half is built
-- [ ] `docs/engineering/data-model.md` — DM §3: the pair-unique becomes partial; the `business_member` audit trigger; the at-least-one-owner constraint trigger; the invite-code table in DM §16's DDL
+- [x] `docs/product/user-flows.md` — W-49 gained a **member administration** row (owner ✓, owner-manager ✓, manager ✗) — v1.1.4
+- [x] `docs/product/user-flows.md` — F-1.8's steps reconciled with its own OQ-2 resolution (code, never phone matching) — v1.1.4
+- [x] `docs/engineering/data-model.md` — DM §3 (partial index, `business_member_invite`), §12 (audit trigger), §13/§13.1 (INV-31), §14 (enforcement map), §16 (flow table) — v1.1
+- [x] **Not originally boxed, found reading UC-03 while doing the above:** `use-cases.md` v1.2.4 — UC-03's invite-role list corrected to include the passive `owner`, not just manager/owner-manager
 
-*Migration — one file*
-- [ ] `UNIQUE (business_id, user_id)` dropped, replaced by a partial unique index `WHERE revoked_at IS NULL` (**GAP-52**) — without it, revoke-then-re-invite fails on a unique violation and F-1.4's own alternate is unreachable
-- [ ] `CREATE TRIGGER business_member_audit AFTER INSERT OR UPDATE ON business_member` written **explicitly** (**GAP-53**) — `0002`'s loop keys on `posted_period_id`, which this table has not got, so it will never be picked up automatically
-- [ ] A `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` asserting at least one active `owner`/`owner_manager` per business, modelled on `assert_shares_total`. **Deferred, not immediate** — `createBusiness` inserts its first member mid-transaction
-- [ ] The invite-code table: role, business, expiry, redeemed-or-not, issuer. Not a money table, so `assert_period_open()` does not apply — but **check DM §13's CI assertion still passes**, since that list is hand-maintained
-- [ ] No change to the role CHECK; all three roles are already admitted
+*Migration `0010` — one file*
+- [x] `UNIQUE (business_id, user_id)` dropped, replaced by a partial unique index `WHERE revoked_at IS NULL` (**GAP-52**)
+- [x] `CREATE TRIGGER business_member_audit … AFTER INSERT OR UPDATE ON business_member` written **explicitly** (**GAP-53**)
+- [x] A `CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED` asserting at least one active `owner`/`owner_manager` per business (INV-31) — **shipped as `AFTER UPDATE` only, not `AFTER INSERT OR UPDATE` as written here.** `assert_shares_total`'s shape was copied without re-deriving which statement type can actually violate *this* invariant; an `INSERT` can only add a row, so it can never by itself zero the owner count, and the `INSERT`-covering draft broke a dozen test fixtures that mint a manager as a business's sole member for reasons unrelated to A11. TRACKER.md §5 carries this as a general rule for the next trigger
+- [x] `business_member_invite` — the F-1.4 counterpart to the pre-existing, previously-unused `driver_link_invite`; same shape (hashed code, plaintext returned once), not the standalone "invite-code table" this section first sketched
+- [x] No change to the role CHECK
+- [x] DM §13's drift assertion re-run clean against the migrated branch
 
-*Worker*
-- [ ] `manageMembers: OWNERS` added to `MATRIX` — a new capability, **not** `managePartnerCapital` (already a flat GAP-1 stand-in; reusing it would deepen that gap rather than leave it isolated)
-- [ ] `POST /api/business-member/invite` — role-scoped code; **reissuing invalidates the prior unredeemed one**
-- [ ] `POST /api/business-member/{id}/revoke` — the first writer `revoked_at` has ever had
-- [ ] Role change is **revoke-and-grant, two rows**, never an in-place `UPDATE`
-- [ ] `POST /api/invite/redeem` — **no capability gate**; `app_user` created just-in-time; **the role comes from the code, never the request body**, asserted in a test that sends a conflicting role and gets the code's
-- [ ] Both writes open a transaction, or `changed_by` records `NULL`
-- [ ] The full per-endpoint matrix: happy · 401 · 403 · **404 for another business** · 409 · and a test that the last remaining owner cannot revoke or demote themselves
-- [ ] A test that a revoked member's records stay attributed to them (F-1.4's own accept clause)
+*Worker — six endpoints*
+- [x] `manageMembers: OWNERS` added to `MATRIX` — gates `business-member`'s three endpoints only
+- [x] `POST /api/business-member/invite` — reissuing invalidates the prior unredeemed code for the same role
+- [x] `POST /api/business-member/{id}/revoke`
+- [x] `POST /api/business-member/{id}/change-role` — revoke-and-grant, two rows, never an in-place `UPDATE`
+- [x] `POST /api/invite/redeem` — no capability gate; `app_user` created just-in-time; the role/driver comes from the code, never the request body
+- [x] `POST /api/driver/{id}/link-invite` + `.../unlink` — **gated `manageEntities`, not `manageMembers` as this section first assumed.** F-1.8's own actor is "Manager", the same as F-1.6 (add a driver), and neither endpoint touches `business_member` — corrected before shipping, not after
+- [x] Both writes open a transaction (free: `c.get("writer")` is already `withActor`-wrapped)
+- [x] Full per-endpoint matrix: happy · 401 · 403 · 404 for another business · 409 · a test that the last remaining owner cannot revoke or demote themselves (both endpoints) · a test that a revoked member's records stay attributed (redeem-twice → second gets `INVITE_CODE_INVALID`, first redemption's row is untouched)
 
 *Client*
-- [ ] `FirstRunGate`'s `/api/me` 404 branch offers **create a business** *or* **redeem a code** — one screen serving both the never-had-access and the revoked cases, deliberately not distinguished
-- [ ] Copy carries no "admin" and no "role" (U-6) — *"Ask [owner name] to invite you"*
-- [ ] `["me"]` invalidated on a 403, so a demoted user stops seeing affordances without a reload
-- [ ] `npm run check` clean; the integration suite run against a real branch
+- [x] `FirstRunGate`'s `/api/me` 404 branch offers **create a business** *or* **redeem a code** (`RedeemInviteForm`) — one screen, deliberately not distinguishing never-had-access from revoked
+- [x] Copy carries no "admin" and no "role" (U-6)
+- [x] `["me"]` invalidated on a 403 — shipped as a global `QueryCache.onError` in `main.tsx` rather than per-screen, so it covers every future mutation for free
+- [x] `npm run check` clean; integration suite 32 files / 406 tests green against a fresh ephemeral Neon branch
 
 ## Track B implementation checklist
 
@@ -931,21 +941,22 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
         A5  driver history ✅                        B3  close the month, corrections — ready (A3 ✅, B0 ✅)
         A9a the void/period trigger ✅                B6  customer detail — ready (A4 ✅, B0 ✅)
         A6  trip receivable ✅                        B2  partners, banking, cash — ready (A2 ✅, B0 ✅)
-now     A10 the other two silent zeros                 ~~B11 structural render fixes~~ ✅ done 7 Aug
-        GAP-41 overheads filter (B4 needs it)          ~~B10 set up the daily lease~~ ✅ done 7 Aug
-        A7  R2 upload (unblocks 5 gaps; independent)   B0b three shells + capability gate  ← first
-        A8  odometer wiring, borne-by preview          B3  close the month  (needs B0b)
-        A9b the rest of soft delete                    B4  Review shell + 9 reports (needs B0b, GAP-41)
-                                                        B5  Mine shell      (needs B0b)
-                                                        B9  UI-UX-REVIEW fixes — ready (GAP-44–48)
+        A11 member and driver access ✅               ~~B11 structural render fixes~~ ✅ done 7 Aug
+now     A10 the other two silent zeros                 ~~B10 set up the daily lease~~ ✅ done 7 Aug
+        GAP-41 overheads filter (B4 needs it)          B0b three shells + capability gate  ← first
+        A7  R2 upload (unblocks 5 gaps; independent)   B3  close the month  (needs B0b)
+        A8  odometer wiring, borne-by preview          B4  Review shell + 9 reports (needs B0b, GAP-41)
+        A9b the rest of soft delete                    B5  Mine shell      (needs B0b)
+        —   in-app "invite a member" screen             B9  UI-UX-REVIEW fixes — ready (GAP-44–48)
+            (unsized, needs B0b — A11 built the API)
 last                                                B7  offline and the PWA
 ```
 
-**Track B's "first" item changed twice in two days, both times because of a live signal, not a design read.** B0b held that slot from the 6 August validation pass until a live browser session the same day found two shipped bugs (B11) and one wholly unbuilt core flow (B10) that outrank it — a missing capability gate is a real prerequisite, but nothing is actively broken by its absence yet, where B11/B10 already are. **B3, B4 and B5 still queue behind B0b**, which is small; B6, B2 and **B9** need neither B0b nor anything on Track A, so they are the items a second person can start on immediately without waiting on B11/B10 either.
+**Track B's "first" item changed three times now, each time because of a live or build-time signal, not a design read.** B0b held that slot from the 6 August validation pass until a live browser session the same day found two shipped bugs (B11) and one wholly unbuilt core flow (B10) that outranked it. Both are done (7 Aug), and **A11 shipping the same day hands the slot back to B0b** — the newly-reachable `owner`/`driver` accounts have nowhere to land without it. **B3, B4 and B5 still queue behind B0b**, which is small; B6, B2 and **B9** need neither B0b nor anything on Track A, so they are the items a second person can start on immediately without waiting on B0b either.
 
 **Track A's remaining items are now all independent again.** A9a (the GAP-35 trigger fix) gated A6 and A10, because both add new places the defect could have fired — it shipped 5 August, so A6, A10, A7 and A8 can all be picked up in any order.
 
-**There are no Track A → Track B handoffs left, and B0 no longer gates anything either.** A2 → B2, A3 → B3, A4 → B6 and A5 → B5+ have all happened, and B0 shipped 5 August — every item in Track B's column above is buildable right now. A6–A10 change what the *existing* endpoints return (or add writes behind existing screens) rather than unblocking a new screen — A7 is the one exception, and its dependent screens are photo work that no B item currently claims.
+**One Track A → Track B handoff reopened, briefly: A11 → B0b.** Every other handoff (A2 → B2, A3 → B3, A4 → B6, A5 → B5+) has happened, and B0 shipped 5 August — every other item in Track B's column above is buildable right now. A10, A7, A8 and A9b change what *existing* endpoints return or add a batch of near-identical writes, rather than unblocking a new screen — A7 is the closest to an exception, and its dependent screens are photo work no B item currently claims.
 
 ---
 

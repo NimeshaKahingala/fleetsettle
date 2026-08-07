@@ -39,9 +39,10 @@ const LINKED_DRIVER: readonly Role[] = ["driver"];
 export type Capability =
   | "dailyOperations" // daily cards, trips, expenses, collections
   | "leaseAndTripLifecycle" // start/close a lease, close a trip
-  | "manageEntities" // F-1.1/F-1.6/F-2.1: add and read vehicles, drivers, customers — setup, not money
+  | "manageEntities" // F-1.1/F-1.6/F-1.8/F-2.1: add and read vehicles, drivers, customers, link/unlink a driver's account — setup, not money
   | "manageOpeningBalances" // F-0.2/UC-09: the go-live starting position — owners only, like closePeriod below
-  | "managePartnerCapital" // F-1.3/F-1.4/F-7.2: ownership shares, capital contributions, management agreements, partner payouts
+  | "managePartnerCapital" // F-1.3/F-7.2: ownership shares, capital contributions, management agreements, partner payouts
+  | "manageMembers" // A11/W-57/F-1.4: invite, revoke, or change a business_member's role — access to the business itself, owners only. Driver-linking (F-1.8) is manageEntities instead: it never touches business_member, and F-1.8's own actor is "Manager"
   | "writeOffOrWaiveAboveThreshold"
   | "reverseReceipt" // F-8.2
   | "closePeriod" // F-9.1
@@ -57,6 +58,7 @@ const MATRIX: Record<Capability, readonly Role[]> = {
   manageEntities: STAFF,
   manageOpeningBalances: OWNERS,
   managePartnerCapital: OWNERS,
+  manageMembers: OWNERS,
   writeOffOrWaiveAboveThreshold: OWNERS,
   reverseReceipt: OWNERS,
   closePeriod: OWNERS,

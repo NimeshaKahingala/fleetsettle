@@ -213,3 +213,32 @@ test("creating a business from the first-run gate replaces it with the operate s
 
   expect(await screen.findByText("No vehicles yet.")).toBeInTheDocument();
 });
+
+test("redeeming an invite code from the first-run gate replaces it with the operate shell (A11/W-57)", async () => {
+  const user = userEvent.setup();
+  let hasAccess = false;
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/me") {
+      if (!hasAccess) throw new ApiError(404, "NOT_FOUND", "not found", "req-1");
+      return Promise.resolve({ userId: "u2", businessId: "b1", role: "manager" as const });
+    }
+    if (path === "/api/vehicle") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  const post = vi.fn();
+  post.mockImplementation(() => {
+    hasAccess = true;
+    return Promise.resolve({ kind: "business_member", businessId: "b1", role: "manager" });
+  });
+
+  renderWithRouter("/vehicles", { get, post });
+
+  // Deliberately not the create-business flow — this is FirstRunGate's
+  // second, equally first-class option (Plan.md A11: "one screen serving
+  // both the never-had-access and the revoked cases").
+  await user.type(await screen.findByLabelText("Invite code"), "ABCDE-FGHJK");
+  await user.click(screen.getByRole("button", { name: "Join" }));
+
+  expect(await screen.findByText("No vehicles yet.")).toBeInTheDocument();
+});

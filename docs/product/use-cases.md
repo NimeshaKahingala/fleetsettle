@@ -1,7 +1,7 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2.3 — how a second partner or manager actually gets in (W-57); the driver's own view moved to phase one (§9.1)
-**Date:** 31 July 2026
+**Status:** v1.2.4 — UC-03 corrected: the passive `owner` role is now a redeemable invite choice, not just manager/owner-manager (found building A11, 7 Aug 2026)
+**Date:** 7 August 2026
 **Companion:** `user-flows.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
 
@@ -232,10 +232,11 @@ Owner or manager — got a new vehicle. Enter registration, type, and pick its d
 Owner — at purchase. Add co-owners with percentage shares; record what each person actually paid toward the purchase.
 *System:* refuses shares that don't total 100%. Remembers the difference between what someone paid and their share, permanently, without nagging about it.
 
-**UC-03 Share a vehicle with a manager** *(W-49, W-53, W-57)*
-Owner or owner-manager — handing operations to someone. Generate an **invite code** for the role (manager, or a second owner-manager), hand it to them however you'd normally reach them, grant manage rights on the vehicle once they've joined, optionally set the monthly fee.
+**UC-03 Bring in a partner or a manager** *(W-49, W-53, W-57)*
+Owner or owner-manager — handing operations to someone, or giving a co-owner his own account. Generate an **invite code** for the role — **owner** (reports only, no data entry), **owner-manager** (a second person entering everything), or **manager** (operational, no ownership/capital) — hand it to them however you'd normally reach them; for a manager, grant manage rights on the specific vehicle once they've joined and optionally set the monthly fee.
 *How the invitee joins (W-57):* the same shape as a driver's own linking (UC-07) — they redeem the code the first time they sign in, which is also what creates their account if they've never used the app before. Nobody searches for a business by name and asks to see its books.
 *Variation:* revoke later without losing anything they entered — access ends, their records stay attributed to them.
+*⚑ Correction, 7 August 2026:* v1.2.3 named only "manager, or a second owner-manager" as the redeemable roles — the plain, passive `owner` this project's own two-partner example runs on (§1, CLAUDE.md) had no invite path at all, the identical shape of bug A0 fixed for the business creator. `owner` and `owner-manager` already carry identical capabilities (§2 below); what a passive owner needs is not a new grant, only a way to *get* the account that reads UC-64's reports instead of entering data into them.
 
 **What a manager may and may not do (W-49).** v1.1 named the role without bounding it, which leaves the sharpest questions unanswered: may a manager forgive a debt? See what the vehicle cost to buy?
 

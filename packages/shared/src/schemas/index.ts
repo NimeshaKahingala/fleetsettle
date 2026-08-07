@@ -13,6 +13,7 @@ export * from "./driver-view.js";
 export * from "./expense.js";
 export * from "./home.js";
 export * from "./incident.js";
+export * from "./invite.js";
 export * from "./lease-billing.js";
 export * from "./lease-closure.js";
 export * from "./mileage-package.js";
