@@ -16,16 +16,18 @@ import {
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
-import { useState } from "react";
-import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
+import { useEffect, useState } from "react";
+import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
 import { MoreScreen } from "../features/more/MoreScreen.js";
+import { OpeningBalanceScreen } from "../features/opening-balance/OpeningBalanceScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { BookTripScreen } from "../features/trips/BookTripScreen.js";
 import { TripDetailScreen } from "../features/trips/TripDetailScreen.js";
@@ -270,6 +272,42 @@ function PlaceholderDetailRoute({ title }: { title: string }) {
   return <NotBuiltYetScreen title={title} onBack={() => void navigate({ to: "/people" })} />;
 }
 
+/** F-0.2/B12 — reached from `/more`'s own row, gated `<Can cap="manageOpeningBalances">` there. `onBack` returns to `/more`, matching every other action reached from that hub. */
+function OpeningBalanceRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return <OpeningBalanceScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
+/** F-9.1/B3 — `/period/close`, reached from `/more`'s own row, gated `<Can cap="closePeriod">` there (M-22: absent for a manager, both at the door and inside). */
+function CloseMonthRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return <CloseMonthScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
+/**
+ * B0b's own scope stops at the shell and the tab plumbing — the four
+ * screens these tabs actually show are B4's item, not this one's (Plan.md:
+ * "needs B0b first"). Tab-root placeholders, the same "nothing to return
+ * to" shape as Home/More above.
+ */
+function ReviewThisMonthRoute() {
+  return <NotBuiltYetScreen title="This month" />;
+}
+function ReviewVehiclesRoute() {
+  return <NotBuiltYetScreen title="Vehicles" />;
+}
+function ReviewMoneyRoute() {
+  return <NotBuiltYetScreen title="My money" />;
+}
+function ReportsRoute() {
+  return <NotBuiltYetScreen title="Reports" />;
+}
+
+/** B5's own item builds `MineScreen`; B0b only needs the route and the shell to exist. */
+function MineRoute() {
+  return <NotBuiltYetScreen title="Mine" />;
+}
+
 /** Maps a pathname onto the operate shell's tab bar (§3.1's five fixed tabs). `＋` (quick-add) is deliberately absent from this map — it is a sheet trigger, never a route (§3.1: "no route change"). */
 function tabForPathname(pathname: string): OperateTabKey {
   if (pathname.startsWith("/vehicles")) return "vehicles";
@@ -284,6 +322,65 @@ const TAB_PATH: Record<OperateTabKey, string> = {
   people: "/people",
   more: "/more",
 };
+
+/** Maps a pathname onto the Review shell's tab bar (REVIEW_TABS, §3.1). */
+function tabForReviewPathname(pathname: string): ReviewTabKey {
+  if (pathname.startsWith("/review/vehicles")) return "vehicles";
+  if (pathname.startsWith("/review/money")) return "money";
+  if (pathname.startsWith("/reports")) return "reports";
+  return "month";
+}
+
+const REVIEW_TAB_PATH: Record<ReviewTabKey, string> = {
+  month: "/review",
+  vehicles: "/review/vehicles",
+  money: "/review/money",
+  reports: "/reports",
+};
+
+/**
+ * B0b: `owner`'s shell — its own component tree (§7.9), not Operate filtered
+ * by role. `/review*` and `/reports*` are the only paths that belong to it;
+ * anything else (most commonly the bare `/` an owner lands on straight out
+ * of `FirstRunGate`, since `/` is Operate's Home in the shared route tree)
+ * redirects to the default tab. An effect, not a render-time redirect, for
+ * the same reason `FirstRunGate` already defers routing decisions until its
+ * own data is ready — one redirect pattern in this file, not two.
+ */
+function ReviewLayout() {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const inReview = pathname.startsWith("/review") || pathname.startsWith("/reports");
+
+  useEffect(() => {
+    if (!inReview) void navigate({ to: "/review", replace: true });
+  }, [inReview, navigate]);
+
+  return (
+    <AppShell
+      shell="review"
+      activeTab={tabForReviewPathname(pathname)}
+      onTabChange={(key) => {
+        void navigate({ to: REVIEW_TAB_PATH[key as ReviewTabKey] });
+      }}
+    >
+      {inReview ? <Outlet /> : null}
+    </AppShell>
+  );
+}
+
+/** B0b: `driver`'s shell — one screen, no tab bar (§7.9), reached at `/me` alone. Same redirect reasoning as `ReviewLayout`. */
+function MineLayout() {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const inMine = pathname === "/me";
+
+  useEffect(() => {
+    if (!inMine) void navigate({ to: "/me", replace: true });
+  }, [inMine, navigate]);
+
+  return <AppShell shell="mine">{inMine ? <Outlet /> : null}</AppShell>;
+}
 
 function RootLayout({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
@@ -321,6 +418,8 @@ function RootLayout({ today }: { today: BusinessDate }) {
           />
         </AppShell>
       )}
+      renderReview={() => <ReviewLayout />}
+      renderMine={() => <MineLayout />}
     />
   );
 }
@@ -439,6 +538,52 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: MoreScreen,
   });
 
+  const openingBalanceRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/opening-balances",
+    component: () => <OpeningBalanceRoute today={today} />,
+  });
+
+  const closeMonthRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/period/close",
+    component: () => <CloseMonthRoute today={today} />,
+  });
+
+  // B0b: the Review shell's four tabs and the Mine shell's one screen —
+  // siblings of every Operate route above, exactly as `/more` is, since
+  // `ReviewLayout`/`MineLayout` (not a nested route) supply the AppShell
+  // wrapper the same way `RootLayout` already does for Operate.
+  const reviewThisMonthRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review",
+    component: ReviewThisMonthRoute,
+  });
+
+  const reviewVehiclesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review/vehicles",
+    component: ReviewVehiclesRoute,
+  });
+
+  const reviewMoneyRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review/money",
+    component: ReviewMoneyRoute,
+  });
+
+  const reportsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports",
+    component: ReportsRoute,
+  });
+
+  const mineRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/me",
+    component: MineRoute,
+  });
+
   const routeTree = rootRoute.addChildren([
     homeRoute,
     vehiclesRoute,
@@ -455,6 +600,13 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     driverDetailRoute,
     customerDetailRoute,
     moreRoute,
+    openingBalanceRoute,
+    closeMonthRoute,
+    reviewThisMonthRoute,
+    reviewVehiclesRoute,
+    reviewMoneyRoute,
+    reportsRoute,
+    mineRoute,
   ]);
 
   return createRouter({

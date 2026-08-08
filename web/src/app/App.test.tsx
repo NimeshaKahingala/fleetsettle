@@ -135,6 +135,54 @@ test("the More tab reaches the /more hub (GAP-37), no longer NotBuiltYetScreen",
   expect(screen.queryByText("Not built yet.")).not.toBeInTheDocument();
 });
 
+test("B12/GAP-61 — More → Opening balances reaches the real screen, not a placeholder", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
+    if (path === "/api/opening-balance") {
+      return Promise.reject(new ApiError(404, "NOT_FOUND", "no batch yet", "req-ob"));
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/more", { get });
+  await user.click(await screen.findByText("Opening balances"));
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/opening-balances"));
+  expect(await screen.findByRole("heading", { name: "Opening balances" })).toBeInTheDocument();
+});
+
+test("B3/F-9.1 — More → Close the month reaches the real screen, not a placeholder", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
+    if (path === "/api/accounting-period/checklist") {
+      return Promise.resolve({
+        period: { id: "p1", periodStart: "2026-08-01", periodEnd: "2026-08-31" },
+        checklist: {
+          unconfirmedDays: 0,
+          openTrips: 0,
+          unreconciledAdvances: 0,
+          pendingObligations: 0,
+          openIncidents: 0,
+        },
+      });
+    }
+    if (path === "/api/payment") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/more", { get });
+  await user.click(await screen.findByText("Close the month"));
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/period/close"));
+  expect(await screen.findByRole("heading", { name: "Close the month" })).toBeInTheDocument();
+});
+
 test('the quick-add ("+") tab never changes the route (§3.1: "no route change" — the sheet itself is a later phase\'s gap, tracked separately)', async () => {
   const user = userEvent.setup();
   const get = vi.fn();
@@ -160,11 +208,16 @@ test("an unknown path renders the not-found placeholder, not a blank screen", as
   expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
 });
 
-test("owner renders the Review placeholder, driver renders the Mine placeholder (UI §1.1)", async () => {
+test("owner lands in the Review shell (redirected from / to its default tab), driver lands in the Mine shell (B0b, UI §1.1)", async () => {
   const getOwner = vi.fn();
   getOwner.mockResolvedValue({ userId: "u2", businessId: "b1", role: "owner" });
-  const { unmount } = renderWithRouter("/", { get: getOwner });
-  expect(await screen.findByRole("heading", { name: "Review" })).toBeInTheDocument();
+  const { router: ownerRouter, unmount } = renderWithRouter("/", { get: getOwner });
+  expect(await screen.findByRole("heading", { name: "This month" })).toBeInTheDocument();
+  await waitFor(() => expect(ownerRouter.state.location.pathname).toBe("/review"));
+  // Review's own tab bar, not Operate's — the shell is a different
+  // component tree, never Operate filtered by role (§7.9).
+  expect(screen.getByRole("button", { name: "My money" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Home" })).not.toBeInTheDocument();
   unmount();
 
   const getDriver = vi.fn();
@@ -174,8 +227,24 @@ test("owner renders the Review placeholder, driver renders the Mine placeholder 
     role: "driver",
     driverId: "d1",
   });
-  renderWithRouter("/", { get: getDriver });
+  const { router: driverRouter } = renderWithRouter("/", { get: getDriver });
   expect(await screen.findByRole("heading", { name: "Mine" })).toBeInTheDocument();
+  await waitFor(() => expect(driverRouter.state.location.pathname).toBe("/me"));
+  // Mine has no tab bar at all (§7.9) — the redirect proves the route
+  // changed; the absence of a nav proves the shell did too.
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
+test("Review's tabs navigate between its own routes, and owner_manager never reaches them (M-3)", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockResolvedValue({ userId: "u2", businessId: "b1", role: "owner" });
+  const { router } = renderWithRouter("/review", { get });
+
+  await screen.findByRole("heading", { name: "This month" });
+  await user.click(screen.getByRole("button", { name: "Reports" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/reports"));
+  expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
 });
 
 test("creating a business from the first-run gate replaces it with the operate shell", async () => {
