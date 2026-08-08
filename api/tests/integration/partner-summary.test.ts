@@ -29,6 +29,7 @@ interface SummaryBody {
   takenOut: { payoutsMinor: string; settlementsMinor: string };
   earned: { profitShareMinor: string; managementFeeMinor: string };
   holdingMinor: string;
+  balanceMinor: string;
 }
 
 /** A2/GAP-9/GAP-4 test matrix — UC-67, W-52, W-53. */
@@ -171,6 +172,77 @@ describe("GET /api/partner/{userId} (A2, UC-67/W-52/W-53)", () => {
     // 500,000 he put in.
     expect(body.earned).toMatchObject({ profitShareMinor: "20500", managementFeeMinor: "15000" });
     expect(body.holdingMinor).toBe("20000");
+    // GAP-74: with only the one open period on record, all-time earned
+    // equals this period's earned (20,500 + 15,000 = 35,500) — the real
+    // test of the loop crossing a closed period is its own case below.
+    // 500,000 + 9,000 + 35,500 − 5,000 − 3,000.
+    expect(body.balanceMinor).toBe("536500");
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-74: balanceMinor sums profit share across a closed period and the open one — earned stays open-period-only", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const junePeriodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-06-01",
+      periodEnd: "2026-06-30",
+    });
+
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+
+    const shareId = newId();
+    await db.insert(ownershipShare).values({
+      id: shareId,
+      vehicleId,
+      userId: owner.userId,
+      shareBp: 10_000,
+      effectiveFrom: "2026-01-01",
+    });
+    ctx.trackCreatedOwnershipShares([shareId]);
+
+    // June: 50,000 profit, wholly his — posted while June is still open
+    // (assert_period_open() forbids posting into a closed one, W-35), then
+    // closed. GAP-74's own point is that nothing before this fix could ever
+    // add a closed period's share back in.
+    await ctx.createObligation(businessId, junePeriodId, {
+      direction: "owed_to_us",
+      partyType: "customer",
+      customerId,
+      vehicleId,
+      kind: "rent",
+      amountMinor: 50_000n,
+      dueOn: "2026-06-01",
+    });
+    await ctx.closePeriod(junePeriodId);
+
+    // `one_open_period` is a real constraint — only legal to open July once
+    // June is no longer open.
+    const julyPeriodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+    });
+    // July (open): 20,000 profit — this is the figure `earned` alone shows.
+    await ctx.createObligation(businessId, julyPeriodId, {
+      direction: "owed_to_us",
+      partyType: "customer",
+      customerId,
+      vehicleId,
+      kind: "rent",
+      amountMinor: 20_000n,
+      dueOn: "2026-07-01",
+    });
+
+    const res = await getSummary(owner.userId, ownerToken);
+    expect(res.status).toBe(200);
+    const body: SummaryBody = await res.json();
+
+    expect(body.period.id).toBe(julyPeriodId);
+    expect(body.earned.profitShareMinor).toBe("20000");
+    expect(body.balanceMinor).toBe("70000");
 
     await ctx.cleanup();
   });

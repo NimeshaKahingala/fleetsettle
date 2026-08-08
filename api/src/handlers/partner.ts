@@ -416,6 +416,7 @@ export const getPartnerSummaryHandler: RouteHandler<typeof getPartnerSummaryRout
         managementFeeMinor: toWire(summary.earned.managementFeeMinor),
       },
       holdingMinor: toWire(summary.holdingMinor),
+      balanceMinor: toWire(summary.balanceMinor),
     },
     200,
   );

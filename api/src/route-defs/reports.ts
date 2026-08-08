@@ -6,6 +6,7 @@ import {
   fuelEfficiencyResponseSchema,
   goodwillResponseSchema,
   lostDaysResponseSchema,
+  overheadsResponseSchema,
   rankedTripsResponseSchema,
   receivablesResponseSchema,
   utilisationResponseSchema,
@@ -17,6 +18,8 @@ const vehicleMonthQuery = z.object({
   periodId: z.string().uuid(),
   vehicleId: z.string().uuid().optional(),
 });
+
+const overheadsQuery = z.object({ periodId: z.string().uuid() });
 
 const vehicleWindowQuery = z.object({
   vehicleId: z.string().uuid(),
@@ -41,6 +44,22 @@ export const getVehicleMonthReportRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read reports" },
     404: { description: "No such accounting period, or no such vehicle, in this business" },
+  },
+});
+
+/** GAP-41/UC-66/W-32: this period's costs with no vehicle — its own block beneath vehicle totals, never spread across vehicles. */
+export const getOverheadsReportRoute = createRoute({
+  method: "get",
+  path: "/overheads",
+  request: { query: overheadsQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: overheadsResponseSchema } },
+      description: "This period's costs recorded with no vehicle",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read reports" },
+    404: { description: "No such accounting period in this business" },
   },
 });
 

@@ -183,6 +183,141 @@ describe("reports (P11)", () => {
     });
   });
 
+  describe("overheads (GAP-41/UC-66, W-32: never spread across vehicles)", () => {
+    it("happy path — sums costs with no vehicle, excludes a vehicle-attributed cost the same period", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+
+      const overheadExpenseId = newId();
+      await db.insert(expense).values({
+        id: overheadExpenseId,
+        businessId,
+        category: "other",
+        amountMinor: 4_400n,
+        spentOn: "2026-07-05",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(overheadExpenseId);
+
+      const secondOverheadId = newId();
+      await db.insert(expense).values({
+        id: secondOverheadId,
+        businessId,
+        category: "legal",
+        amountMinor: 5_000n,
+        spentOn: "2026-07-12",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(secondOverheadId);
+
+      // Attributed to a vehicle, same period — must not be counted here (UC-70 already reports it).
+      const vehicleExpenseId = newId();
+      await db.insert(expense).values({
+        id: vehicleExpenseId,
+        businessId,
+        vehicleId,
+        category: "fuel",
+        amountMinor: 9_000n,
+        spentOn: "2026-07-08",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(vehicleExpenseId);
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/overheads?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: { totalMinor: string } = await res.json();
+      expect(body.totalMinor).toBe("9400");
+
+      await ctx.cleanup();
+    });
+
+    it("a real zero when nothing was recorded — never NotAvailable (W-56 governs an unknown, not an absent one)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/overheads?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: { totalMinor: string } = await res.json();
+      expect(body.totalMinor).toBe("0");
+
+      await ctx.cleanup();
+    });
+
+    it("a voided overhead expense does not count", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+
+      const overheadExpenseId = newId();
+      await db.insert(expense).values({
+        id: overheadExpenseId,
+        businessId,
+        category: "other",
+        amountMinor: 4_400n,
+        spentOn: "2026-07-05",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(overheadExpenseId);
+
+      const managerToken = await signAccessToken(
+        (await mintUser(db, ctx, businessId, "owner_manager")).asgardeoSub,
+      );
+      const voidRes = await request(`/api/expense/${overheadExpenseId}/void`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(managerToken).headers },
+        body: JSON.stringify({ reason: "Duplicate entry" }),
+      });
+      expect(voidRes.status).toBe(200);
+
+      const res = await getReport(`/overheads?periodId=${periodId}`, ownerToken);
+      expect(res.status).toBe(200);
+      const body: { totalMinor: string } = await res.json();
+      expect(body.totalMinor).toBe("0");
+
+      await ctx.cleanup();
+    });
+
+    it("404 — no such accounting period in this business", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/overheads?periodId=${PLACEHOLDER_UUID}`, token);
+      expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+
+    it("404 — the accounting period belongs to another business", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+      const otherPeriodId = await ctx.createOpenPeriod(otherBusinessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/overheads?periodId=${otherPeriodId}`, token);
+      expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+  });
+
   describe("trip ranking (UC-71)", () => {
     it("happy path — ranked by profit; profit-per-km is null with no closing odometer", async () => {
       const ctx = new TestContext(db);
@@ -579,6 +714,74 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("GAP-72: an adjustment given late on the last day of the window is included, not silently dropped", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 10_000n,
+      });
+
+      // 8pm Colombo (Asia/Colombo, UTC+5:30) on 30 June — comfortably
+      // within the window's own last day, but 14:30 UTC: a bare
+      // `created_at <= '2026-06-30'` compares against UTC midnight and
+      // excludes anything recorded after it, dropping this one.
+      await ctx.createAdjustment(businessId, periodId, obligationId, {
+        adjustmentType: "waiver",
+        amountMinor: 2_000n,
+        sign: -1,
+        createdAt: "2026-06-30T20:00:00+05:30",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/goodwill?from=2026-06-01&to=2026-06-30", token);
+      expect(res.status).toBe(200);
+      const body: { totalMinor: string } = await res.json();
+      expect(body.totalMinor).toBe("2000");
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-72: a waiver given just after midnight Colombo time counts toward its own business day, not the UTC day it lands on", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 10_000n,
+      });
+
+      // 2am Colombo on 1 January 2026 is 20:30 UTC on 31 December 2025 —
+      // a bare `created_at >= '2026-01-01'` compares against UTC midnight
+      // and excludes this from a report windowed on the business's own
+      // 2026, even though the waiver was given on 1 January in Colombo.
+      await ctx.createAdjustment(businessId, periodId, obligationId, {
+        adjustmentType: "goodwill",
+        amountMinor: 3_000n,
+        sign: -1,
+        createdAt: "2026-01-01T02:00:00+05:30",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/goodwill?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      const body: { totalMinor: string } = await res.json();
+      expect(body.totalMinor).toBe("3000");
+
+      await ctx.cleanup();
+    });
   });
 
   describe("utilisation (UC-79, owners only)", () => {
@@ -647,6 +850,7 @@ describe("reports (P11)", () => {
   describe("access boundary — every report", () => {
     const staffGated = [
       `/vehicle-month?periodId=${PLACEHOLDER_UUID}`,
+      `/overheads?periodId=${PLACEHOLDER_UUID}`,
       "/trips",
       `/fuel-efficiency?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-01&to=2026-07-31`,
       "/receivables",

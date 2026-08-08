@@ -539,6 +539,8 @@ export class TestContext {
         | "extra_charge";
       amountMinor?: bigint;
       sign?: 1 | -1;
+      /** GAP-72's own boundary tests — the column defaults to `now()`, which cannot land on the edge of a report window on demand. */
+      createdAt?: string;
     } = {},
   ): Promise<string> {
     const id = newId();
@@ -550,6 +552,7 @@ export class TestContext {
       amountMinor: overrides.amountMinor ?? 1_000n,
       sign: overrides.sign ?? -1,
       postedPeriodId: periodId,
+      ...(overrides.createdAt !== undefined ? { createdAt: overrides.createdAt } : {}),
     });
     this.track(async () => {
       await this.#db.delete(adjustment).where(eq(adjustment.id, id));
