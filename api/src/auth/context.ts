@@ -1,7 +1,7 @@
 import type { Context } from "hono";
 import type { Env } from "../types.js";
 import { ForbiddenCapabilityError } from "../errors/app-error.js";
-import { can, type Capability } from "./policy.js";
+import { can, type Capability, type Role } from "./policy.js";
 
 /**
  * `businessId`/`driverId` are optional on `Variables` because they are
@@ -23,6 +23,13 @@ export function requireUserId(c: Context<Env>): string {
   const userId = c.get("userId");
   if (!userId) throw new Error("userId is not set — is authMiddleware mounted on this route?");
   return userId;
+}
+
+/** UI §1.1: the role `authMiddleware` resolved, for a handler that needs the value itself rather than just a yes/no capability check (`requireCapability` below). */
+export function requireRole(c: Context<Env>): Role {
+  const role = c.get("role");
+  if (!role) throw new Error("role is not set — is authMiddleware mounted on this route?");
+  return role;
 }
 
 export function requireDriverId(c: Context<Env>): string {

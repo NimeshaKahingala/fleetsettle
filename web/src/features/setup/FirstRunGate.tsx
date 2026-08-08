@@ -1,28 +1,21 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { BusinessResponse, RedeemInviteResponse } from "@fleetsettle/shared/schemas";
+import type {
+  BusinessResponse,
+  MeResponse,
+  RedeemInviteResponse,
+} from "@fleetsettle/shared/schemas";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
-import { NotBuiltYetScreen } from "../../app/NotBuiltYetScreen.js";
-
-/**
- * `/api/me`'s actual shape (`api/src/routes/me.ts`) — a plain Hono route
- * with no `route-defs`/shared schema of its own yet, unlike every other
- * resource, so this stays local to the one screen that consumes it rather
- * than living in `@fleetsettle/shared` alongside schemas an unrelated
- * route-def actually validates against.
- */
-interface MeResponse {
-  userId: string;
-  businessId: string;
-  role: "owner" | "owner_manager" | "manager" | "driver";
-  driverId?: string;
-}
 
 export interface FirstRunGateProps {
-  /** Rendered once `/api/me` resolves to `owner_manager`/`manager` (UI §1.1). */
+  /** Rendered once `/api/me` resolves to `owner_manager`/`manager` (UI §1.1, M-3: the owner-manager is never routed into Review). */
   renderOperate: () => React.ReactNode;
+  /** B0b: rendered for `owner` — the Review shell, its own component tree (§7.9). */
+  renderReview: () => React.ReactNode;
+  /** B0b: rendered for `driver` — the Mine shell, its own component tree, no tab bar. */
+  renderMine: () => React.ReactNode;
 }
 
 /**
@@ -39,11 +32,13 @@ export interface FirstRunGateProps {
  * cosmetic difference. One honest screen — create a business, or redeem a
  * code someone already gave you — serves both.
  *
- * Role → shell per UI §1.1: `owner_manager`/`manager` get the Operate shell
- * (built this phase); `owner`/`driver` get Review/Mine, which render a
- * placeholder until Web-P9/P10 build them.
+ * Role → shell per UI §1.1: `owner_manager`/`manager` get Operate, `owner`
+ * gets Review, `driver` gets Mine (B0b) — three shells, never a fourth
+ * (M-3), and never a role switcher (TRACKER.md's A11 access-design pass:
+ * cosmetic if the audit row agrees regardless, ambiguous "who did this" if
+ * it doesn't — the last field to make ambiguous in a ledger).
  */
-export function FirstRunGate({ renderOperate }: FirstRunGateProps) {
+export function FirstRunGate({ renderOperate, renderReview, renderMine }: FirstRunGateProps) {
   const api = useApi();
   const queryClient = useQueryClient();
 
@@ -112,6 +107,6 @@ export function FirstRunGate({ renderOperate }: FirstRunGateProps) {
 
   const { role } = meQuery.data;
   if (role === "owner_manager" || role === "manager") return <>{renderOperate()}</>;
-  if (role === "owner") return <NotBuiltYetScreen title="Review" />;
-  return <NotBuiltYetScreen title="Mine" />;
+  if (role === "owner") return <>{renderReview()}</>;
+  return <>{renderMine()}</>;
 }

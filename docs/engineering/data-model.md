@@ -1,7 +1,7 @@
 # Data Model
 
-**Status:** v1.1 — A11/W-57: `business_member`'s pair-unique made partial (GAP-52), an explicit audit trigger (GAP-53), `business_member_invite`, and INV-31 (a business always keeps an active owner)
-**Date:** 7 August 2026
+**Status:** v1.1.1 — §15's UC-78 block records that the shipped ageing query buckets in the Worker, not in the `CASE` this document specifies. No schema, constraint or behaviour change; the §16.1 fixtures are untouched
+**Date:** 8 August 2026
 **Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.4
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
@@ -1496,7 +1496,17 @@ SELECT party_type, party_id, bucket, SUM(outstanding_minor) AS outstanding_minor
 
 `effective_due_on` rather than `due_on` is UC-78's other rule in one column: a driver who settles every Friday by agreement is not overdue on Thursday.
 
-`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and tech-stack.md §5 already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
+`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and `TS §5` already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
+
+**⚑ The SQL above specifies the bucketing rule; the shipped implementation applies it in the Worker.** `listAgeingBuckets` (`api/src/queries/reports.ts`, P11) selects the raw obligation rows and buckets them in application code rather than in a `CASE`. Recorded here rather than corrected, on the same reasoning §1.1 uses in the other direction: **§1.1's argument is that a rule guarded in application memory is forgotten in the next code path — which applies to a rule that *constrains a write*, not to a projection computed inside one read.** No second code path can bypass this one, and rewriting working money code to match a document is the riskier of the two directions available.
+
+Three things this note exists to prevent, in order of likelihood:
+
+- **Someone "fixing" the divergence by rewriting the query.** The three rules above — per-obligation bucketing, `effective_due_on`, the passed-in business date — are all satisfied by the implementation. There is no defect here to fix.
+- **Someone assuming the boundary arithmetic is equally safe in either language.** It is correct today because both operands arrive as bare `YYYY-MM-DD` strings and therefore parse identically; it would stop being correct the moment a timestamp reaches either side. The SQL form has no such failure mode, which is why it remains the specification.
+- **Forgetting the scale caveat.** This reads every open obligation into the Worker before bucketing. That is nothing at the few hundred rows a business of this size carries, and it is the first query in §15 that would need to become real SQL if that ever changed — the index in §8 supports either form.
+
+Found by the `B4-REPORTS-DESIGN.md` verification pass, 7 August 2026, which had cited the document's own SQL as evidence that bucketing happens in Postgres.
 
 **UC-56 the driver's two balances, unmerged**
 
@@ -1729,7 +1739,15 @@ When a decision changes: update the use cases, update the flows, update §14 and
 
 ---
 
-## 19. What changed in v1.1
+## 19. What changed
+
+### v1.1.1 — 8 August 2026
+
+One note, no schema change. **§15's UC-78 ageing block now records that `listAgeingBuckets` applies the bucketing rule in application code rather than in the `CASE` expression printed there.** The implementation satisfies all three of the block's stated rules — per-obligation bucketing, `effective_due_on`, the passed-in business date — so this is a divergence in *form*, not in behaviour, and the note says so explicitly to stop it being "fixed."
+
+Recorded because the divergence was found by someone citing this document's SQL as evidence of what the code does (`B4-REPORTS-DESIGN.md`, 7 Aug). **An owning document describing a query the code does not run is a trap regardless of which one is right** — this document stays the specification, and now says which part of it is executed where. None of §16.1's three fixtures move; no invariant, index or constraint changes.
+
+### v1.1
 
 Driven by `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (W-57, A11 — member and driver access). None of it touches a money table, so none of §16.1's three fixtures move.
 

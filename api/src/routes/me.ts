@@ -1,20 +1,17 @@
-import { Hono } from "hono";
+import { OpenAPIHono } from "@hono/zod-openapi";
+import { zodValidationHook } from "../errors/openapi-hook.js";
+import { getMeHandler } from "../handlers/me.js";
+import { getMeRoute } from "../route-defs/me.js";
 import type { Env } from "../types.js";
 
 /**
- * The identity the frontend needs for role → shell selection (P1 Frontend,
- * UI §3.1's tab bars differ by role) — and the natural happy-path target for
- * the auth-boundary test matrix (TRACKER.md P1 "Done means"). Mounted behind
- * `dbMiddleware` + `authMiddleware`, so reaching the handler at all already
- * proves the token verified and resolved to a business.
+ * B0b: promoted from a plain Hono route to a route-def, so `meResponseSchema`
+ * lives in `@fleetsettle/shared` instead of `FirstRunGate`'s own local
+ * interface — the one documented exception that stopped holding once B3 and
+ * B4 both needed the same shape too. Wiring only (IG §3.2 step 7), mounted
+ * behind `dbMiddleware` + `authMiddleware` in index.ts.
  */
-export const me = new Hono<Env>().get("/", (c) => {
-  const role = c.get("role");
-  const driverId = c.get("driverId");
-  return c.json({
-    userId: c.get("userId"),
-    businessId: c.get("businessId"),
-    role,
-    ...(driverId ? { driverId } : {}),
-  });
-});
+export const me = new OpenAPIHono<Env>({ defaultHook: zodValidationHook }).openapi(
+  getMeRoute,
+  getMeHandler,
+);

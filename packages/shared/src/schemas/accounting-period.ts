@@ -5,6 +5,7 @@ export const accountingPeriodSummarySchema = z.object({
   periodStart: z.string(),
   periodEnd: z.string(),
 });
+export type AccountingPeriodSummary = z.infer<typeof accountingPeriodSummarySchema>;
 
 /** F-9.1 step 1/UC-98/UI §7.7: warns and lists, never blocks (U-7). Counts only — see `queries/accounting-period.ts`'s own doc comment for exactly what each one scopes to. `unconfirmedDays` is UI §7.7's first row (GAP-13, A3); it under-reports honestly if `generate-day-cards` hasn't run for a date yet, which is what U-7 permits. */
 export const closeChecklistSchema = z.object({
@@ -19,17 +20,20 @@ export const closeChecklistSchema = z.object({
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
   openIncidents: z.number().int().nonnegative(),
 });
+export type CloseChecklist = z.infer<typeof closeChecklistSchema>;
 
 export const closeChecklistResponseSchema = z.object({
   period: accountingPeriodSummarySchema,
   checklist: closeChecklistSchema,
 });
+export type CloseChecklistResponse = z.infer<typeof closeChecklistResponseSchema>;
 
 export const closeAccountingPeriodResponseSchema = z.object({
   closedPeriod: accountingPeriodSummarySchema,
   newPeriod: accountingPeriodSummarySchema,
   checklist: closeChecklistSchema,
 });
+export type CloseAccountingPeriodResponse = z.infer<typeof closeAccountingPeriodResponseSchema>;
 
 /** A3: "which months are closed" — this business's whole period history, newest first. */
 export const accountingPeriodListRowSchema = z.object({

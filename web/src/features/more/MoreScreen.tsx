@@ -1,5 +1,7 @@
-import { LogOut } from "lucide-react";
+import { CalendarCheck, LogOut, Wallet } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "@tanstack/react-router";
+import { Can } from "../../components/Can.js";
 import { Card } from "../../design/primitives/Card.js";
 import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Screen } from "../../design/primitives/Screen.js";
@@ -9,23 +11,56 @@ import { useAuthActions } from "../../lib/AuthActionsContext.js";
 /**
  * §3.1's `/more` hub (GAP-37) — the only door §3.3 gives to `/cash`,
  * `/partners/:id`, `/reports` and `/period/close`. **Rows for what exists
- * only**: a row leading to `NotBuiltYetScreen` is worse than no row, so this
- * renders just sign-out today. Reports appears when B4 lands, Cash when B2
- * does, Close the month when B3 does — and per M-22/W-49, that last row
- * must be **absent** for a `manager` role, never merely disabled.
+ * only**: a row leading to `NotBuiltYetScreen` is worse than no row.
+ * Opening balances (B12, GAP-61) and Close the month (B3) are the two rows
+ * past sign-out so far; Reports appears when B4 lands, Cash when B2 does —
+ * and per M-22/W-49, a row gated on a capability the current role lacks
+ * must be **absent**, never merely disabled, which is what `<Can>` gives
+ * for free rather than a hand-rolled role check per row. Close the month
+ * is the row M-22 was written for by name: a `manager` must not see the
+ * door, the same rule `CloseMonthScreen`'s own close action enforces
+ * again once inside — belt and braces, not redundant, since a direct URL
+ * visit bypasses this row entirely.
  *
- * The confirm below is a `Sheet`, not `Dialog` — `Dialog` is reserved for
- * INV-1, INV-17 and M-10's three irreversible-action call sites, and
+ * The sign-out confirm is a `Sheet`, not `Dialog` — `Dialog` is reserved
+ * for INV-1, INV-17 and M-10's three irreversible-action call sites, and
  * signing out is neither destructive nor one-way (§6.1: "Everything else is
  * a `Sheet`").
  */
 export function MoreScreen() {
   const { signOut } = useAuthActions();
+  const navigate = useNavigate();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   return (
     <Screen title="More">
       <div className="flex flex-col gap-2">
+        <Can cap="manageOpeningBalances">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/opening-balances" })}
+            className="w-full text-left"
+          >
+            <Card className="flex items-center gap-3">
+              <Wallet className="size-5 text-ink-secondary" aria-hidden />
+              <span className="text-body text-ink-primary">Opening balances</span>
+            </Card>
+          </button>
+        </Can>
+
+        <Can cap="closePeriod">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/period/close" })}
+            className="w-full text-left"
+          >
+            <Card className="flex items-center gap-3">
+              <CalendarCheck className="size-5 text-ink-secondary" aria-hidden />
+              <span className="text-body text-ink-primary">Close the month</span>
+            </Card>
+          </button>
+        </Can>
+
         <button type="button" onClick={() => setConfirmOpen(true)} className="w-full text-left">
           <Card className="flex items-center gap-3">
             <LogOut className="size-5 text-ink-secondary" aria-hidden />

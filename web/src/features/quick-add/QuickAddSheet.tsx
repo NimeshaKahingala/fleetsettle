@@ -26,12 +26,16 @@ export interface QuickAddSheetProps {
  * Payment received (F-2.2) already has a real flow, but a lease-scoped one
  * (`CollectPaymentSheet`, reached from a lease's own hub) — this sheet has
  * no lease in scope to open it against, and building a business-wide
- * party/lease picker is real, separate work. Payment made (F-6.1, "pay the
- * driver") has no frontend anywhere yet — not even from a driver's own
- * page. Both are deliberately left off the rendered list rather than
- * wired to a dead tap: `ActionSheet` renders exactly the list it is
- * given and never filters on its own, so growing this list later (as
- * each flow gets built) is a one-line addition here, not a rework.
+ * party/lease picker is real, separate work. **Payment made (F-6.1, "pay
+ * the driver") now has a real frontend too (B13, `PayDriverSheet`) — from
+ * a driver's own page, `DriverDetailScreen`'s "Driver money" action, not
+ * from here.** The same reason keeps it off this sheet's own list: no
+ * driver is in scope at this tap, and a business-wide driver picker is the
+ * identical "real, separate work" the payment-received case already
+ * declined. Both deliberately left off the rendered list rather than wired
+ * to a dead tap: `ActionSheet` renders exactly the list it is given and
+ * never filters on its own, so growing this list later (a driver picker,
+ * if one is ever built) is a one-line addition here, not a rework.
  */
 export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAddSheetProps) {
   const api = useApi();
