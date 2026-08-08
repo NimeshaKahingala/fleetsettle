@@ -135,7 +135,12 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
         <span className="text-caption text-ink-muted">
           {OBLIGATION_STATUS_LABEL[receivable.status] ?? receivable.status}
         </span>
-        <Money value={parse(receivable.settledMinor)} />
+        {/* GAP-75: the amount owed, not what's been collected so far —
+            `settledMinor` is 0 for every pending receivable by definition,
+            which read as "nothing due" regardless of the real figure.
+            `LeaseHubScreen.tsx`'s identical `leaseObligationRowSchema` row
+            renders `amountMinor` for the same reason; mirrored here. */}
+        <Money value={parse(receivable.amountMinor)} />
       </div>
     ) : (
       <Money value={ZERO} />

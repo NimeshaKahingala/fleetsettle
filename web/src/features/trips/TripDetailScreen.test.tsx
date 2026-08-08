@@ -116,7 +116,10 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
 
   expect(await screen.findByText(/Kandy/)).toBeInTheDocument();
   expect(await screen.findByText(/Perera Tours/)).toBeInTheDocument();
-  expect(screen.getByText("Rs 60,000")).toBeInTheDocument();
+  // Agreed and Received/Due both read 60,000 here — nothing has been
+  // collected against a pending receivable, so both figures are genuinely
+  // the same number (GAP-75: Received shows the amount owed, not settled).
+  expect(screen.getAllByText("Rs 60,000")).toHaveLength(2);
   // Costs so far excludes the voided toll — fuel (22,000) alone, so the
   // running total and the one contributing item show the same figure.
   expect(screen.getAllByText("Rs 22,000")).toHaveLength(2);
@@ -134,10 +137,10 @@ test("GAP-57 — Received shows the real trip_fare receivable, and Advance to hi
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
 
   expect(await screen.findByText("Received")).toBeInTheDocument();
-  // Nothing has been collected yet — `settledMinor` is 0, not the agreed
-  // 60,000 (already asserted separately above): "Received" answers "how
-  // much has come in", never "how much was agreed".
-  expect(screen.getByRole("button", { name: /Due.*Rs 0/ })).toBeInTheDocument();
+  // GAP-75: the row shows the amount owed (60,000), not what's settled so
+  // far (0 for a pending receivable, by definition) — a fully-unpaid trip
+  // must read as 60,000 due, not as nothing owed.
+  expect(screen.getByRole("button", { name: /Due.*Rs 60,000/ })).toBeInTheDocument();
   expect(screen.getByText("Advance to him")).toBeInTheDocument();
   expect(screen.getByText(/no advance list read exists yet/)).toBeInTheDocument();
 });
@@ -147,7 +150,7 @@ test("GAP-57 — tapping the outstanding Received row opens the collect-payment 
   const get = baseGet();
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
 
-  await user.click(await screen.findByRole("button", { name: /Due.*Rs 0/ }));
+  await user.click(await screen.findByRole("button", { name: /Due.*Rs 60,000/ }));
   expect(await screen.findByText("Collect payment")).toBeInTheDocument();
 });
 
