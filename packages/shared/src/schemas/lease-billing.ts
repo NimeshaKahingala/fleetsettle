@@ -78,13 +78,17 @@ export const renewLeaseRequestSchema = z.object({
 export type RenewLeaseRequest = z.infer<typeof renewLeaseRequestSchema>;
 
 /**
- * F-2.2/UC-11: a generic payment against a party's outstanding
- * `owed_to_us` obligations, oldest-`due_on`-first (§6.5) — the same
- * allocation discipline the driver side already uses, generalised to
- * whichever party actually owes (customer here; a driver's daily short-fall
- * is F-4's own confirm-day path, not this one).
+ * F-2.2/UC-11 and F-6.1/UC-50 (GAP-63): a generic payment against a party's
+ * outstanding obligations in one direction, oldest-`due_on`-first (§6.5).
+ * `direction` defaults to `received` (money coming in, F-2.2's own shape,
+ * unchanged for every existing caller) — `paid` is money going out, settling
+ * `owed_by_us` instead, the shape F-6.1 needs for a trip fee or a no-trip
+ * retainer/bonus/goodwill payment to a driver. Never both directions in one
+ * call — `createOffset` (F-6.4/W-2/INV-3) is the one explicit action allowed
+ * to move both of a driver's balances at once.
  */
 export const recordPaymentRequestSchema = z.object({
+  direction: z.enum(["received", "paid"]).default("received"),
   partyType: z.enum(["customer", "driver", "partner"]),
   partyId: uuidSchema,
   amountMinor: moneyWireSchema.refine((v) => v > 0n, {

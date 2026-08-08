@@ -197,6 +197,70 @@ describe("record a payment (P5, F-2.2/UC-11)", () => {
     await ctx.cleanup();
   });
 
+  it("F-6.1/GAP-63 — direction: 'paid' settles what we owe the driver, never what he owes us", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    // He owes us (a short day) — must stay untouched by a "paid" payment.
+    const owedToUs = await ctx.createObligation(businessId, periodId, {
+      direction: "owed_to_us",
+      driverId,
+      amountMinor: 30_000n,
+      dueOn: "2026-07-10",
+    });
+    // We owe him (a trip fee) — this is what "pay the driver" settles.
+    const owedByUs = await ctx.createObligation(businessId, periodId, {
+      direction: "owed_by_us",
+      driverId,
+      kind: "driver_fee",
+      amountMinor: 90_000n,
+      dueOn: "2026-07-12",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPayment(token, {
+      direction: "paid",
+      partyType: "driver",
+      partyId: driverId,
+      amountMinor: "90000",
+      occurredOn: "2026-07-15",
+    });
+    expect(res.status).toBe(201);
+    const body: PaymentResponseBody = await res.json();
+    expect(body.allocations).toEqual([{ obligationId: owedByUs, amountMinor: "90000" }]);
+    expect(body.allocations.map((a) => a.obligationId)).not.toContain(owedToUs);
+    expect(body.unallocatedMinor).toBe("0");
+    ctx.trackCreatedPayment(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("F-6.1 — a 'paid' payment with nothing owed is held entirely as unallocated (a no-trip retainer or bonus)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPayment(token, {
+      direction: "paid",
+      partyType: "driver",
+      partyId: driverId,
+      amountMinor: "15000",
+      occurredOn: "2026-07-15",
+    });
+    expect(res.status).toBe(201);
+    const body: PaymentResponseBody = await res.json();
+    expect(body.allocations).toEqual([]);
+    expect(body.unallocatedMinor).toBe("15000");
+    ctx.trackCreatedPayment(body.id);
+
+    await ctx.cleanup();
+  });
+
   it("409 — a closed accounting period rejects the write", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

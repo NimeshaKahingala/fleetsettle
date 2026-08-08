@@ -76,6 +76,7 @@ export const recordPaymentHandler: RouteHandler<typeof recordPaymentRoute, Env> 
 
   const result = await recordPayment(c.get("writer"), {
     businessId,
+    direction: body.direction,
     partyType: body.partyType,
     partyId: body.partyId,
     amountMinor: body.amountMinor,
