@@ -127,6 +127,14 @@ So the only role obtainable through the product was the one role with no interfa
 
 **Everything left on Track A writes, migrates, or both.** A6–A10 were re-validated against the code on 5 August; three of the five were wrong in ways that matter and one new item came out of it — the findings are below the Track A table. Track A's read backlog is finished and every handoff to Track B has happened (A2 → B2, A3 → B3, A4 → B6, A5 → B5+), so **the two tracks are now fully independent.** Nothing in Track B waits on Track A at all.
 
+**Updated 8 August 2026 — the merge is done, and the flow-inventory audit this document itself called for on 7 August has run.** `build/p0-foundation` → `develop` landed (PR #10, `3794e93`); every environment-dependent fix through A12 is now verifiable on QA. The audit — every phase-1 flow checked against `ui-ux-guidelines.md` and `web/src` at once, rather than screen by screen — found **nine gaps neither tracker had recorded**, full account in `FLOW-INVENTORY-AUDIT.md` and TRACKER.md §4 (GAP-61 through GAP-69). Two are new items sized large enough to matter on their own: **B12** (F-0.2, opening balances — no screen exists, and it is the flow that makes a real business's first month honest) and **B13** (F-6.1/F-6.3/F-6.7 bundled — pay the driver, record an advance, record a deposit, three write endpoints with no caller, one of them self-documented as missing in the code). Two more are small Track A items pairing with existing ones — **A14** (F-6.6's signed share-link mechanism) and **A15** (F-4.7, changing a daily lease's driver). The rest fold into existing items' checklists (B2 gains a mileage-package screen and a payout screen) or stay correctly unscheduled (GAP-68). **The order below is re-sequenced to carry all of it** — B12 and B13 both queue ahead of B3, reasoned through in "Two orderings worth arguing with."
+
+**0.2 — the B4 scope decision — is resolved (7–8 August).** `B4-REPORTS-DESIGN.md` is now a second edition carrying **eleven decisions**, and B4's entries below are updated to match. The three that change this plan:
+
+- **B4 builds the phase-1 six, not nine** — UC-70, 71, 72, 74, 75, 76. FL §9.2's report catalogue table carries an explicit per-row **Phase** column tagging UC-73/77/78/79 as phase 2, and `use-cases.md` §9.1 and UI §15 both agree. P11 built ahead of the phase gate; this plan's B4 title inherited the endpoint count as if it were a scope. **Backend existence is not phase ownership** — and two of the three excluded reports (UC-77, UC-79) cannot satisfy their own use case today at any phase.
+- **Four new gaps, GAP-70…73**, all report-contract findings and all in TRACKER §4. Two are **phase-1** reports whose backends are incomplete against their own spec (GAP-70 cash position, GAP-71 lost-day reasons) and gate B4's Wave 2. **GAP-72 is a live wrong number in deployed code** and waits on nothing.
+- **B4 sequences in two waves, cut by contract completeness rather than by surface.** The review proposed a Review-core / catalogue split; that puts the blocked work first, because the Review shell's headline tab is the part gated on GAP-41 while two catalogue reports are unblocked today. Wave 1 ships everything that is true now; Wave 2 follows the Track A increments.
+
 ---
 
 ## The order, end to end
@@ -139,8 +147,8 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 
 | | Order | Note |
 |---|---|---|
-| **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A8 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A8/A7 are all free, A9b last |
-| **Track B** | ~~B0~~ → ~~B11~~ → ~~B10~~ → **B0b** → B3 → B4 → B5 → B6 → B2 → B9 → B7 | **B11 and B10 both done 7 Aug**, which clears everything the live session found. **B0b is first again** and still gates B3, B4 and B5; B6, B2 and B9 need neither it nor anything on Track A, so they can go any time; B7 last |
+| **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A13 → A15 → A8 → A14 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A13/A15/A8/A14/A7 are all free, A9b last |
+| **Track B** | ~~B0~~ → ~~B11~~ → ~~B10~~ → **B0b** → B12 → B13 → B3 → B4 → B5 → B6 → B2 → B9 → B7 | **B11 and B10 both done 7 Aug**, which clears everything the live session found. **B0b is first again** and still gates B3, B4, B5 and B12; B13, B6, B2 and B9 need neither it nor anything on Track A, so they can go any time; B7 last |
 
 ### One person, one queue
 
@@ -158,16 +166,20 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 7 | ~~**B10** · Set up the daily lease (F-1.7)~~ | **M** | ✅ **Done 7 Aug 2026.** Closed GAP-51. Originally: **GAP-51.** No screen anywhere creates a `daily_lease` — confirmed live and by `grep`; never even wireframed in `ui-ux-guidelines.md`. Blocks arrangement B, the daily-lease model this project's own running example (the bus) runs on, where the driver pays you (UC §1.2), from being usable by anyone. Backend's been ready since P2/P5 (`startDailyLeaseRoute`, a complete request schema). **Outranks A11**: A11 blocks two roles from existing, this blocks the one role that already works from doing its job |
 | 8 | ~~**A11** · member and driver access~~ | **L** | ✅ **Done 7 Aug 2026.** Migration `0010` (GAP-52, GAP-53, `business_member_invite`, INV-31) + six endpoints (invite/revoke/change-role, one shared redeem, driver link-invite/unlink). 39 new integration tests, 32 files/406 green. `FirstRunGate` offers redeeming a code. Originally: no second partner, no manager, no linked driver could exist — `business-member` was GET-only and `driver.linked_user_id` was never written. **B4 and B5 still build the shells those roles land on** — A11 only got them an account, not a screen |
 | 8a | ~~**A12** · the borne-by date bug (GAP-56) + the trip-receivable UI (GAP-57)~~ | **S–M** | ✅ **Done 7 Aug 2026.** `resolveBorneByDefault` now resolves arrangement, active lease and active daily lease as of `spentOn`; `TripDetailScreen`'s "Received" row shows the real `trip_fare` state and opens the same `CollectPaymentSheet` a lease's dues use (generalised off `leaseId` to `onCollected`, since the write was always party-level). 4 + 5 new integration tests, 4 new/updated web tests, `npm run check` clean — full account in TRACKER.md. Originally: GAP-56 was the one genuinely new *money* defect either review produced — a back-dated cost landed on whoever holds the vehicle today, reachable with one lease and no party change; GAP-57 rode along because A6 left `TripDetailScreen` actively denying a receivable the ledger already carried |
-| 9 | **B0b** · three shells + capability gate | S | **Now the actual gate.** B3, B4 and B5 all need it and none owns it — the same situation that made B0 its own item. A11's newly-reachable `owner`/`driver` accounts have nowhere to land until this exists. **Carries a new constraint since A11: do not invite a `manager` to a real business until GAP-1 is scoped** — a manager can be created now and reads the whole business's reports |
+| 9 | **B0b** · three shells + capability gate | S | **Now the actual gate.** B3, B4, B5 and B12 all need it and none owns it — the same situation that made B0 its own item. A11's newly-reachable `owner`/`driver` accounts have nowhere to land until this exists. **Carries a new constraint since A11: do not invite a `manager` to a real business until GAP-1 is scoped** — a manager can be created now and reads the whole business's reports |
+| 9a | **B12** · opening balances (F-0.2, GAP-61) | **L** | **New, 8 Aug — flow-inventory audit.** Backend has been ready since P2 (`opening-balance` route-def: `PUT`/`GET`/`POST .../commit`); no screen anywhere calls it, and no wireframe exists. **Ahead of B3 deliberately**: the flow's own text is "without this flow the first month is a lie and the whole ledger inherits it," and a real business going live mid-stream needs to enter opening arrears, dues and cash *before* its first month can honestly close — B3 closing a month with no opening balances entered is the exact failure this item prevents. Needs B0b only for the `<Can>` gate on `manageOpeningBalances` (owners-only); the screen itself is a multi-step draft-then-commit form, sized similarly to B10. See "Two orderings worth arguing with" for the case against this ordering |
+| 9b | **B13** · driver money actions — pay, advance, deposit (F-6.1/F-6.3/F-6.7, GAP-63/64/66) | M | **New, 8 Aug — flow-inventory audit.** Three write endpoints (`POST /api/payment` party-level for a driver, `POST /api/advance`, `POST /api/deposit`) with no caller anywhere, bundled because all three are manager-facing actions off `DriverDetailScreen` and likely share one action-sheet pattern. GAP-63 is self-documented as missing in `QuickAddSheet.tsx`'s own doc comment — the code already knows. No B0b dependency; these are ordinary Operate-role actions |
 | 10 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
-| 11 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. Small — a filter, not an endpoint |
-| 12 | **B4** · Review shell + nine reports | **XL** | The entire product for the partner who reads rather than enters — a real role now, since A11. Nine tested endpoints, no interface. Largest item left; start it once the smaller risks above are gone |
+| 11 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. **Shape decided (8 Aug): a dedicated `GET /api/reports/overheads?periodId=`**, not a tri-state expense filter — "overheads for a period" is report-shaped, and it reuses `sumVehicleCostsForPeriod`'s filter set with `vehicle_id IS NULL`. Needed for B4 **Wave 2**, not Wave 1 |
+| 12 | **B4** · Review shell + phase-1 reports | **L** | The entire product for the partner who reads rather than enters — a real role now, since A11. **Scope settled 8 Aug (0.2): the phase-1 six, not nine** — UC-73/77/78/79 are phase 2 in FL §9.2's own per-row column. Two waves: Wave 1 is the shell, four tabs, the catalogue and the six reports (two of them honestly short); Wave 2 follows GAP-41/70/71. Design and full reasoning in `B4-REPORTS-DESIGN.md`. Still the largest Track B item, but smaller than the XL it was scoped at |
 | 13 | **B5** · Mine shell | M | The entire product for the linked driver — a real role now, since A11. `GET /api/driver-view` has been ready since P12 |
 | 14 | **A10** · the other two silent zeros | M | Management fee (GAP-39) and incident contribution (GAP-10). Wrong numbers, but only for businesses with a managed vehicle or an open incident |
 | 14a | **A13** · change a vehicle's arrangement (F-1.2, GAP-54) | **S–M** | **New, 7 Aug.** A vehicle's arrangement is fixed at creation for life, and the client gates hard on it — a vehicle created as `A` can never book a charter, one created as `B`/`C` can never start a lease. UC-94's own motivating example is exactly that transition, and `use-cases.md` calls it a founding premise §1 relied on and nothing implemented. **Smaller than F-1.2's accept criteria read**: "history keeps its old arrangement" and "a past month's report uses the arrangement in force then" both come free, because **nothing historical reads `vehicle_arrangement`** — reports read `vehicle_day_allocation`, borne-by reads active leases, and the only two queries touching the table are the current badge and gating. **One real dependency: moving *off* arrangement B needs GAP-25 first** (nothing ever ends a `daily_lease`), so B→A/C is blocked until that exists; A→anything is fine, since F-2.6 closes leases. Sits here rather than higher because it is a wall you meet the first time a vehicle changes purpose, not one you are standing at today |
+| 14b | **A15** · change a daily lease's driver (F-4.7, GAP-62) | S–M | **New, 8 Aug — flow-inventory audit.** No backend endpoint exists at all — `dailyLease.ts` has only list/start/get — so this is a real Track A item, not a client gap. Paired here with A13: same shape (a fixed-at-creation field with no update path), same severity (a wall met on the first driver swap, not one anyone is standing at yet). **Long downtime already has a workaround per F-4.7's own accept criteria** (assign a spare vehicle, or pay a retainer with no trip attached, F-6.1) — this closes the direct path, not a blocked one |
 | 15 | **B9** · `UI-UX-REVIEW.md` fixes | M | GAP-44–48: no blocking `Dialog` for INV-1, trip-title truncation, calendar cells fail a screen reader, M-26 landscape wholly unbuilt, M-11's undo toast has no host. Plus **GAP-55** (7 Aug, live): the "Add a driver" form's Name field has no `autocomplete` attribute — small, same bucket. Independent — no blockers, blocks nothing — but two are real WCAG obligations (§10), not polish |
 | 16 | **B6** · customer detail | S | A4 shipped both reads; this is the party-scoped twin of a screen that already exists. Needs no B0b |
-| 17 | **B2** · partners, banking, cash | M | Six screens, all backed by A2. Needs no B0b |
+| 17 | **B2** · partners, banking, cash | M | **Checklist grew by two, 8 Aug — flow-inventory audit**: a mileage-package create screen (GAP-67 — the write endpoints exist, nothing has ever called them) and a partner-payout screen (GAP-69 — same shape). Otherwise unchanged: six original screens, all backed by A2. Needs no B0b |
+| 17a | **A14** · the printed slip's share link (F-6.6, GAP-65) | M | **New, 8 Aug — flow-inventory audit.** The spec's own "not optional" clause — a signed, expiring, no-login link — has no backend mechanism and no client button anywhere. Ranked below B2 deliberately: it's the larger of the two new Track A items (a signing/expiry scheme is a real security surface, not a form), and F-6.5/F-6.6's read-only content already renders inside `DriverDetailScreen`/B5 — this only adds the *unauthenticated share* half |
 | 18 | **A8** · odometer + borne-by preview | S | Completes a shipped form. Blocks nothing |
 | 19 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product |
 | 20 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints. A batch to grind, not a design problem |
@@ -178,13 +190,15 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 **10 before 12 (B3 before B4).** B3 has a hard date and B4 does not — but B4 is far larger, so starting B4 first risks month end arriving mid-item. If the business is not yet running real months, swap them: B4's value compounds with every day of data it can show. **Both now sit behind B0b either way**, which is small and shared.
 
-**11 is a Track A item inside the Track B queue, deliberately.** GAP-41 is a filter on an existing endpoint, but scheduling it on Track A's own list would put it behind A10/A8/A7 and B4 would arrive at the overheads block with nothing to call. It is listed where its consumer needs it, not where its code lives.
+**11 is a Track A item inside the Track B queue, deliberately.** GAP-41 is a small report endpoint, but scheduling it on Track A's own list would put it behind A10/A8/A7 and B4 would arrive at the overheads block with nothing to call. It is listed where its consumer needs it, not where its code lives. **GAP-70 and GAP-71 sit the same way** — both are Track A report-query work that only B4 Wave 2 consumes, and both need a `doc-change` (DM §15, UI §11.1) before their query moves. **GAP-72 is the exception: it belongs to neither queue's ordering.** It is a wrong number in code that is deployed and callable today, it is one predicate, and nothing in B4 renders it — so it goes whenever someone is next in `queries/reports.ts`, not when its screen arrives.
 
 **19 low (A7).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
 
 **6 and 7 (B11, B10) jumped ahead of A11, which itself was the top of the queue as of yesterday.** The reasoning is a straight severity comparison, not a change of philosophy: A11's absence means two roles have no possible user, which is severe but static — it has been true since before A0 and nothing makes it worse by waiting a few more items. GAP-49/50/51's absence means the **one role that already works is actively broken today**, in production-adjacent QA, for anyone who opens the app in dark mode or tries to run a bus on a daily-fee driver — both ordinary, not edge cases. A live bug in shipped surface outranks a missing plumbing layer for surface that doesn't exist yet, which is the same reasoning that put GAP-3 ahead of A6 on 6 August. **This is now the second time a live/production signal has reordered this queue on arrival** (GAP-3 was the first) — worth noticing as a pattern: nothing about reading source or mocks surfaced either one.
 
 **8a jumps almost everything, and it is the only money defect either external review has produced that this plan did not already have.** The rule this queue has run on since GAP-3 is that live, wrong money on a real person's balance outranks missing surface — GAP-56 is exactly that, it is small, and it is on the path *every* expense takes. It sits behind the two non-code items and B10/B11/A11 only because those are already done; against everything unbuilt it goes first. **A13 (GAP-54) deliberately does not join it**, despite arriving in the same review and the same paragraph of it: a wall you meet when a vehicle changes purpose is a real limitation, but nothing about waiting makes it worse, and no number is wrong while you wait.
+
+**9a/9b (B12, B13) ahead of B3, and it's the least settled call in this pass.** The reasoning is that B3 closing a month is only meaningful once a business's *starting point* is honestly on record, and nothing today can enter one — so a real two-partner business going live mid-stream (the running example CLAUDE.md opens with) hits B12's absence before it ever reaches B3's deadline. B13 rides along because it has the identical shape (no dependency, a core Operate-role gap, self-documented missing in one case) and is smaller. **The counter-argument, stated plainly: B3 has an external deadline and B12/B13 don't** — nothing about waiting makes either one worse, the same test that kept A13 out of 8a's jump. Production currently has zero signups (checked 7 Aug), so there is no live month at risk of closing without opening balances *yet* — but the first one that does sign up needs this before their first month, not after. Swap 9a/9b behind 10 if a live business is closer to month-end than to onboarding when this is next picked up.
 
 **GAP-1 is now the sharpest thing in "correct to leave", and it should probably not stay there.** A11 made a `manager` invitable for the first time, and a manager holds `viewReports` across the whole business against UC-70/71/72's "only shared vehicles". The gap itself has not changed — it is still real design work (which table decides "his" vehicles) — but its *reason for being unscheduled* was reachability, and that expired on 7 August. **It is not scheduled here** because it needs a design decision before it needs a queue slot, and this document should not pretend otherwise; the operational guard in the meantime is one line, recorded against B0b: **do not invite a `manager` to a real business yet.**
 
@@ -193,7 +207,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 ### What is deliberately not in this list
 
 - **P14 messaging** — twelve Meta approvals outstanding. Fire them now regardless; they queue, and `dispatch-messages` plus six templates are unsized work behind a label that says "external" ([TRACKER.md](TRACKER.md) → Blocked).
-- **The 19 gaps in [TRACKER.md](TRACKER.md) §4's "recorded, unowned, and correct to leave"** — each unreachable, unbacked by the schema, or out of scope. Two worth re-reading before a real user arrives: **GAP-25** (nothing ever ends a daily lease — the closing half of the same arrangement B10 starts) and **GAP-1** (per-vehicle capability scoping is a business-wide stand-in — do not build UI implying it exists).
+- **The 18 gaps in [TRACKER.md](TRACKER.md) §4's "recorded, unowned, and correct to leave"** (corrected from a stale 19, 8 Aug — a plain miscount, not a dropped item) — each unreachable, unbacked by the schema, or out of scope. Three worth re-reading before a real user arrives: **GAP-25** (nothing ever ends a daily lease — the closing half of the same arrangement B10 starts), **GAP-1** (per-vehicle capability scoping is a business-wide stand-in — do not build UI implying it exists), and **GAP-68** (F-3.5's predictive maintenance prompt — the base recording action already works; only the "prompt next time" half is missing).
 
 ---
 
@@ -212,7 +226,9 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | **A6** | ✅ The trip receivable | GAP-23 | 0 + a migration | — |
 | **A12** | ✅ **Borne-by by date + the trip receivable's UI** — done 7 Aug | GAP-56 ✅, GAP-57 ✅ | 0 new + 2 changed | — |
 | **A13** | **Change a vehicle's arrangement (F-1.2)** — **new 7 Aug** | GAP-54 | 1 | — |
+| **A15** | **Change a daily lease's driver (F-4.7)** — **new 8 Aug, flow-inventory audit** | GAP-62 | 1 + client action | — |
 | **A10** | The other two silent zeros — **new** | GAP-39, GAP-10 | 0–1 + a generator | — |
+| **A14** | **The printed slip's signed share link (F-6.6)** — **new 8 Aug, flow-inventory audit** | GAP-65 | 1–2 + client | — |
 | **A7** | R2 upload — unblocks five gaps, independent | GAP-16 | 1–2 | B-photos |
 | **A8** | Odometer wiring + borne-by preview, independent | GAP-30, GAP-32 | 1 | — |
 | **A9b** | The rest of soft delete | GAP-12, GAP-36 | ~15 + a migration | — |
@@ -455,9 +471,11 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B0** | ✅ **The `/more` hub** (GAP-37, GAP-40) | — | done 5 Aug 2026 |
 | ~~**B11**~~ | **Structural render fixes** — live-tested 6 Aug, GAP-49/50 | — | ✅ **done 7 Aug 2026** — both closed, plus `color-scheme`, focus restore, and A0's broken typecheck |
 | ~~**B10**~~ | **Set up the daily lease (F-1.7)** — GAP-51 | — | ✅ **done 7 Aug 2026** — arrangement B can be started at last; live confirmation pending the `develop` merge |
-| **B0b** | **The three shells and the capability gate** — found 6 Aug | — | B3, B4 and B5 all need it and none owns it |
+| **B0b** | **The three shells and the capability gate** — found 6 Aug | — | B3, B4, B5 and B12 all need it and none owns it |
+| **B12** | **Opening balances (F-0.2)** — found 8 Aug, flow-inventory audit | B0b (for `<Can>` on `manageOpeningBalances`) | ready behind B0b, ranked ahead of B3 — see "Two orderings worth arguing with" |
+| **B13** | **Driver money actions — pay, advance, deposit** — found 8 Aug, flow-inventory audit | — | ▶ ready now, no B0b needed |
 | **B3** | Close the month, corrections | B0b (for M-22) | ready behind B0b |
-| **B4** | Review shell + nine reports | **B0b** | the largest item left |
+| **B4** | Review shell + phase-1 reports | **B0b** | the largest item left; scope settled 8 Aug |
 | **B5** | Mine shell | **B0b** | ready behind B0b |
 | **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready now, no B0b needed |
 | **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready now, no B0b needed |
@@ -579,15 +597,28 @@ The previous edition named an `ExpenseListScreen` for Web-P8b. **It was not buil
 
 Recorded rather than quietly dropped, so the same screen is not proposed a third time. `GET /api/expense` keeps its own value and its own gap id (GAP-33).
 
-### B4 · The Review shell and nine reports — needs B0b first
+### B4 · The Review shell and phase-1 reports — needs B0b first
 
 **Nine tested endpoints and no interface. The partner whose entire use of this product is reading reports has nothing until this ships** — `FirstRunGate` sends the `owner` role to `NotBuiltYetScreen` today.
 
-**Backend increment: one small one, not none** — the previous edition said none. §7.8's overheads block has no endpoint that can produce it (**GAP-41**, finding 4 above). Everything else is read-only and shipped.
+**Scope settled 8 August (0.2). B4 builds the phase-1 six: UC-70, 71, 72, 74, 75, 76.** FL §9.2's report catalogue carries an explicit per-row **Phase** column tagging UC-73, UC-77, UC-78 and UC-79 as phase 2; `use-cases.md` §9.1 and UI §15 agree. P11 shipped nine endpoints ahead of that gate and this plan's title took the endpoint count for a scope. Two of the three excluded reports cannot satisfy their use case today regardless of phase (UC-77 → GAP-73, UC-79 → GAP-19). **Full design, all eleven decisions and the report-by-report evidence: `B4-REPORTS-DESIGN.md`.**
+
+**Backend increments: five, not one.** §7.8's overheads block still has none (**GAP-41**), and the verification pass found four more — **GAP-70** (cash position loses banked money), **GAP-71** (lost-day reasons, phase 1, and UI §11.1 dropped it too), **GAP-72/73** (goodwill), and **GAP-74**.
+
+**GAP-74 is the one that is in Wave 1, and it is worth reading before scoping this item.** §7.8's "What I'm owed" row is **UC-67's partner balance, all-time** — confirmed by the owner 8 Aug. UC-67's own closing line: *"the passive owner's real question is not 'what did the cars make' but 'what am I owed, and by whom'. §4.5 gives him sixty seconds a month, and **this is the line he actually reads**"* — and §4.5 is §7.8. But `earned.profitShareMinor` is *derived from the open period only* and nothing stores a closed period's share, so `GET /api/partner/{userId}` **cannot produce it**; its own schema comment declines the work as "a different, larger feature". Wave 1 cannot ship §7.8 without its most important row, so the loop over closed periods goes in. A snapshot at period close is the better eventual shape and must not gate it.
+
+**Two waves, cut by contract completeness — not by shell-versus-catalogue.** The design review proposed a Review-core slice then a catalogue slice; that ordering puts the blocked work first, because the Review shell's `This month` tab is what GAP-41 gates while the catalogue's UC-71 and UC-74 are unblocked today.
+
+| Wave | What | Gated on |
+|---|---|---|
+| **1** | Shell routing, four tabs, catalogue, all shared infrastructure, **all six reports** (UC-75 retitled, UC-76 without reasons), `My money`, read-only vehicle screen, `This month` minus overheads, **owner-manager's More → My share** | B0b + **GAP-74** |
+| **2** | Overheads block (GAP-41) · UC-75 completed and retitled back (GAP-70) · UC-76's reason chart (GAP-71) | three Track A increments, two needing a `doc-change` first |
+
+**Two Wave 1 screens ship honestly short, and one of them needs a defensive title.** **UC-75** is titled **"Cash partners are holding"** until GAP-70 lands — `heldMinor = received − banked − advanced` is arithmetically right but the response has no field for either subtrahend, so banked cash leaves the partner figure and appears nowhere; calling that "Where is our cash" is the confident-wrong-number failure W-56 exists to prevent. **UC-76** needs no qualifier — every figure it shows is complete, and the missing piece is a second chart.
 
 **Screens** — `web/src/features/reports/` and `web/src/features/review/`: the Review shell's four tabs, a report catalogue, one screen per report. New routes `/reports`, `/reports/:key`, and whatever the three non-Reports tabs resolve to.
 
-**The nine, with what each one actually needs from the caller.** This is the part "nine tested endpoints, no interface" understates — four of them cannot be fetched from a bare catalogue link, because the endpoint requires parameters the catalogue has to collect first:
+**The nine, with what each one actually needs from the caller** — the three phase-2 rows kept for reference, marked, because whichever item picks them up needs the same table. **Six of the nine, not four, need parameters the catalogue must collect first** (UC-70, 72, 76, 77, 78, 79); the earlier "four" contradicted this table's own rows. Of B4's six, only three need any.
 
 | Report | Endpoint | Caller must supply | Gate | Form (§11.1) |
 |---|---|---|---|---|
@@ -595,30 +626,42 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 | UC-71 trips that made money | `/reports/trips` | — | `viewReports` | Ranked horizontal bar, direct-labelled |
 | UC-72 fuel efficiency | `/reports/fuel-efficiency` | **`vehicleId` + `from` + `to`** | `viewReports` | Line, single series |
 | UC-74 who owes us | `/reports/receivables` | — | `viewReports` | **Table**, not a chart |
-| UC-75 where is our cash | `/reports/cash-position` | — | `viewReports` | Stat tiles + stacked bar (held vs ours) |
-| UC-76 lost days | `/reports/lost-days` | **`from` + `to`** | `viewReports` | Column per month + weekday distribution |
-| UC-77 goodwill given | `/reports/goodwill` | **`from` + `to`** | **`viewOwnerOnlyReports`** | Single number + table by reason |
-| UC-78 ageing | `/reports/ageing` | **`asOfDate`** | `viewReports` | Stacked bar of buckets + table |
-| UC-79 utilisation | `/reports/utilisation` | **`vehicleId` + `from` + `to`** | **`viewOwnerOnlyReports`** | Stacked bar per vehicle |
+| UC-75 **cash partners are holding** | `/reports/cash-position` | — | `viewReports` | Stat tiles + stacked bar (held vs ours) — **retitled until GAP-70** |
+| UC-76 lost days | `/reports/lost-days` | **`from` + `to`** | `viewReports` | Column per month + weekday distribution — **reasons missing, GAP-71** |
+| ~~UC-77 goodwill given~~ *(phase 2)* | `/reports/goodwill` | **`from` + `to`** — a **year**, per UC-77's own first line | **`viewOwnerOnlyReports`** | Single number + table by reason — **not buildable, GAP-73** |
+| ~~UC-78 ageing~~ *(phase 2)* | `/reports/ageing` | **`asOfDate`** | `viewReports` | Stacked bar of buckets + table — the only phase-2 report whose contract is complete |
+| ~~UC-79 utilisation~~ *(phase 2)* | `/reports/utilisation` | **`vehicleId` + `from` + `to`** | **`viewOwnerOnlyReports`** | Stacked bar per vehicle — **endpoint is one vehicle per call**; GAP-19 still open |
 
-**`periodId` comes from `GET /api/accounting-period`** (A3), which is also §7.8's own `July 2026 ▾` picker — one query serving both. **A vehicle picker is needed for two reports** (UC-72, UC-79) and `EntityPicker` already exists. **UC-73 (the year) is not in this list and must not be built** — it is GAP-18, product-phase Second, even though §11.1's table has a row for it.
+**`periodId` comes from `GET /api/accounting-period`** (A3), which is also §7.8's own `July 2026 ▾` picker — one query serving both. **A vehicle picker is needed for one report in B4** (UC-72; UC-79 would be the second) and `EntityPicker` already exists. **UC-73 (the year) is not in this list and must not be built** — it is GAP-18, product-phase Second, even though §11.1's table has a row for it.
+
+**Parameters live in the URL** (`/reports/:key?…`), not only in component state — a report someone is looking at should survive a refresh and be sendable to the other partner, which is the exact situation this product exists for. `/reports/:key` validates its search params and renders the parameter form when they are missing, so the route is never dead.
+
+**Both owner-only reports are phase 2, so `viewOwnerOnlyReports` has no caller in B4.** Every card in the catalogue is gated by `viewReports` alone. The trap below is still the right rule and still how the catalogue is built, but in B4 nothing exercises it — it is dormant, not wrong, and it re-arms the moment either report lands. **Replace the planned "a `manager` never sees the owner-only cards" test with the one that has teeth: a `driver` cannot reach `/reports` at all** (route-level, a W-49 boundary rather than a convenience).
 
 **§7.8's hero comparison is two fetches, and the delta is a percentage of money.** `▲ 12% vs June` needs `vehicle-month` for the current period *and* the one before it, then a ratio. That ratio is a `number` derived from two `bigint`s — legitimate, and it needs the same treatment `profitPerKm`/`kmPerLitre` already carry: an explicit lint disable with the reason recorded, computed in one place, never a `Number()` on either operand independently.
 
 **The one hard problem, and it needs deciding before any chart is drawn:** money is `bigint` in the client and **must never become a `number`, "not even for a chart axis"** ([web/CLAUDE.md](web/CLAUDE.md)). Recharts wants numbers. Resolve it deliberately — scale to a display unit at the very edge, in one place, isolated and tested exactly as the money codec is. Do not let a `Number(minor)` leak into a component. The backend already solved this twice for *ratios*; follow that precedent rather than inventing a third convention.
 
 **Traps:**
-- **Two capability gates.** `viewReports` (STAFF) covers seven; `viewOwnerOnlyReports` (OWNERS) covers UC-77 and UC-79. **The catalogue must not render a card the role cannot fetch** — a 403 the user could have been spared is a bug. `<Can>` from B0b is how, not an inline role check.
+- **The catalogue must not render a card the role cannot fetch** — a 403 the user could have been spared is a bug. `<Can>` from B0b is how, not an inline role check. **Dormant in B4** (both owner-only reports are phase 2, so all six cards share one gate) but the pattern goes in now rather than being retrofitted around a special-cased card later.
 - **The §11.2 palette becomes tokens before any chart uses it** (finding 5). Eight `--color-chart-*` pairs in `tokens.css`, light and dark, **and every one added to `cn.ts`** or tailwind-merge drops it silently. Three light-mode slots sit below 3:1 on the surface, which **obligates direct labels or a table view** on any chart using them — §11.2 states that as a requirement, not a preference.
 - **Every chart has a table view, one tap away** (§11.3). It is also the accessibility relief for those three slots, so it is not optional polish.
 - **Degrade to "not available", never zero** (W-56). `profitPerKm`, `kmPerLitre` and `litres` all come back `null` **by design**; §11.4 makes this a *visual* rule — `NotAvailable` in place of the mark, reason in the caption. A zero-height bar and a missing bar must never look the same.
 - **The lost-day denominator is `leaseEligible`** — the endpoint returns `ran`, `lost` and `leaseEligible` as separate counts. Display what it computed; never recompute a percentage client-side.
 - **No accounting vocabulary reaches the interface** (U-6) — no "accrual", "receivable", "allocation" in any title or axis label. UC-74's own screen title cannot be the word the use case is named after.
-- **`partyName`, `displayName` and `driverName` are all `.nullable()`** across these schemas. A missing name is not an empty string and not "Unknown" — decide once and apply it everywhere.
-- **GAP-19**: UC-79 ships without `revenuePerAvailableDayMinor`. Do not draw an axis for a figure the endpoint does not return.
+- **W-52: paying in *creates* what a partner is owed** — `putIn` is a positive term in UC-67's balance, never excluded from it. *"Paying in more than your share buys you a claim, not a bigger slice… he is owed the extra twenty back."* An earlier draft of the B4 design had this exactly backwards and would have understated the row by every rupee a partner ever contributed.
+- **`partyName`, `displayName` and `driverName` are all `.nullable()`** across these schemas. **Decided:** one shared `<PartyName>` falling back to the party type — "Unnamed driver" / "Unnamed customer" / "Unnamed partner", muted, row always rendered. Type-derived rather than a bare dash because the same component is a chart direct-label, where no adjacent type column carries the meaning.
+- **Empty is not the same as unknown, and the codebase has already ruled on it.** `queries/reports.ts`'s own lint exemption says it: *"a real zero cost, not a missing figure (W-56 governs an unknown, not an absent one)"*. So no receivables is **"No one owes us anything"**, no closed trips is **"No closed trips yet"** — and only no fill-to-fill pair is `NotAvailable`. The checklist line below is corrected for this.
+- **Enum values never render raw** — a label map per enum (`partyType`, `lostReason`, ageing bucket, `docType`, arrangement), colocated with the feature. U-6 already forbids accounting vocabulary; `over-90` or `auto_waiver` on screen is that rule broken sideways.
+- **The `This month` warning strip is `GET /api/home/paperwork-warnings`, one business-wide call** — not N+1 per-vehicle document fetches, and not a client-side selector. It already applies F-10.1's 30-day window, already keeps warning past expiry (`isExpired` is a field), and already computes `today` from the business timezone. Filter to `subjectType === "vehicle"`; **driver licences do not appear in the Review shell** (§7.8 attaches a warning to the vehicle it concerns, and the passive owner cannot act on a licence anyway).
+- **On a business's first accounting period, omit the delta line entirely** — not `0%`, and not `NotAvailable`. No prior period is a fact, not patchy data; `NotAvailable` would imply something failed.
 - **No pie charts, never a dual axis, one chart per viewport** (§11.3).
 
-**Done means** — all nine render from real data, correctly gated per role, both themes, 360×640, each with a table view, and no `Number()` on a money value anywhere in the feature.
+**Done means** — **Wave 1:** an `owner` lands in the Review shell with four working tabs; the `owner_manager` reaches the same screens through **More → My share**; the catalogue renders **six** cards and no phase-2 route resolves; all six reports render from real data in both themes at 360×640, each with a table view; a `driver` cannot reach `/reports`; UC-75 is titled "Cash partners are holding"; and **no `Number()` touches a money value anywhere in the feature** outside the one axis codec. **Wave 2:** the overheads block is real, UC-75 carries its title back, and UC-76 has its reason chart.
+
+**Two acceptance constraints, carried not resolved:**
+- **Until GAP-1 lands, nothing in B4 claims or implies per-vehicle manager scoping** — `viewReports` is a flat business-wide check and the UI cannot fix that by hiding cards. The standing operational guard holds: do not invite a `manager` to a real business.
+- **Desktop is out.** Responsive where it is free (max-widths, grid reflow); nothing from UI §14 — no sortable columns, no small multiples, no side-by-side comparison. §15 puts that dashboard in phase Third, and §14's baseline changes being undated is not a licence to pull them into the largest item on the board. Reports must be *usable* at `lg`, not optimised for it.
 
 ### B5 · The Mine shell — needs B0b's `renderMine` branch
 
@@ -850,6 +893,34 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [ ] `owner_manager` still routes to **Operate**, not Review (M-3) — assert it
 - [ ] Tests: one per role → correct shell; `<Can>` absent-not-disabled; `npm run check` clean
 
+### B12 · Opening balances (F-0.2)
+
+**New, 8 Aug 2026 — flow-inventory audit finding AUDIT-1/GAP-61.** The backend (`opening-balance` route-def: `PUT` save/draft, `GET`, `POST .../commit`, `api/src/domain/opening-balance.ts`) has been ready since P2. Nothing calls it and nothing wireframes it.
+
+- [ ] An entry point reachable by `owner_manager` — `/more` is the natural door (a new row, gated `<Can cap="manageOpeningBalances">`, the same "rows for what exists only" rule B0 established), since this is a one-time setup action, not a tab
+- [ ] Multi-step form following F-0.2's own six steps: go-live date · per-vehicle (arrangement, odometer, lease/daily-lease terms **with original start date** — §7.3's billing cycle depends on it) · per-driver (opening arrears, amount owed to him, deposit held, advances outstanding) · per-customer (opening dues **with original due dates**, deposit held) · cash held per partner · confirm
+- [ ] **Save as a draft and resume** — `PUT` is idempotent-by-design for exactly this; the batch is not committed until the explicit `POST .../commit`. This is the load-bearing alternate: F-0.2's own text calls a complete-in-one-sitting form "the highest-friction moment in the product"
+- [ ] `POST .../commit` writes one dated `OpeningBalanceBatch`, atomically, and is disabled/hidden once the business's first period has already closed (F-0.2's own alternate: after that point, a correction is an ordinary adjustment, not an opening balance)
+- [ ] **Never posts as income or expense** — verify against a P&L report once B4 exists; until then, assert the write path directly
+- [ ] A driver statement (F-6.5, inside B13/B5) starting before go-live shows one "brought forward" line, not fabricated days
+- [ ] U-2: saves with level-1 fields alone per section — a twenty-field form is the one this rule most needs to hold on
+
+**Done means** — a business with a bus already leased, a car already rented, and a driver already in arrears can have all three entered honestly in one sitting or several, and the first month it closes reflects a true starting point.
+
+### B13 · Driver money actions — pay, advance, deposit (F-6.1/F-6.3/F-6.7)
+
+**New, 8 Aug 2026 — flow-inventory audit findings AUDIT-3/4/6 (GAP-63, GAP-64, GAP-66).** Three backend endpoints, no caller between them: `POST /api/payment` (party-level, already used by `CollectPaymentSheet` for receiving — this is the same endpoint in the paying direction), `POST /api/advance` + `.../settle`, `POST /api/deposit` + `.../movement`.
+
+- [ ] Reached from `DriverDetailScreen` — the natural home, since it already renders the driver's own balances and history (A5)
+- [ ] **Pay the driver (F-6.1, GAP-63)** — the payment-made half of M-4's quick-add list, named in `QuickAddSheet.tsx`'s own doc comment as unbuilt. Likely reuses `CollectPaymentSheet`'s shape with the direction flipped, the same generalisation A12 already did for `TripDetailScreen` (`onCollected` rather than a hardcoded `leaseId`)
+- [ ] **Advance before a trip (F-6.3, GAP-64)** — record against a driver, optionally scoped to an upcoming trip; settlement already works (`CloseTripSheet` enforces it), only recording is missing
+- [ ] **The driver's deposit (F-6.7, GAP-66)** — take it once; later movements (refund in full, apply against arrears, top up) are **deliberate and recorded, never automatic** (the flow's own words) — do not build an automatic apply-on-departure path
+- [ ] **INV-4** — a deposit is never income, in any month; appears in cash position as held, not owned
+- [ ] `PERIOD_CLOSED` caught and explained for all three, never pre-checked
+- [ ] U-2 on each: saves with level-1 fields alone
+
+**Done means** — a manager can pay a driver, record an advance, and take a deposit, all from the driver's own page, with none of the three requiring the other two.
+
 ### B3 · Close the month and corrections
 
 - [ ] Route `/period/close` + `CloseMonthScreen` in `web/src/features/period/`
@@ -866,27 +937,49 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [ ] `PERIOD_CLOSED` caught and explained; no client-side pre-check anywhere
 - [ ] U-2 test on every new form: saves with level-1 fields alone
 
-### B4 · Review shell + nine reports
+### B4 · Review shell + phase-1 reports
 
-**Do the palette and the money-to-axis codec before the first chart, not after.**
+**Do the palette, the money-to-axis codec and the table primitive before the first chart, not after.**
 
+**Wave 1 — infrastructure**
 - [ ] `--color-chart-1…8` in `tokens.css`, light **and** dark, from §11.2's validated values — no raw hex in any component
 - [ ] Every new token added to `theme` in `cn.ts` (tailwind-merge drops unknown tokens silently) + a `cn.test.ts` case
-- [ ] One isolated money→axis scaling module, unit-tested like the money codec; **no `Number(minor)` outside it**
+- [ ] One isolated money→axis scaling module, unit-tested like the money codec; **no `Number(minor)` outside it**. Tests cover positive, **zero, negative profit, mixed-sign domains**, and a value past `MAX_SAFE_INTEGER` (scale as `bigint` or throw — never a silent lossy convert)
 - [ ] A lint-visible reason on the one legitimate ratio (§7.8's `▲ 12% vs June`), following `profitPerKm`'s precedent
-- [ ] `/reports` catalogue — cards gated by `<Can>`, so **no card the role cannot fetch** (UC-77 and UC-79 are `viewOwnerOnlyReports`)
-- [ ] Parameter collection before fetch: **`periodId`** (from `GET /api/accounting-period`), **vehicle picker** (`EntityPicker`, for UC-72/UC-79), **date window**, **`asOfDate`**
-- [ ] `/reports/:key` — one screen per report, nine of them, each in §11.1's specified form
+- [ ] **Normalised report view-model + shared table primitive first, charts second** — each report defines response → view model → table columns → chart marks, in that order. This is what makes the table view nearly free instead of nine bespoke tables
+- [ ] One shared `<PartyName>` — falls back to the party type ("Unnamed driver"), row always rendered
+- [ ] A label map per enum (`partyType`, `lostReason`, ageing bucket, `docType`, arrangement) — no raw enum text on screen
+
+**Wave 1 — screens**
+- [ ] `/reports` catalogue — **six** cards, gated by `<Can>`, **no phase-2 route registered**
+- [ ] Parameter collection before fetch, **URL-backed**: `/reports/:key?…` validates its search params and renders the parameter form when they are missing, so the route is never dead and a report is linkable between partners. `from > to` caught at parse, before any fetch
+- [ ] Parameters needed: **`periodId`** (from `GET /api/accounting-period`, defaulting to the open period), **vehicle picker** (`EntityPicker`, UC-72), **date window** (UC-72 → last 90 days; UC-76 → the open period)
+- [ ] `/reports/:key` — **six** screens, each in §11.1's specified form
+- [ ] UC-75 titled **"Cash partners are holding"** until GAP-70 lands (a test asserts the narrow title while the response has no `banked` field)
+- [ ] Review shell's other three tabs — `This month` (§7.8's layout, minus overheads), `Vehicles` (**one vehicle × all periods**, sharing `VehiclePerformanceCard` with `This month`), `My money` (`GET /api/partner/{userId}`, read-only)
+- [ ] `This month`'s **"What I'm owed"** row — UC-67's all-time balance, `putIn + earned − takenOut`, **`holdingMinor` never netted in** (W-2's shape). **Needs GAP-74 first** — all-time `earned` does not exist. Keep the label: U-6 names "what you're owed" as the approved wording
+- [ ] Warning strip from `GET /api/home/paperwork-warnings`, filtered to `subjectType === "vehicle"` — one call, not N+1, and no client-side threshold logic
+- [ ] Read-only `ReviewVehicleScreen` — **not `VehicleOverviewScreen` with actions gated off** (§7.8: no entry affordance anywhere)
+- [ ] **Owner-manager's `More → My share`** — one row, one route, the same components read-only (UI line 148)
+
+**Wave 1 — rules and tests**
 - [ ] **Every chart has a table view one tap away** (§11.3) — required, not polish
 - [ ] Direct labels on any chart using the three low-contrast light slots (§11.2)
 - [ ] `NotAvailable` **in place of the mark** with the reason in the caption wherever a value is `null` (§11.4) — never a zero-height bar
-- [ ] A test per report against an **empty** and a **partial** fixture asserting `NotAvailable`, not `0` (§12.6)
-- [ ] Nullable `partyName` / `displayName` / `driverName` handled by one decided convention, applied everywhere
-- [ ] Review shell's other three tabs (`This month`, `Vehicles`, `My money`) — §7.8's layout, overheads as **their own block** beneath vehicle totals (W-32)
-- [ ] **GAP-41 first, or the overheads block is a lie** — a way to ask for expenses with no vehicle (Track A)
-- [ ] UC-73 (the year) **not built** — GAP-18, phase Second, despite §11.1 listing it
+- [ ] A test per report against an **empty** and a **partial** fixture asserting **the right thing**: `NotAvailable` only where the metric cannot be computed (UC-72's missing fill pair), and a true-zero message where it can ("No one owes us anything", "No closed trips yet"). **Not `NotAvailable` for every empty response** — W-56 governs an unknown, not an absent one
+- [ ] A `driver` cannot reach `/reports` at all (route-level). *`viewOwnerOnlyReports` has no caller in B4 — both owner-only reports are phase 2*
+- [ ] First accounting period: **omit the delta line**, not `0%` and not `NotAvailable`
+- [ ] Negative profit renders correctly in a bar **and** a table
+- [ ] Golden fixture: the per-vehicle card reads **134,000** (`180,000 − 46,000`) — that is the vehicle's *profit*, not the hero's *share*
 - [ ] No pie charts, no dual axis, one chart per viewport, charts scroll in their own container (§11.3)
 - [ ] No accounting vocabulary in any title, axis label or caption (U-6)
+
+**Wave 2 — after three Track A increments**
+- [ ] **GAP-41** — `GET /api/reports/overheads?periodId=`, then the overheads block as **its own block** beneath vehicle totals (W-32)
+- [ ] **GAP-70** — cash position gains `banked` + `driverAdvances`; UC-75's title reverts. **`doc-change` on DM §15 first**
+- [ ] **GAP-71** — lost-day reasons; UC-76 gains its reason chart. **`doc-change` on UI §11.1 first**
+
+**Not in B4** — UC-73 (GAP-18), UC-77, UC-78, UC-79: all phase 2 per FL §9.2's own per-row column. **GAP-72 is the exception and does not wait for its screen** — a live wrong number in `sumGoodwillGiven`, one predicate, unblocked by anything here.
 
 ### B5 · Mine shell
 
@@ -916,6 +1009,8 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [ ] `CashPositionScreen` — deposits held shown **beside** partner cash, never netted into it
 - [ ] `BorneByPaidBy`'s paid-by picker wired to `GET /api/business-member` (GAP-31's remaining half)
 - [ ] **No UI implying per-vehicle capability scoping exists** (GAP-1)
+- [ ] **`MileagePackageForm` (F-1.9, GAP-67)** — new 8 Aug: create/list/archive all exist server-side, nothing calls them. Editing a package **never reprices an existing lease** — terms are copied onto `Lease.mileage_terms` at selection, independent thereafter
+- [ ] **`RecordPayoutSheet` (F-7.2, GAP-69)** — new 8 Aug: `POST /api/partner-payout` exists, nothing calls it. Never a vehicle cost; lives beside `CashPositionScreen`/`PartnerDetailScreen`, the same screens that read it back (A2)
 
 ### B9 · `UI-UX-REVIEW.md` fixes
 
