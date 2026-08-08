@@ -428,7 +428,7 @@ test("Incidents lists every one with its own status, and each row is tappable (W
 
   expect(await screen.findByText("Incidents · 2")).toBeInTheDocument();
   expect(screen.getByText("Rear bumper damage")).toBeInTheDocument();
-  expect(screen.getByText("No description recorded")).toBeInTheDocument();
+  expect(screen.getByText("Incident with no description")).toBeInTheDocument();
   expect(screen.getByText("Closed")).toBeInTheDocument();
   expect(screen.getByText("Open")).toBeInTheDocument();
 

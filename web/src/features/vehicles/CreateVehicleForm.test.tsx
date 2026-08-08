@@ -49,6 +49,19 @@ test("saves with registration, type and arrangement alone — paperwork stays be
   await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
 });
 
+test("GAP-76: blank registration and vehicle type show field-specific copy, never the generic zod fallback", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn();
+  renderWithProviders(<CreateVehicleForm today={today} onCreated={vi.fn()} />, { post });
+
+  await user.click(screen.getByRole("button", { name: "Add vehicle" }));
+
+  expect(await screen.findByText("Registration is required")).toBeInTheDocument();
+  expect(screen.getByText("Vehicle type is required")).toBeInTheDocument();
+  expect(screen.queryByText("Invalid input")).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("paperwork dates are optional and only reach the request once opened and touched", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({

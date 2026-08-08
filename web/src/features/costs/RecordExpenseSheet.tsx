@@ -181,7 +181,7 @@ export function RecordExpenseSheet({
             <NoteField label="Note" value={note} onChange={setNote} />
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Photo</span>
-              <NotAvailable reason="photo capture needs upload support, not built yet" />
+              <NotAvailable reason="photo capture isn't available yet" />
             </div>
           </div>
         </Disclosure>

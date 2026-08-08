@@ -10,10 +10,9 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import { CalendarDays, CalendarPlus, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
 import { useState } from "react";
-import { cn } from "../../lib/cn.js";
-import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
+import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
@@ -21,7 +20,6 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 
 const ARRANGEMENT_LABEL: Record<string, string> = {
   A: "Lease out",
@@ -241,28 +239,12 @@ export function VehicleOverviewScreen({
               title="Costs"
               count={expenses.length}
               items={expenses.map((expense) => (
-                <Card key={expense.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-4">
-                    <p
-                      className={cn(
-                        "text-body",
-                        expense.voidedAt !== null
-                          ? "text-ink-muted line-through"
-                          : "text-ink-primary",
-                      )}
-                    >
-                      {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
-                    </p>
-                    <Money
-                      value={parse(expense.amountMinor)}
-                      className={expense.voidedAt !== null ? "line-through text-ink-muted" : ""}
-                    />
-                  </div>
-                  <p className="text-caption text-ink-muted">
-                    {formatShortDate(expense.spentOn)}
-                    {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
-                  </p>
-                </Card>
+                <ExpenseCostRow
+                  key={expense.id}
+                  expense={expense}
+                  formattedDate={formatShortDate(expense.spentOn)}
+                  invalidateKeys={[["vehicle", vehicleId, "expense"]]}
+                />
               ))}
             />
           ) : null}
@@ -281,7 +263,7 @@ export function VehicleOverviewScreen({
                   <Card className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-body text-ink-primary">
-                        {incident.description ?? "No description recorded"}
+                        {incident.description ?? "Incident with no description"}
                       </p>
                       <p className="text-caption text-ink-muted">
                         {formatShortDate(incident.occurredOn)}

@@ -14,11 +14,11 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { cn } from "../../lib/cn.js";
 import {
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
+import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { CancelTripSheet } from "./CancelTripSheet.js";
 import { CloseTripSheet } from "./CloseTripSheet.js";
@@ -28,24 +28,6 @@ export interface TripDetailScreenProps {
   today: BusinessDate;
   onBack: () => void;
 }
-
-const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
-  fuel: "Fuel",
-  tolls: "Tolls",
-  fines: "Fines",
-  cleaning: "Cleaning",
-  tyres: "Tyres",
-  servicing: "Servicing",
-  repairs: "Repairs",
-  insurance: "Insurance",
-  licence: "Licence",
-  crew_food: "Crew food",
-  permits: "Permits",
-  office: "Office",
-  legal: "Legal",
-  messaging: "Messaging",
-  other: "Other",
-};
 
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -205,7 +187,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             {trip.driverId !== null ? (
               <div className="flex flex-col gap-1">
                 <p className="text-body text-ink-primary">Advance to him</p>
-                <NotAvailable reason="no advance list read exists yet (Web-P8b)" />
+                <NotAvailable reason="advances aren't shown here yet" />
               </div>
             ) : null}
             {trip.status === "closed" ? (
@@ -228,29 +210,12 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               title="Costs"
               count={expenses.length}
               items={expenses.map((expense) => (
-                <Card key={expense.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-4">
-                    <p
-                      className={cn(
-                        "text-body",
-                        expense.voidedAt !== null
-                          ? "text-ink-muted line-through"
-                          : "text-ink-primary",
-                      )}
-                    >
-                      {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
-                    </p>
-                    <Money
-                      value={parse(expense.amountMinor)}
-                      className={expense.voidedAt !== null ? "line-through text-ink-muted" : ""}
-                    />
-                  </div>
-                  <p className="text-caption text-ink-muted">
-                    {formatShortDate(expense.spentOn)}
-                    {expense.litres !== null ? ` · ${expense.litres.toString()}ℓ` : ""}
-                    {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
-                  </p>
-                </Card>
+                <ExpenseCostRow
+                  key={expense.id}
+                  expense={expense}
+                  formattedDate={formatShortDate(expense.spentOn)}
+                  invalidateKeys={[["trip", tripId, "expense"]]}
+                />
               ))}
             />
           ) : null}
