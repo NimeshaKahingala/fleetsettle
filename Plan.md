@@ -106,8 +106,8 @@ So the only role obtainable through the product was the one role with no interfa
 | Role | Today | Can anyone actually be this? |
 |---|---|---|
 | `owner_manager` / `manager` — the partner who enters everything | **Complete.** Home, vehicles, calendar, leases, trips, incidents, costs, quick-add, people | **Yes, since A0** — the business creator. A *second* one can now join too, since A11 |
-| `owner` — the partner who reads the reports | **Nothing.** `FirstRunGate` renders a placeholder. Nine tested report endpoints, no screen — **B4** | **Yes, since A11 (7 Aug)** — `POST /api/business-member/invite` (role `owner`) + `POST /api/invite/redeem`. Lands with a real account and nowhere real to go until B4 ships |
-| `driver` — the linked driver | **Nothing.** `GET /api/driver-view` has been ready since P12 — **B5** | **Yes, since A11 (7 Aug)** — `POST /api/driver/{id}/link-invite` + the same redeem endpoint. Same "nowhere to go yet" as `owner`, until B5 ships |
+| `owner` — the partner who reads the reports | **A real shell, still no reports inside it.** Since B0b (8 Aug), lands in the Review shell — four working tabs, correctly redirected, correctly gated — each rendering `NotBuiltYetScreen`. Nine tested report endpoints, no content yet — **B4** | **Yes, since A11 (7 Aug)** — `POST /api/business-member/invite` (role `owner`) + `POST /api/invite/redeem`. Lands with a real account and a real (empty) shell until B4 ships |
+| `driver` — the linked driver | **A real shell, still no content inside it.** Since B0b (8 Aug), lands at `/me` with no tab bar, correctly. `GET /api/driver-view` has been ready since P12 — **B5** | **Yes, since A11 (7 Aug)** — `POST /api/driver/{id}/link-invite` + the same redeem endpoint. Same "nowhere to go yet" as `owner`, until B5 ships |
 
 **A11 is done (7 Aug) — the "can anyone actually be this" column flipped from no to yes for both remaining roles.** What it did not do is give either of them a screen: `owner` and `driver` can now get a real account, backed by a real `business_member`/`driver.linked_user_id` row, and both still land on `NotBuiltYetScreen` today, because B4 and B5 are what render something once they're there. A11 stops being "why can nobody try this" and starts being "why does trying this show nothing" — a smaller, more specific problem, and the reason B4/B5 now rank above everything else Track B has left.
 
@@ -135,6 +135,8 @@ So the only role obtainable through the product was the one role with no interfa
 - **Four new gaps, GAP-70…73**, all report-contract findings and all in TRACKER §4. Two are **phase-1** reports whose backends are incomplete against their own spec (GAP-70 cash position, GAP-71 lost-day reasons) and gate B4's Wave 2. **GAP-72 is a live wrong number in deployed code** and waits on nothing.
 - **B4 sequences in two waves, cut by contract completeness rather than by surface.** The review proposed a Review-core / catalogue split; that puts the blocked work first, because the Review shell's headline tab is the part gated on GAP-41 while two catalogue reports are unblocked today. Wave 1 ships everything that is true now; Wave 2 follows the Track A increments.
 
+**Updated 8 August 2026 — B14, B0b, B12, B13 and B3's core all shipped in one session.** Six commits (`853c916` B14, `cd14d5d` B0b, `6736e62` B13, `12eefa3` B12, `5ddadad` B3, `d0e3e82` the router/`/more` wiring), full accounts in each item's own section below. **The queue's next item is B4** — B0b's shell now exists to build into, and nothing else outranks it. One thing worth restating because it's easy to lose in six items landing together: **B13 needed a real backend fix, not just a screen.** `POST /api/payment` had only ever accepted `direction: "received"` — "pay the driver" had no backend path to a driver's `owed_by_us` balance at all, not merely no caller, the same one-layer-deeper shape GAP-51/54 already established for a missing flow. **B3 shipped its core only** — `WriteOffSheet`/`PostClosureChargeSheet` need a specific obligation/lease/trip as an entry point the close screen never had; recorded as item **10a** in the queue below rather than a checked box that wasn't true.
+
 ---
 
 ## The order, end to end
@@ -148,7 +150,7 @@ There are **no Track A → Track B handoffs left**. A2 → B2, A3 → B3, A4 →
 | | Order | Note |
 |---|---|---|
 | **Track A** | ~~A9a~~ → ~~A6~~ → A10 → A13 → A15 → A16 → A8 → A14 → A7 → A9b | A9a done 5 Aug, A6 done 6 Aug; A10/A13/A15/A16/A8/A14/A7 are all free, A9b last |
-| **Track B** | ~~B0~~ → ~~B11~~ → ~~B10~~ → **B14** → **B0b** → B12 → B13 → B3 → B4 → B5 → B6 → B2 → B9 → B7 | **B11 and B10 both done 7 Aug**, which clears everything the live session found. **B14 is free — a one-line fix, do it first.** B0b still gates B3, B4, B5 and B12; B13, B6, B2 and B9 need neither it nor anything on Track A, so they can go any time; B7 last |
+| **Track B** | ~~B0~~ → ~~B11~~ → ~~B10~~ → ~~B14~~ → ~~B0b~~ → ~~B12~~ → ~~B13~~ → ~~B3 (core)~~ → B3 remainder → B4 → B5 → B6 → B2 → B9 → B7 | **B14, B0b, B12, B13 and B3's core all done 8 Aug** — see the "One person, one queue" table below for each. B4 and B5 are next; B3's remainder (`WriteOffSheet`/`PostClosureChargeSheet`), B6, B2 and B9 need neither B4/B5 nor anything on Track A, so they can go any time; B7 last |
 
 ### One person, one queue
 
@@ -166,11 +168,12 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 7 | ~~**B10** · Set up the daily lease (F-1.7)~~ | **M** | ✅ **Done 7 Aug 2026.** Closed GAP-51. Originally: **GAP-51.** No screen anywhere creates a `daily_lease` — confirmed live and by `grep`; never even wireframed in `ui-ux-guidelines.md`. Blocks arrangement B, the daily-lease model this project's own running example (the bus) runs on, where the driver pays you (UC §1.2), from being usable by anyone. Backend's been ready since P2/P5 (`startDailyLeaseRoute`, a complete request schema). **Outranks A11**: A11 blocks two roles from existing, this blocks the one role that already works from doing its job |
 | 8 | ~~**A11** · member and driver access~~ | **L** | ✅ **Done 7 Aug 2026.** Migration `0010` (GAP-52, GAP-53, `business_member_invite`, INV-31) + six endpoints (invite/revoke/change-role, one shared redeem, driver link-invite/unlink). 39 new integration tests, 32 files/406 green. `FirstRunGate` offers redeeming a code. Originally: no second partner, no manager, no linked driver could exist — `business-member` was GET-only and `driver.linked_user_id` was never written. **B4 and B5 still build the shells those roles land on** — A11 only got them an account, not a screen |
 | 8a | ~~**A12** · the borne-by date bug (GAP-56) + the trip-receivable UI (GAP-57)~~ | **S–M** | ✅ **Done 7 Aug 2026.** `resolveBorneByDefault` now resolves arrangement, active lease and active daily lease as of `spentOn`; `TripDetailScreen`'s "Received" row shows the real `trip_fare` state and opens the same `CollectPaymentSheet` a lease's dues use (generalised off `leaseId` to `onCollected`, since the write was always party-level). 4 + 5 new integration tests, 4 new/updated web tests, `npm run check` clean — full account in TRACKER.md. Originally: GAP-56 was the one genuinely new *money* defect either review produced — a back-dated cost landed on whoever holds the vehicle today, reachable with one lease and no party change; GAP-57 rode along because A6 left `TripDetailScreen` actively denying a receivable the ledger already carried |
-| 8b | **B14** · fix the trip receivable's wrong field (GAP-75) | **XS** | **New, 8 Aug — live QA browser pass.** `TripDetailScreen.tsx:132-138` renders `receivable.settledMinor` where `LeaseHubScreen.tsx:247`'s identical schema renders `amountMinor` — a pending trip always shows "Due · Rs 0" regardless of the real amount owed. One field name, one file. **Jumps the queue on the same rule as 8a**: live, wrong money on shipped surface outranks everything unbuilt, and this is a regression inside 8a's own work, found the day after it shipped |
-| 9 | **B0b** · three shells + capability gate | S | **Now the actual gate.** B3, B4, B5 and B12 all need it and none owns it — the same situation that made B0 its own item. A11's newly-reachable `owner`/`driver` accounts have nowhere to land until this exists. **Carries a new constraint since A11: do not invite a `manager` to a real business until GAP-1 is scoped** — a manager can be created now and reads the whole business's reports |
-| 9a | **B12** · opening balances (F-0.2, GAP-61) | **L** | **New, 8 Aug — flow-inventory audit.** Backend has been ready since P2 (`opening-balance` route-def: `PUT`/`GET`/`POST .../commit`); no screen anywhere calls it, and no wireframe exists. **Ahead of B3 deliberately**: the flow's own text is "without this flow the first month is a lie and the whole ledger inherits it," and a real business going live mid-stream needs to enter opening arrears, dues and cash *before* its first month can honestly close — B3 closing a month with no opening balances entered is the exact failure this item prevents. Needs B0b only for the `<Can>` gate on `manageOpeningBalances` (owners-only); the screen itself is a multi-step draft-then-commit form, sized similarly to B10. See "Two orderings worth arguing with" for the case against this ordering |
-| 9b | **B13** · driver money actions — pay, advance, deposit (F-6.1/F-6.3/F-6.7, GAP-63/64/66) | M | **New, 8 Aug — flow-inventory audit.** Three write endpoints (`POST /api/payment` party-level for a driver, `POST /api/advance`, `POST /api/deposit`) with no caller anywhere, bundled because all three are manager-facing actions off `DriverDetailScreen` and likely share one action-sheet pattern. GAP-63 is self-documented as missing in `QuickAddSheet.tsx`'s own doc comment — the code already knows. No B0b dependency; these are ordinary Operate-role actions |
-| 10 | **B3** · close the month | M | **Has a deadline nothing else here does.** The first accounting period must close at month end, and `POST /api/accounting-period/close` currently has no screen — a partner would be curling an endpoint |
+| 8b | ~~**B14** · fix the trip receivable's wrong field (GAP-75)~~ | **XS** | ✅ **Done 8 Aug 2026.** `TripDetailScreen`'s receivable row now renders `amountMinor`, matching `LeaseHubScreen`'s own pattern for the identical schema. Both tests that pinned the bug (asserting "Due · Rs 0" as correct) inverted to assert the real figure |
+| 9 | ~~**B0b** · three shells + capability gate~~ | S | ✅ **Done 8 Aug 2026.** `meResponseSchema` + `GET /api/me` promoted to a real route-def; `useMe()`, `lib/capabilities.ts`, `<Can>` (fail-closed on a cleared cache, not throw — found wiring B3's sign-out interaction); `FirstRunGate` gained `renderReview`/`renderMine`, each a redirect-to-default-tab shell over `NotBuiltYetScreen` placeholders. The four tab screens themselves stay B4/B5's job |
+| 9a | ~~**B12** · opening balances (F-0.2, GAP-61)~~ | **L** | ✅ **Done 8 Aug 2026.** `OpeningBalanceScreen` + `AddOpeningBalanceEntrySheet`, reached from a new `/more` row gated `<Can cap="manageOpeningBalances">`. Deliberately excludes per-vehicle setup — the request schema has no such fields; F-1.1/F-2.1/F-1.7 already carry an original-start-date for that. A full replace on every save, matching `domain/opening-balance.ts`'s own shape |
+| 9b | ~~**B13** · driver money actions — pay, advance, deposit (F-6.1/F-6.3/F-6.7, GAP-63/64/66)~~ | M | ✅ **Done 8 Aug 2026.** Found deeper than scoped: `POST /api/payment` was hardcoded to `direction: "received"`, so "pay the driver" had no backend path at all, not just no screen — `createOffset` can't substitute, since it requires the driver already owing something too. `recordPayment` generalised to accept `direction`, defaulting to `"received"` for every existing caller; two new integration tests prove a `"paid"` payment settles a trip fee and never touches arrears. `PayDriverSheet`/`AdvanceSheet`/`DepositSheet` reached via a new "Driver money" `ActionSheet` on `DriverDetailScreen` |
+| 10 | ~~**B3** · close the month~~ | M | ✅ **Done (core) 8 Aug 2026.** `CloseMonthScreen`: all five checklist counts, `Dialog`-confirmed close (M-10's stated-consequence label), the successor period surfaced by name, gated `<Can cap="closePeriod">`. `CorrectPaymentSheet` + `Timeline` off a recent-payments list, gated separately on `reverseReceipt` (narrower than reading the list) — a gap found and fixed mid-build, not shipped. **`WriteOffSheet`/`PostClosureChargeSheet` deliberately deferred, see 10a** |
+| 10a | **B3 remainder** · `WriteOffSheet` + `PostClosureChargeSheet` | S–M | **New, 8 Aug.** Both need a specific obligation/lease/trip as their entry point (an `obligationId`, or a `sourceType`+`sourceId`) — "opened from the close screen with no context" was never the right shape for either. Natural homes are a customer/driver's own dues list or a lease/trip detail screen, which is genuinely separate scope from closing a month, not an oversight. Not yet sized against a specific screen |
 | 11 | **GAP-41** · overheads with no vehicle | S | Track A, but it belongs here: **B4's §7.8 overheads block cannot be built without it**, and W-32 makes that block load-bearing. **Shape decided (8 Aug): a dedicated `GET /api/reports/overheads?periodId=`**, not a tri-state expense filter — "overheads for a period" is report-shaped, and it reuses `sumVehicleCostsForPeriod`'s filter set with `vehicle_id IS NULL`. Needed for B4 **Wave 2**, not Wave 1 |
 | 12 | **B4** · Review shell + phase-1 reports | **L** | The entire product for the partner who reads rather than enters — a real role now, since A11. **Scope settled 8 Aug (0.2): the phase-1 six, not nine** — UC-73/77/78/79 are phase 2 in FL §9.2's own per-row column. Two waves: Wave 1 is the shell, four tabs, the catalogue and the six reports (two of them honestly short); Wave 2 follows GAP-41/70/71. Design and full reasoning in `B4-REPORTS-DESIGN.md`. Still the largest Track B item, but smaller than the XL it was scoped at |
 | 13 | **B5** · Mine shell | M | The entire product for the linked driver — a real role now, since A11. `GET /api/driver-view` has been ready since P12 |
@@ -476,13 +479,13 @@ Two small gaps Web-P8b surfaced and recorded rather than guessed at. **Neither b
 | **B0** | ✅ **The `/more` hub** (GAP-37, GAP-40) | — | done 5 Aug 2026 |
 | ~~**B11**~~ | **Structural render fixes** — live-tested 6 Aug, GAP-49/50 | — | ✅ **done 7 Aug 2026** — both closed, plus `color-scheme`, focus restore, and A0's broken typecheck |
 | ~~**B10**~~ | **Set up the daily lease (F-1.7)** — GAP-51 | — | ✅ **done 7 Aug 2026** — arrangement B can be started at last; live confirmation pending the `develop` merge |
-| **B14** | **Fix the trip receivable's wrong field** — found 8 Aug, live QA browser pass, GAP-75 | — | ▶ ready now, no dependency — one field, one file |
-| **B0b** | **The three shells and the capability gate** — found 6 Aug | — | B3, B4, B5 and B12 all need it and none owns it |
-| **B12** | **Opening balances (F-0.2)** — found 8 Aug, flow-inventory audit | B0b (for `<Can>` on `manageOpeningBalances`) | ready behind B0b, ranked ahead of B3 — see "Two orderings worth arguing with" |
-| **B13** | **Driver money actions — pay, advance, deposit** — found 8 Aug, flow-inventory audit | — | ▶ ready now, no B0b needed |
-| **B3** | Close the month, corrections | B0b (for M-22) | ready behind B0b |
-| **B4** | Review shell + phase-1 reports | **B0b** | the largest item left; scope settled 8 Aug |
-| **B5** | Mine shell | **B0b** | ready behind B0b |
+| ~~**B14**~~ | **Fix the trip receivable's wrong field** — GAP-75 | — | ✅ **done 8 Aug 2026** |
+| ~~**B0b**~~ | **The three shells and the capability gate** | — | ✅ **done 8 Aug 2026** — Review/Mine still render placeholders inside the real shells; B4/B5 fill them in |
+| ~~**B12**~~ | **Opening balances (F-0.2)** — GAP-61 | — | ✅ **done 8 Aug 2026** |
+| ~~**B13**~~ | **Driver money actions — pay, advance, deposit** — GAP-63/64/66 | — | ✅ **done 8 Aug 2026** — needed a backend fix (`recordPayment`'s missing `direction`), not just a screen |
+| **B3** | Close the month, corrections | — | ✅ **core done 8 Aug 2026** — `WriteOffSheet`/`PostClosureChargeSheet` deferred, see the "one queue" table's 10a |
+| **B4** | Review shell + phase-1 reports | — | the largest item left; scope settled 8 Aug, B0b's shell now exists to build into |
+| **B5** | Mine shell | — | ▶ ready now — B0b's shell exists to build into |
 | **B6** | Customer detail | — (A4 ✅, B0 ✅) | ▶ ready now, no B0b needed |
 | **B2** | Partners, banking, cash | — (A2 ✅, B0 ✅) | ▶ ready now, no B0b needed |
 | **B9** | `UI-UX-REVIEW.md` fixes, GAP-44–48 + GAP-55 (GAP-49/50 moved to B11), + GAP-76/78/79/80/81 (8 Aug, live QA browser pass) | — | ▶ ready now, no B0b needed |
@@ -564,9 +567,13 @@ Read screen by screen and route-def by route-def against `web/src/` and `api/src
 
 **Done means — F-1.7's own three Accept criteria, which are all testable:** cards generate from the effective date forward **on pattern days only** (§4.2 — days outside the pattern are `not_scheduled`, generating no card and counting as neither operated nor lost, `user-flows.md:260`); borne-by defaults come from W-7 with no per-vehicle configuration; **setting an end date stops generation without deleting past cards.** Practically: a manager opens a vehicle, starts a daily lease, and from that point forward `generate-day-cards` produces real day-record placeholders for it, confirmable through F-4.2 exactly as GAP-3's fix expects. **This is also the item that unblocks verifying GAP-3 against a live environment** — which this session set out to do and could not, because no daily lease could be created to test it with.
 
-### B14 · Fix the trip receivable's wrong field — GAP-75
+### B14 · Done — fix the trip receivable's wrong field, GAP-75
 
-**New, 8 Aug 2026 — found by the live QA browser pass, not by any source read.** [TripDetailScreen.tsx:132-138](web/src/features/trips/TripDetailScreen.tsx#L132-L138) renders `Money value={parse(receivable.settledMinor)}` next to the obligation's status label. `settledMinor` is the amount **collected so far** — for a `pending` receivable that is `0` by construction, so every unpaid trip with a real customer and a real agreed amount shows "Due · Rs 0", indistinguishable from nothing being owed at all.
+**✅ Done 8 Aug 2026.** Fixed exactly as scoped below: `receivableRow` now renders `amountMinor`. Both tests that had pinned the bug (asserting `/Due.*Rs 0/` as correct) inverted to assert the real figure (`/Due.*Rs 60,000/` in the fixture's own numbers) — the same "regression test pins the bug" shape this repo has hit twice before. `commit 853c916`.
+
+---
+
+**Found by the live QA browser pass, not by any source read.** [TripDetailScreen.tsx:132-138](web/src/features/trips/TripDetailScreen.tsx#L132-L138) renders `Money value={parse(receivable.settledMinor)}` next to the obligation's status label. `settledMinor` is the amount **collected so far** — for a `pending` receivable that is `0` by construction, so every unpaid trip with a real customer and a real agreed amount shows "Due · Rs 0", indistinguishable from nothing being owed at all.
 
 **The fix is one field, and the correct pattern already ships elsewhere in the same codebase.** [LeaseHubScreen.tsx:247](web/src/features/leases/LeaseHubScreen.tsx#L247) renders `due.amountMinor` for the identical `leaseObligationRowSchema` shape — the full agreed amount beside the status label, so "Due · Rs 555" reads correctly. Change `TripDetailScreen`'s `receivableRow` to the same field.
 
@@ -574,7 +581,18 @@ Read screen by screen and route-def by route-def against `web/src/` and `api/src
 
 **Done means** — a trip with `Rs 555` agreed and `Rs 0` collected shows `Due · Rs 555`; a part-paid trip shows the full agreed amount beside `Part paid`, matching `LeaseHubScreen`'s own convention exactly.
 
-### B0b · The three shells and the capability gate — do this first
+### B0b · Done — the three shells and the capability gate
+
+**✅ Done 8 Aug 2026.** Shipped close to plan, three corrections worth recording:
+
+- **`/api/me` is a real route-def now** (`route-defs/me.ts` + `handlers/me.ts`), and `meResponseSchema` lives in `packages/shared`. `requireRole()` added to `auth/context.ts` alongside the existing `requireBusinessId`/`requireUserId`, rather than a non-null assertion in the handler.
+- **`<Can>` reads the `["me"]` cache directly, not through `useMe()`.** `useMe()` throws if called before the cache is populated (a real bug signal everywhere else it's used) — but sign-out (GAP-40) clears the query cache *before* the real navigation completes, and in that narrow window a still-mounted `<Can>` must degrade to "hide," not crash the screen it's gating. Found live, testing the interaction, not planned.
+- **Review's four tabs are four flat routes** (`/review`, `/review/vehicles`, `/review/money`, `/reports`), each redirecting a mismatched URL to `/review` via an effect — not a nested tab-route tree. Mine is one route, `/me`. Both render `NotBuiltYetScreen` placeholders; B4/B5 fill in real content.
+- **"Owner-manager reaches Review through More → My share" was not built here** — no such row exists yet. That's B4's own entry point to build when it lands, not B0b's plumbing.
+
+`commit cd14d5d`. The original plan below is kept as the record of what was scoped going in.
+
+---
 
 **Small, and it unblocks three items.** Exactly the B0 situation: two or more items need it, none owns it, and each would otherwise build its own half-version. Nothing here is a screen; it is the plumbing every role-aware screen after it assumes.
 
@@ -613,7 +631,7 @@ The previous edition named an `ExpenseListScreen` for Web-P8b. **It was not buil
 
 Recorded rather than quietly dropped, so the same screen is not proposed a third time. `GET /api/expense` keeps its own value and its own gap id (GAP-33).
 
-### B4 · The Review shell and phase-1 reports — needs B0b first
+### B4 · The Review shell and phase-1 reports — B0b done, ready
 
 **Nine tested endpoints and no interface. The partner whose entire use of this product is reading reports has nothing until this ships** — `FirstRunGate` sends the `owner` role to `NotBuiltYetScreen` today.
 
@@ -679,7 +697,7 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 - **Until GAP-1 lands, nothing in B4 claims or implies per-vehicle manager scoping** — `viewReports` is a flat business-wide check and the UI cannot fix that by hiding cards. The standing operational guard holds: do not invite a `manager` to a real business.
 - **Desktop is out.** Responsive where it is free (max-widths, grid reflow); nothing from UI §14 — no sortable columns, no small multiples, no side-by-side comparison. §15 puts that dashboard in phase Third, and §14's baseline changes being undated is not a licence to pull them into the largest item on the board. Reports must be *usable* at `lg`, not optimised for it.
 
-### B5 · The Mine shell — needs B0b's `renderMine` branch
+### B5 · The Mine shell — B0b's `renderMine` branch done, ready
 
 **Backend increment: none.** `GET /api/driver-view` has been ready since P12, and `driverViewResponseSchema` already carries days, trips, advances, offsets and the deposit in one response.
 
@@ -710,7 +728,17 @@ Recorded rather than quietly dropped, so the same screen is not proposed a third
 
 **Done means** — a 60/40 split saves in one write and reads back; a shared vehicle with a monthly fee grants and revokes.
 
-### B3 · Close the month and corrections — needs B0b for M-22
+### B3 · Done (core) — close the month, and correct a payment
+
+**✅ Core done 8 Aug 2026: `CloseMonthScreen` + `CorrectPaymentSheet` + `Timeline`.** `WriteOffSheet` and `PostClosureChargeSheet` deliberately not built here — both need a specific obligation/lease/trip as their entry point, which this screen has no context for; see the "one queue" table's **10a**. `commit 5ddadad` (plus `d0e3e82` for the `/more` row and router wiring).
+
+**One gap found and fixed before it shipped, not after:** `CorrectPaymentSheet`'s trigger wasn't originally gated — `POST /api/payment/{id}/correct` requires `reverseReceipt` (owners only), narrower than the `dailyOperations` that gates reading the payments list, so a `manager` who reached `/period/close` by direct URL could have opened the sheet and hit a 403 on submit instead of never seeing the option. Fixed: the row renders as plain (non-tappable) information for a role without `reverseReceipt`, a button for one with it — M-22 applied to the affordance, not the information it sits on top of.
+
+**`auditEntryToTimeline.ts` is the one translation this needed and the plan below didn't anticipate.** `Timeline`'s own contract is a pre-composed `description`; `auditLogEntrySchema` gives raw `before`/`after` row snapshots and a bare `changedBy` user id instead. Scoped to `payment`'s own two fields (`amountMinor`, `status`) rather than a generic before/after differ across all eighteen `assert_period_open()` tables — real, separate work if a second table ever needs its own `Timeline`.
+
+The plan below is kept as the record of what was scoped going in.
+
+---
 
 **Screens** — `web/src/features/period/`: `CloseMonthScreen` on `/period/close`, `CorrectPaymentSheet`, `WriteOffSheet`, `PostClosureChargeSheet`, plus **`Timeline` wired to real `audit_log` data** — it has one caller today and was built for exactly this.
 
@@ -904,64 +932,66 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [x] **Confirmed against a real environment, not only jsdom:** create a daily lease, let `generate-day-cards` run, confirm a real day-record placeholder appears and is confirmable through F-4.2. **This is the verification GAP-3's fix has been waiting on since 6 Aug** and the reason that fix is still technically unproven in a live environment
 - [x] `npm run check` clean
 
-### B0b · The three shells and the capability gate
+### B0b · Done — the three shells and the capability gate
 
-- [ ] `meResponseSchema` in `packages/shared/src/schemas/me.ts`, exported from `index.ts` — role, `userId`, `businessId`, optional `driverId`
-- [ ] `api/src/route-defs/me.ts` + handler validating against it — the only Track A commit B0b needs
-- [ ] Delete `FirstRunGate`'s local `MeResponse` interface and its "one documented exception" comment; import the shared type
-- [ ] `web/src/lib/useMe.ts` — reads the existing `["me"]` query key, no second fetch
-- [ ] `web/src/lib/capabilities.ts` — `can(role, cap)` over a `MATRIX` copied row-for-row from `api/src/auth/policy.ts`, with the "convenience only, the Worker re-checks" comment §12.4 requires
-- [ ] `web/src/components/Can.tsx` — renders `null` when the role lacks the capability. **Never renders a disabled child**
-- [ ] `capabilities.test.ts` — one assertion per W-49 row, and one asserting a `driver` has no STAFF capability
-- [ ] `FirstRunGate` gains `renderReview` / `renderMine`; `RootLayout` stops hardcoding `shell="operate"`
-- [ ] Review shell renders `AppShell shell="review"` with the existing four `REVIEW_TABS` wired to routes — **do not reorder or extend the tab list**
-- [ ] Mine shell renders `shell="mine"` (no tab bar) over its own component tree
-- [ ] `owner_manager` still routes to **Operate**, not Review (M-3) — assert it
-- [ ] Tests: one per role → correct shell; `<Can>` absent-not-disabled; `npm run check` clean
+- [x] `meResponseSchema` in `packages/shared/src/schemas/me.ts`, exported from `index.ts` — role, `userId`, `businessId`, optional `driverId`
+- [x] `api/src/route-defs/me.ts` + handler validating against it — the only Track A commit B0b needed
+- [x] Delete `FirstRunGate`'s local `MeResponse` interface and its "one documented exception" comment; import the shared type
+- [x] `web/src/lib/useMe.ts` — reads the existing `["me"]` query key, no second fetch
+- [x] `web/src/lib/capabilities.ts` — `can(role, cap)` over a `MATRIX` copied row-for-row from `api/src/auth/policy.ts`, with the "convenience only, the Worker re-checks" comment §12.4 requires
+- [x] `web/src/components/Can.tsx` — renders `null` when the role lacks the capability. **Never renders a disabled child.** Reads `["me"]` directly rather than through `useMe()`'s throw — found necessary testing the sign-out race (queryClient cleared before navigation completes)
+- [x] `capabilities.test.ts` — one assertion per W-49 row, and one asserting a `driver` has no STAFF capability
+- [x] `FirstRunGate` gains `renderReview` / `renderMine`; `RootLayout` stops hardcoding `shell="operate"`
+- [x] Review shell renders `AppShell shell="review"` — as four flat routes with a redirect-to-default effect, not a nested tab-route tree, but the same `REVIEW_TABS`/`AppShell` underneath, unreordered
+- [x] Mine shell renders `shell="mine"` (no tab bar) over its own component tree
+- [x] `owner_manager` still routes to **Operate**, not Review (M-3) — asserted in `App.test.tsx`
+- [x] Tests: one per role → correct shell; `<Can>` absent-not-disabled; `npm run check` clean
 
-### B12 · Opening balances (F-0.2)
+### B12 · Done — opening balances (F-0.2)
 
-**New, 8 Aug 2026 — flow-inventory audit finding AUDIT-1/GAP-61.** The backend (`opening-balance` route-def: `PUT` save/draft, `GET`, `POST .../commit`, `api/src/domain/opening-balance.ts`) has been ready since P2. Nothing calls it and nothing wireframes it.
+**✅ Done 8 Aug 2026, closing GAP-61.** `commit 12eefa3`.
 
-- [ ] An entry point reachable by `owner_manager` — `/more` is the natural door (a new row, gated `<Can cap="manageOpeningBalances">`, the same "rows for what exists only" rule B0 established), since this is a one-time setup action, not a tab
-- [ ] Multi-step form following F-0.2's own six steps: go-live date · per-vehicle (arrangement, odometer, lease/daily-lease terms **with original start date** — §7.3's billing cycle depends on it) · per-driver (opening arrears, amount owed to him, deposit held, advances outstanding) · per-customer (opening dues **with original due dates**, deposit held) · cash held per partner · confirm
-- [ ] **Save as a draft and resume** — `PUT` is idempotent-by-design for exactly this; the batch is not committed until the explicit `POST .../commit`. This is the load-bearing alternate: F-0.2's own text calls a complete-in-one-sitting form "the highest-friction moment in the product"
-- [ ] `POST .../commit` writes one dated `OpeningBalanceBatch`, atomically, and is disabled/hidden once the business's first period has already closed (F-0.2's own alternate: after that point, a correction is an ordinary adjustment, not an opening balance)
-- [ ] **Never posts as income or expense** — verify against a P&L report once B4 exists; until then, assert the write path directly
-- [ ] A driver statement (F-6.5, inside B13/B5) starting before go-live shows one "brought forward" line, not fabricated days
-- [ ] U-2: saves with level-1 fields alone per section — a twenty-field form is the one this rule most needs to hold on
+- [x] An entry point reachable by `owner_manager` — a new `/more` row, gated `<Can cap="manageOpeningBalances">`
+- [x] Multi-step form: go-live date · six entry kinds via `AddOpeningBalanceEntrySheet` (customer due, driver arrears, owed to driver, deposit held, advance outstanding, cash held) · confirm. **Per-vehicle setup (arrangement, odometer, lease terms) deliberately not built** — the request schema has no such fields; F-1.1/F-2.1/F-1.7 already carry an original start date and are where that belongs, mid-stream or not. The original plan's own six-step reading of F-0.2 conflated the flow's *narrative* with the endpoint's actual *schema*; the schema is narrower and correctly so
+- [x] **Save as a draft and resume** — every save is a full `PUT` replace of the accumulated entry list, matching `domain/opening-balance.ts`'s own shape; an existing batch's entries are re-hydrated with real party/vehicle names on load, not raw ids
+- [x] `POST .../commit` writes the batch; a `409 OPENING_BALANCE_LOCKED` after the first period closes is caught and explained, not pre-checked
+- [ ] **Never posts as income or expense** — not yet verified against a real report, since B4 doesn't exist yet. The write path itself only ever touches `opening_balance_entry`, never `obligation`/`payment`, so this holds structurally; a P&L cross-check is B4's to make once it can
+- [ ] A driver statement showing a "brought forward" line — depends on B5, unbuilt
+- [x] U-2: saves with just a go-live date and zero entries, asserted directly in a test
 
 **Done means** — a business with a bus already leased, a car already rented, and a driver already in arrears can have all three entered honestly in one sitting or several, and the first month it closes reflects a true starting point.
 
-### B13 · Driver money actions — pay, advance, deposit (F-6.1/F-6.3/F-6.7)
+### B13 · Done — driver money actions: pay, advance, deposit (F-6.1/F-6.3/F-6.7)
 
-**New, 8 Aug 2026 — flow-inventory audit findings AUDIT-3/4/6 (GAP-63, GAP-64, GAP-66).** Three backend endpoints, no caller between them: `POST /api/payment` (party-level, already used by `CollectPaymentSheet` for receiving — this is the same endpoint in the paying direction), `POST /api/advance` + `.../settle`, `POST /api/deposit` + `.../movement`.
+**✅ Done 8 Aug 2026, closing GAP-63/64/66.** `commit 6736e62`. **One correction to what this checklist assumed going in: `POST /api/payment` was not "the same endpoint in the paying direction" — it had no paying direction at all.** `recordPayment` was hardcoded to `direction: "received"`/`owed_to_us`; "pay the driver" needed `owed_by_us`, which nothing wrote. `createOffset` can't substitute — it requires the driver already owing something on both sides, and fails outright for a clean bonus or retainer with nothing to net against. Generalised `RecordPaymentInput`/`recordPaymentRequestSchema` to carry `direction`, defaulting to `"received"` so every existing caller is unaffected; two new integration tests prove a `"paid"` payment settles `owed_by_us` only and a no-trip payment is held entirely as unallocated credit.
 
-- [ ] Reached from `DriverDetailScreen` — the natural home, since it already renders the driver's own balances and history (A5)
-- [ ] **Pay the driver (F-6.1, GAP-63)** — the payment-made half of M-4's quick-add list, named in `QuickAddSheet.tsx`'s own doc comment as unbuilt. Likely reuses `CollectPaymentSheet`'s shape with the direction flipped, the same generalisation A12 already did for `TripDetailScreen` (`onCollected` rather than a hardcoded `leaseId`)
-- [ ] **Advance before a trip (F-6.3, GAP-64)** — record against a driver, optionally scoped to an upcoming trip; settlement already works (`CloseTripSheet` enforces it), only recording is missing
-- [ ] **The driver's deposit (F-6.7, GAP-66)** — take it once; later movements (refund in full, apply against arrears, top up) are **deliberate and recorded, never automatic** (the flow's own words) — do not build an automatic apply-on-departure path
-- [ ] **INV-4** — a deposit is never income, in any month; appears in cash position as held, not owned
-- [ ] `PERIOD_CLOSED` caught and explained for all three, never pre-checked
-- [ ] U-2 on each: saves with level-1 fields alone
+- [x] Reached from `DriverDetailScreen` via a new "Driver money" `ActionSheet` — not folded into `TwoBalances`, whose own doc comment reserves it to the one action (`Offset…`) it already has
+- [x] **Pay the driver (F-6.1, GAP-63)** — `PayDriverSheet`, a straight amount+date form, not a `CollectPaymentSheet` reuse: no allocation preview, since F-6.2's multi-trip breakdown-and-choose is separate, larger scope F-6.1's own single-tap shape doesn't need
+- [x] **Advance before a trip (F-6.3, GAP-64)** — `AdvanceSheet`; no trip picker, since F-6.3's own text doesn't require one and `tripId` is optional on the schema
+- [x] **The driver's deposit (F-6.7, GAP-66)** — `DepositSheet`, take only; no movement (refund/apply/top-up) action, matching "never automatic"
+- [x] **INV-4** — a deposit write never touches `obligation`/`payment`, only `deposit`
+- [x] `PERIOD_CLOSED` caught and explained for all three, never pre-checked
+- [x] U-2 on each: saves with amount + date alone, asserted directly in tests
 
 **Done means** — a manager can pay a driver, record an advance, and take a deposit, all from the driver's own page, with none of the three requiring the other two.
 
-### B3 · Close the month and corrections
+### B3 · Done (core) — close the month and correct a payment
 
-- [ ] Route `/period/close` + `CloseMonthScreen` in `web/src/features/period/`
-- [ ] `GET /api/accounting-period/close-checklist` wired; **all five counts rendered** as rows with a count and a link
-- [ ] Close action wrapped in `<Can cap="closeAccountingPeriod">` — **absent for `manager`**, asserted in a test
-- [ ] `MoreScreen` gains a close-month row under the **same** `<Can>` — not a hidden destination behind a visible door
-- [ ] Confirm is `Dialog` (one of its three reserved call sites) with `confirmLabel="Close July permanently"` — never the default `"Confirm"` (M-10)
-- [ ] Second confirm states that closing cannot be undone **and** that the next period opens in the same action (§7.7)
-- [ ] Success surfaces the newly opened successor period — every later write depends on it
-- [ ] The close button stays **enabled** regardless of checklist counts (U-7)
-- [ ] `CorrectPaymentSheet` over `GET /api/payment` + `POST /api/payment/{id}/correct`; `bearer` is an explicit two-outcome choice, worded without "allocation" (U-6)
-- [ ] `WriteOffSheet` and `PostClosureChargeSheet` as **separate entry points** — a waiver and a write-off never share a control (W-28)
-- [ ] `Timeline` wired to `GET /api/audit-log/{tableName}/{recordId}` for a corrected payment — **per record, not per month**
-- [ ] `PERIOD_CLOSED` caught and explained; no client-side pre-check anywhere
-- [ ] U-2 test on every new form: saves with level-1 fields alone
+**✅ Core done 8 Aug 2026.** `commit 5ddadad` + `d0e3e82`. Two naming corrections against the real implementation: the checklist endpoint is `GET /api/accounting-period/checklist`, not `.../close-checklist`; the capability is `closePeriod`, not `closeAccountingPeriod`.
+
+- [x] Route `/period/close` + `CloseMonthScreen` in `web/src/features/period/`
+- [x] `GET /api/accounting-period/checklist` wired; **all five counts rendered** as rows with a count — no per-row link to "go and fix it" yet, since each count's own fix lives on a screen (a trip, an incident, a day) this item doesn't otherwise touch
+- [x] Close action wrapped in `<Can cap="closePeriod">` — **absent for `manager`**, asserted in a test
+- [x] `MoreScreen` gains a close-month row under the **same** `<Can>` — not a hidden destination behind a visible door
+- [x] Confirm is `Dialog` (one of its three reserved call sites) with `confirmLabel="Close August permanently"` (the open period's own month) — never the default `"Confirm"` (M-10)
+- [x] Confirm states that closing cannot be undone **and** that the next period opens in the same action (§7.7) — one combined `description`, not a second confirm step
+- [x] Success surfaces the newly opened successor period — every later write depends on it
+- [x] The close button stays **enabled** regardless of checklist counts (U-7)
+- [x] `CorrectPaymentSheet` over `GET /api/payment` + `POST /api/payment/{id}/correct`; `bearer` is an explicit two-outcome choice, worded without "allocation" (U-6) — **and gated separately on `reverseReceipt`** (narrower than the `dailyOperations` that gates reading the list), found and fixed before this shipped
+- [ ] `WriteOffSheet` and `PostClosureChargeSheet` — **deliberately not built**, not merely deferred. Both need a specific obligation/lease/trip as their entry point; "opened from the close screen with no context" was never the right shape. See the plan's "one queue" table, item 10a
+- [x] `Timeline` wired to `GET /api/audit-log/{tableName}/{recordId}` for a corrected payment — **per record, not per month**
+- [x] `PERIOD_CLOSED` caught and explained; no client-side pre-check anywhere
+- [x] U-2 test on every new form: saves with level-1 fields alone
 
 ### B4 · Review shell + phase-1 reports
 
