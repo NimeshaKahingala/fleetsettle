@@ -1,17 +1,17 @@
 import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { LeaseObligationRow, PaymentResponse } from "@fleetsettle/shared/schemas";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { AllocationPreview, type AllocationLine } from "../../components/AllocationPreview.js";
 import { AmountPad } from "../../components/AmountPad.js";
 import { DateField } from "../../components/DateField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { OPEN_OBLIGATION_STATUSES } from "../../lib/obligationStatusLabel.js";
 
 export interface CollectPaymentSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  leaseId: string;
   customerId: string;
   customerName: string;
   /** Already oldest-first (the API's own order) — this component allocates against it but never re-sorts it. */
@@ -19,6 +19,8 @@ export interface CollectPaymentSheetProps {
   today: BusinessDate;
   /** F-2.2's "tap the due" pre-fills the amount from that one due — the write itself is still party-level (§6.5), so entering more still rolls into the next-oldest due too, the same "two months together" alternate the spec names. */
   initialAmountMinor?: Minor;
+  /** Fires after a successful collection, before the sheet closes — the caller owns its own query invalidation (a lease's dues, a trip's own receivable), since this sheet has no idea which screen opened it. */
+  onCollected: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -27,15 +29,13 @@ function formatShortDate(date: string): string {
   );
 }
 
-const OPEN_STATUSES = new Set(["pending", "part_paid"]);
-
 /** §6.5's allocation discipline, mirrored client-side only to build the preview `AllocationPreview` shows before anything writes — the server (`recordPayment`) re-derives the real allocation itself; this never sends per-obligation instructions. */
 function buildAllocationPreview(amountMinor: Minor, dues: LeaseObligationRow[]): AllocationLine[] {
   let remaining = amountMinor;
   const lines: AllocationLine[] = [];
   for (const due of dues) {
     if (remaining <= 0n) break;
-    if (!OPEN_STATUSES.has(due.status)) continue;
+    if (!OPEN_OBLIGATION_STATUSES.has(due.status)) continue;
     const outstanding = (BigInt(due.amountMinor) -
       BigInt(due.settledMinor) -
       BigInt(due.waivedMinor)) as Minor;
@@ -54,20 +54,21 @@ function buildAllocationPreview(amountMinor: Minor, dues: LeaseObligationRow[]):
  * The write itself is `POST /api/payment` — party-level, no obligation ids
  * — so this sheet's own preview is UI only; the server performs the real
  * allocation independently and is the only authority on what actually
- * settled.
+ * settled. Party-level all the way down, which is also why this sheet
+ * takes no `leaseId`/`tripId` — `LeaseHubScreen` and `TripDetailScreen`
+ * (GAP-57) both open it against a customer, never against a specific record.
  */
 export function CollectPaymentSheet({
   open,
   onOpenChange,
-  leaseId,
   customerId,
   customerName,
   dues,
   today,
   initialAmountMinor,
+  onCollected,
 }: CollectPaymentSheetProps) {
   const api = useApi();
-  const queryClient = useQueryClient();
   const [step, setStep] = useState<"enter" | "preview">("enter");
   const [amountMinor, setAmountMinor] = useState<Minor | null>(initialAmountMinor ?? null);
   const [occurredOn, setOccurredOn] = useState<BusinessDate>(today);
@@ -96,7 +97,7 @@ export function CollectPaymentSheet({
         occurredOn,
       }),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["lease", leaseId, "obligation"] });
+      onCollected();
       onOpenChange(false);
     },
   });

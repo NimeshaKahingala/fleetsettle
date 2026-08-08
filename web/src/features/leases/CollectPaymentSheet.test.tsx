@@ -47,15 +47,16 @@ test("allocates oldest-first before writing, and shows any remainder as held cre
     unallocatedMinor: "100000",
   });
   const onOpenChange = vi.fn();
+  const onCollected = vi.fn();
   renderWithProviders(
     <CollectPaymentSheet
       open
       onOpenChange={onOpenChange}
-      leaseId="l1"
       customerId="c1"
       customerName="Acme Traders"
       dues={dues}
       today={today}
+      onCollected={onCollected}
     />,
     { post },
   );
@@ -81,6 +82,7 @@ test("allocates oldest-first before writing, and shows any remainder as held cre
     }),
   );
   await vi.waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  expect(onCollected).toHaveBeenCalled();
 });
 
 test("a due already settled or waived is skipped by the client-side preview", async () => {
@@ -93,11 +95,11 @@ test("a due already settled or waived is skipped by the client-side preview", as
     <CollectPaymentSheet
       open
       onOpenChange={() => {}}
-      leaseId="l1"
       customerId="c1"
       customerName="Acme Traders"
       dues={mixedDues}
       today={today}
+      onCollected={() => {}}
     />,
     { post: vi.fn() },
   );
@@ -116,11 +118,11 @@ test("change allocation returns to the amount step without losing what was typed
     <CollectPaymentSheet
       open
       onOpenChange={() => {}}
-      leaseId="l1"
       customerId="c1"
       customerName="Acme Traders"
       dues={dues}
       today={today}
+      onCollected={() => {}}
     />,
     { post: vi.fn() },
   );
@@ -136,12 +138,12 @@ test("a due tapped directly pre-fills its own outstanding amount", () => {
     <CollectPaymentSheet
       open
       onOpenChange={() => {}}
-      leaseId="l1"
       customerId="c1"
       customerName="Acme Traders"
       dues={dues}
       today={today}
       initialAmountMinor={parse("300000")}
+      onCollected={() => {}}
     />,
     { post: vi.fn() },
   );

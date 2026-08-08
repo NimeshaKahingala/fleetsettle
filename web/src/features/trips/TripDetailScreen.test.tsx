@@ -13,6 +13,16 @@ import { TripDetailScreen } from "./TripDetailScreen.js";
 
 const today = asBusinessDate("2026-07-15");
 
+const pendingReceivable: TripResponse["receivable"] = {
+  id: "ob1",
+  kind: "trip_fare",
+  dueOn: "2026-07-12",
+  amountMinor: "6000000",
+  settledMinor: "0",
+  waivedMinor: "0",
+  status: "pending",
+};
+
 const bookedTrip: TripResponse = {
   id: "t1",
   vehicleId: "v1",
@@ -27,6 +37,7 @@ const bookedTrip: TripResponse = {
   closingDate: null,
   cancelReason: null,
   advanceDisposition: null,
+  receivable: pendingReceivable,
 };
 
 const customer: CustomerResponse = {
@@ -118,16 +129,48 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText(/Voided: wrong trip/)).toBeInTheDocument();
 });
 
-test("Received and Advance to him are honest gaps, never a fabricated zero (W-56)", async () => {
+test("GAP-57 — Received shows the real trip_fare receivable, and Advance to him stays an honest gap (W-56)", async () => {
   const get = baseGet();
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
 
   expect(await screen.findByText("Received")).toBeInTheDocument();
-  expect(
-    screen.getByText(/no receivable is raised yet for a trip's agreed amount/),
-  ).toBeInTheDocument();
+  // Nothing has been collected yet — `settledMinor` is 0, not the agreed
+  // 60,000 (already asserted separately above): "Received" answers "how
+  // much has come in", never "how much was agreed".
+  expect(screen.getByRole("button", { name: /Due.*Rs 0/ })).toBeInTheDocument();
   expect(screen.getByText("Advance to him")).toBeInTheDocument();
   expect(screen.getByText(/no advance list read exists yet/)).toBeInTheDocument();
+});
+
+test("GAP-57 — tapping the outstanding Received row opens the collect-payment sheet", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /Due.*Rs 0/ }));
+  expect(await screen.findByText("Collect payment")).toBeInTheDocument();
+});
+
+test("GAP-57 — a fully paid receivable is shown but is no longer tappable", async () => {
+  const paidTrip: TripResponse = {
+    ...bookedTrip,
+    receivable: { ...pendingReceivable, settledMinor: "6000000", status: "paid" },
+  };
+  const get = baseGet({ "/api/trip/t1": paidTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText("Received")).toBeInTheDocument();
+  expect(screen.getByText("Paid")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Paid/ })).not.toBeInTheDocument();
+});
+
+test("GAP-57 — a charter with no customer shows no Received row at all, never a fabricated zero (W-56)", async () => {
+  const noCustomerTrip: TripResponse = { ...bookedTrip, customerId: null, receivable: null };
+  const get = baseGet({ "/api/trip/t1": noCustomerTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText(/Kandy/)).toBeInTheDocument();
+  expect(screen.queryByText("Received")).not.toBeInTheDocument();
 });
 
 test("a booked trip offers Close trip and Cancel trip; a closed one offers neither", async () => {

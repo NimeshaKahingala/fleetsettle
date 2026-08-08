@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   dayRecord,
@@ -96,6 +96,33 @@ export async function findVehicleForBusiness(
     .where(and(eq(vehicle.id, vehicleId), eq(vehicle.businessId, businessId)))
     .limit(1);
   return rows[0] as VehicleRow | undefined;
+}
+
+/**
+ * §6.7/UC-94/GAP-56: the arrangement in force on `asOf`, not necessarily
+ * today's. Deliberately a separate query from `CURRENT_ARRANGEMENT` above —
+ * that one backs the vehicle-overview badge and the client's gating, both
+ * of which want "now"; this one backs a money default, which wants
+ * "whenever the cost was actually incurred" (U-8: catch-up is the ordinary
+ * case, not the exception).
+ */
+export async function findVehicleArrangementAsOf(
+  db: ReadDb,
+  vehicleId: string,
+  asOf: string,
+): Promise<"A" | "B" | "C" | null> {
+  const rows = await db
+    .select({ arrangement: vehicleArrangement.arrangement })
+    .from(vehicleArrangement)
+    .where(
+      and(
+        eq(vehicleArrangement.vehicleId, vehicleId),
+        lte(vehicleArrangement.effectiveFrom, asOf),
+        or(isNull(vehicleArrangement.effectiveTo), gte(vehicleArrangement.effectiveTo, asOf)),
+      ),
+    )
+    .limit(1);
+  return (rows[0]?.arrangement as "A" | "B" | "C" | undefined) ?? null;
 }
 
 export interface VehicleCalendarDayRow {

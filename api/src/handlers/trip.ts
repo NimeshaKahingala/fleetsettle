@@ -16,6 +16,7 @@ import {
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { listExpensesForTrip } from "../queries/expense.js";
+import { findObligationBySource, type ObligationRow } from "../queries/obligation.js";
 import {
   findTripForBusiness,
   listInProgressTripsForBusiness,
@@ -50,7 +51,21 @@ type TripResponseRow = Pick<
   | "advanceDisposition"
 >;
 
-function toResponse(row: TripResponseRow) {
+/** GAP-57: `null` for a charter with no customer, no agreed amount, or a cancelled trip (`findObligationBySource` excludes a voided one). */
+function toReceivable(row: ObligationRow | null | undefined) {
+  if (row === null || row === undefined) return null;
+  return {
+    id: row.id,
+    kind: row.kind,
+    dueOn: row.dueOn,
+    amountMinor: toWire(row.amountMinor as Minor),
+    settledMinor: toWire(row.settledMinor as Minor),
+    waivedMinor: toWire(row.waivedMinor as Minor),
+    status: row.status,
+  };
+}
+
+function toResponse(row: TripResponseRow, receivable: ObligationRow | null) {
   return {
     id: row.id,
     vehicleId: row.vehicleId,
@@ -65,6 +80,7 @@ function toResponse(row: TripResponseRow) {
     closingDate: row.closingDate,
     cancelReason: row.cancelReason,
     advanceDisposition: row.advanceDisposition,
+    receivable: toReceivable(receivable),
   };
 }
 
@@ -119,7 +135,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
   const agreedAmountMinor = body.agreedAmountMinor ?? ZERO;
   const driverFeeMinor = body.driverFeeMinor ?? ZERO;
 
-  const { tripId } = await bookTrip(c.get("writer"), {
+  const { tripId, receivableId } = await bookTrip(c.get("writer"), {
     businessId,
     vehicleId: body.vehicleId,
     ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
@@ -136,22 +152,41 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
       : {}),
   });
 
+  // GAP-57: mirrors exactly what `bookTrip` just wrote in the same
+  // transaction — never re-derived from a second guard that could drift
+  // from the one that decided whether to insert the row at all.
+  const receivable: ObligationRow | null =
+    receivableId !== null
+      ? {
+          id: receivableId,
+          kind: "trip_fare",
+          dueOn: body.endDate,
+          amountMinor: agreedAmountMinor,
+          settledMinor: 0n,
+          waivedMinor: 0n,
+          status: "pending",
+        }
+      : null;
+
   return c.json(
-    toResponse({
-      id: tripId,
-      vehicleId: body.vehicleId,
-      customerId: body.customerId ?? null,
-      driverId: body.driverId ?? null,
-      status: "booked",
-      startDate: body.startDate,
-      endDate: body.endDate,
-      destination: body.destination ?? null,
-      agreedAmountMinor,
-      driverFeeMinor,
-      closingDate: null,
-      cancelReason: null,
-      advanceDisposition: null,
-    }),
+    toResponse(
+      {
+        id: tripId,
+        vehicleId: body.vehicleId,
+        customerId: body.customerId ?? null,
+        driverId: body.driverId ?? null,
+        status: "booked",
+        startDate: body.startDate,
+        endDate: body.endDate,
+        destination: body.destination ?? null,
+        agreedAmountMinor,
+        driverFeeMinor,
+        closingDate: null,
+        cancelReason: null,
+        advanceDisposition: null,
+      },
+      receivable,
+    ),
     201,
   );
 };
@@ -165,7 +200,9 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
   const row = await findTripForBusiness(c.get("reader"), businessId, id);
   if (!row) throw new NotFoundError();
 
-  return c.json(toResponse(row), 200);
+  const receivable = (await findObligationBySource(c.get("reader"), "trip", id)) ?? null;
+
+  return c.json(toResponse(row, receivable), 200);
 };
 
 /** Web-P7: the open-trip screen's own "Costs so far" — same `leaseAndTripLifecycle` gate as this resource's other reads. */

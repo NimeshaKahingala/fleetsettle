@@ -67,6 +67,11 @@ interface VehicleOverrides {
   vehicleType?: string;
 }
 
+interface VehicleArrangementOverrides {
+  effectiveFrom?: string;
+  effectiveTo?: string;
+}
+
 interface DriverOverrides {
   name?: string;
   dailyFeeMinor?: bigint;
@@ -210,14 +215,27 @@ export class TestContext {
     return id;
   }
 
-  /** §6.7's borne-by default is keyed on the vehicle's current arrangement — `createVehicle()` alone leaves it unset (P2's own bare factory does not assume any particular test needs one). */
-  async setVehicleArrangement(vehicleId: string, arrangement: "A" | "B" | "C"): Promise<void> {
+  /**
+   * §6.7's borne-by default is keyed on the vehicle's arrangement —
+   * `createVehicle()` alone leaves it unset (P2's own bare factory does not
+   * assume any particular test needs one). Overridable `effectiveFrom`/`effectiveTo`
+   * (GAP-56 tests) so a second call can set up a historical arrangement
+   * change — the table's own `EXCLUDE USING gist` constraint (migration
+   * `0001`) requires non-overlapping ranges, so a second open-ended row
+   * needs the first one closed first.
+   */
+  async setVehicleArrangement(
+    vehicleId: string,
+    arrangement: "A" | "B" | "C",
+    overrides: VehicleArrangementOverrides = {},
+  ): Promise<void> {
     const id = newId();
     await this.#db.insert(vehicleArrangement).values({
       id,
       vehicleId,
       arrangement,
-      effectiveFrom: "2026-01-01",
+      effectiveFrom: overrides.effectiveFrom ?? "2026-01-01",
+      effectiveTo: overrides.effectiveTo,
     });
     this.track(async () => {
       await this.#db.delete(vehicleArrangement).where(eq(vehicleArrangement.id, id));

@@ -49,6 +49,8 @@ export interface BookTripInput {
 
 export interface BookedTrip {
   tripId: string;
+  /** GAP-57: the `trip_fare` obligation's own id, when one was raised — `null` for a charter with no customer or a zero agreed amount, the same guard that decides whether to write one at all. */
+  receivableId: string | null;
 }
 
 /** Every day in `[start, end]`, inclusive of both ends (W-54) — never open-ended, unlike a lease's horizon. */
@@ -136,14 +138,16 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
 
       await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
 
+      let receivableId: string | null = null;
       if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
         const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bookingDate);
         if (!linkage) {
           throw new PeriodClosedError("No accounting period covers this business date yet");
         }
 
+        receivableId = newId();
         await insertObligation(tx, {
-          id: newId(),
+          id: receivableId,
           businessId: input.businessId,
           direction: "owed_to_us",
           partyType: "customer",
@@ -165,7 +169,7 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
         });
       }
 
-      return { tripId };
+      return { tripId, receivableId };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
