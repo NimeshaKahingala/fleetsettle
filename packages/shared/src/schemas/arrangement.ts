@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
-import { odometerSourceSchema } from "./lease-billing.js";
+import { leaseObligationRowSchema, odometerSourceSchema } from "./lease-billing.js";
 
 /**
  * UC-10 / UC-09: starting arrangement A. `startDate` is preserved exactly as
@@ -177,6 +177,15 @@ export const tripResponseSchema = z.object({
   closingDate: z.string().nullable(),
   cancelReason: z.string().nullable(),
   advanceDisposition: z.enum(["refunded", "retained"]).nullable(),
+  /**
+   * GAP-57: the `trip_fare` obligation A6 raises when there's a customer
+   * and a nonzero agreed amount — `null` for a charter with no customer
+   * (nothing was ever raised) or a cancelled trip (A6 voids it on cancel,
+   * so it no longer counts as outstanding). The same row shape a lease's
+   * own dues use (`leaseObligationRowSchema`), so `CollectPaymentSheet`
+   * takes a trip's receivable exactly the way it already takes a lease's.
+   */
+  receivable: leaseObligationRowSchema.nullable(),
 });
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 

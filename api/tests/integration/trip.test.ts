@@ -27,6 +27,14 @@ async function getTrip(token: string, id: string) {
   return request(`/api/trip/${id}`, bearer(token));
 }
 
+async function postPayment(token: string, body: unknown) {
+  return request("/api/payment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 async function listInProgressTrips(token: string) {
   return request("/api/trip", bearer(token));
 }
@@ -1231,6 +1239,178 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await getTripExpenses(token, otherTripBody.id);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * GAP-57: `TripDetailScreen` was rendering "Received" as `NotAvailable`
+ * with a reason that A6 (GAP-23) made false — a `trip_fare` obligation is
+ * raised at booking, but nothing surfaced its state back through
+ * `GET /api/trip/{id}`. These prove the full lifecycle: present and
+ * pending right after booking, reflecting a real payment once one lands,
+ * absent for a charter with no customer, and absent again once cancelled
+ * voids it (A6's own `voidObligationBySource`).
+ */
+describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("a freshly booked charter with a customer and an agreed amount carries a pending receivable", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      agreedAmountMinor: "3000000",
+    });
+    const body: { id: string; receivable: Record<string, unknown> | null } = await res.json();
+    expect(body.receivable).toMatchObject({
+      kind: "trip_fare",
+      dueOn: "2026-03-03",
+      amountMinor: "3000000",
+      settledMinor: "0",
+      waivedMinor: "0",
+      status: "pending",
+    });
+    ctx.trackCreatedTrip(body.id);
+
+    const getRes = await getTrip(token, body.id);
+    const getBody: { receivable: Record<string, unknown> | null } = await getRes.json();
+    expect(getBody.receivable).toMatchObject({
+      id: body.receivable?.["id"],
+      amountMinor: "3000000",
+      settledMinor: "0",
+      status: "pending",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("a payment against the customer settles the same receivable GET /api/trip/{id} shows", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const booked = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      agreedAmountMinor: "3000000",
+    });
+    const bookedBody: { id: string } = await booked.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+
+    const paymentRes = await postPayment(token, {
+      partyType: "customer",
+      partyId: customerId,
+      amountMinor: "3000000",
+      occurredOn: "2026-03-02",
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string } = await paymentRes.json();
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    const getRes = await getTrip(token, bookedBody.id);
+    const getBody: { receivable: Record<string, unknown> | null } = await getRes.json();
+    expect(getBody.receivable).toMatchObject({
+      amountMinor: "3000000",
+      settledMinor: "3000000",
+      status: "paid",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("an owner-driven charter with no customer carries no receivable, not a fabricated zero", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const body: { id: string; receivable: unknown } = await res.json();
+    expect(body.receivable).toBeNull();
+    ctx.trackCreatedTrip(body.id);
+
+    const getRes = await getTrip(token, body.id);
+    const getBody: { receivable: unknown } = await getRes.json();
+    expect(getBody.receivable).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("cancelling a trip voids its receivable — GET /api/trip/{id} shows none afterward", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const booked = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      agreedAmountMinor: "3000000",
+    });
+    const bookedBody: { id: string } = await booked.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+
+    const cancelRes = await postCancelTrip(token, bookedBody.id, {});
+    expect(cancelRes.status).toBe(200);
+
+    const getRes = await getTrip(token, bookedBody.id);
+    const getBody: { receivable: unknown } = await getRes.json();
+    expect(getBody.receivable).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a trip belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness();
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherTrip = await postTrip(otherToken, {
+      vehicleId: otherVehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const otherTripBody: { id: string } = await otherTrip.json();
+    ctx.trackCreatedTrip(otherTripBody.id);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getTrip(token, otherTripBody.id);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

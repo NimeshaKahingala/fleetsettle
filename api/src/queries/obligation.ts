@@ -43,12 +43,25 @@ export async function insertObligation(db: WriteDb, values: NewObligation): Prom
 
 export interface ObligationRow {
   id: string;
+  kind: string;
+  dueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
+  waivedMinor: bigint;
   status: string;
 }
 
-/** A day_record's obligation — `source_type = 'day_record'` (DM §10.1) — read back for the idempotent no-op response. */
+/**
+ * A source row's obligation, if it raised one — `source_type = 'day_record'`
+ * for confirmDay's own idempotent no-op response, `source_type = 'trip'`
+ * for GAP-57's receivable read. `voidedAt IS NULL`, the same convention
+ * `findOutstandingObligationsForParty` already uses: a voided obligation
+ * (A6's `cancelTrip`, GAP-23) reads as "none", not as its last live state.
+ * Every existing caller only ever calls this immediately after creating the
+ * row it's reading back, so the filter changes nothing for them — it only
+ * matters for a caller reading one back later, once it might have been
+ * voided since.
+ */
 export async function findObligationBySource(
   db: ReadDb,
   sourceType: string,
@@ -57,12 +70,21 @@ export async function findObligationBySource(
   const rows = await db
     .select({
       id: obligation.id,
+      kind: obligation.kind,
+      dueOn: obligation.dueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
       status: obligation.status,
     })
     .from(obligation)
-    .where(and(eq(obligation.sourceType, sourceType), eq(obligation.sourceId, sourceId)))
+    .where(
+      and(
+        eq(obligation.sourceType, sourceType),
+        eq(obligation.sourceId, sourceId),
+        isNull(obligation.voidedAt),
+      ),
+    )
     .limit(1);
   return rows[0];
 }
