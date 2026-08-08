@@ -6,6 +6,8 @@
 
 **Plan.md schedules this whole file as a single item, `V1`, at the head of the Track B queue.**
 
+**Updated 8 August 2026 — GAP-81 (void an expense) and the B9 copy batch (GAP-76/78/79/80) both shipped since this file was written; neither has been seen live.** GAP-81 is the one that matters here: it writes a real, effectively-permanent change to a real expense row (W-50 is void-and-replace — a void is never undone, only corrected forward with a fresh record), and it retroactively changes whatever cost total the voided expense was feeding. **LT-6a**, below, added in the same tier as B13 for that reason. The copy batch is read-only and low-risk — folded into **LT-2a** as a five-minute pass rather than its own ceremony, since unit tests already pin every string exactly and a live check here is confirmation, not discovery. **GAP-41, GAP-72 and GAP-74 stay out of this queue on purpose** — all three are backend-only with no client caller yet (B4 is what renders them), so there is nothing a browser can currently see; they're proven by integration tests instead and will earn a row here once B4 ships. **GAP-83** (every `DateField`'s 1×1 focusable native input) is a live finding with nothing fixed yet — not a check to run, a bug to keep in mind if LT-5's date fields are reached by keyboard.
+
 ---
 
 ## Why this file exists at all
@@ -40,10 +42,12 @@ Ordered so that no test contaminates the state a later one needs. **Read-only fi
 |---|---|---|---|
 | **LT-1** | B0b's Review and Mine shells, both colour schemes | Yes — one `business_member` row and one driver link | A second real Asgardeo identity |
 | **LT-2** | B14's fixed receivable amount, against real data | No | — |
+| **LT-2a** | The B9 copy batch (GAP-76/78/79/80), a five-minute spot-check | No | — |
 | **LT-3** | The 360px trip-form layout claim | No | A real device |
 | **LT-4** | The nested `Sheet`/`AmountPad` question | No | — |
 | **LT-5** | B12 — opening balances, draft and resume | Draft only: safe. **Commit: one-way** | — |
 | **LT-6** | B13 — pay the driver, advance, deposit | **Yes, and not undoable from the product** | — |
+| **LT-6a** | GAP-81 — void an expense | **Yes — void-and-replace is permanent (W-50), and it retroactively changes the cost total it fed** | — |
 | **LT-7** | GAP-3 — the day-card confirm loop | Yes | **A cron run in between** |
 | **LT-8** | B3 — close the month | **Irreversible** | Run last |
 
@@ -73,6 +77,15 @@ Ordered so that no test contaminates the state a later one needs. **Read-only fi
 
 Open a trip that has a customer and a nonzero agreed amount and is **unpaid**. The receivable row must read the **amount owed**, not `Rs 0`. Then collect a partial payment and confirm the row still reads the amount owed with a `part_paid` status — the field that was wrong (`settledMinor`) is only obviously wrong while nothing has been collected.
 
+## LT-2a · The B9 copy batch (GAP-76/78/79/80)
+
+**Open since:** 8 August. **Read-only, and the lightest item in this file** — every string below is pinned by an exact-match unit test, so this is confirmation that the built client matches the test fixture, not a search for the unexpected. Worth combining with whatever else touches these four screens rather than a dedicated pass.
+
+- **GAP-76** — tap "Add driver" or "Add vehicle" and submit blank. Expect **"Name is required"** / **"Registration is required"** / **"Vehicle type is required"**, never the bare `Invalid input`.
+- **GAP-78** — open any driver's detail screen. The name should appear **once** (the app-bar title), not again as a heading in the balances card below it.
+- **GAP-79** — open a vehicle with an incident that has no description. Expect **"Incident with no description"**, not "No description recorded".
+- **GAP-80** — open a trip with no driver advance read yet, and a fuel-fill or expense form's photo section. Expect **"advances aren't shown here yet"** and **"photo capture isn't available yet"** — no `Web-P8b`, no "not built yet" anywhere in the rendered copy.
+
 ## LT-3 · The trip form at 360px
 
 **Open since:** 8 August, filed unresolved rather than guessed at. `Screen.tsx:83-91` implements a proper `position: sticky` CTA per M-24, the same pattern every other form uses correctly — so either the report was about something else, or it is a device-only rendering issue a source read cannot confirm or rule out. **Needs a real device, not a resized desktop window.**
@@ -97,6 +110,19 @@ Pay a driver, record an advance, take a deposit — each from `DriverDetailScree
 
 The payment path is the one to watch: B13 generalised `recordPayment` to carry a direction, and `"paid"` settles `owed_by_us` only. Confirm a payment to a driver **never touches his arrears**, and that a retainer with nothing owed is held as credit rather than silently dropped.
 
+## LT-6a · Void an expense (GAP-81)
+
+**Open since:** 8 August, the day the fix shipped. **Never seen against real data** — the integration tests seed and void a fixture row directly; nothing has confirmed the client's own trigger, the reason prompt, or the retroactive total against a real vehicle's cost figure.
+
+Voiding is real and effectively permanent: W-50 is void-and-replace, never delete, and there is no un-void — a mistake here is corrected by voiding *this* test row too and moving on, the same as it would be in production.
+
+1. Record a real expense against a vehicle, note the vehicle's shown cost total (or the trip/incident it's attached to, if not vehicle-scoped).
+2. Tap the cost row → `VoidExpenseSheet` opens. Try submitting with an empty reason — the button must stay disabled (F-8.5: a reason is required for a money correction).
+3. Enter a reason, submit. The row must stay visible, struck through, with the reason appended — never disappear (INV-21).
+4. Re-check the vehicle's (or trip's/incident's) cost total — it must drop by the voided amount. This is the one step nothing else in this queue proves: that the void is wired through to whatever sum reads it, not only to the row itself.
+5. Tap the same row again — it must not be tappable a second time (already voided).
+6. As a `manager` (STAFF, same `dailyOperations` capability the screen itself is already gated on) — confirm they can void too; this one carries no narrower capability the way `reverseReceipt` narrows payment correction to owners only.
+
 ## LT-7 · The day-card confirm loop (GAP-3)
 
 **Open since 6 August — the oldest item here, and the one the fix is actually waiting on.**
@@ -113,7 +139,7 @@ GAP-3 was live data loss on F-4.2, "the flow the product is optimised around": `
 
 ## LT-8 · Close the month (B3)
 
-**Run this last, on purpose.** The confirm says it plainly: *"This cannot be undone. The next month opens in the same action, and every later write lands there instead."* Closing QA's open period locks every write into it and moves everything after into a successor — which breaks LT-5's commit, LT-6's writes and LT-7's confirm if it runs before them.
+**Run this last, on purpose.** The confirm says it plainly: *"This cannot be undone. The next month opens in the same action, and every later write lands there instead."* Closing QA's open period locks every write into it and moves everything after into a successor — which breaks LT-5's commit, LT-6's writes, LT-6a's void (A9a's own fix makes `PERIOD_CLOSED` fire on a void into a closed period, same as any other write) and LT-7's confirm if it runs before them.
 
 Check that all five checklist counts render with real numbers, that **the close button stays enabled regardless of what they say** (U-7 — it warns and lists, it never blocks), that the confirm label states the consequence rather than the word "Confirm" (M-10), and that success names the newly opened successor period.
 
@@ -125,7 +151,7 @@ Then, as a `manager` rather than an owner: the close action must be **absent, no
 
 - **The automated e2e suites** — `npm run test:e2e` (`e2e/smoke.spec.ts`, `e2e/sheet-a11y.spec.ts`) run locally and in CI against a built client and need no session. They are a gate, not a queue.
 - **Production.** `fleetsettle.com` has never had a signup (checked 7 August: `business_member`, `app_user` and `business` all at zero rows). There is nothing to test there and no reason to write anything into it.
-- **GAP-58, the 178-case test manifest** — `docs/testing/test-manifest.yaml` declares an acceptance spine mapping use cases to evidence, every case `not_started`, never run. Related, larger, and a different shape from this file: that is the systematic version of what this document does by hand for eight specific debts.
+- **GAP-58, the 178-case test manifest** — `docs/testing/test-manifest.yaml` declares an acceptance spine mapping use cases to evidence, every case `not_started`, never run. Related, larger, and a different shape from this file: that is the systematic version of what this document does by hand for ten specific debts.
 - **P14 messaging** — twelve Meta template approvals outstanding.
 
 ## When one of these finds something
