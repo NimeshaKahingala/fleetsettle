@@ -35,7 +35,9 @@ export const auditLogEntrySchema = z.object({
   before: z.record(z.string(), z.unknown()).nullable(),
   after: z.record(z.string(), z.unknown()).nullable(),
 });
+export type AuditLogEntry = z.infer<typeof auditLogEntrySchema>;
 
 export const auditLogResponseSchema = z.object({
   entries: z.array(auditLogEntrySchema),
 });
+export type AuditLogResponse = z.infer<typeof auditLogResponseSchema>;
