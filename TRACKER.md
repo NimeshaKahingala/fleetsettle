@@ -492,6 +492,7 @@ Both were treated the way `UI-UX-REVIEW.md`'s findings were: each re-checked aga
 
 ## Alongside this tracker
 
+- **[LIVE-TEST-PLAN.md](LIVE-TEST-PLAN.md)** — the eight checks that can only be answered by a real browser against a real environment, collected in one runnable queue instead of scattered as prose across this file and [Plan.md](Plan.md). Ordered so no test contaminates the state a later one needs, with the write cost of each stated up front — two are one-way and one is irreversible. Plan.md schedules the whole file as **V1**. **Findings go through the same validation every external review gets**: confirmed ones become §4 rows with a gap id, rejected ones become §6 paragraphs.
 - **[ROLES-AND-CAPABILITIES.md](ROLES-AND-CAPABILITIES.md)** — the five actors, the enforced capability matrix, and what is actually reachable in the client today, with the three put side by side. A reference, not a record: **if it ever disagrees with `api/src/auth/policy.ts`, `policy.ts` is right.** It exists because those three drifted once already and the drift was invisible until someone hit it in production (GAP-42).
 
 ## Not in this tracker
