@@ -33,6 +33,12 @@ export const vehicleMonthResponseSchema = z.object({
 });
 export type VehicleMonthResponse = z.infer<typeof vehicleMonthResponseSchema>;
 
+/** GAP-41/UC-66/W-32: costs recorded with no vehicle, for one accounting period — a real zero when none were recorded, never `NotAvailable` (W-56 governs an unknown, not an absent one). Reported as its own block beneath vehicle totals, never spread across vehicles. */
+export const overheadsResponseSchema = z.object({
+  totalMinor: z.string(),
+});
+export type OverheadsResponse = z.infer<typeof overheadsResponseSchema>;
+
 /** UC-71: ranked by profit; profit-per-km degrades to `null` (and that trip is excluded from a per-km ranking) for any trip with no closing odometer — a ranking ratio, never a stored/allocated amount, the same treatment `kmPerLitre` already gets. */
 export const rankedTripRowSchema = z.object({
   id: uuidSchema,

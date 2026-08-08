@@ -29,11 +29,11 @@ test("renders the driver's name and both balances, never a signed net (W-2)", as
   });
   renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
 
-  // "Sunil Perera" appears twice once loaded — Screen's own <h1> title and
-  // TwoBalances' own <h2> — the same header/body duplication every screen
-  // showing a record's name in both places already has (VehicleOverviewScreen's
-  // "CAB-1234" being the first instance of it).
-  expect(await screen.findAllByText("Sunil Perera")).toHaveLength(2);
+  // GAP-78: "Sunil Perera" appears once — Screen's own title, not repeated
+  // as a bare unlabeled heading inside TwoBalances too. Distinct from
+  // VehicleOverviewScreen's "Registration: CAB-1234" field, which is a
+  // labeled data row alongside Type/Arrangement, not a duplicate heading.
+  expect(await screen.findAllByText("Sunil Perera")).toHaveLength(1);
   expect(screen.getByText("He owes you")).toBeInTheDocument();
   expect(screen.getByText("Rs 8,000")).toBeInTheDocument();
   expect(screen.getByText("You owe him")).toBeInTheDocument();

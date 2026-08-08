@@ -142,7 +142,7 @@ test("GAP-57 — Received shows the real trip_fare receivable, and Advance to hi
   // must read as 60,000 due, not as nothing owed.
   expect(screen.getByRole("button", { name: /Due.*Rs 60,000/ })).toBeInTheDocument();
   expect(screen.getByText("Advance to him")).toBeInTheDocument();
-  expect(screen.getByText(/no advance list read exists yet/)).toBeInTheDocument();
+  expect(screen.getByText("advances aren't shown here yet")).toBeInTheDocument();
 });
 
 test("GAP-57 — tapping the outstanding Received row opens the collect-payment sheet", async () => {

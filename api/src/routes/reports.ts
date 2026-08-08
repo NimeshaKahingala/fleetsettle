@@ -6,6 +6,7 @@ import {
   getFuelEfficiencyReportHandler,
   getGoodwillReportHandler,
   getLostDaysReportHandler,
+  getOverheadsReportHandler,
   getReceivablesReportHandler,
   getTripRankingReportHandler,
   getUtilisationReportHandler,
@@ -17,6 +18,7 @@ import {
   getFuelEfficiencyReportRoute,
   getGoodwillReportRoute,
   getLostDaysReportRoute,
+  getOverheadsReportRoute,
   getReceivablesReportRoute,
   getTripRankingReportRoute,
   getUtilisationReportRoute,
@@ -27,6 +29,7 @@ import type { Env } from "../types.js";
 /** Wiring only (IG §3.2 step 7) — mounted behind `dbMiddleware` + `authMiddleware` in index.ts. */
 export const reports = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(getVehicleMonthReportRoute, getVehicleMonthReportHandler)
+  .openapi(getOverheadsReportRoute, getOverheadsReportHandler)
   .openapi(getTripRankingReportRoute, getTripRankingReportHandler)
   .openapi(getFuelEfficiencyReportRoute, getFuelEfficiencyReportHandler)
   .openapi(getReceivablesReportRoute, getReceivablesReportHandler)

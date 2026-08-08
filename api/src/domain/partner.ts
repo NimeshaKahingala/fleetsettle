@@ -11,7 +11,11 @@ import {
   OwnershipSharesInvalidError,
   PeriodClosedError,
 } from "../errors/app-error.js";
-import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import {
+  findOpenPeriodRow,
+  listAccountingPeriodsForBusiness,
+  resolvePeriodLinkage,
+} from "../queries/accounting-period.js";
 import { sumOutOfPocketExpensesForUser } from "../queries/expense.js";
 import {
   insertBankingEvent,
@@ -278,14 +282,60 @@ export interface PartnerSummary {
   takenOut: { payoutsMinor: Minor; settlementsMinor: Minor };
   earned: { profitShareMinor: Minor; managementFeeMinor: Minor };
   holdingMinor: Minor;
+  balanceMinor: Minor;
+}
+
+/** One user's profit share out of a `getVehicleMonthReport` result — shared by the open-period `earned` figure and GAP-74's all-time loop below, so the two can never disagree about how a share is read off the report. */
+function sumProfitShareForUser(
+  vehicleMonth: Awaited<ReturnType<typeof getVehicleMonthReport>>,
+  userId: string,
+): bigint {
+  return vehicleMonth.vehicles.reduce((sum, v) => {
+    const share = v.ownerShares.find((s) => s.userId === userId);
+    // eslint-disable-next-line no-restricted-syntax -- allow: no ownership_share row for this user on this vehicle is a real 0% share of it, not a missing figure (W-56 governs an unknown, not an absent one)
+    return sum + (share?.profitShareMinor ?? 0n);
+  }, 0n);
 }
 
 /**
- * A2/GAP-9/GAP-4/UC-67/W-52/W-53: "one page per partner, four lines" —
- * composed entirely from reads that already exist. `putIn`/`takenOut` are
- * all-time; `earned` is the currently open period only, and no wider (this
- * response schema's own note explains why a full history is a different,
- * larger feature). Reused rather than duplicated: `getVehicleMonthReport`
+ * GAP-74: profit share is a period fact, not a standing balance — no row
+ * anywhere holds what a closed period already settled, so an all-time
+ * figure means replaying every period this business has ever had. The
+ * naive fix, exactly as sized when this gap was scoped: a bounded loop
+ * over `listAccountingPeriodsForBusiness` (one row per month a real
+ * business has run, not one per money record) calling the same two reads
+ * `getPartnerSummary`'s own open-period `earned` already calls. **Not**
+ * the eventual shape — a snapshot taken at period close, so a closed
+ * period's share becomes a settled fact recomputation cannot move
+ * (INV-16's own instinct) — that needs a migration and a backfill and is
+ * deliberately not this. This must not gate B4, so it ships now.
+ */
+async function sumAllTimeEarnedForUser(
+  db: Reader,
+  businessId: string,
+  userId: string,
+): Promise<bigint> {
+  const periods = await listAccountingPeriodsForBusiness(db, businessId);
+  const perPeriod = await Promise.all(
+    periods.map(async (period) => {
+      const [vehicleMonth, managementFeeMinor] = await Promise.all([
+        getVehicleMonthReport(db, businessId, period.id, undefined),
+        sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
+      ]);
+      return sumProfitShareForUser(vehicleMonth, userId) + managementFeeMinor;
+    }),
+  );
+  return perPeriod.reduce((sum, earned) => sum + earned, 0n);
+}
+
+/**
+ * A2/GAP-9/GAP-4/UC-67/W-52/W-53/GAP-74: "one page per partner, four
+ * lines, plus the one he actually reads" — composed entirely from reads
+ * that already exist. `putIn`/`takenOut` are all-time; `earned` stays the
+ * currently open period only, for the "this month" figures that read
+ * beside it. `balanceMinor` is the new, separate all-time figure GAP-74
+ * added — `putIn + earned(all periods) − takenOut`, never `holdingMinor`
+ * netted in (W-2). Reused rather than duplicated: `getVehicleMonthReport`
  * for profit share (P11), `listPartnerCashPositions` for holding (P11).
  */
 export async function getPartnerSummary(
@@ -304,6 +354,7 @@ export async function getPartnerSummary(
     managementFeeMinor,
     vehicleMonth,
     cashPositions,
+    allTimeEarnedMinor,
   ] = await Promise.all([
     sumCapitalContributionsForUser(db, businessId, userId),
     sumOutOfPocketExpensesForUser(db, businessId, userId),
@@ -311,13 +362,10 @@ export async function getPartnerSummary(
     sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
     getVehicleMonthReport(db, businessId, period.id, undefined),
     listPartnerCashPositions(db, businessId),
+    sumAllTimeEarnedForUser(db, businessId, userId),
   ]);
 
-  const profitShareMinor = vehicleMonth.vehicles.reduce((sum, v) => {
-    const share = v.ownerShares.find((s) => s.userId === userId);
-    // eslint-disable-next-line no-restricted-syntax -- allow: no ownership_share row for this user on this vehicle is a real 0% share of it, not a missing figure (W-56 governs an unknown, not an absent one)
-    return sum + (share?.profitShareMinor ?? 0n);
-  }, 0n);
+  const profitShareMinor = sumProfitShareForUser(vehicleMonth, userId);
 
   // The handler only reaches here after confirming `userId` is an active
   // member of `businessId` (`findBusinessMemberUserId`) — the same
@@ -326,6 +374,13 @@ export async function getPartnerSummary(
   // figure (W-56).
   // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- see the comment above
   const holdingMinor = cashPositions.find((p) => p.userId === userId)!.heldMinor;
+
+  const balanceMinor =
+    contributionsMinor +
+    outOfPocketMinor +
+    allTimeEarnedMinor -
+    payoutTotals.payoutsMinor -
+    payoutTotals.settlementsMinor;
 
   return {
     userId,
@@ -344,5 +399,6 @@ export async function getPartnerSummary(
       managementFeeMinor: managementFeeMinor as Minor,
     },
     holdingMinor: holdingMinor as Minor,
+    balanceMinor: balanceMinor as Minor,
   };
 }

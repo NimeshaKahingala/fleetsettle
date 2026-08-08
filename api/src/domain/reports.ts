@@ -16,6 +16,7 @@ import {
   listUsBoughtFuelFills,
   sumDepositsHeld,
   sumGoodwillGiven,
+  sumOverheadsForPeriod,
   sumVehicleCostsForPeriod,
   sumVehicleEarnedForPeriod,
   type AgeingRow,
@@ -136,6 +137,19 @@ export async function getVehicleMonthReport(
     period: { id: periodId, periodStart: period.periodStart, periodEnd: period.periodEnd },
     vehicles: rows,
   };
+}
+
+/** GAP-41/UC-66/W-32: this period's costs recorded with no vehicle — its own report-shaped total, not a client-side sum over a full expense list (which would be aggregation outside SQL on a money figure). */
+export async function getOverheadsReport(
+  db: ReadDb,
+  businessId: string,
+  periodId: string,
+): Promise<{ totalMinor: bigint }> {
+  const period = await findPeriodBoundaries(db, businessId, periodId);
+  if (!period) throw new NotFoundError("No such accounting period in this business");
+
+  const totalMinor = await sumOverheadsForPeriod(db, businessId, periodId);
+  return { totalMinor };
 }
 
 /** UC-71: ranked by profit; profit-per-km is `null` (and excluded from a per-km ranking) for any trip with no closing odometer, never ranked at zero. */
@@ -300,8 +314,9 @@ export async function getGoodwillReport(
   businessId: string,
   from: string,
   to: string,
+  timezone: string,
 ): Promise<{ totalMinor: bigint }> {
-  const totalMinor = await sumGoodwillGiven(db, businessId, from, to);
+  const totalMinor = await sumGoodwillGiven(db, businessId, from, to, timezone);
   return { totalMinor };
 }
 

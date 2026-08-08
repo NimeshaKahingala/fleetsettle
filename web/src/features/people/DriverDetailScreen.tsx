@@ -80,7 +80,6 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <TwoBalances
-          driverName={driverQuery.data.name}
           owedToYouMinor={parse(balancesQuery.data.owedToUsMinor)}
           owedToYouDetail="—"
           owedByYouMinor={parse(balancesQuery.data.owedByUsMinor)}

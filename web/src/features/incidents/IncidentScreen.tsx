@@ -14,6 +14,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CustomerContributionSheet } from "./CustomerContributionSheet.js";
 import { InsuranceClaimSheet } from "./InsuranceClaimSheet.js";
 import { OffRoadSheet } from "./OffRoadSheet.js";
@@ -44,24 +45,6 @@ const CLAIM_STATUS_LABEL: Record<string, string> = {
   in_progress: "In progress",
   settled: "Settled",
   rejected: "Rejected",
-};
-
-const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
-  fuel: "Fuel",
-  tolls: "Tolls",
-  fines: "Fines",
-  cleaning: "Cleaning",
-  tyres: "Tyres",
-  servicing: "Servicing",
-  repairs: "Repairs",
-  insurance: "Insurance",
-  licence: "Licence",
-  crew_food: "Crew food",
-  permits: "Permits",
-  office: "Office",
-  legal: "Legal",
-  messaging: "Messaging",
-  other: "Other",
 };
 
 function formatShortDate(date: string): string {
@@ -209,7 +192,7 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               {STATUS_LABEL[incident.status] ?? incident.status}
             </p>
             <p className="text-body text-ink-primary">
-              {incident.description ?? "No description recorded"}
+              {incident.description ?? "Incident with no description"}
             </p>
             {closeMutation.isError ? (
               <p className="text-body-sm text-critical-ink">{closeMutation.error.message}</p>
@@ -303,27 +286,12 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               title="Repair costs"
               count={expenses.length}
               items={expenses.map((expense) => (
-                <Card key={expense.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-4">
-                    <p
-                      className={
-                        expense.voidedAt !== null
-                          ? "text-body text-ink-muted line-through"
-                          : "text-body text-ink-primary"
-                      }
-                    >
-                      {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
-                    </p>
-                    <Money
-                      value={parse(expense.amountMinor)}
-                      className={expense.voidedAt !== null ? "line-through text-ink-muted" : ""}
-                    />
-                  </div>
-                  <p className="text-caption text-ink-muted">
-                    {formatShortDate(expense.spentOn)}
-                    {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
-                  </p>
-                </Card>
+                <ExpenseCostRow
+                  key={expense.id}
+                  expense={expense}
+                  formattedDate={formatShortDate(expense.spentOn)}
+                  invalidateKeys={[["incident", incidentId, "expense"]]}
+                />
               ))}
             />
           ) : null}

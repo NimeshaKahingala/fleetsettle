@@ -60,6 +60,18 @@ test("a day fee entered via MoneyField reaches the request as a wire string, nev
   expect(typeof body.driverDayFeeMinor).toBe("string");
 });
 
+test("GAP-76: a blank name shows field-specific copy, never the generic zod fallback", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn();
+  renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
+
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+
+  expect(await screen.findByText("Name is required")).toBeInTheDocument();
+  expect(screen.queryByText("Invalid input")).toBeNull();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("a trip fee entered via MoneyField reaches the request as a wire string, independent of the day fee", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });

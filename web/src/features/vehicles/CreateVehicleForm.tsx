@@ -38,8 +38,8 @@ const ARRANGEMENTS = [
  * that doesn't transform).
  */
 const vehicleFormSchema = z.object({
-  registration: z.string().trim().min(1).max(50),
-  vehicleType: z.string().trim().min(1).max(50),
+  registration: z.string().trim().min(1, "Registration is required").max(50),
+  vehicleType: z.string().trim().min(1, "Vehicle type is required").max(50),
   defaultArrangement: vehicleArrangementCodeSchema,
   insuranceExpiry: z.custom<BusinessDate>((v) => typeof v === "string").optional(),
   registrationExpiry: z.custom<BusinessDate>((v) => typeof v === "string").optional(),

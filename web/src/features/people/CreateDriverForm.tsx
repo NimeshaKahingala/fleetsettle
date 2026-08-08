@@ -27,7 +27,7 @@ export interface CreateDriverFormProps {
  * only in `mutationFn`, at the actual API boundary.
  */
 const driverFormSchema = z.object({
-  name: z.string().trim().min(1).max(200),
+  name: z.string().trim().min(1, "Name is required").max(200),
   mobile: z.string().trim().min(1).max(30).optional(),
   driverDayFeeMinor: z.custom<Minor>((v) => typeof v === "bigint").optional(),
   driverTripFeeMinor: z.custom<Minor>((v) => typeof v === "bigint").optional(),
