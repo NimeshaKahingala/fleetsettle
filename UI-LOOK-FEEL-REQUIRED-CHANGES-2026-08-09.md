@@ -3,6 +3,7 @@
 Date: 2026-08-09  
 Environment reviewed: `https://qa.fleetsettle.com`  
 Scope: live QA UI plus `web/src` design primitives and feature screens
+Fresh hosted retest: 2026-08-09 after latest deployment
 
 ## Verdict
 
@@ -37,6 +38,19 @@ Observed:
 - Calendar uses only two main state color families: brand for lease/daily/open and serious for trip/lost/hold.
 - More rows use icons, but all icons are neutral gray. `Close the month` does not look more consequential than `Opening balances`.
 - Direct `/reports` still renders `Not built yet` in the hosted environment for this account.
+
+Fresh 2026-08-09 retest after deployment:
+
+- Direct `/reports` now renders the report catalogue and all six first-pass report routes.
+- Active bottom tab now has a visible non-color indicator.
+- Vehicle arrangement badges, arrangement accents, incident status badges, incident accents, and voided expense badges are live.
+- Calendar legend colors now use distinct semantic mappings for daily ran, pending, lost, trip, lease, and hold.
+- More rows now have chevrons; `Close the month` has a warning-colored icon.
+- Repeated cards still use 12px radius.
+- Section headers still use muted `Title · count` text.
+- Report/review/period/incident routes still highlight `Home` in the bottom nav.
+- Final close-month confirmation still uses the brand-primary button, not destructive/critical.
+- Vehicle action sheet icon tones are still partly neutral, including `Report incident`.
 
 ## Code Evidence
 
@@ -296,7 +310,7 @@ Likely file:
 
 ### P3 - Improve Report Catalogue Visual Grouping
 
-The local code now has report catalogue and review screens, but hosted QA still rendered direct `/reports` as `Not built yet` for this account. Once deployed/visible, these screens should not be just another neutral list.
+Fresh 2026-08-09 update: hosted QA now renders the report catalogue and all six first-pass report routes. The catalogue works functionally, but it is still a flat neutral list. These screens should not stay visually indistinguishable from ordinary navigation rows.
 
 Required:
 

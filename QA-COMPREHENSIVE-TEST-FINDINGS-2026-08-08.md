@@ -1,8 +1,9 @@
 # FleetSettle QA Comprehensive Browser/UI-UX Findings
 
 Date: 2026-08-08  
+Latest fresh pass: 2026-08-09  
 Environment: https://qa.fleetsettle.com  
-Run labels: `QC-0808160814`, `TARGET-08081547`, `LIVE-0809-GAP81-B9`  
+Run labels: `QC-0808160814`, `TARGET-08081547`, `LIVE-0809-GAP81-B9`, `FRESH-0809-DEPLOY`  
 Session: original hosted pass was signed in; targeted pass resumed after user sign-in
 
 ## Executive Summary
@@ -12,6 +13,73 @@ The current design direction is good and should be refined, not redesigned. The 
 I was able to create vehicles through the hosted UI and inspect the main routed screens. In the first pass, the in-app browser control layer stopped accepting click commands for the signed-in tab, so I supplemented the hosted pass with source review and the full web unit suite.
 
 Latest targeted update: after sign-in, a second hosted QA tab was usable and the browser-control issue did not reproduce there. I completed the live UI spot-checks for GAP-81 and the B9 copy batch, then updated the backend-only Track A evidence from integration tests. GAP-81 and GAP-76/78/79/80 now have live hosted confirmation. GAP-41/72/74 remain backend-only until B4 renders them.
+
+Fresh deployment update, 2026-08-09: the latest hosted client has several UI look-and-feel fixes live. Active bottom-tab indicators, vehicle arrangement badges/accents, incident status badges/accents on Vehicle Overview, voided expense badge/reason styling, calendar color legend mappings, More-screen chevrons, and warning treatment for `Close the month` are all deployed. Reports are now visible on hosted QA instead of rendering `Not built yet`.
+
+The fresh pass also found new functional and navigation regressions: an active daily-lease vehicle can still show daily-lease days as free in the calendar and open a trip booking form for those dates; report/review/period/incident routes render inside the Operate shell with `Home` highlighted; `/review/money` can stay on `Loading...` indefinitely; and the final irreversible close-month confirmation still uses the primary brand button instead of destructive/critical treatment.
+
+## Fresh Hosted QA Regression Pass - 2026-08-09
+
+Scope:
+
+- Hosted QA at `https://qa.fleetsettle.com`.
+- Signed-in owner-manager account supplied by the user.
+- Mobile viewport pass at `390 x 844`.
+- Read/write UI paths: Home, Vehicles, Vehicle Overview, Record Expense, Void Expense, Vehicle Calendar, Book Trip confirm flow, More, Reports, Review, People, Driver Detail, Incident Detail, Close Month confirmation, Add Vehicle validation, Add Driver validation.
+
+Data written:
+
+- Created expense on `NC-1234`: `Fuel`, `Rs 12.34`, dated `9 Aug 2026`.
+- Voided that exact expense with reason `QA fresh browser void test 2026-08-09`.
+- Did not submit the trip booking probe.
+- Did not submit the close-month confirmation.
+
+Verified working:
+
+- Home rendered and active bottom tab now has a visible non-color marker.
+- Vehicle list rendered arrangement badges and left accents:
+  - `Lease out`: brand.
+  - `Daily lease`: good.
+  - `Trips / charter`: serious.
+- Vehicle list rows include trailing `ChevronRight` icons.
+- Vehicle Overview rendered:
+  - arrangement badge,
+  - critical voided-expense accent and `Voided` badge,
+  - visible void reason,
+  - warning/good incident status badges,
+  - incident row chevrons.
+- Expense write path worked through the UI: amount pad, category picker, and submit.
+- Void expense path worked through the UI: empty reason kept `Void expense` disabled, entering a reason enabled it, final button was destructive, and after submit the row stayed visible and non-tappable.
+- Calendar legend now uses distinct classes for lease, daily ran, daily pending, daily lost, trip, and hold.
+- More rows now have chevrons; `Close the month` icon is warning-colored.
+- `/reports` now renders the real report catalogue.
+- All six report routes rendered without console warnings/errors:
+  - `/reports/vehicle-month`
+  - `/reports/trips`
+  - `/reports/fuel-efficiency`
+  - `/reports/receivables`
+  - `/reports/cash-position`
+  - `/reports/lost-days`
+- People rows have chevrons and Driver Detail for `Sunil Perera` no longer repeats the driver name below the title.
+- GAP-76 live validation still passes:
+  - blank Add Vehicle: `Registration is required`, `Vehicle type is required`,
+  - blank Add Driver: `Name is required`,
+  - no `Invalid input`.
+- Browser console warnings/errors were empty at the end of the pass.
+
+Fresh findings:
+
+- `NC-1234` is shown as a Daily lease vehicle with current daily lease history, but its August/September 2026 calendar did not render daily-lease `B`/ran/lost markers.
+- `day-2026-08-10` on `NC-1234` rendered as a button with `aria-label="Book a trip from 2026-08-10"`.
+- Tapping that date opened `/vehicles/019fd800-9349-706a-80f1-360449d122c9/trip/new?startDate=2026-08-10`.
+- Advancing the trip form to confirmation showed only `2026-08-10` and `Book trip`; it did not show the expected "pauses daily lease" warning.
+- `/reports/lost-days` showed `No daily-lease days in this window`, which conflicts with the active daily-lease evidence above.
+- `/reports`, `/review`, `/review/vehicles`, `/review/money`, `/period/close`, and `/incidents/:id` all highlighted `Home` in the Operate tab bar.
+- `/review/money` remained on `Loading...` after an additional wait, with no visible error state and no console errors.
+- `Close August permanently` in the final close-month dialog was still a brand-primary button.
+- Action-sheet icon tones are only partly applied: `Report incident` in Vehicle actions is still neutral.
+- Repeated cards still render with `rounded-md` / `12px`, including vehicle rows, cost rows, report cards, checklist rows, and incident detail cards.
+- Section headers such as `Costs · 4`, `Incidents · 2`, and `Recent payments` still use the older muted text/count treatment.
 
 ## Targeted Retest Addendum
 
@@ -78,6 +146,124 @@ Live hosted UI status:
 
 ## Required Modifications
 
+### P1 - Fix Daily-Lease Calendar Allocation Visibility And Trip Conflict Guard
+
+Fresh live evidence:
+
+- `NC-1234` is an active Daily lease vehicle.
+- Vehicle Overview history shows `Daily lease · Rs 3,000/day · Sunil Perera · 9 Aug 2026 – ongoing`.
+- Calendar August 2026 and September 2026 did not show daily-lease markers for the active lease dates.
+- `day-2026-08-10` rendered as a free clickable day with `aria-label="Book a trip from 2026-08-10"`.
+- Opening the trip form for that date and advancing to confirmation showed no daily-lease pause warning.
+- `/reports/lost-days` for `2026-08-01 – 2026-08-09` showed `No daily-lease days in this window`.
+
+Why this matters:
+
+- The calendar is currently the entry point for booking trips.
+- If an active daily-lease date is absent from `vehicle_day_allocation`/calendar output, the UI treats the day as free and can start a conflicting trip flow.
+- The trip confirm screen depends on the same calendar payload for its "pauses daily lease" warning, so the user gets no warning before booking.
+- Lost-days reporting also reads from `day_record`, so the report can claim there are no daily-lease days while the product shows an active daily lease elsewhere.
+
+Likely source areas:
+
+- `api/src/queries/vehicle.ts` -> `findVehicleCalendar`
+- `api/src/queries/scheduled.ts`
+- `api/src/domain/day-card-generation.ts`
+- `api/src/queries/reports.ts` -> `listLostDays`
+- `web/src/features/vehicles/VehicleCalendarScreen.tsx`
+- `web/src/features/trips/BookTripScreen.tsx`
+
+Required fix:
+
+- Ensure starting a daily lease creates or schedules the occupied daily-lease days the calendar and reports need, or make the calendar endpoint derive active daily-lease occupancy when rows are missing.
+- Do not render an active daily-lease day as a free trip day.
+- Make trip confirmation detect and warn on paused daily-lease dates from the authoritative source.
+- Update lost-days empty copy so "no daily-lease days" is only shown when there truly are no eligible daily-lease records in the window. If there are daily leases but zero lost days, say that instead.
+- Add integration coverage using the live shape: active daily lease starting `2026-08-09`, calendar read for `2026-08-10`, trip confirm data, and lost-days report.
+
+### P1 - Fix Active Bottom Tab Mapping For Non-Tab Routes
+
+Fresh live evidence:
+
+- `/reports` and every `/reports/*` route highlighted `Home`.
+- `/review`, `/review/vehicles`, and `/review/money` highlighted `Home`.
+- `/period/close` highlighted `Home` even though it is reached from More.
+- `/incidents/:id` highlighted `Home` even though it was reached from Vehicle Overview.
+
+Likely source area:
+
+- `web/src/app/router.tsx`
+- `tabForPathname`
+- `FirstRunGate` role shell selection
+- `ReviewLayout`/Operate shell interaction for owner-manager review/report routes
+
+Required fix:
+
+- Decide the product rule for owner-manager read-only reports/review:
+  - either render `/review*` and `/reports*` in the Review shell for owner-manager too,
+  - or keep them in Operate but map `/reports`, `/review`, `/period`, and similar hub-owned routes back to `More`.
+- Map `/incidents`, `/trips`, and `/leases` to the tab that matches the entry context where possible, or deliberately hide/neutralize the active tab on detail routes reached from multiple places.
+- Add route-level tests for active tab mapping on `/reports`, `/reports/vehicle-month`, `/review`, `/review/vehicles`, `/review/money`, `/period/close`, `/incidents/:id`, `/trips/:id`, and `/leases/:id`.
+
+### P1 - Render Error/Empty State For Review Money Instead Of Infinite Loading
+
+Fresh live evidence:
+
+- `/review/money` stayed on `Loading...` after a multi-second wait.
+- Browser console logs remained empty.
+- Source review shows `ReviewMoneyScreen` returns `Loading...` whenever `query.data === undefined`, without checking `query.isError`.
+
+Likely source area:
+
+- `web/src/features/review/ReviewMoneyScreen.tsx`
+- `api/src/queries/partner.ts`
+- `api/src/route-defs/partner.ts`
+
+Required fix:
+
+- Render `query.isError` with the API error message.
+- Consider `retry: false` or a bounded retry if 403/404 is a normal role/data outcome.
+- If the current owner-manager user has no partner summary row, render an intentional empty state explaining that instead of a spinner.
+- Add tests for success, loading, API error, and no-summary/empty partner states.
+
+### P1 - Make Final Close-Month Confirmation Destructive
+
+Fresh live evidence:
+
+- The final irreversible dialog says `Close 1 August 2026 – 31 August 2026 permanently`.
+- The description says `This cannot be undone`.
+- The final `Close August permanently` button still uses the brand-primary blue treatment.
+
+Likely source area:
+
+- `web/src/features/period/CloseMonthScreen.tsx`
+- `web/src/design/primitives/Dialog.tsx`
+
+Required fix:
+
+- Pass `variant="destructive"` to `DialogConfirmFooter` for the close-month final confirmation.
+- Add a test that asserts the final close action uses the destructive variant.
+- Keep the first screen-level `Close this month` entry button primary or serious according to product preference; the final irreversible action must be visually serious.
+
+### P2 - Finish Remaining UI Look-And-Feel Refinements From Fresh Pass
+
+Fresh live evidence:
+
+- Repeated cards still use `rounded-md` / `12px`.
+- Section headers still render as muted `Title · count` text.
+- Vehicle action sheet icon tones are still neutral for `Report incident`.
+- Reports catalogue is visible now, but still a flat neutral list without grouping.
+- Incident detail status is plain text in the detail card, not a status badge.
+
+Required fix:
+
+- Complete `UI-LOOK-FEEL-IMPLEMENTATION-PLAN-2026-08-09.md` tickets:
+  - UI-LF-02 card radius/accent density,
+  - UI-LF-06 action icon consequence treatment,
+  - UI-LF-09 section header treatment,
+  - UI-LF-11 reports catalogue grouping,
+  - UI-LF-12 review/report visual alignment.
+
 ### P1 - Guard Direct Routes By Vehicle Arrangement
 
 Direct navigation to these routes rendered forms for vehicle `QA-52656`, whose arrangement is `Trips / charter`:
@@ -128,18 +314,17 @@ The hidden native date inputs are detectable as `1x1` interactive controls on:
 
 If the visible date chip/button is the real control, the hidden input should not appear as a tiny focus target. If the hidden input must stay accessible, use a proper visually hidden pattern that does not create a 1x1 interactive hit target problem.
 
-### P2 - Complete Or Hide Placeholder Routes
+### P2 - Complete Or Hide Remaining Placeholder Routes
 
-These routes still render `Not built yet`:
+Fresh 2026-08-09 update: `/reports`, `/reports/*`, `/review`, and `/review/vehicles` now render real screens for the signed-in owner-manager account. They should no longer be treated as placeholder routes in this environment.
 
-- `/review`
-- `/review/vehicles`
-- `/review/money`
-- `/reports`
+Remaining placeholder/loading concerns:
+
+- `/review/money` renders `Loading...` indefinitely in the fresh hosted pass; treat this as a loading/error-state bug, not a completed route.
 - `/me`
 - Customer detail route, from source review
 
-If these are not ready, hide the corresponding tabs/links for roles that can reach them or replace them with useful read-only summaries. Placeholders in production-like QA make the product feel unfinished even when core flows are improving.
+If remaining destinations are not ready, hide the corresponding tabs/links for roles that can reach them or replace them with useful read-only summaries. Placeholders in production-like QA make the product feel unfinished even when core flows are improving.
 
 ### P2 - Remove Unreachable Calendar Legend States
 
