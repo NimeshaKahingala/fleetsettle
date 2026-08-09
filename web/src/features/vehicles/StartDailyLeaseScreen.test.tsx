@@ -49,9 +49,9 @@ async function pickDriver(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByText("Sunil Perera"));
 }
 
-/** `MoneyField`'s trigger is named by its current value — blank reads "Rs 0" (§6.2). */
+/** `MoneyField`'s trigger is named by its current value — blank reads "Enter daily lease amount" (§6.2). */
 async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: string) {
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter daily lease amount" }));
   for (const digit of digits) {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -92,11 +92,13 @@ test("the daily lease amount is never pre-filled from the driver's day fee — o
   await pickDriver(user);
 
   // `driverDayFeeMinor` is 300000 above. If it ever leaks into this field the
-  // trigger reads "Rs 3,000" instead of the blank "Rs 0", and a manager
-  // accepts a plausible figure pointing the wrong way. UC §2's UC-04 note
-  // records that v1.1 merged these two and that separating them was a
-  // deliberate correction.
-  expect(await screen.findByRole("button", { name: "Rs 0" })).toBeInTheDocument();
+  // trigger reads "Rs 3,000" instead of the blank "Enter daily lease amount",
+  // and a manager accepts a plausible figure pointing the wrong way. UC §2's
+  // UC-04 note records that v1.1 merged these two and that separating them
+  // was a deliberate correction.
+  expect(
+    await screen.findByRole("button", { name: "Enter daily lease amount" }),
+  ).toBeInTheDocument();
 });
 
 test("patternWeekdays is sent only for the chosen-days pattern, and the save waits for at least one day", async () => {

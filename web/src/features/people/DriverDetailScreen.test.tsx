@@ -110,7 +110,7 @@ test("GAP-63 — Pay the driver posts a 'paid'-direction payment", async () => {
 
   await user.click(await screen.findByRole("button", { name: "Driver money" }));
   await user.click(await screen.findByText("Pay the driver"));
-  await user.click(await screen.findByRole("button", { name: "Rs 0" }));
+  await user.click(await screen.findByRole("button", { name: "Enter amount" }));
   for (const digit of "50000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -133,7 +133,7 @@ test("GAP-64 — Record an advance posts to /api/advance", async () => {
 
   await user.click(await screen.findByRole("button", { name: "Driver money" }));
   await user.click(await screen.findByText("Record an advance"));
-  await user.click(await screen.findByRole("button", { name: "Rs 0" }));
+  await user.click(await screen.findByRole("button", { name: "Enter amount" }));
   for (const digit of "10000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -156,7 +156,7 @@ test("GAP-66 — Record a deposit posts to /api/deposit", async () => {
 
   await user.click(await screen.findByRole("button", { name: "Driver money" }));
   await user.click(await screen.findByText("Record a deposit"));
-  await user.click(await screen.findByRole("button", { name: "Rs 0" }));
+  await user.click(await screen.findByRole("button", { name: "Enter amount" }));
   for (const digit of "25000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }

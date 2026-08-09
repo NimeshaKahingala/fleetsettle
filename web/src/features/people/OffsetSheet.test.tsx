@@ -22,7 +22,7 @@ test("records an offset with the amount, today's date pre-filled, and closes on 
     { post },
   );
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   for (const digit of "5000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -46,7 +46,7 @@ test("surfaces the server's 400 when the offset exceeds what is outstanding on o
     post,
   });
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   for (const digit of "5000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }

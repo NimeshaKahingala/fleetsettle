@@ -154,7 +154,7 @@ test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled t
   // Pre-filled and locked to this vehicle — no vehicle picker rendered.
   expect(screen.queryByText("Choose vehicle")).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   await user.click(screen.getByRole("button", { name: "Choose category" }));

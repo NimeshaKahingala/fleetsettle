@@ -25,7 +25,7 @@ const created: ExpenseResponse = {
 };
 
 async function fillAmount(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
