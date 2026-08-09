@@ -464,6 +464,21 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/fuel-efficiency?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-31&to=2026-07-01`,
+        token,
+      );
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("receivables (UC-74)", () => {
@@ -683,6 +698,18 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-31&to=2026-07-01", token);
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("goodwill (UC-77, owners only)", () => {
@@ -782,6 +809,18 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/goodwill?from=2026-07-31&to=2026-07-01", token);
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("utilisation (UC-79, owners only)", () => {
@@ -842,6 +881,21 @@ describe("reports (P11)", () => {
         token,
       );
       expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+
+    it("400 — GAP-92: from after to is refused, not answered with a negative totalDays", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-14&to=2026-07-01`,
+        token,
+      );
+      expect(res.status).toBe(400);
 
       await ctx.cleanup();
     });

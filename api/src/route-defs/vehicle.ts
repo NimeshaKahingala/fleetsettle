@@ -1,17 +1,20 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   businessDateSchema,
+  changeVehicleArrangementRequestSchema,
   createVehicleRequestSchema,
   listExpensesResponseSchema,
   listIncidentsResponseSchema,
   listVehicleDocumentsResponseSchema,
   listVehiclesResponseSchema,
   upsertVehicleDocumentRequestSchema,
+  vehicleArrangementResponseSchema,
   vehicleCalendarResponseSchema,
   vehicleDailyLeaseHistoryResponseSchema,
   vehicleDocumentResponseSchema,
   vehicleLeaseHistoryResponseSchema,
   vehicleResponseSchema,
+  vehicleTripHistoryResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
@@ -183,6 +186,53 @@ export const listVehicleDailyLeaseHistoryRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read vehicle history" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/**
+ * F-1.2/UC-94/GAP-54: "pick the new arrangement and an effective date."
+ * `manageEntities` — this file's own default gate, the same one `createVehicleRoute`
+ * uses; F-1.2's actor is "Owner or manager," the operational/setup group.
+ */
+export const changeVehicleArrangementRoute = createRoute({
+  method: "post",
+  path: "/{id}/arrangement",
+  request: {
+    params: vehicleIdParams,
+    body: { content: { "application/json": { schema: changeVehicleArrangementRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: vehicleArrangementResponseSchema } },
+      description: "The new arrangement, open from effectiveFrom",
+    },
+    400: {
+      description:
+        "Already configured for this arrangement, or effectiveFrom is not after the current arrangement's (or its daily lease's) own start date",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot change a vehicle's arrangement" },
+    404: { description: "No such vehicle in this business" },
+    409: {
+      description:
+        "This vehicle has a lease that is not yet closed, or an open trip covering the effective date",
+    },
+  },
+});
+
+/** GAP-77/UC-71: an arrangement-C vehicle's own trip history — every status, most recent first. `dailyOperations`, matching `listVehicleIncidentsRoute` — operational content, not vehicle master-data. */
+export const listVehicleTripsRoute = createRoute({
+  method: "get",
+  path: "/{id}/trip",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleTripHistoryResponseSchema } },
+      description: "Every trip this vehicle has had, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read trips" },
     404: { description: "No such vehicle in this business" },
   },
 });

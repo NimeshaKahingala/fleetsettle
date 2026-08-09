@@ -1,7 +1,8 @@
 import { newId } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { ownershipShare, payment } from "../../src/db/schema.js";
+import { businessMember, ownershipShare, payment } from "../../src/db/schema.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -287,6 +288,25 @@ describe("GET /api/partner/{userId} (A2, UC-67/W-52/W-53)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await getSummary(owner.userId, token);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-90: a revoked member's summary is 404, not a 500 — findBusinessMemberUserId and listPartnerCashPositions now agree on what 'active' means", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const revoked = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    await db
+      .update(businessMember)
+      .set({ revokedAt: "2026-07-15T00:00:00.000Z" })
+      .where(eq(businessMember.userId, revoked.userId));
+
+    const res = await getSummary(revoked.userId, token);
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

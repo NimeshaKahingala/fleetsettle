@@ -2,6 +2,7 @@ import { businessToday } from "@fleetsettle/shared";
 import { writer } from "./db/client.js";
 import { rollDueBillingPeriods } from "./domain/billing-period.js";
 import { generateDayCards } from "./domain/day-card-generation.js";
+import { generateManagementFeeObligationsForAllOpenPeriods } from "./domain/management-fee.js";
 import type { Bindings } from "./types.js";
 
 function log(entry: Record<string, unknown>): void {
@@ -65,6 +66,26 @@ export async function scheduled(
       level: "error",
       job: "generate-billing-periods",
       today,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // A10a/GAP-39/W-53: catches up any open period whose management-fee
+  // obligations weren't generated at period-open (an agreement granted
+  // mid-period, or a period this pass never touched) — unscoped by `today`,
+  // since each business's own open period already carries its own start date.
+  try {
+    const result = await generateManagementFeeObligationsForAllOpenPeriods(db);
+    log({
+      level: result.errors.length > 0 ? "warn" : "info",
+      job: "generate-management-fee",
+      created: result.created,
+      errors: result.errors,
+    });
+  } catch (err) {
+    log({
+      level: "error",
+      job: "generate-management-fee",
       error: err instanceof Error ? err.message : String(err),
     });
   }

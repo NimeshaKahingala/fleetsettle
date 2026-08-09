@@ -121,6 +121,12 @@ interface DailyLeaseOverrides {
   dailyLeaseAmountMinor?: bigint;
 }
 
+interface ManagementFeeAgreementOverrides {
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  monthlyAmountMinor?: bigint;
+}
+
 interface DayRecordOverrides {
   state?:
     "open" | "ran_paid_full" | "ran_paid_short" | "ran_unpaid" | "did_not_run" | "paused_for_trip";
@@ -419,6 +425,27 @@ export class TestContext {
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, id));
     });
 
+    return id;
+  }
+
+  /** Bare `management_fee_agreement` — for tests that need one in place without going through `POST /api/management-fee-agreement`. */
+  async createManagementFeeAgreement(
+    vehicleId: string,
+    managerUserId: string,
+    overrides: ManagementFeeAgreementOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(managementFeeAgreement).values({
+      id,
+      vehicleId,
+      managerUserId,
+      monthlyAmountMinor: overrides.monthlyAmountMinor ?? 15_000_00n,
+      effectiveFrom: overrides.effectiveFrom ?? "2026-07-01",
+      effectiveTo: overrides.effectiveTo,
+    });
+    this.track(async () => {
+      await this.#db.delete(managementFeeAgreement).where(eq(managementFeeAgreement.id, id));
+    });
     return id;
   }
 
@@ -979,6 +1006,20 @@ export class TestContext {
   trackGeneratedLeaseCalendar(leaseId: string): void {
     this.track(async () => {
       await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, leaseId));
+    });
+  }
+
+  /** A10a/`generate-management-fee`: the generator's own obligation write for one agreement — `source_id` is the agreement id, one row per period it has run against. */
+  trackGeneratedManagementFeeObligations(agreementId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(obligation)
+        .where(
+          and(
+            eq(obligation.sourceType, "management_fee_agreement"),
+            eq(obligation.sourceId, agreementId),
+          ),
+        );
     });
   }
 

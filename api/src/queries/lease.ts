@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, lease, vehicleDayAllocation } from "../db/schema.js";
 
@@ -189,6 +189,26 @@ export async function findActiveLeaseForVehicle(
         or(isNull(lease.endDate), gte(lease.endDate, asOf)),
       ),
     )
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * F-1.2/UC-94/GAP-54: the arrangement-change precondition — "no open
+ * lease… conflicting with the effective date." Unlike `findActiveLeaseForVehicle`
+ * above (a borne-by default, any date range), this filters `status`: a
+ * lease not yet `closed` carries a deposit/mileage/billing commitment
+ * F-2.6's own multi-step flow exists to unwind, so it blocks the change
+ * regardless of its own date range.
+ */
+export async function findOpenLeaseForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<{ id: string } | undefined> {
+  const rows = await db
+    .select({ id: lease.id })
+    .from(lease)
+    .where(and(eq(lease.vehicleId, vehicleId), inArray(lease.status, ["active", "closing"])))
     .limit(1);
   return rows[0];
 }

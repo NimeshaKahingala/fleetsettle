@@ -5,6 +5,11 @@ import { writer } from "../../src/db/client.js";
 import { dayRecord, obligation, vehicleDayAllocation } from "../../src/db/schema.js";
 import { rollDueBillingPeriods } from "../../src/domain/billing-period.js";
 import { generateDayCards } from "../../src/domain/day-card-generation.js";
+import {
+  generateManagementFeeObligationsForAllOpenPeriods,
+  generateManagementFeeObligationsTx,
+} from "../../src/domain/management-fee.js";
+import { mintUser } from "../support/auth.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
 
@@ -281,5 +286,159 @@ describe("scheduled jobs (P13)", () => {
       ctx.trackCreatedLease(leaseId);
       await ctx.cleanup();
     }, 60_000); // this shared Neon test branch has accumulated other active leases over many phases' worth of runs; a genuinely global, unscoped catch-up loop over all of them is slower than one lease alone
+  });
+
+  /**
+   * A10a/GAP-39/W-53: `sumVehicleCostsForPeriod` (queries/reports.ts) has
+   * read `obligation.kind = 'management_fee'` since P7 with nothing ever
+   * writing the row — this is that write's own test coverage.
+   */
+  describe("generate-management-fee", () => {
+    it("one obligation per agreement effective on the period's own start date", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleA = await ctx.createVehicle(businessId, { registration: "A-1111" });
+      const vehicleB = await ctx.createVehicle(businessId, { registration: "B-2222" });
+      const manager1 = await mintUser(db, ctx, businessId, "manager");
+      const manager2 = await mintUser(db, ctx, businessId, "manager");
+      const agreement1 = await ctx.createManagementFeeAgreement(vehicleA, manager1.userId, {
+        monthlyAmountMinor: 15_000_00n,
+        effectiveFrom: "2026-01-01",
+      });
+      ctx.trackGeneratedManagementFeeObligations(agreement1);
+      const agreement2 = await ctx.createManagementFeeAgreement(vehicleB, manager2.userId, {
+        monthlyAmountMinor: 20_000_00n,
+        effectiveFrom: "2026-01-01",
+      });
+      ctx.trackGeneratedManagementFeeObligations(agreement2);
+
+      const result = await db.transaction((tx) =>
+        generateManagementFeeObligationsTx(tx, {
+          businessId,
+          periodId,
+          periodStart: asBusinessDate("2026-07-01"),
+        }),
+      );
+      expect(result.created).toBe(2);
+
+      const rows = await db
+        .select({
+          sourceId: obligation.sourceId,
+          direction: obligation.direction,
+          partyType: obligation.partyType,
+          partyUserId: obligation.partyUserId,
+          kind: obligation.kind,
+          amountMinor: obligation.amountMinor,
+          dueOn: obligation.dueOn,
+          postedPeriodId: obligation.postedPeriodId,
+        })
+        .from(obligation)
+        .where(eq(obligation.sourceType, "management_fee_agreement"));
+      const own = rows.filter((r) => r.sourceId === agreement1 || r.sourceId === agreement2);
+      expect(own).toHaveLength(2);
+      const row1 = own.find((r) => r.sourceId === agreement1);
+      expect(row1).toMatchObject({
+        direction: "owed_by_us",
+        partyType: "partner",
+        partyUserId: manager1.userId,
+        kind: "management_fee",
+        amountMinor: 15_000_00n,
+        dueOn: "2026-07-01",
+        postedPeriodId: periodId,
+      });
+      const row2 = own.find((r) => r.sourceId === agreement2);
+      expect(row2).toMatchObject({ partyUserId: manager2.userId, amountMinor: 20_000_00n });
+
+      // Idempotent — a second run for the same period creates nothing further.
+      const second = await db.transaction((tx) =>
+        generateManagementFeeObligationsTx(tx, {
+          businessId,
+          periodId,
+          periodStart: asBusinessDate("2026-07-01"),
+        }),
+      );
+      expect(second.created).toBe(0);
+      const rowsAfterSecondRun = await db
+        .select({ sourceId: obligation.sourceId })
+        .from(obligation)
+        .where(eq(obligation.sourceType, "management_fee_agreement"));
+      expect(
+        rowsAfterSecondRun.filter((r) => r.sourceId === agreement1 || r.sourceId === agreement2),
+      ).toHaveLength(2);
+
+      await ctx.cleanup();
+    });
+
+    it("an agreement not yet effective, or already ended, raises nothing", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const notYetEffective = await ctx.createManagementFeeAgreement(vehicleId, manager.userId, {
+        effectiveFrom: "2026-08-01",
+      });
+      ctx.trackGeneratedManagementFeeObligations(notYetEffective);
+      const alreadyEnded = await ctx.createManagementFeeAgreement(vehicleId, manager.userId, {
+        effectiveFrom: "2026-01-01",
+        effectiveTo: "2026-06-30",
+      });
+      ctx.trackGeneratedManagementFeeObligations(alreadyEnded);
+
+      const result = await db.transaction((tx) =>
+        generateManagementFeeObligationsTx(tx, {
+          businessId,
+          periodId,
+          periodStart: asBusinessDate("2026-07-01"),
+        }),
+      );
+      expect(result.created).toBe(0);
+
+      await ctx.cleanup();
+    });
+
+    it("generateManagementFeeObligationsForAllOpenPeriods catches up this business's own open period", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const agreementId = await ctx.createManagementFeeAgreement(vehicleId, manager.userId, {
+        monthlyAmountMinor: 12_000_00n,
+        effectiveFrom: "2026-01-01",
+      });
+      ctx.trackGeneratedManagementFeeObligations(agreementId);
+
+      // Unscoped by business_id, like every other cron read (queries/scheduled.ts's
+      // own doc comment) — so only the returned count reads this business's own
+      // agreement; the aggregate `created` total also reflects whatever else is
+      // open on this shared branch, the same caveat generate-billing-periods'
+      // own test above already carries.
+      await generateManagementFeeObligationsForAllOpenPeriods(db);
+
+      const rows = await db
+        .select({ amountMinor: obligation.amountMinor })
+        .from(obligation)
+        .where(
+          and(
+            eq(obligation.sourceType, "management_fee_agreement"),
+            eq(obligation.sourceId, agreementId),
+          ),
+        );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.amountMinor).toBe(12_000_00n);
+
+      await ctx.cleanup();
+    }, 60_000); // unscoped across every business's own open period on this shared branch — see the identical note on generate-billing-periods above
   });
 });

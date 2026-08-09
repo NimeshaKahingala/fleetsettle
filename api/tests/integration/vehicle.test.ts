@@ -79,6 +79,22 @@ async function listVehicleIncidents(token: string, id: string) {
   return request(`/api/vehicle/${id}/incident`, bearer(token));
 }
 
+async function listVehicleTrips(token: string, id: string) {
+  return request(`/api/vehicle/${id}/trip`, bearer(token));
+}
+
+async function postChangeArrangement(token: string, id: string, body: unknown) {
+  return request(`/api/vehicle/${id}/arrangement`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function getDailyLease(token: string, id: string) {
+  return request(`/api/daily-lease/${id}`, bearer(token));
+}
+
 async function postIncident(token: string, body: unknown) {
   return request("/api/incident", {
     method: "POST",
@@ -692,6 +708,333 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await listVehicleIncidents(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/** GAP-77/UC-71: an arrangement-C vehicle's own trip history had no read at all — booked/closed/cancelled trips were unreachable from its detail screen. */
+describe("vehicle trip history (GAP-77, UC-71)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every status, newest first, party names resolved", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId, { name: "Kamal Perera" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const older = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-07-01",
+      endDate: "2026-07-02",
+      agreedAmountMinor: "15000",
+    });
+    expect(older.status).toBe(201);
+    const olderBody: { id: string } = await older.json();
+    ctx.trackCreatedTrip(olderBody.id);
+
+    const newer = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-10",
+      endDate: "2026-07-11",
+      agreedAmountMinor: "20000",
+    });
+    expect(newer.status).toBe(201);
+    const newerBody: { id: string } = await newer.json();
+    ctx.trackCreatedTrip(newerBody.id);
+
+    const res = await listVehicleTrips(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      status: string;
+      customerId: string | null;
+      customerName: string | null;
+      agreedAmountMinor: string;
+    }> = await res.json();
+    expect(body.map((row) => row.id)).toEqual([newerBody.id, olderBody.id]);
+    expect(body[0]).toMatchObject({
+      status: "booked",
+      customerId: null,
+      customerName: null,
+      agreedAmountMinor: "20000",
+    });
+    expect(body[1]).toMatchObject({
+      status: "booked",
+      customerId,
+      customerName: "Kamal Perera",
+      agreedAmountMinor: "15000",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("403 — a linked driver cannot read a vehicle's trips (dailyOperations is STAFF-only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listVehicleTrips(token, vehicleId);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — trips for a vehicle belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listVehicleTrips(token, otherVehicleId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * F-1.2/UC-94/GAP-54 test matrix. The row is never overwritten — a happy
+ * call closes the old row and returns a brand-new id. "Pre: no open
+ * lease/trip conflicting with the effective date" is the source's own line.
+ */
+describe("change a vehicle's arrangement (F-1.2/UC-94, GAP-54)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — A to C, the old row closes the day before and a new one opens", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A", { effectiveFrom: "2026-01-01" });
+    // The handler inserts a second, un-tracked `vehicle_arrangement` row —
+    // `trackCreatedVehicle` tears down every row for this vehicleId, LIFO
+    // (factories.ts's own cleanup order), so it clears both.
+    ctx.trackCreatedVehicle(vehicleId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(201);
+    const body: {
+      id: string;
+      vehicleId: string;
+      arrangement: string;
+      effectiveFrom: string;
+      effectiveTo: string | null;
+    } = await res.json();
+    expect(body).toMatchObject({
+      vehicleId,
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+      effectiveTo: null,
+    });
+
+    const getRes = await getVehicle(token, vehicleId);
+    expect(getRes.status).toBe(200);
+    const getBody: { arrangement: string } = await getRes.json();
+    expect(getBody.arrangement).toBe("C");
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — B to A auto-closes the open daily lease (F-1.2's own 'daily cards stop')", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B", { effectiveFrom: "2026-01-01" });
+    ctx.trackCreatedVehicle(vehicleId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      effectiveFrom: "2026-01-01",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "A",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(201);
+
+    const dailyLeaseRes = await getDailyLease(token, dailyLeaseId);
+    expect(dailyLeaseRes.status).toBe(200);
+    const dailyLeaseBody: { effectiveTo: string | null } = await dailyLeaseRes.json();
+    expect(dailyLeaseBody.effectiveTo).toBe("2026-07-31");
+
+    await ctx.cleanup();
+  });
+
+  it("400 — already configured for this arrangement", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A", { effectiveFrom: "2026-01-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "A",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(400);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("400 — effectiveFrom is not after the current arrangement's own start date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A", { effectiveFrom: "2026-08-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(400);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("400 — effectiveFrom is not after the current daily lease's own start date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B", { effectiveFrom: "2026-01-01" });
+    const driverId = await ctx.createDriver(businessId);
+    await ctx.createDailyLease(businessId, vehicleId, driverId, { effectiveFrom: "2026-07-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "A",
+      effectiveFrom: "2026-03-01",
+    });
+    expect(res.status).toBe(400);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — this vehicle has a lease that is not yet closed", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A", { effectiveFrom: "2026-01-01" });
+    const customerId = await ctx.createCustomer(businessId);
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VEHICLE_ARRANGEMENT_CHANGE_BLOCKED" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — this vehicle has an open trip covering the effective date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C", { effectiveFrom: "2026-01-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-25",
+      endDate: "2026-08-05",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "A",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VEHICLE_ARRANGEMENT_CHANGE_BLOCKED" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/vehicle/${crypto.randomUUID()}/arrangement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ arrangement: "A", effectiveFrom: "2026-08-01" }),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot change a vehicle's arrangement", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A", { effectiveFrom: "2026-01-01" });
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+    });
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the vehicle belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "A", { effectiveFrom: "2026-01-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postChangeArrangement(token, otherVehicleId, {
+      arrangement: "C",
+      effectiveFrom: "2026-08-01",
+    });
     expect(res.status).toBe(404);
 
     await ctx.cleanup();

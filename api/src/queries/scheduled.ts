@@ -1,6 +1,13 @@
 import { and, eq, gte, isNull, lte, max, or } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { billingPeriod, dailyLease, dayRecord, lease, vehicleDayAllocation } from "../db/schema.js";
+import {
+  accountingPeriod,
+  billingPeriod,
+  dailyLease,
+  dayRecord,
+  lease,
+  vehicleDayAllocation,
+} from "../db/schema.js";
 import type { NewAllocationDay } from "./trip.js";
 
 type ReadDb = Reader | Writer | Tx;
@@ -96,6 +103,24 @@ export interface LeaseDueForBillingPeriod {
 }
 
 /** `generate-billing-periods` (TS §4): every active lease whose latest billing period has already ended — the ones the cron's own re-run of `generateNextBillingPeriod` needs to catch up. Two bulk reads (IG §2), joined in JS, rather than a per-lease query for "what's the latest period." */
+export interface OpenPeriodForCron {
+  id: string;
+  businessId: string;
+  periodStart: string;
+}
+
+/** `generate-management-fee` (TS §4): every business's own currently open period — `one_open_period` (migration 0001) guarantees at most one row per business, so this is the whole population the generator needs to catch up. */
+export async function listOpenPeriodsForCron(db: ReadDb): Promise<OpenPeriodForCron[]> {
+  return db
+    .select({
+      id: accountingPeriod.id,
+      businessId: accountingPeriod.businessId,
+      periodStart: accountingPeriod.periodStart,
+    })
+    .from(accountingPeriod)
+    .where(eq(accountingPeriod.status, "open"));
+}
+
 export async function listLeasesDueForNextBillingPeriod(
   db: ReadDb,
   today: string,

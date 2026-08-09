@@ -21,13 +21,23 @@ const vehicleMonthQuery = z.object({
 
 const overheadsQuery = z.object({ periodId: z.string().uuid() });
 
-const vehicleWindowQuery = z.object({
-  vehicleId: z.string().uuid(),
-  from: businessDateSchema,
-  to: businessDateSchema,
-});
+/** GAP-92: `from` after `to` produced a confident empty result on every report below rather than a 400 — utilisation went further and divided by a negative `inclusiveDays`. */
+const dateOrderRefinement: { message: string; path: string[] } = {
+  message: "from must not be after to",
+  path: ["to"],
+};
 
-const windowQuery = z.object({ from: businessDateSchema, to: businessDateSchema });
+const vehicleWindowQuery = z
+  .object({
+    vehicleId: z.string().uuid(),
+    from: businessDateSchema,
+    to: businessDateSchema,
+  })
+  .refine((v) => v.from <= v.to, dateOrderRefinement);
+
+const windowQuery = z
+  .object({ from: businessDateSchema, to: businessDateSchema })
+  .refine((v) => v.from <= v.to, dateOrderRefinement);
 
 const asOfQuery = z.object({ asOfDate: businessDateSchema });
 
@@ -87,6 +97,7 @@ export const getFuelEfficiencyReportRoute = createRoute({
       content: { "application/json": { schema: fuelEfficiencyResponseSchema } },
       description: "Fuel fills and, where a pair of readings allows it, km/l",
     },
+    400: { description: "from is after to (GAP-92)" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read reports" },
     404: { description: "No such vehicle in this business" },
@@ -146,6 +157,7 @@ export const getLostDaysReportRoute = createRoute({
       content: { "application/json": { schema: lostDaysResponseSchema } },
       description: "Lost days per driver per weekday, valued at the daily lease amount",
     },
+    400: { description: "from is after to (GAP-92)" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read reports" },
   },
@@ -161,6 +173,7 @@ export const getGoodwillReportRoute = createRoute({
       content: { "application/json": { schema: goodwillResponseSchema } },
       description: "Total waivers and goodwill adjustments given in the window",
     },
+    400: { description: "from is after to (GAP-92)" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read owner-only reports" },
   },
@@ -176,6 +189,7 @@ export const getUtilisationReportRoute = createRoute({
       content: { "application/json": { schema: utilisationResponseSchema } },
       description: "Days earning, idle and off the road for one vehicle in the window",
     },
+    400: { description: "from is after to (GAP-92)" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read owner-only reports" },
     404: { description: "No such vehicle in this business" },

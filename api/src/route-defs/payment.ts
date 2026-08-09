@@ -45,7 +45,7 @@ export const recordPaymentRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a payment" },
-    404: { description: "No such customer or driver in this business" },
+    404: { description: "No such customer, driver or active member (partner) in this business" },
     409: { description: "That accounting period is closed" },
   },
 });

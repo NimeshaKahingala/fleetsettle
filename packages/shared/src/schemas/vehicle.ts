@@ -33,6 +33,22 @@ export type VehicleResponse = z.infer<typeof vehicleResponseSchema>;
 
 export const listVehiclesResponseSchema = z.array(vehicleResponseSchema);
 
+/** F-1.2/UC-94/GAP-54: "pick the new arrangement and an effective date." The row is never overwritten — this closes the current one and opens a new one. */
+export const changeVehicleArrangementRequestSchema = z.object({
+  arrangement: vehicleArrangementCodeSchema,
+  effectiveFrom: businessDateSchema,
+});
+export type ChangeVehicleArrangementRequest = z.infer<typeof changeVehicleArrangementRequestSchema>;
+
+export const vehicleArrangementResponseSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  arrangement: vehicleArrangementCodeSchema,
+  effectiveFrom: z.string(),
+  effectiveTo: z.string().nullable(),
+});
+export type VehicleArrangementResponse = z.infer<typeof vehicleArrangementResponseSchema>;
+
 /** UC-92 / W-31: one row per document type, upserted — a renewal replaces the date, it does not add a row. */
 export const vehicleDocTypeSchema = z.enum([
   "insurance",

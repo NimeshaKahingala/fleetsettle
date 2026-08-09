@@ -98,6 +98,38 @@ export async function findVehicleForBusiness(
   return rows[0] as VehicleRow | undefined;
 }
 
+export interface CurrentVehicleArrangementRow {
+  id: string;
+  arrangement: "A" | "B" | "C";
+  effectiveFrom: string;
+}
+
+/** F-1.2/GAP-54: the current row itself (id + own start date), not just the letter `CURRENT_ARRANGEMENT`/`findVehicleForBusiness` project — changing it needs both to close the old row and to validate the new effective date against it. */
+export async function findCurrentVehicleArrangementRow(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<CurrentVehicleArrangementRow | undefined> {
+  const rows = await db
+    .select({
+      id: vehicleArrangement.id,
+      arrangement: vehicleArrangement.arrangement,
+      effectiveFrom: vehicleArrangement.effectiveFrom,
+    })
+    .from(vehicleArrangement)
+    .where(and(eq(vehicleArrangement.vehicleId, vehicleId), isNull(vehicleArrangement.effectiveTo)))
+    .limit(1);
+  return rows[0] as CurrentVehicleArrangementRow | undefined;
+}
+
+/** F-1.2/GAP-54: the first write that ever closes a `vehicle_arrangement` row. Must land before the replacement's `INSERT` in the same transaction — the exclusion constraint is not deferred, so the old range has to stop overlapping first (the same ordering `endDailyLeaseRow` needs). */
+export async function endVehicleArrangementRow(
+  db: WriteDb,
+  id: string,
+  effectiveTo: string,
+): Promise<void> {
+  await db.update(vehicleArrangement).set({ effectiveTo }).where(eq(vehicleArrangement.id, id));
+}
+
 /**
  * §6.7/UC-94/GAP-56: the arrangement in force on `asOf`, not necessarily
  * today's. Deliberately a separate query from `CURRENT_ARRANGEMENT` above —

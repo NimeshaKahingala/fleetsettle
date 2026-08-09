@@ -1,11 +1,13 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
+  changeDailyLeaseDriverHandler,
   getDailyLeaseHandler,
   listActiveDailyLeasesHandler,
   startDailyLeaseHandler,
 } from "../handlers/dailyLease.js";
 import {
+  changeDailyLeaseDriverRoute,
   getDailyLeaseRoute,
   listActiveDailyLeasesRoute,
   startDailyLeaseRoute,
@@ -16,4 +18,5 @@ import type { Env } from "../types.js";
 export const dailyLease = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(startDailyLeaseRoute, startDailyLeaseHandler)
   .openapi(getDailyLeaseRoute, getDailyLeaseHandler)
-  .openapi(listActiveDailyLeasesRoute, listActiveDailyLeasesHandler);
+  .openapi(listActiveDailyLeasesRoute, listActiveDailyLeasesHandler)
+  .openapi(changeDailyLeaseDriverRoute, changeDailyLeaseDriverHandler);
