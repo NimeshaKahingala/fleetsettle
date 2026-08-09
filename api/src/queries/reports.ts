@@ -92,6 +92,33 @@ export async function sumVehicleCostsForPeriod(
   );
 }
 
+/**
+ * GAP-41/UC-66/W-32: the same filter set as `sumVehicleCostsForPeriod`'s
+ * `expense` half, with `vehicle_id IS NULL` in place of a specific
+ * vehicle. No `obligation` half — `driver_fee` and `management_fee` are
+ * always raised against a vehicle's own arrangement, so an overhead
+ * obligation cannot exist to double-count.
+ */
+export async function sumOverheadsForPeriod(
+  db: ReadDb,
+  businessId: string,
+  periodId: string,
+): Promise<bigint> {
+  const rows = await db
+    .select({ amountMinor: expense.amountMinor })
+    .from(expense)
+    .where(
+      and(
+        eq(expense.businessId, businessId),
+        isNull(expense.vehicleId),
+        eq(expense.postedPeriodId, periodId),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    );
+  return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+}
+
 export interface OwnershipShareRow {
   userId: string;
   shareBp: number;
@@ -491,12 +518,36 @@ export async function listLostDays(
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
 }
 
-/** UC-77: every waiver you chose to give (`waiver`/`auto_waiver`/`goodwill`), never pooled with a write-off (W-28) — a write-off is reported entirely separately, from `write_off`, not this table. */
+/**
+ * UC-77: every waiver you chose to give (`waiver`/`auto_waiver`/`goodwill`),
+ * never pooled with a write-off (W-28) — a write-off is reported entirely
+ * separately, from `write_off`, not this table.
+ *
+ * GAP-72: `from`/`to` are business dates, `created_at` is `timestamptz` —
+ * comparing them directly (as this query did before) tests `to` at UTC
+ * midnight, silently dropping the whole last day of every window, and
+ * windows the business's own day against UTC rather than `timezone`
+ * (CLAUDE.md → Time: never compare a business date to a bare timestamp).
+ *
+ * **`::date AT TIME ZONE tz` is not the fix it looks like** — verified
+ * directly against Postgres, not assumed: `date AT TIME ZONE tz` first
+ * upcasts the `date` to `timestamptz` at the *session's* zone (UTC on
+ * this connection), then reinterprets that instant's wall-clock time in
+ * `tz`, landing on the wrong value entirely (`pg_typeof` even reports the
+ * result as `timestamp`, not `timestamptz` — a sign this was resolving to
+ * a different overload than intended). Casting to a bare `::timestamp`
+ * first — genuinely naive, no zone attached — is what makes `AT TIME
+ * ZONE tz` read it as *that* wall-clock time *in* `tz` and convert
+ * correctly to the equivalent `timestamptz`. `interval '1 day'` on the
+ * upper bound for the same reason: `timestamp + integer` is not valid,
+ * where `date + integer` silently was, on the wrong type.
+ */
 export async function sumGoodwillGiven(
   db: ReadDb,
   businessId: string,
   from: string,
   to: string,
+  timezone: string,
 ): Promise<bigint> {
   const rows = await db
     .select({ amountMinor: adjustment.amountMinor })
@@ -506,8 +557,8 @@ export async function sumGoodwillGiven(
         eq(adjustment.businessId, businessId),
         sql`${adjustment.adjustmentType} IN ('waiver', 'auto_waiver', 'goodwill')`,
         isNull(adjustment.voidedAt),
-        gte(adjustment.createdAt, from),
-        lte(adjustment.createdAt, to),
+        sql`${adjustment.createdAt} >= ${from}::timestamp AT TIME ZONE ${timezone}`,
+        sql`${adjustment.createdAt} < (${to}::timestamp + interval '1 day') AT TIME ZONE ${timezone}`,
       ),
     );
   return rows.reduce((sum, r) => sum + r.amountMinor, 0n);

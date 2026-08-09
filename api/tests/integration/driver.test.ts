@@ -1,4 +1,6 @@
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
+import { driver as driverTable } from "../../src/db/schema.js";
 import { writer } from "../../src/db/client.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
@@ -6,6 +8,14 @@ import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
 
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+
+function postDriverLinkInvite(token: string, driverId: string) {
+  return request(`/api/driver/${driverId}/link-invite`, { method: "POST", ...bearer(token) });
+}
+
+function postUnlinkDriver(token: string, driverId: string) {
+  return request(`/api/driver/${driverId}/unlink`, { method: "POST", ...bearer(token) });
+}
 
 async function postDriver(token: string, body: unknown) {
   return request("/api/driver", {
@@ -302,6 +312,99 @@ describe("GET /api/driver/{id}/view (A5, staff-facing driver history)", () => {
 
     const otherRes = await getDriverHistory(token, otherDriverId, "2026-07-01", "2026-07-31");
     expect(otherRes.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/** F-1.8/W-42/A11 test matrix: happy path (code issued, manager-gated not owner-gated) · 404 · 403 for a linked driver. */
+describe("POST /api/driver/{id}/link-invite (A11)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a manager (not just an owner) can generate the code", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    ctx.trackCreatedDriverLinkInvites(driverId);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await postDriverLinkInvite(token, driverId);
+    expect(res.status).toBe(201);
+    const body: { code: string; expiresAt: string } = await res.json();
+    expect(body.code).toBeTruthy();
+    expect(body.expiresAt).toBeTruthy();
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a driver belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherDriverId = await ctx.createDriver(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDriverLinkInvite(token, otherDriverId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("403 — a linked driver cannot generate a link code", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await postDriverLinkInvite(token, driverId);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/** F-1.8's "Unlink" alternate: access ends, the driver's record and history are untouched. */
+describe("POST /api/driver/{id}/unlink (A11)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — clears linked_user_id, leaves everything else", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId, { name: "Sunil" });
+    await mintLinkedDriver(db, ctx, driverId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postUnlinkDriver(token, driverId);
+    expect(res.status).toBe(200);
+    const body: { id: string; name: string } = await res.json();
+    expect(body).toMatchObject({ id: driverId, name: "Sunil" });
+
+    const rows = await db.select().from(driverTable).where(eq(driverTable.id, driverId));
+    expect(rows[0]!.linkedUserId).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a driver belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherDriverId = await ctx.createDriver(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postUnlinkDriver(token, otherDriverId);
+    expect(res.status).toBe(404);
 
     await ctx.cleanup();
   });

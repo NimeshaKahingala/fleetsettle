@@ -1,15 +1,18 @@
+import { AuthProvider } from "@asgardeo/auth-react";
 import { businessToday } from "@fleetsettle/shared";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryCache, QueryClient } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App.js";
+import { AuthGate } from "./app/AuthGate.js";
 import { createAppRouteTree } from "./app/router.js";
-import { createApiClient } from "./lib/api.js";
+import { ApiError, createApiClient } from "./lib/api.js";
 import {
-  createStubTokenGetter,
-  createUnwiredTokenGetter,
-  isStubAuthEnabled,
-} from "./lib/auth-stub.js";
+  asgardeoConfig,
+  createAsgardeoSignOutGetter,
+  createAsgardeoTokenGetter,
+} from "./lib/auth-asgardeo.js";
+import { createStubSignOut, createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
 import "./design/tokens.css";
 
 const root = document.getElementById("root");
@@ -18,17 +21,48 @@ if (!root) throw new Error("#root is missing from index.html");
 const apiBaseUrl = (import.meta.env["VITE_API_BASE_URL"] as string | undefined) ?? "";
 
 // §12.1: "the token getter is injected rather than imported, so the API
-// layer never depends on the auth SDK directly" — which is what makes
-// swapping the stub for the real Asgardeo getter a one-line change here,
-// touching nothing else.
-const getToken = isStubAuthEnabled() ? createStubTokenGetter() : createUnwiredTokenGetter();
+// layer never depends on the auth SDK directly" — which is what made
+// swapping the stub for the real Asgardeo getter a change to this file
+// alone, touching no screen and no query.
+const stubbed = isStubAuthEnabled();
+const getToken = stubbed ? createStubTokenGetter() : createAsgardeoTokenGetter();
+const signOut = stubbed ? createStubSignOut() : createAsgardeoSignOutGetter();
 
-const queryClient = new QueryClient();
+// A11: a role change never invalidates a token — resolveMembership runs per
+// request (api/src/queries/identity.ts), so the server side of a demotion is
+// already live on the next call. The client's own stale copy of "what can I
+// do" is `["me"]`'s cached role, and nothing refetches it on its own; without
+// this, a demoted user keeps seeing affordances they can no longer use until
+// they happen to reload. One handler here covers every screen, rather than
+// each mutation remembering to invalidate ["me"] on its own 403.
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 403) {
+        void queryClient.invalidateQueries({ queryKey: ["me"] });
+      }
+    },
+  }),
+});
 const apiClient = createApiClient(apiBaseUrl, getToken);
 const router = createAppRouteTree(businessToday());
+const app = (
+  <App router={router} queryClient={queryClient} apiClient={apiClient} signOut={signOut} />
+);
 
+// The stub path renders no AuthProvider at all, rather than an AuthProvider in
+// a disabled mode: `npm run dev` and the e2e suite must not reach Asgardeo, and
+// the surest way to guarantee that is for the SDK to have no instance to reach
+// it with. `isStubAuthEnabled` is an explicit VITE_AUTH_MODE=stub and never
+// `import.meta.env.DEV` — auth-stub.ts records why.
 createRoot(root).render(
   <StrictMode>
-    <App router={router} queryClient={queryClient} apiClient={apiClient} />
+    {stubbed ? (
+      app
+    ) : (
+      <AuthProvider config={asgardeoConfig(window.location.origin)}>
+        <AuthGate>{app}</AuthGate>
+      </AuthProvider>
+    )}
   </StrictMode>,
 );

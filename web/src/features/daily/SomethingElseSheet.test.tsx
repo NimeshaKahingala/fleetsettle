@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { SomethingElseSheet } from "./SomethingElseSheet.js";
 
-/** `MoneyField`'s trigger button is only ever named by its own displayed value ("Rs 0", …), never by its label — scope to the label's own wrapper to pick the right one. */
+/** `MoneyField`'s filled trigger button is only ever named by its own displayed value, never by its label — scope to the label's own wrapper to pick the right one. */
 function openMoneyField(label: string) {
   const wrapper = screen.getByText(label).parentElement;
   if (!wrapper) throw new Error(`no wrapper found for label "${label}"`);

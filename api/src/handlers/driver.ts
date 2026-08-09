@@ -1,12 +1,14 @@
 import { newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { getDriverOwnView } from "../domain/driver-view.js";
+import { inviteDriverLink } from "../domain/membership.js";
 import { NotFoundError } from "../errors/app-error.js";
 import {
   findDriverForBusiness,
   insertDriver,
   listDriversForBusiness,
+  unlinkDriver,
   type DriverRow,
 } from "../queries/driver.js";
 import { sumOutstandingByDirectionForDriver } from "../queries/obligation.js";
@@ -15,7 +17,9 @@ import type {
   getDriverBalancesRoute,
   getDriverHistoryRoute,
   getDriverRoute,
+  inviteDriverLinkRoute,
   listDriversRoute,
+  unlinkDriverRoute,
 } from "../route-defs/driver.js";
 import type { Env } from "../types.js";
 import { toDriverViewResponse } from "./driver-view.js";
@@ -139,4 +143,46 @@ export const getDriverHistoryHandler: RouteHandler<typeof getDriverHistoryRoute,
 
   const view = await getDriverOwnView(reader, businessId, id, from, to);
   return c.json(toDriverViewResponse(view), 200);
+};
+
+/**
+ * F-1.8/W-42/A11. `manageEntities` (STAFF), not `manageMembers` — F-1.8's own
+ * actor is "Manager", the same as F-1.6 (add a driver), and unlike F-1.4
+ * this never touches `business_member` or grants access to the business
+ * itself: it only lets an existing driver record see its own read-only
+ * money, the same boundary `manageEntities` already gates for the rest of
+ * the driver record.
+ */
+export const inviteDriverLinkHandler: RouteHandler<typeof inviteDriverLinkRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+
+  const driver = await findDriverForBusiness(c.get("reader"), businessId, id);
+  if (!driver) throw new NotFoundError();
+
+  const issued = await inviteDriverLink(c.get("writer"), {
+    businessId,
+    driverId: id,
+    createdBy: userId,
+  });
+  return c.json(issued, 201);
+};
+
+/** F-1.8's "Unlink" alternate — same `manageEntities` gate as linking. */
+export const unlinkDriverHandler: RouteHandler<typeof unlinkDriverRoute, Env> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const row = await findDriverForBusiness(c.get("reader"), businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await unlinkDriver(c.get("writer"), id);
+  return c.json(toResponse(row), 200);
 };

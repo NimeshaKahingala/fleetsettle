@@ -1,4 +1,4 @@
-import { and, desc, eq, gt } from "drizzle-orm";
+import { and, desc, eq, gt, gte, isNull, lte, or } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, lease, vehicleDayAllocation } from "../db/schema.js";
 
@@ -163,15 +163,32 @@ export async function listLeasesForVehicle(
   return rows as VehicleLeaseHistoryRow[];
 }
 
-/** §6.7's borne-by default for arrangement A — "the customer" is whoever currently has the vehicle on an active lease; none found means between rentals, and the caller falls back to `us`. */
+/**
+ * §6.7's borne-by default for arrangement A — "the customer" is whoever
+ * held the vehicle on `asOf` (GAP-56), by `startDate`/`endDate`, never by
+ * `status`: a lease that has since moved to `closing`/`closed` still had a
+ * customer on the date being asked about, and `endDate` is set to the real
+ * closing date at that transition (`updateLeaseStatus`), so it stays
+ * accurate for history. `status = 'draft'` is unreachable in practice —
+ * `startLease` always inserts `'active'` directly — so no status filter is
+ * needed to exclude it. None found means between rentals as of that date,
+ * and the caller falls back to `us`.
+ */
 export async function findActiveLeaseForVehicle(
   db: ReadDb,
   vehicleId: string,
+  asOf: string,
 ): Promise<{ customerId: string } | undefined> {
   const rows = await db
     .select({ customerId: lease.customerId })
     .from(lease)
-    .where(and(eq(lease.vehicleId, vehicleId), eq(lease.status, "active")))
+    .where(
+      and(
+        eq(lease.vehicleId, vehicleId),
+        lte(lease.startDate, asOf),
+        or(isNull(lease.endDate), gte(lease.endDate, asOf)),
+      ),
+    )
     .limit(1);
   return rows[0];
 }

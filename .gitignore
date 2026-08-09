@@ -27,6 +27,19 @@ blob-report/
 .env.*
 !.env.example
 
+# …except the client's per-environment OAuth config, which is committed on
+# purpose. `VITE_*` values inline into the bundle at BUILD time, so anything
+# here is served to every browser regardless — keeping them out of the repo
+# would hide nothing and would mean CI could not build. An OAuth client id
+# for a browser app is a public identifier by design (it travels in the
+# authorization URL); PKCE is what makes a public client safe, and its secret
+# half is generated per-request in the browser and never stored.
+# NOTHING SECRET GOES IN THESE FILES — no client secret, no API key, no
+# database URL. Those are `wrangler secret put`, as above.
+!web/.env.development
+!web/.env.qa
+!web/.env.production
+
 # editors
 .idea/
 *.swp

@@ -51,15 +51,31 @@ const COLUMNS = {
   effectiveTo: dailyLease.effectiveTo,
 };
 
-/** §6.7's borne-by default for arrangement B — "the driver" is whoever currently holds the vehicle's daily lease; none found falls back to `us`, the same as arrangement A with no active lease. */
+/**
+ * §6.7's borne-by default for arrangement B — "the driver" is whoever held
+ * the vehicle's daily lease on `asOf` (GAP-56), by `effectiveFrom`/`effectiveTo`,
+ * not just "still open": none found as of that date falls back to `us`, the
+ * same as arrangement A with no active lease then. GAP-25 means no
+ * `daily_lease` is ever actually closed today, so in practice this still
+ * only ever matches the one open row — but resolving by date rather than
+ * `effectiveTo IS NULL` alone means the fix doesn't need revisiting once
+ * GAP-25 lands and a vehicle can have more than one, historically.
+ */
 export async function findCurrentDailyLeaseForVehicle(
   db: ReadDb,
   vehicleId: string,
+  asOf: string,
 ): Promise<{ driverId: string } | undefined> {
   const rows = await db
     .select({ driverId: dailyLease.driverId })
     .from(dailyLease)
-    .where(and(eq(dailyLease.vehicleId, vehicleId), isNull(dailyLease.effectiveTo)))
+    .where(
+      and(
+        eq(dailyLease.vehicleId, vehicleId),
+        lte(dailyLease.effectiveFrom, asOf),
+        or(isNull(dailyLease.effectiveTo), gte(dailyLease.effectiveTo, asOf)),
+      ),
+    )
     .limit(1);
   return rows[0];
 }

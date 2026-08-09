@@ -1,4 +1,4 @@
-import { asBusinessDate, type BusinessDate } from "@fleetsettle/shared";
+import { addDays, asBusinessDate, type BusinessDate } from "@fleetsettle/shared";
 import type {
   CustomerResponse,
   DriverResponse,
@@ -16,18 +16,36 @@ import {
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
-import { useState } from "react";
-import { AppShell, type OperateTabKey } from "../design/primitives/AppShell.js";
+import { useEffect, useState } from "react";
+import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
+import { MoreScreen } from "../features/more/MoreScreen.js";
+import { OpeningBalanceScreen } from "../features/opening-balance/OpeningBalanceScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
+import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
+import { CashPositionReportScreen } from "../features/reports/CashPositionReportScreen.js";
+import { FuelEfficiencyReportScreen } from "../features/reports/FuelEfficiencyReportScreen.js";
+import { LostDaysReportScreen } from "../features/reports/LostDaysReportScreen.js";
+import { ReceivablesReportScreen } from "../features/reports/ReceivablesReportScreen.js";
+import {
+  ReportsCatalogueScreen,
+  type ReportKey,
+} from "../features/reports/ReportsCatalogueScreen.js";
+import { TripRankingReportScreen } from "../features/reports/TripRankingReportScreen.js";
+import { VehicleMonthReportScreen } from "../features/reports/VehicleMonthReportScreen.js";
+import { ReviewMoneyScreen } from "../features/review/ReviewMoneyScreen.js";
+import { ReviewThisMonthScreen } from "../features/review/ReviewThisMonthScreen.js";
+import { ReviewVehicleDetailScreen } from "../features/review/ReviewVehicleDetailScreen.js";
+import { ReviewVehiclesScreen } from "../features/review/ReviewVehiclesScreen.js";
 import { BookTripScreen } from "../features/trips/BookTripScreen.js";
 import { TripDetailScreen } from "../features/trips/TripDetailScreen.js";
+import { StartDailyLeaseScreen } from "../features/vehicles/StartDailyLeaseScreen.js";
 import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
@@ -78,6 +96,9 @@ function VehicleDetailRoute() {
       vehicleId={vehicleId}
       onBack={() => {
         void navigate({ to: "/vehicles" });
+      }}
+      onStartDailyLease={() => {
+        void navigate({ to: "/vehicles/$vehicleId/daily-lease/new", params: { vehicleId } });
       }}
       onViewCalendar={() => {
         void navigate({ to: "/vehicles/$vehicleId/calendar", params: { vehicleId } });
@@ -173,6 +194,33 @@ function StartLeaseRoute({ today }: { today: BusinessDate }) {
   );
 }
 
+/**
+ * F-1.7 (B10) — arrangement B's own start flow, reached from the vehicle's
+ * "Vehicle actions" menu. No `?startDate=` search param, unlike its two
+ * neighbours: F-1.5's calendar tap-through is scoped to F-2.1 and F-5.1 by
+ * its own spec, so nothing routes here with a date already chosen.
+ * `onCreated` lands back on the vehicle, which is where the new arrangement
+ * and its day cards will show — a daily lease has no hub screen of its own
+ * (the same reason `VehicleOverviewScreen`'s history rows only make lease
+ * entries tappable).
+ */
+function StartDailyLeaseRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/daily-lease/new" });
+  const navigate = useNavigate();
+  return (
+    <StartDailyLeaseScreen
+      vehicleId={vehicleId}
+      today={today}
+      onBack={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+      onCreated={() => {
+        void navigate({ to: "/vehicles/$vehicleId", params: { vehicleId } });
+      }}
+    />
+  );
+}
+
 /** F-1.5's calendar tap-through, F-5.1 half (Web-P7) — the same `?startDate=` validation the lease route already established. `onBooked` lands on the new trip's own detail screen. */
 function BookTripRoute({ today }: { today: BusinessDate }) {
   const { vehicleId } = useParams({ from: "/vehicles/$vehicleId/trip/new" });
@@ -238,6 +286,187 @@ function PlaceholderDetailRoute({ title }: { title: string }) {
   return <NotBuiltYetScreen title={title} onBack={() => void navigate({ to: "/people" })} />;
 }
 
+/** F-0.2/B12 — reached from `/more`'s own row, gated `<Can cap="manageOpeningBalances">` there. `onBack` returns to `/more`, matching every other action reached from that hub. */
+function OpeningBalanceRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return <OpeningBalanceScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
+/** F-9.1/B3 — `/period/close`, reached from `/more`'s own row, gated `<Can cap="closePeriod">` there (M-22: absent for a manager, both at the door and inside). */
+function CloseMonthRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return <CloseMonthScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
+/** B4/§5.4: `This month`'s own tab — the per-vehicle card navigates into the read-only Vehicles-tab detail (never `VehicleOverviewScreen`, §7.8's "no entry affordance anywhere"); "What I'm owed" navigates to `My money`, the same figure in more detail. */
+function ReviewThisMonthRoute() {
+  const navigate = useNavigate();
+  return (
+    <ReviewThisMonthScreen
+      onSelectVehicle={(vehicleId, periodId) => {
+        void navigate({
+          to: "/review/vehicles/$vehicleId",
+          params: { vehicleId },
+          search: { periodId },
+        });
+      }}
+      onSelectMyMoney={() => {
+        void navigate({ to: "/review/money" });
+      }}
+    />
+  );
+}
+
+/** B4/§5.5: `Vehicles`' own tab — one vehicle × all periods, cutting orthogonally from `This month`'s one period × all vehicles. */
+function ReviewVehiclesRoute() {
+  const navigate = useNavigate();
+  return (
+    <ReviewVehiclesScreen
+      onSelectVehicle={(vehicleId, periodId) => {
+        void navigate({
+          to: "/review/vehicles/$vehicleId",
+          params: { vehicleId },
+          search: { periodId },
+        });
+      }}
+    />
+  );
+}
+
+/** B4/§5.5: the read-only Review vehicle detail, reached from either `This month` or `Vehicles` — `router.history.back()` for the same "more than one entry point" reason `LeaseDetailRoute`/`TripDetailRoute` already use it. */
+function ReviewVehicleDetailRoute() {
+  const { vehicleId } = useParams({ from: "/review/vehicles/$vehicleId" });
+  const { periodId } = useSearch({ from: "/review/vehicles/$vehicleId" });
+  const router = useRouter();
+  return (
+    <ReviewVehicleDetailScreen
+      vehicleId={vehicleId}
+      periodId={periodId}
+      onBack={() => router.history.back()}
+    />
+  );
+}
+
+/** B4/§5.6: `My money`'s own tab — `GET /api/partner/{userId}` rendered read-only, for the signed-in user's own id. */
+function ReviewMoneyRoute() {
+  return <ReviewMoneyScreen />;
+}
+
+const REPORT_PATH: Record<ReportKey, string> = {
+  "vehicle-month": "/reports/vehicle-month",
+  trips: "/reports/trips",
+  "fuel-efficiency": "/reports/fuel-efficiency",
+  receivables: "/reports/receivables",
+  "cash-position": "/reports/cash-position",
+  "lost-days": "/reports/lost-days",
+};
+
+/** B4/§5.1: the catalogue — six cards, reached identically from the Review shell's own `Reports` tab and Operate's `/more` row (§4's IA). */
+function ReportsRoute() {
+  const navigate = useNavigate();
+  return (
+    <ReportsCatalogueScreen
+      onSelect={(key) => {
+        void navigate({ to: REPORT_PATH[key] });
+      }}
+    />
+  );
+}
+
+/** B4/§5.2: `periodId` defaults inside the screen itself (the currently-open period, once the period list resolves) — the route only carries an explicit choice made via the screen's own picker. */
+function VehicleMonthReportRoute() {
+  const { periodId } = useSearch({ from: "/reports/vehicle-month" });
+  const navigate = useNavigate();
+  return (
+    <VehicleMonthReportScreen
+      {...(periodId !== undefined ? { periodId } : {})}
+      onPeriodChange={(id) => {
+        void navigate({ to: "/reports/vehicle-month", search: { periodId: id } });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+function TripsReportRoute() {
+  const navigate = useNavigate();
+  return (
+    <TripRankingReportScreen
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** B4/§5.2: defaults to the last 90 days ending today (UC-72's own default) when the route carries no explicit window yet. */
+function FuelEfficiencyReportRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId, from, to } = useSearch({ from: "/reports/fuel-efficiency" });
+  const navigate = useNavigate();
+  return (
+    <FuelEfficiencyReportScreen
+      {...(vehicleId !== undefined ? { vehicleId } : {})}
+      from={from ?? addDays(today, -90)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/fuel-efficiency", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+function ReceivablesReportRoute() {
+  const navigate = useNavigate();
+  return (
+    <ReceivablesReportScreen
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+function CashPositionReportRoute() {
+  const navigate = useNavigate();
+  return (
+    <CashPositionReportScreen
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** B4/§5.2: defaults to the current calendar month so far — UC-76's own text says "the open period," which needs a fetch this route can't make at search-param-validation time; the screen's own date fields let the manager widen it in two taps. */
+function LostDaysReportRoute({ today }: { today: BusinessDate }) {
+  const { from, to } = useSearch({ from: "/reports/lost-days" });
+  const navigate = useNavigate();
+  return (
+    <LostDaysReportScreen
+      from={from ?? asBusinessDate(`${today.slice(0, 7)}-01`)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/lost-days", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** B5's own item builds `MineScreen`; B0b only needs the route and the shell to exist. */
+function MineRoute() {
+  return <NotBuiltYetScreen title="Mine" />;
+}
+
 /** Maps a pathname onto the operate shell's tab bar (§3.1's five fixed tabs). `＋` (quick-add) is deliberately absent from this map — it is a sheet trigger, never a route (§3.1: "no route change"). */
 function tabForPathname(pathname: string): OperateTabKey {
   if (pathname.startsWith("/vehicles")) return "vehicles";
@@ -252,6 +481,65 @@ const TAB_PATH: Record<OperateTabKey, string> = {
   people: "/people",
   more: "/more",
 };
+
+/** Maps a pathname onto the Review shell's tab bar (REVIEW_TABS, §3.1). */
+function tabForReviewPathname(pathname: string): ReviewTabKey {
+  if (pathname.startsWith("/review/vehicles")) return "vehicles";
+  if (pathname.startsWith("/review/money")) return "money";
+  if (pathname.startsWith("/reports")) return "reports";
+  return "month";
+}
+
+const REVIEW_TAB_PATH: Record<ReviewTabKey, string> = {
+  month: "/review",
+  vehicles: "/review/vehicles",
+  money: "/review/money",
+  reports: "/reports",
+};
+
+/**
+ * B0b: `owner`'s shell — its own component tree (§7.9), not Operate filtered
+ * by role. `/review*` and `/reports*` are the only paths that belong to it;
+ * anything else (most commonly the bare `/` an owner lands on straight out
+ * of `FirstRunGate`, since `/` is Operate's Home in the shared route tree)
+ * redirects to the default tab. An effect, not a render-time redirect, for
+ * the same reason `FirstRunGate` already defers routing decisions until its
+ * own data is ready — one redirect pattern in this file, not two.
+ */
+function ReviewLayout() {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const inReview = pathname.startsWith("/review") || pathname.startsWith("/reports");
+
+  useEffect(() => {
+    if (!inReview) void navigate({ to: "/review", replace: true });
+  }, [inReview, navigate]);
+
+  return (
+    <AppShell
+      shell="review"
+      activeTab={tabForReviewPathname(pathname)}
+      onTabChange={(key) => {
+        void navigate({ to: REVIEW_TAB_PATH[key as ReviewTabKey] });
+      }}
+    >
+      {inReview ? <Outlet /> : null}
+    </AppShell>
+  );
+}
+
+/** B0b: `driver`'s shell — one screen, no tab bar (§7.9), reached at `/me` alone. Same redirect reasoning as `ReviewLayout`. */
+function MineLayout() {
+  const navigate = useNavigate();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const inMine = pathname === "/me";
+
+  useEffect(() => {
+    if (!inMine) void navigate({ to: "/me", replace: true });
+  }, [inMine, navigate]);
+
+  return <AppShell shell="mine">{inMine ? <Outlet /> : null}</AppShell>;
+}
 
 function RootLayout({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
@@ -289,6 +577,8 @@ function RootLayout({ today }: { today: BusinessDate }) {
           />
         </AppShell>
       )}
+      renderReview={() => <ReviewLayout />}
+      renderMine={() => <MineLayout />}
     />
   );
 }
@@ -339,6 +629,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
         : {};
     },
     component: () => <StartLeaseRoute today={today} />,
+  });
+
+  const startDailyLeaseRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicles/$vehicleId/daily-lease/new",
+    component: () => <StartDailyLeaseRoute today={today} />,
   });
 
   const bookTripRoute = createRoute({
@@ -398,7 +694,137 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const moreRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/more",
-    component: () => <NotBuiltYetScreen title="More" />,
+    component: MoreScreen,
+  });
+
+  const openingBalanceRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/opening-balances",
+    component: () => <OpeningBalanceRoute today={today} />,
+  });
+
+  const closeMonthRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/period/close",
+    component: () => <CloseMonthRoute today={today} />,
+  });
+
+  // B0b: the Review shell's four tabs and the Mine shell's one screen —
+  // siblings of every Operate route above, exactly as `/more` is, since
+  // `ReviewLayout`/`MineLayout` (not a nested route) supply the AppShell
+  // wrapper the same way `RootLayout` already does for Operate.
+  const reviewThisMonthRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review",
+    component: ReviewThisMonthRoute,
+  });
+
+  const reviewVehiclesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review/vehicles",
+    component: ReviewVehiclesRoute,
+  });
+
+  const reviewVehicleDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review/vehicles/$vehicleId",
+    validateSearch: (search: Record<string, unknown>): { periodId: string } => {
+      const raw = search["periodId"];
+      if (typeof raw !== "string" || raw === "") {
+        throw new Error("periodId is required to open a vehicle's Review detail");
+      }
+      return { periodId: raw };
+    },
+    component: ReviewVehicleDetailRoute,
+  });
+
+  const reviewMoneyRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/review/money",
+    component: ReviewMoneyRoute,
+  });
+
+  const reportsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports",
+    component: ReportsRoute,
+  });
+
+  // B4/§5.2: three of the six carry search params (§4's IA); the other
+  // three navigate straight through. `businessDateSchema`'s own
+  // `YYYY-MM-DD` shape, validated the same loose regex way
+  // `startLeaseRoute`'s `startDate` already is above.
+  const isBusinessDateLike = (v: unknown): v is BusinessDate =>
+    typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+  const vehicleMonthReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/vehicle-month",
+    validateSearch: (search: Record<string, unknown>): { periodId?: string } => {
+      const raw = search["periodId"];
+      return typeof raw === "string" && raw !== "" ? { periodId: raw } : {};
+    },
+    component: VehicleMonthReportRoute,
+  });
+
+  const tripsReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/trips",
+    component: TripsReportRoute,
+  });
+
+  const fuelEfficiencyReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/fuel-efficiency",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { vehicleId?: string; from?: BusinessDate; to?: BusinessDate } => {
+      const rawVehicleId = search["vehicleId"];
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(typeof rawVehicleId === "string" && rawVehicleId !== ""
+          ? { vehicleId: rawVehicleId }
+          : {}),
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <FuelEfficiencyReportRoute today={today} />,
+  });
+
+  const receivablesReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/receivables",
+    component: ReceivablesReportRoute,
+  });
+
+  const cashPositionReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/cash-position",
+    component: CashPositionReportRoute,
+  });
+
+  const lostDaysReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/lost-days",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { from?: BusinessDate; to?: BusinessDate } => {
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <LostDaysReportRoute today={today} />,
+  });
+
+  const mineRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/me",
+    component: MineRoute,
   });
 
   const routeTree = rootRoute.addChildren([
@@ -407,6 +833,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehicleDetailRoute,
     vehicleCalendarRoute,
     startLeaseRoute,
+    startDailyLeaseRoute,
     bookTripRoute,
     tripDetailRoute,
     incidentDetailRoute,
@@ -416,6 +843,20 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     driverDetailRoute,
     customerDetailRoute,
     moreRoute,
+    openingBalanceRoute,
+    closeMonthRoute,
+    reviewThisMonthRoute,
+    reviewVehiclesRoute,
+    reviewVehicleDetailRoute,
+    reviewMoneyRoute,
+    reportsRoute,
+    vehicleMonthReportRoute,
+    tripsReportRoute,
+    fuelEfficiencyReportRoute,
+    receivablesReportRoute,
+    cashPositionReportRoute,
+    lostDaysReportRoute,
+    mineRoute,
   ]);
 
   return createRouter({

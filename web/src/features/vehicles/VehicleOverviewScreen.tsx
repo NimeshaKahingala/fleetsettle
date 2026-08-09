@@ -8,26 +8,31 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
+import {
+  CalendarDays,
+  CalendarPlus,
+  ChevronRight,
+  MoreVertical,
+  Receipt,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
-import { cn } from "../../lib/cn.js";
-import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
+import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
-
-const ARRANGEMENT_LABEL: Record<string, string> = {
-  A: "Lease out",
-  B: "Daily lease",
-  C: "Trips / charter",
-};
+import { ARRANGEMENT_BADGE_VARIANT, ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
+import {
+  INCIDENT_STATUS_BADGE_VARIANT,
+  INCIDENT_STATUS_LABEL,
+} from "../../lib/incidentStatusLabel.js";
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   insurance: "Insurance",
@@ -35,13 +40,6 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   revenue_licence: "Revenue licence",
   permit: "Permit",
   emissions: "Emissions",
-};
-
-const INCIDENT_STATUS_LABEL: Record<string, string> = {
-  open: "Open",
-  repairs_recorded: "Repairs recorded",
-  recovery_pending: "Recovery pending",
-  closed: "Closed",
 };
 
 export interface VehicleOverviewScreenProps {
@@ -52,6 +50,8 @@ export interface VehicleOverviewScreenProps {
   onSelectLease: (leaseId: string) => void;
   /** Incidents section's own tap-through (Web-P8a) — also where a just-reported incident lands, from `ReportIncidentSheet`'s own `onCreated`. */
   onSelectIncident: (incidentId: string) => void;
+  /** F-1.7 (B10) — offered only for a vehicle that could actually take one; see `vehicleActions` below. */
+  onStartDailyLease: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -111,6 +111,7 @@ export function VehicleOverviewScreen({
   onViewCalendar,
   onSelectLease,
   onSelectIncident,
+  onStartDailyLease,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
   const today = businessToday();
@@ -151,8 +152,26 @@ export function VehicleOverviewScreen({
     onSelectLease,
   );
 
+  // F-1.7's entry point, and the one this flow was missing entirely until
+  // B10 (GAP-51). Offered when the vehicle is on arrangement B **or has no
+  // active arrangement at all** — the latter is precisely the vehicle you
+  // would start one on, and `arrangement` is undefined exactly then. Hidden
+  // for A and C, whose own start flows live on the calendar (F-2.1/F-5.1);
+  // `VehicleCalendarScreen`'s `canStartLease`/`canBookTrip` gate the same way.
+  const canStartDailyLease = vehicle?.arrangement === undefined || vehicle.arrangement === "B";
+
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    ...(canStartDailyLease
+      ? [
+          {
+            key: "daily-lease",
+            label: "Start a daily lease",
+            icon: CalendarPlus,
+            onSelect: onStartDailyLease,
+          },
+        ]
+      : []),
     {
       key: "expense",
       label: "Record expense",
@@ -189,9 +208,9 @@ export function VehicleOverviewScreen({
             <div>
               <p className="text-label text-ink-secondary">Arrangement</p>
               {vehicle.arrangement !== undefined ? (
-                <p className="text-body text-ink-primary">
+                <Badge variant={ARRANGEMENT_BADGE_VARIANT[vehicle.arrangement]}>
                   {ARRANGEMENT_LABEL[vehicle.arrangement] ?? vehicle.arrangement}
-                </p>
+                </Badge>
               ) : (
                 <NotAvailable reason="no active arrangement" />
               )}
@@ -220,28 +239,12 @@ export function VehicleOverviewScreen({
               title="Costs"
               count={expenses.length}
               items={expenses.map((expense) => (
-                <Card key={expense.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-4">
-                    <p
-                      className={cn(
-                        "text-body",
-                        expense.voidedAt !== null
-                          ? "text-ink-muted line-through"
-                          : "text-ink-primary",
-                      )}
-                    >
-                      {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
-                    </p>
-                    <Money
-                      value={parse(expense.amountMinor)}
-                      className={expense.voidedAt !== null ? "line-through text-ink-muted" : ""}
-                    />
-                  </div>
-                  <p className="text-caption text-ink-muted">
-                    {formatShortDate(expense.spentOn)}
-                    {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
-                  </p>
-                </Card>
+                <ExpenseCostRow
+                  key={expense.id}
+                  expense={expense}
+                  formattedDate={formatShortDate(expense.spentOn)}
+                  invalidateKeys={[["vehicle", vehicleId, "expense"]]}
+                />
               ))}
             />
           ) : null}
@@ -257,18 +260,24 @@ export function VehicleOverviewScreen({
                   onClick={() => onSelectIncident(incident.id)}
                   className="w-full text-left"
                 >
-                  <Card className="flex items-center justify-between gap-4">
+                  <Card
+                    accent={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}
+                    className="flex items-center justify-between gap-4"
+                  >
                     <div>
                       <p className="text-body text-ink-primary">
-                        {incident.description ?? "No description recorded"}
+                        {incident.description ?? "Incident with no description"}
                       </p>
                       <p className="text-caption text-ink-muted">
                         {formatShortDate(incident.occurredOn)}
                       </p>
                     </div>
-                    <p className="text-caption text-ink-muted">
-                      {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}>
+                        {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
+                      </Badge>
+                      <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                    </div>
                   </Card>
                 </button>
               ))}

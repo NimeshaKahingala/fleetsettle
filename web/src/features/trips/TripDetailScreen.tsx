@@ -5,7 +5,7 @@ import type {
   ExpenseListRow,
   TripResponse,
 } from "@fleetsettle/shared/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
@@ -14,7 +14,12 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { cn } from "../../lib/cn.js";
+import {
+  OBLIGATION_STATUS_LABEL,
+  OPEN_OBLIGATION_STATUSES,
+} from "../../lib/obligationStatusLabel.js";
+import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { CancelTripSheet } from "./CancelTripSheet.js";
 import { CloseTripSheet } from "./CloseTripSheet.js";
 
@@ -23,24 +28,6 @@ export interface TripDetailScreenProps {
   today: BusinessDate;
   onBack: () => void;
 }
-
-const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
-  fuel: "Fuel",
-  tolls: "Tolls",
-  fines: "Fines",
-  cleaning: "Cleaning",
-  tyres: "Tyres",
-  servicing: "Servicing",
-  repairs: "Repairs",
-  insurance: "Insurance",
-  licence: "Licence",
-  crew_food: "Crew food",
-  permits: "Permits",
-  office: "Office",
-  legal: "Legal",
-  messaging: "Messaging",
-  other: "Other",
-};
 
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -56,16 +43,15 @@ function formatShortDate(date: string): string {
  * A container (UC §6.6), opened once and revisited over the trip's own
  * life, not a wizard — unlike `BookTripScreen`, nothing here is a step.
  *
- * **Two rows are `NotAvailable`, deliberately, not zero:**
- * - **Received** — F-5.3 describes collecting customer money against a
- *   trip, but no domain code anywhere raises a receivable `obligation` for
- *   a trip's own `agreedAmountMinor` the way a lease's billing period does
- *   for rent. Found while building this screen, not by P6's own tests
- *   (none of them exercise F-5.2/F-5.3 at all) — real, separate backend
- *   design work (deciding *when* it posts, matching W-41's own closing-
- *   date recognition), not guessed at here.
- * - **Advance to him** — `GET /api/advance` doesn't exist yet (Web-P8b's
- *   own gap, the plan already named it before this screen needed it).
+ * **Received (GAP-57)** shows the real `trip_fare` obligation A6 raises —
+ * `null` only for a charter with no customer or a zero agreed amount
+ * (nothing was ever raised) or a cancelled trip (A6 voids it on cancel).
+ * Tappable to collect, via the same `CollectPaymentSheet` a lease's dues
+ * use — party-level (§6.5), never a trip-specific write.
+ *
+ * **Advance to him** stays `NotAvailable`: `GET /api/advance` doesn't exist
+ * yet (Web-P8b's own gap, the plan already named it before this screen
+ * needed it).
  *
  * A closed trip's own profit/costs/distance breakdown is likewise not
  * re-derived here — `POST /{id}/close`'s response is the only place that
@@ -76,8 +62,10 @@ function formatShortDate(date: string): string {
  */
 export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const [closeOpen, setCloseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [collectOpen, setCollectOpen] = useState(false);
 
   const tripQuery = useQuery({
     queryKey: ["trip", tripId],
@@ -117,6 +105,29 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
 
   const canAct = trip?.status === "booked";
 
+  // GAP-57: `null` for a charter with no customer, a zero agreed amount, or
+  // a cancelled trip (A6 voids the obligation on cancel). Actionable while
+  // genuinely outstanding — the same rule a lease's own dues use.
+  const receivable = trip?.receivable ?? null;
+  const receivableActionable =
+    receivable !== null && OPEN_OBLIGATION_STATUSES.has(receivable.status);
+  const receivableRow =
+    receivable !== null ? (
+      <div className="flex items-center justify-between gap-4">
+        <span className="text-caption text-ink-muted">
+          {OBLIGATION_STATUS_LABEL[receivable.status] ?? receivable.status}
+        </span>
+        {/* GAP-75: the amount owed, not what's been collected so far —
+            `settledMinor` is 0 for every pending receivable by definition,
+            which read as "nothing due" regardless of the real figure.
+            `LeaseHubScreen.tsx`'s identical `leaseObligationRowSchema` row
+            renders `amountMinor` for the same reason; mirrored here. */}
+        <Money value={parse(receivable.amountMinor)} />
+      </div>
+    ) : (
+      <Money value={ZERO} />
+    );
+
   return (
     <Screen
       title={
@@ -145,10 +156,22 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               <p className="text-body text-ink-primary">Agreed</p>
               <Money value={parse(trip.agreedAmountMinor)} />
             </div>
-            <div className="flex flex-col gap-1">
-              <p className="text-body text-ink-primary">Received</p>
-              <NotAvailable reason="no receivable is raised yet for a trip's agreed amount (F-5.3)" />
-            </div>
+            {trip.customerId !== null ? (
+              <div className="flex flex-col gap-1">
+                <p className="text-body text-ink-primary">Received</p>
+                {receivableActionable ? (
+                  <button
+                    type="button"
+                    onClick={() => setCollectOpen(true)}
+                    className="w-full text-left"
+                  >
+                    {receivableRow}
+                  </button>
+                ) : (
+                  receivableRow
+                )}
+              </div>
+            ) : null}
             <div className="flex items-center justify-between gap-4">
               <p className="text-body text-ink-primary">Costs so far</p>
               <Money value={costsSoFar} />
@@ -164,7 +187,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             {trip.driverId !== null ? (
               <div className="flex flex-col gap-1">
                 <p className="text-body text-ink-primary">Advance to him</p>
-                <NotAvailable reason="no advance list read exists yet (Web-P8b)" />
+                <NotAvailable reason="advances aren't shown here yet" />
               </div>
             ) : null}
             {trip.status === "closed" ? (
@@ -187,29 +210,12 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               title="Costs"
               count={expenses.length}
               items={expenses.map((expense) => (
-                <Card key={expense.id} className="flex flex-col gap-1">
-                  <div className="flex items-center justify-between gap-4">
-                    <p
-                      className={cn(
-                        "text-body",
-                        expense.voidedAt !== null
-                          ? "text-ink-muted line-through"
-                          : "text-ink-primary",
-                      )}
-                    >
-                      {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
-                    </p>
-                    <Money
-                      value={parse(expense.amountMinor)}
-                      className={expense.voidedAt !== null ? "line-through text-ink-muted" : ""}
-                    />
-                  </div>
-                  <p className="text-caption text-ink-muted">
-                    {formatShortDate(expense.spentOn)}
-                    {expense.litres !== null ? ` · ${expense.litres.toString()}ℓ` : ""}
-                    {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
-                  </p>
-                </Card>
+                <ExpenseCostRow
+                  key={expense.id}
+                  expense={expense}
+                  formattedDate={formatShortDate(expense.spentOn)}
+                  invalidateKeys={[["trip", tripId, "expense"]]}
+                />
               ))}
             />
           ) : null}
@@ -227,6 +233,17 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             tripId={tripId}
             onCancelled={() => setCancelOpen(false)}
           />
+          {trip.customerId !== null && customerQuery.data !== undefined ? (
+            <CollectPaymentSheet
+              open={collectOpen}
+              onOpenChange={setCollectOpen}
+              customerId={trip.customerId}
+              customerName={customerQuery.data.name}
+              dues={receivable !== null ? [receivable] : []}
+              today={today}
+              onCollected={() => void queryClient.invalidateQueries({ queryKey: ["trip", tripId] })}
+            />
+          ) : null}
         </div>
       )}
     </Screen>

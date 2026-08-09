@@ -23,7 +23,12 @@ export function renderWithRouter(initialPath: string, api: Partial<ApiClient> = 
   const router = createAppRouteTree(businessToday(), history);
 
   const result = render(
-    <App router={router} queryClient={queryClient} apiClient={api as ApiClient} />,
+    <App
+      router={router}
+      queryClient={queryClient}
+      apiClient={api as ApiClient}
+      signOut={() => Promise.resolve()}
+    />,
   );
 
   return { ...result, router };

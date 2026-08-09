@@ -1,7 +1,7 @@
 # Tech Stack
 
-**Status:** v1.2 — Asgardeo application registered; concrete values recorded (§2.1, §8)
-**Date:** 31 July 2026
+**Status:** v1.3 — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
+**Date:** 5 August 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
 This document exists for one reason beyond inventory: **four platform constraints change the data model**, and they are listed in §7. Read that section before reviewing the schema.
@@ -18,7 +18,7 @@ This document exists for one reason beyond inventory: **four platform constraint
 | **Query layer** | Drizzle ORM | TypeScript-first, generates SQL close to hand-written, migrations in-repo. Avoids an ORM that hides the constraints doing the work |
 | **Auth (client)** | `@asgardeo/auth-react` ^5.6.2 | OIDC/OAuth2 via WSO2 Asgardeo. Handles login, token refresh, PKCE |
 | **Auth (server)** | `jose` — `createRemoteJWKSet` + `jwtVerify` | Validates the Asgardeo access token in the Worker against its JWKS |
-| **Frontend** | React + Vite, served as Workers Assets | Single deployment unit with the API |
+| **Frontend** | React + Vite, served as Workers Assets | Its own Worker, sharing the API's origin (§9) |
 | **File storage** | Cloudflare R2 | Condition photos, receipts, odometer photos, ticket images |
 | **Cache / config** | Workers KV | JWKS cache, messaging kill-switch, feature flags |
 | **Scheduled work** | Cron Triggers | Due generation, day-card generation, reminder dispatch, paperwork warnings |
@@ -164,30 +164,49 @@ One more that is a *choice* rather than a constraint: **Postgres does the enforc
 
 | Binding | Type | Holds |
 |---|---|---|
-| `DATABASE_URL` | Secret | Neon pooled connection string |
+| `DATABASE_URL` | Secret | Neon pooled connection string, per environment |
 | `ASGARDEO_ISSUER` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/token` (§2.1) |
 | `ASGARDEO_JWKS_URL` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
-| `ASGARDEO_AUDIENCE` | Var | `OEWdJbFmoc65GbQkr4WwuBlEfnUa` — the client id (§2.1) |
-| `WHATSAPP_TOKEN` | Secret | Business Cloud API token |
-| `WHATSAPP_PHONE_ID` | Secret | Sending number id |
+| `ASGARDEO_AUDIENCE` | Var | The client id of the app that issues tokens for **that** environment (§2.1) |
+| `WHATSAPP_TOKEN` | Secret | Business Cloud API token — not yet provisioned (P14) |
+| `WHATSAPP_PHONE_ID` | Secret | Sending number id — not yet provisioned (P14) |
 | `KV` | KV namespace | JWKS cache, kill switch |
 | `R2` | R2 bucket | Attachments |
 | `MESSAGE_QUEUE` | Queue | Outbound dispatch |
+| `RATE_LIMITER` | Rate limit | 100 requests / 60s per IP (IG §13) |
 
-Secrets via `wrangler secret put`, never in `wrangler.jsonc`.
+Provisioned 5 August 2026, one isolated set per environment — a QA run must never write into production's bucket or enqueue onto its queue:
+
+| | QA | Production |
+|---|---|---|
+| KV | `fleetsettle-kv-qa` · `1dfcd1efb71846e49f6da9756a64523e` | `fleetsettle-kv` · `1c639491546d48319637f67d6db77b5a` |
+| R2 | `fleetsettle-attachments-qa` | `fleetsettle-attachments` |
+| Queue | `fleetsettle-messages-qa` | `fleetsettle-messages` |
+| Rate-limit `namespace_id` | `1002` | `1003` |
+
+Both R2 buckets have public access **off** (IG §10.10) and a CORS policy scoped to their environment's origin, ready for the A7 upload endpoint. Both report region **ENAM** despite an `apac` location hint — Cloudflare documents hints as best effort, not a guarantee.
+
+Secrets via `wrangler secret put --env <name>`, never in `wrangler.jsonc`. The same `DATABASE_URL` must **also** exist as a GitHub environment secret: CI runs the migration scripts in Node, where a Cloudflare secret is invisible.
 
 ---
 
 ## 9. Deployment
 
-| Environment | Branch | Database |
-|---|---|---|
-| Preview | any PR | Neon branch, seeded with the §9.1 golden fixtures |
-| Production | `main` | Neon primary |
+**Live since 5 August 2026.** `DEPLOYMENT.md` at the repository root is the runbook and carries the full state; `implementation-guidelines.md` §9 owns the mechanics. This is the shape.
 
-**Neon database branching is worth using deliberately here.** The golden fixtures in `user-flows.md` §9.1 are the regression suite; a preview branch seeded with them means every PR can assert that §7.1's `134,000` and §7.3's `7,500` still come out right against real Postgres, not a mock.
+| Environment | Branch | Hostname | Database |
+|---|---|---|---|
+| PR gate | any PR | — | ephemeral Neon branch, deleted after |
+| QA | `develop` | `qa.fleetsettle.com` | Neon `qa` |
+| Production | `main` | `fleetsettle.com` | Neon `main` |
 
-Migrations are **forward-only**. A money system that rolls a migration backwards over live data has a worse problem than the migration.
+**Two Workers per environment, one hostname.** The client Worker takes the hostname as a Cloudflare **Custom Domain**; the API Worker takes a `/api/*` **route**, which Cloudflare matches first. They stay separate deploy units — separately versioned, separately rollback-able — while sharing an origin, which is what keeps CORS, preflight and a build-time API base URL out of the system entirely.
+
+The Custom Domain also creates its own DNS record and certificate, which is why no DNS credential appears anywhere in this deployment.
+
+**Neon database branching is worth using deliberately here.** The golden fixtures in `user-flows.md` §9.1 are the regression suite; an ephemeral branch seeded with them means every PR can assert that §7.1's `134,000` and §7.3's `7,500` still come out right against real Postgres, not a mock.
+
+Migrations are **forward-only**, and run automatically only against QA. Production's are a separate, manually triggered act, with a guard that refuses to deploy code whose schema has not been applied.
 
 ---
 
@@ -196,7 +215,9 @@ Migrations are **forward-only**. A money system that rolls a migration backwards
 **Org:** `FleetSettle` (`org-cold-rice-64493165`), created 30 July 2026, **Free plan**.
 **Project:** `fleetsettle` (`spring-sunset-96946055`), Postgres 17, `main` branch `br-odd-cherry-afx5394i`, database `neondb`.
 
-`main` is **empty and deliberately so** — the schema in `data-model.md` was validated on disposable branches (`data-model.md` §16.0) and has not been applied to `main`. Applying it there is a migration, and migrations are forward-only (§9), so it waits until the schema is being built on rather than tested.
+**`main` carries migrations `0001`–`0007` as of 5 August 2026**, applied by hand with the DM §13 drift check clean afterwards. It was deliberately empty until then; the schema had been validated only on disposable branches (`data-model.md` §16.0). Applying it was the one-way door §9 describes, taken once the schema was being built on rather than tested.
+
+A long-lived **`qa` branch** (`br-square-sound-afb68wft`) carries the same seven and backs the QA environment. That is 4 of the free plan's 10 branches, leaving headroom for the per-PR ephemeral ones.
 
 Free-plan limits that bound the §9 branching strategy:
 

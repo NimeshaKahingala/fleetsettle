@@ -18,14 +18,8 @@ const submitted: InsuranceClaimResponse = {
   receivedOn: null,
 };
 
-function nth<T>(items: T[], index: number): T {
-  const item = items[index];
-  if (item === undefined) throw new Error(`index ${index.toString()} out of bounds`);
-  return item;
-}
-
 async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: string) {
-  await user.click(nth(screen.getAllByRole("button", { name: "Rs 0" }), 0));
+  await user.click(screen.getByRole("button", { name: "Enter amount claimed" }));
   for (const digit of digits) {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -88,9 +82,8 @@ test("a given excess reaches the request alongside the claimed amount", async ()
     { post },
   );
 
-  // Claimed amount first — the only "Rs 0" trigger left afterward is excess's.
   await enterAmount(user, "7500000");
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter excess you bear" }));
   for (const digit of "1500000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }

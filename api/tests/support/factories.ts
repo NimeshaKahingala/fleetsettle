@@ -10,6 +10,7 @@ import {
   billingPeriod,
   business,
   businessMember,
+  businessMemberInvite,
   businessSettings,
   capitalContribution,
   customer,
@@ -19,6 +20,7 @@ import {
   deposit,
   depositMovement,
   driver,
+  driverLinkInvite,
   expense,
   incident,
   incidentRecovery,
@@ -63,6 +65,11 @@ interface OpenPeriodOverrides {
 interface VehicleOverrides {
   registration?: string;
   vehicleType?: string;
+}
+
+interface VehicleArrangementOverrides {
+  effectiveFrom?: string;
+  effectiveTo?: string;
 }
 
 interface DriverOverrides {
@@ -208,14 +215,27 @@ export class TestContext {
     return id;
   }
 
-  /** §6.7's borne-by default is keyed on the vehicle's current arrangement — `createVehicle()` alone leaves it unset (P2's own bare factory does not assume any particular test needs one). */
-  async setVehicleArrangement(vehicleId: string, arrangement: "A" | "B" | "C"): Promise<void> {
+  /**
+   * §6.7's borne-by default is keyed on the vehicle's arrangement —
+   * `createVehicle()` alone leaves it unset (P2's own bare factory does not
+   * assume any particular test needs one). Overridable `effectiveFrom`/`effectiveTo`
+   * (GAP-56 tests) so a second call can set up a historical arrangement
+   * change — the table's own `EXCLUDE USING gist` constraint (migration
+   * `0001`) requires non-overlapping ranges, so a second open-ended row
+   * needs the first one closed first.
+   */
+  async setVehicleArrangement(
+    vehicleId: string,
+    arrangement: "A" | "B" | "C",
+    overrides: VehicleArrangementOverrides = {},
+  ): Promise<void> {
     const id = newId();
     await this.#db.insert(vehicleArrangement).values({
       id,
       vehicleId,
       arrangement,
-      effectiveFrom: "2026-01-01",
+      effectiveFrom: overrides.effectiveFrom ?? "2026-01-01",
+      effectiveTo: overrides.effectiveTo,
     });
     this.track(async () => {
       await this.#db.delete(vehicleArrangement).where(eq(vehicleArrangement.id, id));
@@ -519,6 +539,8 @@ export class TestContext {
         | "extra_charge";
       amountMinor?: bigint;
       sign?: 1 | -1;
+      /** GAP-72's own boundary tests — the column defaults to `now()`, which cannot land on the edge of a report window on demand. */
+      createdAt?: string;
     } = {},
   ): Promise<string> {
     const id = newId();
@@ -530,6 +552,7 @@ export class TestContext {
       amountMinor: overrides.amountMinor ?? 1_000n,
       sign: overrides.sign ?? -1,
       postedPeriodId: periodId,
+      ...(overrides.createdAt !== undefined ? { createdAt: overrides.createdAt } : {}),
     });
     this.track(async () => {
       await this.#db.delete(adjustment).where(eq(adjustment.id, id));
@@ -749,6 +772,31 @@ export class TestContext {
   trackCreatedDriver(driverId: string): void {
     this.track(async () => {
       await this.#db.delete(driver).where(eq(driver.id, driverId));
+    });
+  }
+
+  /**
+   * A11/W-57: `POST /api/business-member/invite` writes a single
+   * `business_member_invite` row per call, and `POST /api/invite/redeem`
+   * writes no row of its own on this table (it only ever updates one) — so
+   * this sweeps by `businessId` rather than tracking a single row id, since
+   * the invite response returns no id to track by. Must be tracked *after*
+   * `createBusiness()`/the business is otherwise known to the context, so it
+   * unwinds before the business's own teardown (FK: `business_member_invite
+   * .business_id REFERENCES business(id)`, no cascade).
+   */
+  trackCreatedBusinessMemberInvites(businessId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(businessMemberInvite)
+        .where(eq(businessMemberInvite.businessId, businessId));
+    });
+  }
+
+  /** A11/W-57/F-1.8: the `driver_link_invite` counterpart to `trackCreatedBusinessMemberInvites` above — same reasoning, swept by `driverId`, tracked after the driver is known to the context so it unwinds first (FK: `driver_link_invite.driver_id REFERENCES driver(id)`). */
+  trackCreatedDriverLinkInvites(driverId: string): void {
+    this.track(async () => {
+      await this.#db.delete(driverLinkInvite).where(eq(driverLinkInvite.driverId, driverId));
     });
   }
 

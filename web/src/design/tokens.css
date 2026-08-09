@@ -14,6 +14,17 @@
   --l-wash: #e6f0fc;
   --l-payable: #eb6834;
   --l-hair: rgb(20 20 15 / 10%);
+
+  /* UI §11.2's validated categorical order — slot 2 is deliberately the same
+     hex as --l-payable/--d-payable (below), so a driver-balance marker and a
+     chart series about that same driver read as one orange, not two. */
+  --l-chart-1: #2a78d6;
+  --l-chart-3: #1baf7a;
+  --l-chart-4: #eda100;
+  --l-chart-5: #e87ba4;
+  --l-chart-6: #008300;
+  --l-chart-7: #4a3aa7;
+  --l-chart-8: #e34948;
   --d-page: #0d0d0c;
   --d-surface: #141413;
   --d-ink1: #f5f5f0;
@@ -26,6 +37,13 @@
   --d-wash: #16283f;
   --d-payable: #d95926;
   --d-hair: rgb(255 255 255 / 10%);
+  --d-chart-1: #3987e5;
+  --d-chart-3: #199e70;
+  --d-chart-4: #c98500;
+  --d-chart-5: #d55181;
+  --d-chart-6: #008300;
+  --d-chart-7: #9085e9;
+  --d-chart-8: #e66767;
 }
 
 /* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
@@ -44,6 +62,18 @@
   --color-brand-wash: var(--l-wash);
   --color-focus-ring: var(--l-brandink);
   --color-direction-payable: var(--l-payable);
+
+  /* UI §11.2's validated categorical order (B4/§6) — slot 2 is
+     --color-direction-payable itself, not a duplicate hex, so a chart
+     series and the direction marker it corresponds to never drift apart. */
+  --color-chart-1: var(--l-chart-1);
+  --color-chart-2: var(--l-payable);
+  --color-chart-3: var(--l-chart-3);
+  --color-chart-4: var(--l-chart-4);
+  --color-chart-5: var(--l-chart-5);
+  --color-chart-6: var(--l-chart-6);
+  --color-chart-7: var(--l-chart-7);
+  --color-chart-8: var(--l-chart-8);
 
   /* status — fixed, never themed except where the dark step differs */
   --color-good: #0ca30c;
@@ -95,6 +125,14 @@
     --color-brand-wash: var(--d-wash);
     --color-focus-ring: var(--d-brandink);
     --color-direction-payable: var(--d-payable);
+    --color-chart-1: var(--d-chart-1);
+    --color-chart-2: var(--d-payable);
+    --color-chart-3: var(--d-chart-3);
+    --color-chart-4: var(--d-chart-4);
+    --color-chart-5: var(--d-chart-5);
+    --color-chart-6: var(--d-chart-6);
+    --color-chart-7: var(--d-chart-7);
+    --color-chart-8: var(--d-chart-8);
     --color-good: #3fbf57;
     --color-good-ink: #3fbf57;
     --color-warning-ink: #fab219;
@@ -118,12 +156,58 @@
   --color-brand-wash: var(--d-wash);
   --color-focus-ring: var(--d-brandink);
   --color-direction-payable: var(--d-payable);
+  --color-chart-1: var(--d-chart-1);
+  --color-chart-2: var(--d-payable);
+  --color-chart-3: var(--d-chart-3);
+  --color-chart-4: var(--d-chart-4);
+  --color-chart-5: var(--d-chart-5);
+  --color-chart-6: var(--d-chart-6);
+  --color-chart-7: var(--d-chart-7);
+  --color-chart-8: var(--d-chart-8);
   --color-good: #3fbf57;
   --color-good-ink: #3fbf57;
   --color-warning-ink: #fab219;
   --color-serious-ink: #ec835a;
   --color-critical: #f0736f;
   --color-critical-ink: #f0736f;
+}
+
+/* 4 — the base layer. The page colour is painted once, on the root element,
+   so no screen is ever responsible for its own background.
+
+   Before this existed, `AppShell` was the only thing in the client carrying
+   `bg-page`, and three screens render outside it — `AuthGate`'s loading and
+   sign-in states, and `NotBuiltYetScreen` (`FirstRunGate`'s `owner`/`driver`
+   fallback). All three had no background anywhere in their DOM: invisible in
+   light mode by coincidence, and in dark mode `--color-ink-primary` on the
+   browser's default white canvas, which made the sign-in screen — the first
+   thing every user sees — functionally illegible (GAP-49, found 6 Aug 2026
+   driving a real browser). Fixed here rather than at the three call sites so
+   that a screen built outside `AppShell` tomorrow inherits the fix.
+
+   `color-scheme` is the same bug one layer down: without it the UA canvas,
+   scrollbars and native form controls stay light under a dark theme. It
+   follows the same two-selector shape as block 3 — the media query for the OS
+   setting, the attribute for the in-app toggle — so a manual light choice
+   still beats OS dark. `html` rather than `:root` deliberately: identical
+   element, but it keeps these rules out of the way of tokens.test.ts's
+   dark-parity regexes, which key on `:root`. */
+@layer base {
+  html {
+    background-color: var(--color-page);
+    color: var(--color-ink-primary);
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    html:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+    }
+  }
+
+  html[data-theme="dark"] {
+    color-scheme: dark;
+  }
 }
 
 :lang(si) {

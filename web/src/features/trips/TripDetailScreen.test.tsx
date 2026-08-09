@@ -13,6 +13,16 @@ import { TripDetailScreen } from "./TripDetailScreen.js";
 
 const today = asBusinessDate("2026-07-15");
 
+const pendingReceivable: TripResponse["receivable"] = {
+  id: "ob1",
+  kind: "trip_fare",
+  dueOn: "2026-07-12",
+  amountMinor: "6000000",
+  settledMinor: "0",
+  waivedMinor: "0",
+  status: "pending",
+};
+
 const bookedTrip: TripResponse = {
   id: "t1",
   vehicleId: "v1",
@@ -27,6 +37,7 @@ const bookedTrip: TripResponse = {
   closingDate: null,
   cancelReason: null,
   advanceDisposition: null,
+  receivable: pendingReceivable,
 };
 
 const customer: CustomerResponse = {
@@ -105,7 +116,10 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
 
   expect(await screen.findByText(/Kandy/)).toBeInTheDocument();
   expect(await screen.findByText(/Perera Tours/)).toBeInTheDocument();
-  expect(screen.getByText("Rs 60,000")).toBeInTheDocument();
+  // Agreed and Received/Due both read 60,000 here — nothing has been
+  // collected against a pending receivable, so both figures are genuinely
+  // the same number (GAP-75: Received shows the amount owed, not settled).
+  expect(screen.getAllByText("Rs 60,000")).toHaveLength(2);
   // Costs so far excludes the voided toll — fuel (22,000) alone, so the
   // running total and the one contributing item show the same figure.
   expect(screen.getAllByText("Rs 22,000")).toHaveLength(2);
@@ -115,19 +129,52 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText("Fuel")).toBeInTheDocument();
   const voidedRow = screen.getByText("Tolls");
   expect(voidedRow).toHaveClass("line-through");
-  expect(screen.getByText(/Voided: wrong trip/)).toBeInTheDocument();
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("wrong trip")).toBeInTheDocument();
 });
 
-test("Received and Advance to him are honest gaps, never a fabricated zero (W-56)", async () => {
+test("GAP-57 — Received shows the real trip_fare receivable, and Advance to him stays an honest gap (W-56)", async () => {
   const get = baseGet();
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
 
   expect(await screen.findByText("Received")).toBeInTheDocument();
-  expect(
-    screen.getByText(/no receivable is raised yet for a trip's agreed amount/),
-  ).toBeInTheDocument();
+  // GAP-75: the row shows the amount owed (60,000), not what's settled so
+  // far (0 for a pending receivable, by definition) — a fully-unpaid trip
+  // must read as 60,000 due, not as nothing owed.
+  expect(screen.getByRole("button", { name: /Due.*Rs 60,000/ })).toBeInTheDocument();
   expect(screen.getByText("Advance to him")).toBeInTheDocument();
-  expect(screen.getByText(/no advance list read exists yet/)).toBeInTheDocument();
+  expect(screen.getByText("advances aren't shown here yet")).toBeInTheDocument();
+});
+
+test("GAP-57 — tapping the outstanding Received row opens the collect-payment sheet", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /Due.*Rs 60,000/ }));
+  expect(await screen.findByText("Collect payment")).toBeInTheDocument();
+});
+
+test("GAP-57 — a fully paid receivable is shown but is no longer tappable", async () => {
+  const paidTrip: TripResponse = {
+    ...bookedTrip,
+    receivable: { ...pendingReceivable, settledMinor: "6000000", status: "paid" },
+  };
+  const get = baseGet({ "/api/trip/t1": paidTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText("Received")).toBeInTheDocument();
+  expect(screen.getByText("Paid")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Paid/ })).not.toBeInTheDocument();
+});
+
+test("GAP-57 — a charter with no customer shows no Received row at all, never a fabricated zero (W-56)", async () => {
+  const noCustomerTrip: TripResponse = { ...bookedTrip, customerId: null, receivable: null };
+  const get = baseGet({ "/api/trip/t1": noCustomerTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText(/Kandy/)).toBeInTheDocument();
+  expect(screen.queryByText("Received")).not.toBeInTheDocument();
 });
 
 test("a booked trip offers Close trip and Cancel trip; a closed one offers neither", async () => {

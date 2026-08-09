@@ -5,7 +5,7 @@ import type {
   LeaseObligationRow,
   LeaseResponse,
 } from "@fleetsettle/shared/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gauge, MoreVertical, RefreshCw, SlidersHorizontal, SquareX, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
@@ -14,6 +14,10 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import {
+  OBLIGATION_STATUS_LABEL,
+  OPEN_OBLIGATION_STATUSES,
+} from "../../lib/obligationStatusLabel.js";
 import { AdjustObligationSheet } from "./AdjustObligationSheet.js";
 import { CollectPaymentSheet } from "./CollectPaymentSheet.js";
 import { ReadOdometerSheet } from "./ReadOdometerSheet.js";
@@ -38,16 +42,6 @@ const DUE_KIND_LABEL: Record<string, string> = {
   mileage_excess: "Mileage excess",
   post_closure_charge: "Late charge",
 };
-
-const DUE_STATUS_LABEL: Record<string, string> = {
-  pending: "Due",
-  part_paid: "Part paid",
-  paid: "Paid",
-  waived: "Waived",
-  written_off: "Written off",
-};
-
-const OPEN_STATUSES = new Set(["pending", "part_paid"]);
 
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -74,6 +68,7 @@ function outstandingMinor(due: LeaseObligationRow): Minor {
  */
 export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreenProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const today = businessToday();
   const [renewOpen, setRenewOpen] = useState(false);
   const [readOdometerOpen, setReadOdometerOpen] = useState(false);
@@ -237,7 +232,7 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
               title="Dues"
               count={dues.length}
               items={dues.map((due) => {
-                const actionable = OPEN_STATUSES.has(due.status);
+                const actionable = OPEN_OBLIGATION_STATUSES.has(due.status);
                 const row = (
                   <Card className="flex items-center justify-between gap-4">
                     <div>
@@ -245,7 +240,8 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
                         {DUE_KIND_LABEL[due.kind] ?? due.kind}
                       </p>
                       <p className="text-caption text-ink-muted">
-                        {formatShortDate(due.dueOn)} · {DUE_STATUS_LABEL[due.status] ?? due.status}
+                        {formatShortDate(due.dueOn)} ·{" "}
+                        {OBLIGATION_STATUS_LABEL[due.status] ?? due.status}
                       </p>
                     </div>
                     <Money value={parse(due.amountMinor)} />
@@ -283,7 +279,6 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             <CollectPaymentSheet
               open={collectOpen}
               onOpenChange={setCollectOpen}
-              leaseId={leaseId}
               customerId={lease.customerId}
               customerName={customerQuery.data.name}
               dues={dues}
@@ -291,6 +286,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
               {...(collectForDue !== null
                 ? { initialAmountMinor: outstandingMinor(collectForDue) }
                 : {})}
+              onCollected={() =>
+                void queryClient.invalidateQueries({ queryKey: ["lease", leaseId, "obligation"] })
+              }
             />
           ) : null}
           {selectedDue !== null ? (

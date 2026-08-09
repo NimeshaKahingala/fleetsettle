@@ -27,12 +27,11 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   const userId = requireUserId(c);
   const body = c.req.valid("json");
   const reader = c.get("reader");
+  const spentOn = asBusinessDate(body.spentOn);
 
-  let arrangement: "A" | "B" | "C" | null = null;
   if (body.vehicleId !== undefined) {
     const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
     if (!vehicle) throw new NotFoundError("No such vehicle in this business");
-    arrangement = vehicle.arrangement;
   }
 
   if (body.tripId !== undefined) {
@@ -64,7 +63,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
             : {}),
         }
       : body.vehicleId !== undefined
-        ? await resolveBorneByDefault(reader, body.vehicleId, body.category, arrangement)
+        ? await resolveBorneByDefault(reader, body.vehicleId, body.category, spentOn)
         : { borneBy: "us" as const };
 
   const { expenseId } = await createExpense(c.get("writer"), {
@@ -74,7 +73,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     businessId,
     category: body.category,
     amountMinor: body.amountMinor,
-    spentOn: asBusinessDate(body.spentOn),
+    spentOn,
     ...resolved,
     paidByUserId: body.paidByUserId ?? userId,
     ...(body.litres !== undefined ? { litres: body.litres } : {}),

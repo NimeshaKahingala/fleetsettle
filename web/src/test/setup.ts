@@ -40,6 +40,28 @@ if (typeof Element !== "undefined" && !Element.prototype.setPointerCapture) {
   Element.prototype.hasPointerCapture = () => false;
 }
 
+// jsdom implements no layout at all, so Recharts' `ResponsiveContainer`
+// (B4/§6) — which measures its container via `ResizeObserver` before
+// deciding whether to render anything — throws outright without this and
+// renders at 0×0 with it, since jsdom's `offsetWidth`/`offsetHeight` are
+// always 0. Chart *data correctness* is tested through each report's own
+// pure view-model functions (the same reason `chartAxis.test.ts` exists as
+// its own file); a chart's actual pixel geometry is a real-browser
+// question, the same category GAP-50's a11y-tree note already carries.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class {
+    observe(): void {
+      /* no-op under jsdom — nothing to measure */
+    }
+    unobserve(): void {
+      /* no-op */
+    }
+    disconnect(): void {
+      /* no-op */
+    }
+  };
+}
+
 // jsdom has no Blob URL registry — PhotoCapture (and anything else that
 // previews a captured Blob) calls URL.createObjectURL/revokeObjectURL.
 // createImageBitmap/OffscreenCanvas (the actual decode/encode pipeline)

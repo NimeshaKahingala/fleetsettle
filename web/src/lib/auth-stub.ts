@@ -1,10 +1,10 @@
 import type { TokenGetter } from "./api.js";
 
 /**
- * A stand-in for the real Asgardeo token getter, so screens can be built
- * and tested without the PKCE login round trip. Real wiring is still
- * blocked on console changes (TRACKER P1); this is the seam that keeps that
- * from blocking every screen behind it.
+ * A stand-in for the real Asgardeo token getter, so screens can be built and
+ * tested without the PKCE login round trip. **Real auth is wired now** (B8,
+ * `lib/auth-asgardeo.ts`); this stays because `npm run dev` and the e2e suite
+ * still need to run without reaching an identity provider.
  *
  * **This does not make the API accept anything.** The token below is not
  * signed by anything and will never pass `verifyAccessToken`'s JWKS check —
@@ -36,7 +36,7 @@ import type { TokenGetter } from "./api.js";
 export const STUB_AUTH_MODE = "stub";
 
 /** Obviously-fake, unsigned, and labelled as such — so a token that leaks into a log or a bug report reads as a stub at a glance rather than looking like a real credential to be revoked. */
-const STUB_TOKEN = "stub-token.not-a-real-jwt.asgardeo-not-wired-yet";
+const STUB_TOKEN = "stub-token.not-a-real-jwt.for-local-dev-and-e2e-only";
 
 export function isStubAuthEnabled(): boolean {
   return (import.meta.env["VITE_AUTH_MODE"] as string | undefined) === STUB_AUTH_MODE;
@@ -47,12 +47,19 @@ export function createStubTokenGetter(): TokenGetter {
 }
 
 /**
- * The honest failure when nothing is wired: throws at the moment a request
- * is actually attempted, with a message that names the blocker, rather than
- * resolving `undefined` and producing an opaque 401 later.
+ * Stub mode never mounts `AuthGate`, so there is no session to end and
+ * nowhere to redirect to — the app renders unconditionally either way. This
+ * exists so B0's sign-out row still has something to call in `npm run dev`
+ * and the e2e suite; the query-cache clear it triggers (`useAuthActions`,
+ * the composition-root layer above this) is the part actually worth
+ * exercising there.
  */
-export function createUnwiredTokenGetter(): TokenGetter {
-  return () => {
-    throw new Error("Asgardeo is not wired yet — see TRACKER.md P1 (blocked on console changes).");
-  };
+export function createStubSignOut(): () => Promise<void> {
+  return () => Promise.resolve();
 }
+
+// `createUnwiredTokenGetter` lived here until Asgardeo was wired (B8). Its job
+// was to fail loudly at the first request instead of producing an opaque 401,
+// and it is gone rather than kept "just in case": the real getter
+// (lib/auth-asgardeo.ts) now occupies that branch, and a second placeholder
+// path would be one more thing that could be selected by mistake.

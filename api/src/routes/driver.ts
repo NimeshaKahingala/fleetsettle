@@ -5,14 +5,18 @@ import {
   getDriverBalancesHandler,
   getDriverHandler,
   getDriverHistoryHandler,
+  inviteDriverLinkHandler,
   listDriversHandler,
+  unlinkDriverHandler,
 } from "../handlers/driver.js";
 import {
   createDriverRoute,
   getDriverBalancesRoute,
   getDriverHistoryRoute,
   getDriverRoute,
+  inviteDriverLinkRoute,
   listDriversRoute,
+  unlinkDriverRoute,
 } from "../route-defs/driver.js";
 import type { Env } from "../types.js";
 
@@ -22,4 +26,6 @@ export const driver = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(getDriverRoute, getDriverHandler)
   .openapi(listDriversRoute, listDriversHandler)
   .openapi(getDriverBalancesRoute, getDriverBalancesHandler)
-  .openapi(getDriverHistoryRoute, getDriverHistoryHandler);
+  .openapi(getDriverHistoryRoute, getDriverHistoryHandler)
+  .openapi(inviteDriverLinkRoute, inviteDriverLinkHandler)
+  .openapi(unlinkDriverRoute, unlinkDriverHandler);

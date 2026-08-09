@@ -70,6 +70,21 @@ test("settled shows no amount on the net line", () => {
   expect(screen.getByText("Net: settled")).toBeInTheDocument();
 });
 
+test("GAP-78: omitting driverName renders no heading — for a caller whose own screen title already names the driver", () => {
+  render(
+    <TwoBalances
+      owedToYouMinor={parse("800000")}
+      owedToYouDetail="—"
+      owedByYouMinor={parse("1200000")}
+      owedByYouDetail="—"
+      onOffset={vi.fn()}
+    />,
+  );
+
+  expect(screen.queryByText("Sunil Perera")).toBeNull();
+  expect(screen.queryByRole("heading")).toBeNull();
+});
+
 test("Offset is the only action, and is explicit", async () => {
   const user = userEvent.setup();
   const onOffset = vi.fn();

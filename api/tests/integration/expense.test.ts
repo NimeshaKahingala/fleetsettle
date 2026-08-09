@@ -139,6 +139,145 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-56 — a cost dated before any lease covered the vehicle defaults to us, even though a lease is active by the time it's entered", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    // The lease starts 1 August — after the expense's own spentOn date, U-8's
+    // ordinary catch-up case. Before GAP-56, `findActiveLeaseForVehicle`
+    // matched on `status = 'active'` alone with no date filter, so this
+    // lease — wholly in the future relative to spentOn — would still have
+    // been picked up and the toll wrongly assigned to this customer.
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-08-01",
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "tolls",
+      amountMinor: "5000",
+      spentOn: "2026-07-01",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; borneBy: string; borneByCustomerId: string | null } =
+      await res.json();
+    expect(body.borneBy).toBe("us");
+    expect(body.borneByCustomerId).toBeNull();
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-56 — a cost dated during a since-closed lease resolves against that lease's customer, not the one who replaced them", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const firstCustomerId = await ctx.createCustomer(businessId);
+    const secondCustomerId = await ctx.createCustomer(businessId);
+    // First customer's lease ran through June, closed 30 June. Second
+    // customer's lease started 1 July and is the one active today. An
+    // expense dated inside the first lease's own window, entered after the
+    // second lease started, must still land on the first customer — not
+    // whoever holds the vehicle *now*.
+    await ctx.createLease(businessId, vehicleId, firstCustomerId, {
+      startDate: "2026-06-01",
+      endDate: "2026-06-30",
+      status: "closed",
+    });
+    await ctx.createLease(businessId, vehicleId, secondCustomerId, {
+      startDate: "2026-07-01",
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fines",
+      amountMinor: "7500",
+      spentOn: "2026-06-15",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; borneBy: string; borneByCustomerId: string } = await res.json();
+    expect(body.borneBy).toBe("customer");
+    expect(body.borneByCustomerId).toBe(firstCustomerId);
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-56 — a cost dated before a daily lease's effective date defaults to us, arrangement B's equivalent of the lease case", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    await ctx.createDailyLease(businessId, vehicleId, driverId, { effectiveFrom: "2026-08-01" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "300000",
+      spentOn: "2026-07-15",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; borneBy: string; borneByDriverId: string | null } = await res.json();
+    expect(body.borneBy).toBe("us");
+    expect(body.borneByDriverId).toBeNull();
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-56 — the vehicle's arrangement itself is resolved as of spentOn, not today", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    // Arrangement B (fuel borne by the driver) through June, then switched
+    // to C (fuel borne by us) from 1 July. A fuel fill dated inside the
+    // arrangement-B window, entered after the switch to C, must still
+    // resolve against B — the arrangement in force on the day the fuel was
+    // actually bought, not the one in force today.
+    await ctx.setVehicleArrangement(vehicleId, "B", {
+      effectiveFrom: "2026-01-01",
+      effectiveTo: "2026-06-30",
+    });
+    await ctx.setVehicleArrangement(vehicleId, "C", { effectiveFrom: "2026-07-01" });
+    const driverId = await ctx.createDriver(businessId);
+    await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      effectiveFrom: "2026-01-01",
+      effectiveTo: "2026-06-30",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "300000",
+      spentOn: "2026-06-15",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; borneBy: string; borneByDriverId: string } = await res.json();
+    expect(body.borneBy).toBe("driver");
+    expect(body.borneByDriverId).toBe(driverId);
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
   it("400 — borneBy 'driver' with no borneByDriverId (W-48/INV-27)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
@@ -312,7 +451,7 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
     await other.cleanup();
   });
 
-  it("succeeds even after the expense's own period has closed (migration 0006)", async () => {
+  it("409 PERIOD_CLOSED — voiding after the expense's own period has closed is refused (GAP-35, migration 0008)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId, {
@@ -332,8 +471,14 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
 
     await ctx.closePeriod(periodId);
 
+    // Before migration 0008 this returned 200: `posted_period_id` stays
+    // untouched by a void, and 0006 let any such update through — silently
+    // changing July's reported costs after July closed. It must now be
+    // refused the same way creating a new July expense already is.
     const res = await postVoidExpense(token, createdBody.id, { reason: "found after close" });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
 
     await ctx.cleanup();
   });

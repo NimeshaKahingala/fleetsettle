@@ -237,6 +237,15 @@ export const partnerSummaryResponseSchema = z.object({
   takenOut: partnerTakenOutSchema,
   earned: partnerEarnedSchema,
   holdingMinor: z.string(),
+  /**
+   * GAP-74/UC-67: "what am I owed, and by whom" — the line UC-67 itself
+   * calls the one the passive owner actually reads. All-time, unlike
+   * `earned` above: `putIn.* + (profit share + management fee summed
+   * across every period this business has ever had, open or closed) −
+   * takenOut.*` (W-52 — paying in creates a claim, so `putIn` is a
+   * positive term). `holdingMinor` is never netted into it (W-2's shape).
+   */
+  balanceMinor: z.string(),
 });
 export type PartnerSummaryResponse = z.infer<typeof partnerSummaryResponseSchema>;
 

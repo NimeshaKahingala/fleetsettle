@@ -12,6 +12,14 @@ import { computeObligationStatus } from "./obligation-status.js";
 
 export interface RecordPaymentInput {
   businessId: string;
+  /**
+   * F-2.2 (`received`, the original and still-default shape) or F-6.1
+   * (`paid` — GAP-63: "pay the driver" has no trip-fee-specific path,
+   * only this generic one, "categorised for what it is"). Both share one
+   * table, one allocation routine and one `direction` CHECK (DM §10.2) —
+   * only which obligation direction it settles differs.
+   */
+  direction: "received" | "paid";
   partyType: "customer" | "driver" | "partner";
   partyId: string;
   amountMinor: Minor;
@@ -31,14 +39,16 @@ export interface RecordedPayment {
 }
 
 /**
- * F-2.2/UC-11, one transaction: a `payment` plus its `payment_allocation`
- * rows, oldest-`due_on`-first (§6.5) — "two months together, oldest first
- * with a preview" is exactly this allocation, run for real rather than only
- * previewed. Never touches `owed_by_us` — a driver's shortfall is settled
- * through F-4's confirm-day path, not this generic one.
+ * F-2.2/UC-11 and F-6.1/UC-50, one transaction: a `payment` plus its
+ * `payment_allocation` rows, oldest-`due_on`-first (§6.5) — "two months
+ * together, oldest first with a preview" is exactly this allocation, run
+ * for real rather than only previewed. `direction` decides which of a
+ * party's two obligation directions this settles — never both in one call,
+ * which is what `createOffset` (F-6.4/W-2/INV-3) exists for instead.
  *
  * A surplus beyond every outstanding due is F-2.2's "overpayment held as
- * customer credit" — returned as `unallocatedMinor` rather than silently
+ * customer credit" (or, on the `paid` side, F-6.1's "goodwill/retainer with
+ * no trip attached") — returned as `unallocatedMinor` rather than silently
  * dropped, though applying it forward against a future due is not wired yet
  * (recorded here rather than silently skipped, matching P4's convention).
  */
@@ -56,7 +66,7 @@ export async function recordPayment(
       await insertPayment(tx, {
         id: paymentId,
         businessId: input.businessId,
-        direction: "received",
+        direction: input.direction,
         partyType: input.partyType,
         ...(input.partyType === "customer" ? { partyCustomerId: input.partyId } : {}),
         ...(input.partyType === "driver" ? { partyDriverId: input.partyId } : {}),
@@ -77,6 +87,7 @@ export async function recordPayment(
         input.businessId,
         input.partyType,
         input.partyId,
+        input.direction === "received" ? "owed_to_us" : "owed_by_us",
         input.occurredOn,
         input.amountMinor,
       );
@@ -95,6 +106,7 @@ async function allocateAgainstOldest(
   businessId: string,
   partyType: "customer" | "driver" | "partner",
   partyId: string,
+  obligationDirection: "owed_to_us" | "owed_by_us",
   occurredOn: BusinessDate,
   amountMinor: Minor,
 ): Promise<{ allocations: PaymentAllocationResult[]; remaining: Minor }> {
@@ -103,7 +115,7 @@ async function allocateAgainstOldest(
     businessId,
     partyType,
     partyId,
-    "owed_to_us",
+    obligationDirection,
   );
 
   const allocations: PaymentAllocationResult[] = [];

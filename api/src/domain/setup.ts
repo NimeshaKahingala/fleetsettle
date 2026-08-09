@@ -68,7 +68,18 @@ export async function createBusiness(
         timezone: input.timezone,
       });
 
-      await insertBusinessMember(tx, { id: newId(), businessId, userId, role: "owner" });
+      // `owner_manager`, not `owner` — the creator is the partner who will
+      // *operate* the business, and F-0.1 step 3 says so outright: they land
+      // "on an empty home screen with one action: Add a vehicle", which is
+      // the Operate shell. F-0.2, the very next flow, has Owner-manager as
+      // its actor over the business this one just created. UI §1.1 maps
+      // `owner` to the Review shell (the passive partner who reads reports,
+      // 95% of whose use is monthly) — so assigning it here dropped every
+      // new signup into a read-only shell they could do nothing from.
+      // "A new business has exactly one owner" (F-0.1's own accept clause)
+      // still holds: OWNERS is ["owner", "owner_manager"] in auth/policy.ts,
+      // and an owner-manager is an owner.
+      await insertBusinessMember(tx, { id: newId(), businessId, userId, role: "owner_manager" });
       await insertBusinessSettings(tx, businessId);
 
       const accountingPeriodId = newId();

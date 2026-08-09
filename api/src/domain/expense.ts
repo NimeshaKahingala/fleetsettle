@@ -5,6 +5,7 @@ import { findActiveLeaseForVehicle } from "../queries/lease.js";
 import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
+import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
 import {
   ExpenseAlreadyVoidedError,
@@ -35,33 +36,36 @@ export interface ResolvedBorneBy {
 }
 
 /**
- * §6.7's matrix, resolved against the vehicle's *current* arrangement — a
- * deliberate simplification (the same one `findCurrentDailyLeaseRate`
- * already makes for rates): an arrangement change between `spentOn` and
- * today would need a date-scoped lookup this phase doesn't build, and the
- * default is overridable on the record regardless.
+ * §6.7's matrix, resolved against the vehicle's arrangement **as of
+ * `spentOn`** (GAP-56) — U-8 makes catch-up the ordinary case, not the
+ * exception, so a fuel fill entered days or weeks late must resolve against
+ * who held the vehicle *then*, not whoever holds it today. Fixes a real
+ * money bug: reachable with one lease and no arrangement change at all — a
+ * cost dated before a new customer's lease started, entered after it did,
+ * was previously assigned to that new customer.
  *
  * "Customer's while he has it, ours between rentals" (cleaning, §6.7) is the
  * general fallback applied to every category defaulting to `customer`/`driver`:
- * no active lease or daily lease to name means nobody currently holds the
- * vehicle, so the cost can only sensibly default to `us`.
+ * no active lease or daily lease as of `spentOn` to name means nobody held
+ * the vehicle then, so the cost can only sensibly default to `us`.
  */
 export async function resolveBorneByDefault(
   reader: Reader,
   vehicleId: string,
   category: ExpenseCategory,
-  arrangement: "A" | "B" | "C" | null,
+  spentOn: BusinessDate,
 ): Promise<ResolvedBorneBy> {
+  const arrangement = await findVehicleArrangementAsOf(reader, vehicleId, spentOn);
   const row = arrangement ? BORNE_BY_MATRIX[category]?.[arrangement] : undefined;
   if (row === undefined || row === "us") return { borneBy: "us" };
 
   if (row === "customer") {
-    const active = await findActiveLeaseForVehicle(reader, vehicleId);
+    const active = await findActiveLeaseForVehicle(reader, vehicleId, spentOn);
     if (!active) return { borneBy: "us" };
     return { borneBy: "customer", borneByCustomerId: active.customerId };
   }
 
-  const current = await findCurrentDailyLeaseForVehicle(reader, vehicleId);
+  const current = await findCurrentDailyLeaseForVehicle(reader, vehicleId, spentOn);
   if (!current) return { borneBy: "us" };
   return { borneBy: "driver", borneByDriverId: current.driverId };
 }
@@ -155,24 +159,31 @@ export interface VoidedExpense {
 /**
  * F-8.5/UC-96/W-50: "wrong vehicle... fuel logged against the wrong trip" —
  * void it, with a reason, then record the corrected version through the
- * ordinary create endpoint. Void, never delete, and `posted_period_id` stays
- * untouched, which is what lets this succeed even after the expense's own
- * period has closed (migration 0006) — exactly the kind of later-discovered
- * mistake F-8.5 exists for.
+ * ordinary create endpoint. Void, never delete, and `posted_period_id`
+ * stays untouched — but a void is still a new reversal fact, and since
+ * migration 0008 (GAP-35) `assert_period_open()` treats the `voided_at`
+ * NULL → NOT NULL transition as a post in its own right: voiding an
+ * expense from a now-closed period is refused, the same as creating one
+ * would be. Voiding a *current-period* expense whose period later closes is
+ * unaffected — the void already happened before the close.
  */
 export async function voidExpense(writer: Writer, input: VoidExpenseInput): Promise<VoidedExpense> {
   const existing = await findExpenseForBusiness(writer, input.businessId, input.expenseId);
   if (!existing) throw new NotFoundError("No such expense in this business");
   if (existing.voidedAt !== null) throw new ExpenseAlreadyVoidedError();
 
-  // See createExpense's own comment — withActor only attributes writes
-  // inside a real transaction.
-  const voided = await writer.transaction((tx) =>
-    voidExpenseRow(tx, input.expenseId, {
-      voidedReason: input.reason,
-      voidedBy: input.userId,
-    }),
-  );
-
-  return { id: input.expenseId, voidedAt: voided.voidedAt };
+  try {
+    // See createExpense's own comment — withActor only attributes writes
+    // inside a real transaction.
+    const voided = await writer.transaction((tx) =>
+      voidExpenseRow(tx, input.expenseId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      }),
+    );
+    return { id: input.expenseId, voidedAt: voided.voidedAt };
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 }

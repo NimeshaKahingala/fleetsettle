@@ -60,18 +60,20 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
       ? { wash: "border border-serious text-serious-ink", glyph: "T?" }
       : { wash: "bg-serious/15 text-serious-ink", glyph: "T" };
   }
-  // arrangement B
+  // arrangement B — each of the four reachable states gets its own token
+  // (UI-LF-07): "ran" and "not yet confirmed" used to share the brand
+  // wash, told apart only by glyph.
   switch (day.dayRecordState) {
     case "ran_paid_full":
     case "ran_paid_short":
     case "ran_unpaid":
-      return { wash: "bg-brand-wash text-brand-ink", glyph: "✓" };
+      return { wash: "bg-good/15 text-good-ink", glyph: "✓" };
     case "did_not_run":
-      return { wash: "bg-serious/15 text-serious-ink", glyph: "!" };
+      return { wash: "bg-critical/15 text-critical-ink", glyph: "!" };
     case "open":
     case "paused_for_trip":
     case null:
-      return { wash: "bg-brand-wash text-brand-ink", glyph: "B" };
+      return { wash: "bg-warning/15 text-warning-ink", glyph: "B" };
   }
 }
 
@@ -210,13 +212,13 @@ export function VehicleCalendarScreen({
 
         <div className="flex flex-col gap-1.5 border-t border-line-hairline pt-3">
           <LegendRow wash="bg-brand-wash text-brand-ink" glyph="L" label="On a lease" />
-          <LegendRow wash="bg-brand-wash text-brand-ink" glyph="✓" label="Daily lease, ran" />
+          <LegendRow wash="bg-good/15 text-good-ink" glyph="✓" label="Daily lease, ran" />
           <LegendRow
-            wash="bg-brand-wash text-brand-ink"
+            wash="bg-warning/15 text-warning-ink"
             glyph="B"
             label="Daily lease, not yet confirmed"
           />
-          <LegendRow wash="bg-serious/15 text-serious-ink" glyph="!" label="Daily lease, lost" />
+          <LegendRow wash="bg-critical/15 text-critical-ink" glyph="!" label="Daily lease, lost" />
           <LegendRow wash="bg-serious/15 text-serious-ink" glyph="T" label="On a trip" />
           <LegendRow
             wash="border border-serious text-serious-ink"

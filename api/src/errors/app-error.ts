@@ -106,6 +106,17 @@ export class DailyLeaseOverlapsError extends AppError {
   }
 }
 
+// GAP-84/F1: neither `startLease` nor `startDailyLease` read the vehicle's
+// own standing arrangement before writing one — a deep link (or any crafted
+// request) could start a real monthly lease on a charter vehicle. The
+// message names the vehicle's actual arrangement so the client can render
+// something more useful than a bare refusal.
+export class VehicleArrangementMismatchError extends AppError {
+  constructor(message: string) {
+    super(409, "VEHICLE_ARRANGEMENT_MISMATCH", message);
+  }
+}
+
 // INV-17 (F-5.4: "will not close while a driver advance against it is
 // unreconciled — this is the one place friction is correct, because
 // unreconciled advances turn trip profit into fiction"). F-5.5 reuses the
@@ -172,5 +183,27 @@ export class OpeningBalanceLockedError extends AppError {
     message = "The first accounting period has closed; correct this through an ordinary adjustment instead",
   ) {
     super(409, "OPENING_BALANCE_LOCKED", message);
+  }
+}
+
+// INV-31/A11: `assert_business_has_owner()` (migration 0010) is the truth —
+// a revoke or role change that would leave a business with no active
+// owner/owner-manager is refused rather than merely warned, because nothing
+// could ever undo it once it happened.
+export class LastOwnerRequiredError extends AppError {
+  constructor(
+    message = "This business must always have at least one active owner or owner-manager",
+  ) {
+    super(409, "LAST_OWNER_REQUIRED", message);
+  }
+}
+
+// W-57/W-42: a code that does not match any live, unexpired, unconsumed
+// business_member_invite or driver_link_invite row. One message regardless
+// of which of "never existed", "expired" or "already redeemed" is true —
+// distinguishing them would let an attacker enumerate which reason applied.
+export class InviteCodeInvalidError extends AppError {
+  constructor(message = "This code is invalid or has expired") {
+    super(400, "INVITE_CODE_INVALID", message);
   }
 }

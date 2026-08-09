@@ -4,7 +4,8 @@ import { Card } from "../design/primitives/Card.js";
 import { Money } from "./Money.js";
 
 export interface TwoBalancesProps {
-  driverName: string;
+  /** Omit when the caller's own screen title already names the driver (GAP-78) — a heading a screen already carries in its app bar shouldn't repeat inside the card below it. */
+  driverName?: string;
   /** "He owes you" — e.g. short days. */
   owedToYouMinor: Minor;
   owedToYouDetail: string;
@@ -36,7 +37,9 @@ export function TwoBalances({
 
   return (
     <Card className="flex flex-col gap-4">
-      <h2 className="text-title text-ink-primary">{driverName}</h2>
+      {driverName !== undefined ? (
+        <h2 className="text-title text-ink-primary">{driverName}</h2>
+      ) : null}
 
       <div className="border-l-[3px] border-brand pl-3">
         <p className="flex items-baseline justify-between gap-4">

@@ -1,11 +1,11 @@
 # Data Model
 
-**Status:** v1.0
-**Date:** 30 July 2026
-**Derived from:** `use-cases.md` v1.2 · `user-flows.md` v1.1
+**Status:** v1.1.2 — §15's UC-75 and UC-76 blocks each gain the queries this document had omitted: banked-by-destination and advances-by-driver for UC-75 (GAP-70), and per-month and per-reason groupings for UC-76 (GAP-71) alongside the existing per-weekday one. Both are documents-travel-together corrections — UC-75/UC-76 and F-7.5/FL §9.2 already specified all of it; this document's own queries just never carried the rest of it down. No schema, constraint or behaviour change; the §16.1 fixtures are untouched
+**Date:** 9 August 2026
+**Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.4
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
-**Validation:** §9 checks every one of the 62 flows and 30 invariants against these tables. That section is the point of the document; the DDL is what it validates.
+**Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
 
 ---
 
@@ -124,21 +124,46 @@ CREATE TABLE business_member (
   user_id         uuid NOT NULL REFERENCES app_user(id),
   role            text NOT NULL CHECK (role IN ('owner','owner_manager','manager')),
   granted_at      timestamptz NOT NULL DEFAULT now(),
-  revoked_at      timestamptz,                   -- UC-03: revoke without losing their records
-  UNIQUE (business_id, user_id)
+  revoked_at      timestamptz                    -- UC-03: revoke without losing their records
 );
 
 -- This product has no multi-business membership (nothing in use-cases.md or
 -- user-flows.md describes one user across two businesses, or a switcher) —
 -- the sub → app_user → business_member resolution (IG §7.1) assumes at most
--- one active row per user and takes it on faith. The plain
--- UNIQUE above only stops the same (business, user) pair twice; it does not
--- stop the same user acquiring a second business_id, which a double-submitted
+-- one active row per user and takes it on faith. It does not stop the same
+-- user acquiring a second business_id, which a double-submitted
 -- "create business" request or a client retry after a timeout can otherwise
 -- do. Revoked rows are excluded so a revoked manager (F-1.4) can be
 -- re-granted, or someone start a second business after leaving the first,
 -- without this index in the way.
 CREATE UNIQUE INDEX one_active_business_per_user ON business_member (user_id) WHERE revoked_at IS NULL;
+
+-- GAP-52. Until migration 0010 this pair was a plain table-level UNIQUE, and an
+-- earlier draft of the paragraph above claimed revoked rows were "excluded so a
+-- revoked manager can be re-granted" — true of the index above, false of this
+-- constraint, which still blocked the exact re-grant F-1.4 names as its own
+-- alternate: revoke, then invite the same person back into the same business.
+-- The comment was right about the object it examined and wrong about the
+-- conclusion, because it never checked the constraint one line above it. A
+-- partial unique index — scoped to the active pair only — is what the flow
+-- actually needs; a revoked row no longer occupies the slot.
+CREATE UNIQUE INDEX business_member_active_pair
+  ON business_member (business_id, user_id) WHERE revoked_at IS NULL;
+
+-- W-57: the same shape as driver_link_invite (§5, W-42) — a code scoped to a
+-- business and a chosen role rather than to one driver record. The plaintext
+-- code is returned once, in the invite response; only its hash is stored, the
+-- same pattern driver_link_invite already established.
+CREATE TABLE business_member_invite (
+  id          uuid PRIMARY KEY,
+  business_id uuid NOT NULL REFERENCES business(id),
+  role        text NOT NULL CHECK (role IN ('owner','owner_manager','manager')),
+  code_hash   text NOT NULL,
+  created_by  uuid NOT NULL REFERENCES app_user(id),
+  expires_at  timestamptz NOT NULL,
+  consumed_at timestamptz,
+  consumed_by uuid REFERENCES app_user(id)
+);
 
 CREATE TABLE business_settings (
   business_id             uuid PRIMARY KEY REFERENCES business(id),
@@ -1206,11 +1231,23 @@ CREATE RULE audit_log_no_update AS ON UPDATE TO audit_log DO INSTEAD NOTHING;
 CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
 ```
 
+**`write_audit_log()` (migration `0002`) attaches itself by discovery, not by a hand-maintained list**: it walks every table carrying `posted_period_id` and attaches to each. `business_member` carries no such column — it is not a money table — so the discovery loop has never covered it, and **who granted or revoked a role has been recorded nowhere** (GAP-53). The fix is one explicit attachment, since `write_audit_log()` reads only `NEW.business_id` and `NEW.id`, both present on this table already:
+
+```sql
+-- GAP-53. Outside the posted_period_id discovery loop by design (not a money
+-- table), so it needs the one thing that loop exists to avoid: a hand-written
+-- attachment. Worth remembering next time a table is added that should be
+-- audited for a reason other than money — the loop will not find it either.
+CREATE TRIGGER business_member_audit
+  AFTER INSERT OR UPDATE ON business_member
+  FOR EACH ROW EXECUTE FUNCTION write_audit_log();
+```
+
 ---
 
 ## 13. Triggers that carry the remaining invariants
 
-Four rules cannot be expressed as a constraint and need a trigger. They are listed together because they are the places where the schema stops defending itself.
+Five rules cannot be expressed as a constraint and need a trigger. They are listed together because they are the places where the schema stops defending itself.
 
 ```sql
 -- INV-10. No write may touch a closed accounting period.
@@ -1262,6 +1299,30 @@ BEGIN
   END IF;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
+
+-- INV-31. A11/GAP-53's prerequisite: revoking or demoting the business's only
+-- active owner locks it out with nothing able to undo it — no endpoint could
+-- ever grant again. Fires on UPDATE only, not INSERT: an INSERT can only
+-- ever add a row, so by itself it can never reduce a business's active-owner
+-- count to zero — every real removal path is an UPDATE that sets
+-- revoked_at. A role change is revoke-and-grant, two statements in one
+-- transaction (never an in-place UPDATE — that would lose the history), so
+-- this must be deferred exactly as assert_shares_total is: an immediate check
+-- would reject the revoke half before the grant half lands.
+CREATE OR REPLACE FUNCTION assert_business_has_owner() RETURNS trigger AS $$
+DECLARE remaining int;
+BEGIN
+  SELECT count(*) INTO remaining FROM business_member
+   WHERE business_id = NEW.business_id
+     AND role IN ('owner','owner_manager')
+     AND revoked_at IS NULL;
+  IF remaining = 0 THEN
+    RAISE EXCEPTION 'business % would have no active owner or owner-manager (INV-31)',
+                    NEW.business_id;
+  END IF;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+-- CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED, so revoke-then-grant lands as one legal transaction.
 ```
 
 ### 13.1 Attaching them — the step that is easy to skip
@@ -1314,9 +1375,17 @@ CREATE CONSTRAINT TRIGGER split_sums
   AFTER INSERT OR UPDATE ON mileage_assessment_split
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION assert_split_sums();
+
+-- INV-31. UPDATE only — an INSERT can never by itself remove the last owner.
+-- Deferred, so a role change (revoke, then grant — two statements) lands as
+-- one legal transaction rather than being rejected on its own revoke half.
+CREATE CONSTRAINT TRIGGER business_has_owner
+  AFTER UPDATE ON business_member
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_business_has_owner();
 ```
 
-**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods.
+**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods, and for a role change against `business_member`.
 
 **Verification, after any migration:**
 
@@ -1364,8 +1433,9 @@ Every invariant in `user-flows.md` §5, and where it actually lives.
 | 28 audit trail on money tables | `audit_log` table + index exist; **the writer is not yet built** (D-8) | **Pending** |
 | 29 lease boundary day | Falls out of INV-1's unique index | **DB** |
 | 30 trip in exactly one period | `CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))` | **DB** |
+| 31 business always has an active owner | `assert_business_has_owner()` constraint trigger on `business_member` | **DB** |
 
-**22 of 30 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
+**23 of 31 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
 
 ---
 
@@ -1389,6 +1459,37 @@ SELECT driver_id,
 ```
 
 Off-pattern days have no row (§7), so `not_scheduled` is excluded by construction — the denominator is `ran + lost` and cannot be inflated by either exclusion. That is §1.2 of the use cases expressed as a `WHERE` clause.
+
+**⚑ This query alone satisfies only the weekday half of what UC-76 asks for, and this document never gave the other two their own SQL.** UC-76's own words: *"Per driver, **per month**, with reasons… Shows: the count, the money it represents, **the reason breakdown**, and the **weekday distribution**"* — four things, and the block above computes exactly one of them (weekday) at business-wide-window granularity, with no month dimension and no reason dimension at all. UI §11.1 independently specifies "column per month" as the report's primary form, which this section gave it no query to be built from. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.2, 7 August 2026) as a missing reason breakdown, and found again, larger, building Web-P9/B4 Wave 1 against this section as it stood: `LostDaysRow` (the shipped response shape) carries `weekday` and nothing else, so a report literally cannot be grouped by month from what this query returns — Wave 1 shipped "one column per driver" as the honest reading of a contract with no month in it, rather than the "column per month" UI §11.1 and UC-76 both actually specify.
+
+Per UC-78's own reasoning just above for the identical shape of problem — a party's balance bucketed on its oldest item overstates the old buckets — collapsing month, weekday and reason into one `GROUP BY` would either explode into one sparse row per distinct combination (a driver active across six months and six reasons produces up to 36 rows to reassemble client-side) or silently pick one dimension to aggregate away. Three sibling queries, each answering one of UC-76's four "shows" in the shape a chart can read directly, following the same principle:
+
+```sql
+-- Column per month (UI §11.1's primary form)
+SELECT driver_id,
+       to_char(business_date, 'YYYY-MM')                               AS month,
+       COUNT(*) FILTER (WHERE state = 'did_not_run')                   AS lost,
+       COUNT(*) FILTER (WHERE state LIKE 'ran_%')                      AS ran,
+       COUNT(*)                                                        AS lease_eligible,
+       SUM(expected_minor) FILTER (WHERE state = 'did_not_run')        AS lost_value_minor
+  FROM day_record
+ WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
+   AND state <> 'paused_for_trip'
+ GROUP BY driver_id, month;
+
+-- Reason breakdown — day_record.lost_reason is CHECK-constrained
+-- non-null whenever state = 'did_not_run' (§7), so every lost day this
+-- query touches already carries one; nothing here can be NULL by construction.
+SELECT driver_id, lost_reason,
+       COUNT(*)                                                        AS lost,
+       SUM(expected_minor)                                             AS lost_value_minor
+  FROM day_record
+ WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
+   AND state = 'did_not_run'
+ GROUP BY driver_id, lost_reason;
+```
+
+`to_char(business_date, 'YYYY-MM')` rather than `date_trunc` — the report reads a plain string bucket, not a timestamp, and W-56 already governs how zero and unknown must never collapse: a driver with no lost days in a given month simply has no row for it, which is the correct absence, not a zero to be manufactured. The weekday query above is unchanged; the two new ones join it as siblings, not replacements.
 
 **UC-74 who owes us** — one row per party, ordered by size or by age.
 
@@ -1426,7 +1527,17 @@ SELECT party_type, party_id, bucket, SUM(outstanding_minor) AS outstanding_minor
 
 `effective_due_on` rather than `due_on` is UC-78's other rule in one column: a driver who settles every Friday by agreement is not overdue on Thursday.
 
-`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and tech-stack.md §5 already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
+`$2::date` is **the business date, passed in** — never `CURRENT_DATE`. Postgres would evaluate that in the server's timezone, and `TS §5` already establishes that "today" is a business-timezone fact computed by the caller. An ageing bucket that flips five and a half hours early is the same off-by-one bug in a different place.
+
+**⚑ The SQL above specifies the bucketing rule; the shipped implementation applies it in the Worker.** `listAgeingBuckets` (`api/src/queries/reports.ts`, P11) selects the raw obligation rows and buckets them in application code rather than in a `CASE`. Recorded here rather than corrected, on the same reasoning §1.1 uses in the other direction: **§1.1's argument is that a rule guarded in application memory is forgotten in the next code path — which applies to a rule that *constrains a write*, not to a projection computed inside one read.** No second code path can bypass this one, and rewriting working money code to match a document is the riskier of the two directions available.
+
+Three things this note exists to prevent, in order of likelihood:
+
+- **Someone "fixing" the divergence by rewriting the query.** The three rules above — per-obligation bucketing, `effective_due_on`, the passed-in business date — are all satisfied by the implementation. There is no defect here to fix.
+- **Someone assuming the boundary arithmetic is equally safe in either language.** It is correct today because both operands arrive as bare `YYYY-MM-DD` strings and therefore parse identically; it would stop being correct the moment a timestamp reaches either side. The SQL form has no such failure mode, which is why it remains the specification.
+- **Forgetting the scale caveat.** This reads every open obligation into the Worker before bucketing. That is nothing at the few hundred rows a business of this size carries, and it is the first query in §15 that would need to become real SQL if that ever changed — the index in §8 supports either form.
+
+Found by the `B4-REPORTS-DESIGN.md` verification pass, 7 August 2026, which had cited the document's own SQL as evidence that bucketing happens in Postgres.
 
 **UC-56 the driver's two balances, unmerged**
 
@@ -1467,6 +1578,31 @@ Three things this query encodes that prose kept getting wrong:
 - It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
 - **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
 
+**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
+
+```sql
+-- Banked, by destination — the same banking_event rows the held-per-
+-- partner query above already subtracts, regrouped so the money is
+-- traceable rather than merely absent.
+SELECT destination, SUM(amount_counted_minor) AS held_minor
+  FROM banking_event
+ WHERE business_id = $1 AND voided_at IS NULL
+ GROUP BY destination;
+
+-- Outstanding with drivers, by driver — the same unsettled-advance rows,
+-- regrouped by who is holding the cash rather than who issued it.
+SELECT d.id, d.name, SUM(a.amount_minor) AS outstanding_minor
+  FROM advance a
+  JOIN driver d ON d.id = a.driver_id
+ WHERE a.business_id = $1
+   AND a.status <> 'settled' AND a.voided_at IS NULL
+ GROUP BY d.id, d.name;
+```
+
+**Both queries must stay arithmetically consistent with the held-per-partner query's own simplification, not a corrected version of it.** The held figure treats a `part_settled` advance as fully outstanding — `status <> 'settled'` on the *full* `amount_minor`, not `amount_minor` net of whatever `advance_settlement` rows already exist against it. The driver-advances breakdown above uses the identical filter and the identical unreduced amount for exactly that reason: if the breakdown quietly became more accurate than the total it is supposed to explain, the two would stop reconciling, and a partner comparing "what I'm short" against "what's outstanding across drivers" would hit a number that doesn't add up. Correcting the *underlying* simplification — netting a part-settled advance against its own `advance_settlement` rows — is a real question, but a separate one, and it is not this section's to decide as a side effect of giving the existing figure somewhere to point.
+
+`banked`'s destination groups are exactly `banking_event.destination` (`text NOT NULL`) — no enum, no lookup table, because F-7.4 never asked for one: destinations are free text a manager types once and reuses.
+
 **UC-70 what a vehicle cost this month — the query most likely to be written wrong**
 
 A month's costs are **not** `SELECT SUM(amount_minor) FROM expense`. A charter's driver fee is money owed to a person, so it lives on `obligation`, and a cost query that reads only the expense table under-reports every month containing a trip by exactly that fee. In §7.1 that is 9,000 of a 46,000 total — the month would read 9,000 more profitable than it was.
@@ -1501,6 +1637,8 @@ The other four checklist items are the same shape: open trips, unsettled advance
 
 **Every query in this section has been executed** against the populated fixture branch and returns the §7 figures: UC-76 gives `lost 4 / ran 24 / lease-eligible 28 / 20,000`; UC-74 gives the driver's `2,000` in the 1–30 bucket; UC-56 returns **two rows** (`owed_by_us 9,000`, `owed_to_us 2,000`) and never a net; UC-70 gives `46,000`. Running them found one defect — the UC-75 query filtered `payment.voided_at`, a column that does not exist because payments are corrected through `status` instead (§10.2).
 
+**The four queries GAP-70/GAP-71 added were executed the same way, 9 August 2026** (§16.1 has the fixture-script fix this required first). UC-76's month and reason breakdowns reproduce the identical underlying fact two ways: one row, `2026-07`, `lost 4 / ran 24 / lease-eligible 28 / 20,000`; and three rows by reason — `breakdown 2 / 10,000`, `driver_day_off 1 / 5,000`, `no_passengers 1 / 5,000` — which sum to the same total, as they must. UC-75's banked and driver-advances queries needed data the golden fixture has never seeded — no `business_member`, `banking_event` or `advance` row exists in it, a **separate, pre-existing gap this pass found but did not fix**, since fixing it is `golden.py`'s own concern, not this section's. Supplemented on the scratch branch only, verification-side: one `business_member`, one `banking_event` of `30,000`, one `advance` of `15,000`. The two new queries returned `Sampath savings: 30,000` and the driver's `15,000`; held-per-partner moved from `118,000` to `73,000`, reconciling exactly (`118,000 − 30,000 − 15,000`).
+
 ---
 
 ## 16. Validation against the user flows
@@ -1514,7 +1652,7 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-1.1 add vehicle | `vehicle`, `vehicle_arrangement`, `vehicle_document` |
 | F-1.2 change arrangement | `vehicle_arrangement` (exclusion constraint prevents overlap) |
 | F-1.3 ownership | `ownership_share`, `capital_contribution` |
-| F-1.4 share with manager | `business_member`, `management_fee_agreement` |
+| F-1.4 bring in a partner or a manager | `business_member`, `business_member_invite`, `management_fee_agreement` |
 | F-1.5 vehicle calendar | `vehicle_day_allocation` |
 | F-1.6 add driver | `driver` |
 | F-1.7 set up daily lease | `daily_lease`, `daily_lease_rate` |
@@ -1634,6 +1772,8 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 
 **One correction to this document's own claim.** An earlier draft asserted these fixtures were "derivable from the schema". Two of the figures are not derivable from any single table: **July's `46,000` of costs is `expense` plus the trip's driver fee**, which lives on `obligation`, not `expense`. A cost query that reads only the expense table under-reports every month containing a charter by exactly the driver's fee. The report definitions in §15 must union the two, and UC-70's implementation should be checked against this fixture before it is trusted.
 
+**Re-run for GAP-70/71's verification, 9 August 2026 — and it did not run.** Migration `0004` (1 August) added `business_id NOT NULL` to seven tables, three of which this script writes to (`deposit_movement`, `insurance_claim`, `incident_recovery`); `golden.py` was never updated to match. Nothing caught it, because the script runs by hand and carries no CI wiring — `docs/README.md` calls it "supporting material" for exactly that reason. Fixed in `golden.py` itself, three `INSERT`s gaining the column; the **39/39 above is that fix's own re-run, not the original.** The number never moved — only the script's ability to prove it did. **A second, smaller gap found in the same pass and left as found:** `golden.py` never writes a `business_member` row at all, so the UC-75 held-per-partner query has no fixture row to select — its own verification (§15) must already have supplemented this by hand, the same way GAP-70's queries just did.
+
 ---
 
 ## 17. Open items
@@ -1656,3 +1796,34 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 This document follows `use-cases.md` and `user-flows.md`, never the reverse. A schema change that is not traceable to a `W-nn` decision or an `INV-n` invariant is a schema change without a reason.
 
 When a decision changes: update the use cases, update the flows, update §14 and §16 here, and re-run the §16.1 fixtures. **If a fixture number moves, stop** — that is the signal the model changed rather than the schema.
+
+---
+
+## 19. What changed
+
+### v1.1.2 — 9 August 2026
+
+**§15's UC-75 and UC-76 blocks gain the queries this document had omitted — GAP-70 and GAP-71, both documents-travel-together corrections rather than new decisions.** UC-75 asks for cash broken down by account and by driver advance, not only the held-vs-liability total; UC-76 asks for the lost-day reason breakdown and a per-month grouping alongside the existing per-weekday one. Both use cases, and F-7.5/FL §9.2 for UC-75, already specified all of it — this section's own SQL just never carried the rest down. Four new blocks: banked-by-destination and advances-by-driver (UC-75), per-month and per-reason lost days (UC-76), each kept arithmetically consistent with the totals they explain rather than correcting those totals' own known simplifications as a side effect. `UI §11.1`'s matching two rows were corrected in the same pass (v1.2.3). No schema, constraint or behaviour change; §16.1's three fixtures untouched.
+
+**All four verified against real Postgres, not assumed** — and doing so surfaced a second, unrelated defect: `golden.py` had not run since migration `0004` (1 August) added `business_id NOT NULL` to three tables it writes to, silently, since the script carries no CI wiring. Fixed in `golden.py`; full details and figures in §15's own verification paragraph and §16.1.
+
+### v1.1.1 — 8 August 2026
+
+One note, no schema change. **§15's UC-78 ageing block now records that `listAgeingBuckets` applies the bucketing rule in application code rather than in the `CASE` expression printed there.** The implementation satisfies all three of the block's stated rules — per-obligation bucketing, `effective_due_on`, the passed-in business date — so this is a divergence in *form*, not in behaviour, and the note says so explicitly to stop it being "fixed."
+
+Recorded because the divergence was found by someone citing this document's SQL as evidence of what the code does (`B4-REPORTS-DESIGN.md`, 7 Aug). **An owning document describing a query the code does not run is a trap regardless of which one is right** — this document stays the specification, and now says which part of it is executed where. None of §16.1's three fixtures move; no invariant, index or constraint changes.
+
+### v1.1
+
+Driven by `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (W-57, A11 — member and driver access). None of it touches a money table, so none of §16.1's three fixtures move.
+
+| | |
+|---|---|
+| §3 | `business_member`'s table-level `UNIQUE (business_id, user_id)` replaced by the partial index `business_member_active_pair` (`WHERE revoked_at IS NULL`) — **GAP-52**. The prior comment above `one_active_business_per_user` claimed a revoked row could be re-granted; the pair-unique it sat next to still blocked exactly that, and the comment never checked |
+| §3 | `business_member_invite` — the F-1.4 counterpart to the existing `driver_link_invite` (§5, W-42), same shape: a hashed code, shown once, scoped to a business and a role |
+| §12 | `business_member_audit`, an explicit attachment of `write_audit_log()` — **GAP-53**. `business_member` carries no `posted_period_id`, so the discovery loop that attaches audit triggers to every money table has never covered it; who granted or revoked a role was recorded nowhere |
+| §5 (`user-flows.md`) | **INV-31** — a business always retains at least one active `owner`/`owner_manager`. Enforced by `assert_business_has_owner()`, a deferred constraint trigger shaped exactly like `assert_shares_total()`, for the same reason: a role change is revoke-then-grant in one transaction, and an immediate check would reject the revoke half before the grant half lands |
+| §14 | INV-31 added to the enforcement map — 23 of 31 invariants now DB-enforced |
+| §16 | F-1.4's table list gains `business_member_invite` |
+
+**One correction found reading UC-03 closely while writing this:** its invite-role list named only `manager` and a second `owner_manager` — the passive `owner` role this project's own two-partner example is built around had no invite path at all. Fixed in `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (F-1.4); `business_member_invite.role` and `business_member.role` both already admitted `owner`, so no schema change was needed for that half, only the flow text and the endpoint's accepted values.

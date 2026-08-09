@@ -21,6 +21,7 @@ export interface NewObligation {
     | "post_closure_charge"
     | "customer_contribution"
     | "management_fee"
+    | "trip_fare"
     | "other";
   sourceType: string;
   sourceId?: string;
@@ -42,12 +43,25 @@ export async function insertObligation(db: WriteDb, values: NewObligation): Prom
 
 export interface ObligationRow {
   id: string;
+  kind: string;
+  dueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
+  waivedMinor: bigint;
   status: string;
 }
 
-/** A day_record's obligation — `source_type = 'day_record'` (DM §10.1) — read back for the idempotent no-op response. */
+/**
+ * A source row's obligation, if it raised one — `source_type = 'day_record'`
+ * for confirmDay's own idempotent no-op response, `source_type = 'trip'`
+ * for GAP-57's receivable read. `voidedAt IS NULL`, the same convention
+ * `findOutstandingObligationsForParty` already uses: a voided obligation
+ * (A6's `cancelTrip`, GAP-23) reads as "none", not as its last live state.
+ * Every existing caller only ever calls this immediately after creating the
+ * row it's reading back, so the filter changes nothing for them — it only
+ * matters for a caller reading one back later, once it might have been
+ * voided since.
+ */
 export async function findObligationBySource(
   db: ReadDb,
   sourceType: string,
@@ -56,12 +70,21 @@ export async function findObligationBySource(
   const rows = await db
     .select({
       id: obligation.id,
+      kind: obligation.kind,
+      dueOn: obligation.dueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
       status: obligation.status,
     })
     .from(obligation)
-    .where(and(eq(obligation.sourceType, sourceType), eq(obligation.sourceId, sourceId)))
+    .where(
+      and(
+        eq(obligation.sourceType, sourceType),
+        eq(obligation.sourceId, sourceId),
+        isNull(obligation.voidedAt),
+      ),
+    )
     .limit(1);
   return rows[0];
 }
@@ -206,6 +229,36 @@ export async function updateObligationSettled(
     .update(obligation)
     .set({ settledMinor: values.settledMinor, status: values.status })
     .where(eq(obligation.id, obligationId));
+}
+
+/**
+ * A9's void, applied to whichever obligation (if any) a source row raised —
+ * A6's own use is `cancelTrip` voiding a `trip_fare` obligation. `WHERE …
+ * voided_at IS NULL` makes 0 rows affected legitimate in two separate
+ * cases, neither an error: nothing was ever raised for this source (a
+ * charter with no customer never posts one), or it was already voided
+ * (the caller's own idempotent-on-status guard already prevents a second
+ * call in the ordinary path, but the guard here costs nothing and matches
+ * every other void in this codebase). A void into a closed period is still
+ * refused by the trigger (migration 0008/GAP-35) — the caller maps that the
+ * same way every other write does.
+ */
+export async function voidObligationBySource(
+  db: WriteDb,
+  sourceType: string,
+  sourceId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<void> {
+  await db
+    .update(obligation)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(
+      and(
+        eq(obligation.sourceType, sourceType),
+        eq(obligation.sourceId, sourceId),
+        isNull(obligation.voidedAt),
+      ),
+    );
 }
 
 /** W-2: two sums, one per direction, never netted here or anywhere else in the schema — only an `offset_record` moves both. */

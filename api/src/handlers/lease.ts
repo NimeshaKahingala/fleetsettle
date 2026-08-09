@@ -9,7 +9,7 @@ import {
   settleLeaseDeposit,
 } from "../domain/lease-closure.js";
 import { renewLease, startLease } from "../domain/lease.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
 import { findBillingPeriodsForLease, type BillingPeriodRow } from "../queries/billing-period.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDepositForLease, sumDepositMovements } from "../queries/driver-money.js";
@@ -78,6 +78,17 @@ export const startLeaseHandler: RouteHandler<typeof startLeaseRoute, Env> = asyn
 
   const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+  // GAP-84/F1: a lease is arrangement A. `null` (no current arrangement row,
+  // the "impossible case" `createVehicle`'s own comment names) is refused
+  // the same as a mismatched B/C — F-1.2 is what would ever leave a vehicle
+  // with none, and F-1.2 does not exist yet.
+  if (vehicle.arrangement !== "A") {
+    throw new VehicleArrangementMismatchError(
+      vehicle.arrangement === null
+        ? "This vehicle has no current arrangement"
+        : `This vehicle is configured for arrangement ${vehicle.arrangement}, not a monthly rental`,
+    );
+  }
   const customer = await findCustomerForBusiness(reader, businessId, body.customerId);
   if (!customer) throw new NotFoundError("No such customer in this business");
 

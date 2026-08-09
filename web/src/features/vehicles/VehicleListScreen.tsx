@@ -1,19 +1,15 @@
 import type { BusinessDate } from "@fleetsettle/shared";
 import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { ARRANGEMENT_BADGE_VARIANT, ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
 import { CreateVehicleForm } from "./CreateVehicleForm.js";
-
-const ARRANGEMENT_LABEL: Record<string, string> = {
-  A: "Lease out",
-  B: "Daily lease",
-  C: "Trips / charter",
-};
 
 export interface VehicleListScreenProps {
   today: BusinessDate;
@@ -45,16 +41,26 @@ export function VehicleListScreen({ today, onSelectVehicle }: VehicleListScreenP
                 onClick={() => onSelectVehicle(vehicle)}
                 className="w-full text-left"
               >
-                <Card className="flex items-center justify-between gap-4">
+                <Card
+                  accent={
+                    vehicle.arrangement !== undefined
+                      ? ARRANGEMENT_BADGE_VARIANT[vehicle.arrangement]
+                      : undefined
+                  }
+                  className="flex items-center justify-between gap-4"
+                >
                   <div>
                     <p className="text-title text-ink-primary">{vehicle.registration}</p>
                     <p className="text-body-sm text-ink-muted">{vehicle.vehicleType}</p>
                   </div>
-                  {vehicle.arrangement !== undefined ? (
-                    <span className="text-caption text-ink-muted">
-                      {ARRANGEMENT_LABEL[vehicle.arrangement] ?? vehicle.arrangement}
-                    </span>
-                  ) : null}
+                  <div className="flex items-center gap-2">
+                    {vehicle.arrangement !== undefined ? (
+                      <Badge variant={ARRANGEMENT_BADGE_VARIANT[vehicle.arrangement]}>
+                        {ARRANGEMENT_LABEL[vehicle.arrangement] ?? vehicle.arrangement}
+                      </Badge>
+                    ) : null}
+                    <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                  </div>
                 </Card>
               </button>
             </li>

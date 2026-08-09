@@ -44,6 +44,33 @@ test("not yet confirmed: shows DayCard with the rate in force as the expected am
   expect(screen.getByRole("button", { name: "Paid in full" })).toBeInTheDocument();
 });
 
+test("GAP-3 — a pre-generated `open` row is not treated as confirmed: shows DayCard with its own expected amount, not the settled summary", async () => {
+  const record: DayRecordResponse = {
+    id: "dr1",
+    dailyLeaseId,
+    vehicleId: "v1",
+    driverId: "d1",
+    businessDate: "2026-07-15",
+    state: "open",
+    earnedMinor: "0",
+    expectedMinor: "500000",
+    receivedMinor: "0",
+    lostReason: null,
+    note: null,
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === `/api/daily-lease/${dailyLeaseId}`) return Promise.resolve(lease);
+    return Promise.resolve(record);
+  });
+  renderWithProviders(<ConfirmDayCard {...props()} />, { get });
+
+  expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
+  expect(screen.getByText("Rs 5,000")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Paid in full" })).toBeInTheDocument();
+  expect(screen.queryByText("Confirmed")).not.toBeInTheDocument();
+});
+
 test("already confirmed on load: shows the settled summary, not the three buttons", async () => {
   const record: DayRecordResponse = {
     id: "dr1",

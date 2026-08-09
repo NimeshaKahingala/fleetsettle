@@ -53,7 +53,14 @@ test("opening and dismissing a sheet (via its visible close button) on a routed 
   const router = createAppRouteTree(businessToday());
 
   const apiClient: Partial<ApiClient> = { get };
-  render(<App router={router} queryClient={queryClient} apiClient={apiClient as ApiClient} />);
+  render(
+    <App
+      router={router}
+      queryClient={queryClient}
+      apiClient={apiClient as ApiClient}
+      signOut={() => Promise.resolve()}
+    />,
+  );
 
   await screen.findByText("No vehicles yet.");
   expect(router.state.location.pathname).toBe("/vehicles");

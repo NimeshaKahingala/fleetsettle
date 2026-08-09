@@ -1,12 +1,13 @@
 import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
 import {
   getAgeingReport,
   getCashPositionReport,
   getFuelEfficiencyReport,
   getGoodwillReport,
   getLostDaysReport,
+  getOverheadsReport,
   getReceivablesReport,
   getTripRankingReport,
   getUtilisationReport,
@@ -18,6 +19,7 @@ import type {
   getFuelEfficiencyReportRoute,
   getGoodwillReportRoute,
   getLostDaysReportRoute,
+  getOverheadsReportRoute,
   getReceivablesReportRoute,
   getTripRankingReportRoute,
   getUtilisationReportRoute,
@@ -55,6 +57,19 @@ export const getVehicleMonthReportHandler: RouteHandler<
     },
     200,
   );
+};
+
+/** GAP-41/UC-66/W-32. `viewReports`: same audience as `vehicle-month` — this block sits beneath it on the same screen. */
+export const getOverheadsReportHandler: RouteHandler<typeof getOverheadsReportRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "viewReports");
+  const businessId = requireBusinessId(c);
+  const { periodId } = c.req.valid("query");
+
+  const report = await getOverheadsReport(c.get("reader"), businessId, periodId);
+
+  return c.json({ totalMinor: toWire(report.totalMinor as Minor) }, 200);
 };
 
 /** UC-71. */
@@ -203,9 +218,10 @@ export const getGoodwillReportHandler: RouteHandler<typeof getGoodwillReportRout
 ) => {
   requireCapability(c, "viewOwnerOnlyReports");
   const businessId = requireBusinessId(c);
+  const timezone = requireBusinessTimezone(c);
   const { from, to } = c.req.valid("query");
 
-  const report = await getGoodwillReport(c.get("reader"), businessId, from, to);
+  const report = await getGoodwillReport(c.get("reader"), businessId, from, to, timezone);
 
   return c.json({ totalMinor: toWire(report.totalMinor as Minor) }, 200);
 };
