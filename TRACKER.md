@@ -221,6 +221,19 @@ GAP-57: `TripDetailScreen`'s "Received" row had been `NotAvailable` since Web-P7
 
 **Deliberately not done in this pass, and both remain genuinely open, not absorbed:** the `doc-change` on DM §15 (GAP-70's `banked`/`driverAdvances` arrays) and UI §11.1 (GAP-71's lost-days reason breakdown), and the B4 Wave 2 work those unblock. Plan.md's queue is unchanged past this point.
 
+**Updated 9 August 2026 — 12a done: the DM §15 / UI §11.1 doc-change for GAP-70/GAP-71.** Found already written and complete, sitting uncommitted in the working tree from an earlier, unfinished session — committed as its own commit rather than left at risk. `data-model.md` (v1.1.2) gains the three missing queries UC-75/UC-76 always asked for (banked-by-destination, advances-by-driver, lost-days-by-month, lost-days-by-reason), each kept arithmetically consistent with the totals they explain rather than correcting those totals' own known simplifications as a side effect; `ui-ux-guidelines.md` (v1.2.3) corrects both report-contract rows to match. No schema, constraint or behaviour change; golden fixtures untouched. Unblocks B4 Wave 2 (12b), still open.
+
+**Updated 9 August 2026 — B16 Phase 1 done: a visual-semantics pass, triaged from an independent review.** `UI-LOOK-FEEL-REQUIRED-CHANGES-2026-08-09.md`/`-IMPLEMENTATION-PLAN-2026-08-09.md` — a live-QA-plus-source review — found the client visually correct but under-differentiated: arrangement, incident status, voided-expense reason and the tab bar's active state all carried no signal beyond plain muted text or colour alone. **Validated against source before scheduling**, this repo's standing rule for external reviews, and two of its recommendations did not survive that check:
+
+1. **"Tighten repeated-card radius to 8px" contradicts the spec, not an oversight** — UI §5.3 states the scale explicitly (`sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)`); `Card`'s 12px is the deliberate value. Declined outright.
+2. **The proposed status words ("Pending", "Settled") don't match U-6's locked vocabulary** — `obligationStatusLabel.ts` (A12) already centralises the real words ("Due", "Part paid", "Paid", "Waived", "Written off"). Any future status `Badge` reuses that constant.
+
+**What shipped:** a new `Badge` primitive (`rounded-full` per §5.3's chip/avatar value, added to UI §6.1's inventory, v1.2.4) · `Card` gained an optional `accent` left-border prop, radius untouched · `AppShell`'s active tab gained a marker beyond text colour · `VehicleListScreen`/`VehicleOverviewScreen`/`PeopleListScreen` gained `ChevronRight` on navigating rows, and the two vehicles screens' duplicate `ARRANGEMENT_LABEL` maps were consolidated into `lib/arrangementLabel.ts` — the same drift GAP-81 already fixed once for `EXPENSE_CATEGORY_LABEL` — alongside a new `lib/incidentStatusLabel.ts` · `ExpenseCostRow`'s voided state gained a `Badge variant="critical"`, its reason moved to `text-critical-ink` · `MoreScreen` gained `ChevronRight` on every navigating row and a `warning` accent on "Close the month," so it no longer looks equivalent to "Opening balances" · `VehicleCalendarScreen`'s six states each gained a distinct token — `ran` and `not yet confirmed` previously shared the brand wash, told apart only by glyph; now `good`/`warning`/`critical` respectively.
+
+**Phase 2 (`Section`/`EmptyState`/`NotAvailable` variants) and Phase 3 (reports catalogue grouping, Review-shell money-direction consistency) deliberately not done this pass** — both independent, lower severity, pickable any time. Phase 3 also needs the outstanding `build/p0-foundation` → `develop` merge before it's visible on hosted QA to verify against.
+
+10 new tests; `web` 97 files/414 tests (up from 96/404); `npm run check` clean across all three workspaces (`packages/shared` 78/78 unaffected, `api` unaffected — no backend touched).
+
 ---
 
 ## 1. Where things stand
@@ -237,8 +250,8 @@ CI runs the full gate and the integration suite on every PR, `develop` deploys t
 
 | Gate | Result |
 |---|---|
-| `npm run check` | clean across `api` / `web` / `packages/shared` — verified fresh 8 Aug 2026 after F1 + B4 Wave 1, exit 0 |
-| `web` | 96 files / 404 tests |
+| `npm run check` | clean across `api` / `web` / `packages/shared` — verified fresh 9 Aug 2026 after B16 Phase 1, exit 0 |
+| `web` | 97 files / 414 tests |
 | `packages/shared` | 11 files / 78 tests |
 | `api` unit | 3 files / 10 tests |
 | **`api` integration** | 32 files / 420 tests — **not in `check`** locally ([§5](#5-the-traps)); F1's two touched files re-verified 8 Aug 2026 (`lease.test.ts` 11/11, `dailyLease.test.ts` 12/12, one pre-existing test's shared-branch connection flake ruled out by an isolated re-run); B4 Wave 1 touched no backend file, so the rest is unaffected; runs on every PR via `integration.yml` |

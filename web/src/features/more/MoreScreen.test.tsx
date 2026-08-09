@@ -29,6 +29,15 @@ describe("MoreScreen", () => {
     expect(screen.getByText("Sign out")).toBeInTheDocument();
   });
 
+  test("Close the month looks more consequential than an ordinary row (UI-LF-06)", () => {
+    renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), OWNER_MANAGER);
+
+    const closeRow = screen.getByText("Close the month").closest('[class*="rounded-md"]');
+    const openingRow = screen.getByText("Opening balances").closest('[class*="rounded-md"]');
+    expect(closeRow?.className).toContain("border-l-warning");
+    expect(openingRow?.className).not.toContain("border-l-warning");
+  });
+
   test("tapping the row asks for confirmation rather than signing out immediately", async () => {
     const user = userEvent.setup();
     const signOut = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);

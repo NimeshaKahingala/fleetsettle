@@ -1,4 +1,4 @@
-import { BarChart3, CalendarCheck, LogOut, Wallet } from "lucide-react";
+import { BarChart3, CalendarCheck, ChevronRight, LogOut, Wallet } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Can } from "../../components/Can.js";
@@ -43,7 +43,8 @@ export function MoreScreen() {
           >
             <Card className="flex items-center gap-3">
               <Wallet className="size-5 text-ink-secondary" aria-hidden />
-              <span className="text-body text-ink-primary">Opening balances</span>
+              <span className="flex-1 text-body text-ink-primary">Opening balances</span>
+              <ChevronRight className="size-4 text-ink-muted" aria-hidden />
             </Card>
           </button>
         </Can>
@@ -54,9 +55,10 @@ export function MoreScreen() {
             onClick={() => void navigate({ to: "/period/close" })}
             className="w-full text-left"
           >
-            <Card className="flex items-center gap-3">
-              <CalendarCheck className="size-5 text-ink-secondary" aria-hidden />
-              <span className="text-body text-ink-primary">Close the month</span>
+            <Card accent="warning" className="flex items-center gap-3">
+              <CalendarCheck className="size-5 text-warning-ink" aria-hidden />
+              <span className="flex-1 text-body text-ink-primary">Close the month</span>
+              <ChevronRight className="size-4 text-ink-muted" aria-hidden />
             </Card>
           </button>
         </Can>
@@ -69,7 +71,8 @@ export function MoreScreen() {
           >
             <Card className="flex items-center gap-3">
               <BarChart3 className="size-5 text-ink-secondary" aria-hidden />
-              <span className="text-body text-ink-primary">Reports</span>
+              <span className="flex-1 text-body text-ink-primary">Reports</span>
+              <ChevronRight className="size-4 text-ink-muted" aria-hidden />
             </Card>
           </button>
         </Can>
@@ -88,7 +91,8 @@ export function MoreScreen() {
           >
             <Card className="flex items-center gap-3">
               <Wallet className="size-5 text-ink-secondary" aria-hidden />
-              <span className="text-body text-ink-primary">My share</span>
+              <span className="flex-1 text-body text-ink-primary">My share</span>
+              <ChevronRight className="size-4 text-ink-muted" aria-hidden />
             </Card>
           </button>
         </Can>

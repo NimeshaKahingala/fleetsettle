@@ -106,6 +106,47 @@ test("each of the seven day-states renders its own colour and glyph (UI §7.6)",
   expect(unscheduled.className).not.toContain("wash");
 });
 
+test("daily-lease ran and not-yet-confirmed no longer share a colour (UI-LF-07)", async () => {
+  const days: VehicleCalendarDay[] = [
+    {
+      businessDate: "2026-07-10",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "ran_paid_full",
+    },
+    {
+      businessDate: "2026-07-12",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "open",
+    },
+    {
+      businessDate: "2026-07-11",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "did_not_run",
+    },
+  ];
+  const get = baseGet(days);
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  await screen.findByText("July 2026");
+  // Wait for the calendar query itself, not just the (synchronous) month
+  // label, before reading classes off cells it hasn't painted yet.
+  await within(screen.getByTestId("day-2026-07-10")).findByText("✓");
+  expect(screen.getByTestId("day-2026-07-10").className).toContain("bg-good/15");
+  expect(screen.getByTestId("day-2026-07-12").className).toContain("bg-warning/15");
+  expect(screen.getByTestId("day-2026-07-11").className).toContain("bg-critical/15");
+});
+
 test("the legend lists all six renderable states", async () => {
   const get = baseGet([]);
   renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {

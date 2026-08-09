@@ -129,7 +129,8 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText("Fuel")).toBeInTheDocument();
   const voidedRow = screen.getByText("Tolls");
   expect(voidedRow).toHaveClass("line-through");
-  expect(screen.getByText(/Voided: wrong trip/)).toBeInTheDocument();
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("wrong trip")).toBeInTheDocument();
 });
 
 test("GAP-57 — Received shows the real trip_fare receivable, and Advance to him stays an honest gap (W-56)", async () => {

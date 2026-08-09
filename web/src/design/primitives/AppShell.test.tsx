@@ -69,3 +69,13 @@ test("the active tab is marked aria-current for assistive tech", () => {
   expect(screen.getByRole("button", { name: "People" })).toHaveAttribute("aria-current", "page");
   expect(screen.getByRole("button", { name: "Home" })).not.toHaveAttribute("aria-current");
 });
+
+test("the active tab carries a visual marker beyond text colour (UI-LF-03)", () => {
+  render(
+    <AppShell shell="operate" activeTab="people">
+      <p>People</p>
+    </AppShell>,
+  );
+  expect(screen.getByRole("button", { name: "People" }).className).toContain("before:bg-brand");
+  expect(screen.getByRole("button", { name: "Home" }).className).not.toContain("before:bg-brand");
+});

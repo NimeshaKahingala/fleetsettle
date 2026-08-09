@@ -50,7 +50,22 @@ test("a voided row is not tappable — INV-21: it stays visible, struck through,
   );
 
   expect(screen.queryByRole("button")).toBeNull();
-  expect(screen.getByText(/Voided: Wrong vehicle/)).toBeInTheDocument();
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("Wrong vehicle")).toBeInTheDocument();
+});
+
+test("the voided badge and reason use the critical token, not muted text (UI-LF-05)", () => {
+  const voided: ExpenseListRow = {
+    ...liveExpense,
+    voidedAt: "2026-08-08T12:00:00Z",
+    voidedReason: "Wrong vehicle",
+  };
+  renderWithProviders(
+    <ExpenseCostRow expense={voided} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+  );
+
+  expect(screen.getByText("Voided").className).toContain("bg-critical/15");
+  expect(screen.getByText("Wrong vehicle")).toHaveClass("text-critical-ink");
 });
 
 test("shows litres when present, unconditionally on every caller", () => {

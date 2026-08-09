@@ -872,6 +872,18 @@ The plan below is kept as the record of what was scoped going in.
 
 **Done means** — each of the eleven, independently: a double-booking shows a `Dialog` with copy that says what to do next; the trip-detail title never clips at 360px; every calendar cell (occupied or free) is nameable by a screen reader; the app bar and tab bar both collapse correctly below `md` in landscape with no content below the fold on Home; at least one qualifying write offers a working 5-second undo; the driver/vehicle forms' required-field errors are field-specific, not generic; driver detail shows the name once; a blank incident description reads as operationally useful, not just absent; no `NotAvailable` reason names an internal phase; and a manager can void a mis-entered expense from the screen that shows it, with a reason, still visible struck through afterward.
 
+### B16 · Visual semantics pass (UI-LF) — independent, Phase 1 done 9 Aug 2026
+
+**A code-and-live-QA visual review** (`UI-LOOK-FEEL-REQUIRED-CHANGES-2026-08-09.md` / `UI-LOOK-FEEL-IMPLEMENTATION-PLAN-2026-08-09.md`) found the client visually correct but under-differentiated: arrangement, incident status, voided-expense reason and the tab bar's active state all carried no signal beyond plain muted text or colour alone. Validated against source before scheduling, per this repo's standing rule for external reviews — two of its recommendations did not survive that check, corrected below rather than repeated.
+
+**Two corrections, recorded rather than silently dropped:**
+1. **"Tighten repeated-card radius to 8px" contradicts the spec, not an oversight.** UI §5.3 states the scale explicitly — `sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)`. `Card`'s 12px is the deliberate value; this recommendation is declined outright, not deferred.
+2. **The proposed status words ("Pending", "Settled") don't match U-6's locked vocabulary.** `obligationStatusLabel.ts` (A12) already centralises the real words — "Due", "Part paid", "Paid", "Waived", "Written off". Any future status `Badge` reuses that constant rather than inventing new copy.
+
+**Phase 1, done:** `Badge` (new primitive, `rounded-full` per §5.3's chip/avatar value, not the review's suggested `rounded-sm`; added to UI §6.1's component inventory, v1.2.4) · `Card` gained an optional `accent` left-border prop (radius untouched) · `AppShell`'s active tab gained a `before:` pill beyond text colour · `VehicleListScreen`/`VehicleOverviewScreen`/`PeopleListScreen` gained `ChevronRight` on navigating rows, and the two vehicles screens' duplicate `ARRANGEMENT_LABEL` maps were consolidated into `lib/arrangementLabel.ts` (the same drift GAP-81 already fixed once for `EXPENSE_CATEGORY_LABEL`) alongside a new `lib/incidentStatusLabel.ts` · `ExpenseCostRow`'s voided state gained a `Badge variant="critical"` and the reason moved to `text-critical-ink` (its destructive confirm button was already done, GAP-81) · `MoreScreen` gained `ChevronRight` on every navigating row and a `warning` accent/icon tint on "Close the month" so it no longer looks equivalent to "Opening balances" · `VehicleCalendarScreen`'s six states each gained a distinct token (`ran` → `good`, `not yet confirmed` → `warning`, `lost` → `critical`, lease/trip unchanged) — previously `ran` and `not yet confirmed` shared the brand wash, told apart only by glyph. 10 new tests, `web` 97 files/414 tests; `npm run check` clean across all three workspaces.
+
+**Deliberately not done this pass:** Phase 2 (Section header treatment, EmptyState/NotAvailable variants) and Phase 3 (reports/review catalogue grouping, money-direction consistency across Review) — both lower-severity and independent, pick up any time. Phase 3's reports-catalogue polish also still needs the outstanding `build/p0-foundation` → `develop` merge before it's visible on hosted QA to verify against.
+
 ### B7 · Offline and the PWA — startable, sequence last
 
 Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen. **Startable at any time, correct to finish last.**
@@ -1159,6 +1171,19 @@ Written 6 August 2026 from the validation pass above. **Order matters within an 
 - [ ] GAP-81 — a "Void expense" action (reason required) added to the expense rows on `VehicleOverviewScreen`, `TripDetailScreen`, `IncidentScreen`, calling the existing `POST /api/expense/{id}/void`; voided row stays visible, struck through, with its reason
 - [ ] The nested-`Sheet`/`AmountPad` question manually verified on a real browser before this item is called done — filed as a new gap only if it reproduces
 - [ ] `npm run check` clean; axe-core clean on the calendar and any new Dialog, both themes
+
+### B16 · Visual semantics pass (UI-LF)
+
+- [x] `Badge` primitive (`brand`/`good`/`warning`/`serious`/`critical`/`neutral`), `rounded-full`, added to UI §6.1
+- [x] `Card` gains an optional `accent` left-border prop; radius unchanged (12px, per spec)
+- [x] `AppShell` active tab gains a visual marker beyond text colour
+- [x] Vehicle/People list + overview: `Badge` for arrangement/incident status, `ChevronRight` on nav rows, `ARRANGEMENT_LABEL` consolidated
+- [x] `ExpenseCostRow`: `Badge variant="critical"` for a voided row, reason in `text-critical-ink`
+- [x] `MoreScreen`: `ChevronRight` on nav rows, `warning` accent on "Close the month"
+- [x] `VehicleCalendarScreen`: all six states get their own token; legend matches
+- [ ] Phase 2 — `Section` header treatment, `EmptyState`/`NotAvailable` variants
+- [ ] Phase 3 — reports catalogue grouping, Review-shell money-direction consistency (needs the outstanding merge to verify on hosted QA)
+- [x] `npm run check` clean
 
 ### B7 · Offline and the PWA — last
 

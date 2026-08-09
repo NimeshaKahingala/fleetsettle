@@ -1,6 +1,6 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.3 — §11.1's UC-75 and UC-76 rows each gain the form the use case actually asks for and this table had dropped: account/driver-advance breakdown for UC-75 (GAP-70), the reason breakdown alongside weekday for UC-76 (GAP-71). `DM §15` v1.1.2 carries the matching query side
+**Status:** v1.2.4 — §6.1 gains `Badge`: a live QA/code visual-semantics review (`UI-LOOK-FEEL-REQUIRED-CHANGES-2026-08-09.md`) found arrangement, incident status and voided-expense reason all rendering as plain muted text with no shared primitive for state — B16 in `Plan.md`
 **Date:** 9 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
@@ -398,6 +398,7 @@ The set below is complete for phase 1. Anything not here is a composition of the
 | `Dialog` | Centre modal. **Only** for INV-1, INV-17 and M-10 confirms. Three per app |
 | `Card` | Hairline surface. One elevated variant, used only by the day card |
 | `Section` | Heading + count + collapsible body + "Show all" |
+| `Badge` | Small semantic label — `brand`/`good`/`warning`/`serious`/`critical`/`neutral`, always paired with the same word the screen already shows (M-15) |
 
 ### 6.2 The load-bearing five
 
