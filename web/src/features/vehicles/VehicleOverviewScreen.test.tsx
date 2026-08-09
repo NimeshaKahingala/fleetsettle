@@ -154,7 +154,7 @@ test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled t
   // Pre-filled and locked to this vehicle — no vehicle picker rendered.
   expect(screen.queryByText("Choose vehicle")).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -287,7 +287,8 @@ test("a voided expense stays in the costs list, struck through, with its reason 
   expect(screen.getByText("Fuel")).toBeInTheDocument();
   const voidedCategory = screen.getByText("Repairs");
   expect(voidedCategory).toHaveClass("line-through");
-  expect(screen.getByText(/Voided: wrong vehicle/)).toBeInTheDocument();
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("wrong vehicle")).toBeInTheDocument();
 });
 
 test("history merges lease and daily-lease periods into one chronological list", async () => {
@@ -431,6 +432,10 @@ test("Incidents lists every one with its own status, and each row is tappable (W
   expect(screen.getByText("Incident with no description")).toBeInTheDocument();
   expect(screen.getByText("Closed")).toBeInTheDocument();
   expect(screen.getByText("Open")).toBeInTheDocument();
+  // UI-LF-04: status is a Badge with its own token, not plain muted text —
+  // open and closed must not read identically.
+  expect(screen.getByText("Closed").className).toContain("bg-good/15");
+  expect(screen.getByText("Open").className).toContain("bg-warning/15");
 
   await user.click(screen.getByText("Rear bumper damage"));
   expect(onSelectIncident).toHaveBeenCalledWith("inc1");

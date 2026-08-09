@@ -1,3 +1,4 @@
+import { newId } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
@@ -193,6 +194,45 @@ describe("record a payment (P5, F-2.2/UC-11)", () => {
       occurredOn: "2026-07-15",
     });
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — GAP-93: partyType 'partner' is checked against this business too, not trusted outright from the request body", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPayment(token, {
+      partyType: "partner",
+      partyId: newId(),
+      amountMinor: "1000",
+      occurredOn: "2026-07-15",
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — a payment to an active partner of this business still succeeds", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const otherOwner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPayment(token, {
+      partyType: "partner",
+      partyId: otherOwner.userId,
+      amountMinor: "1000",
+      occurredOn: "2026-07-15",
+    });
+    expect(res.status).toBe(201);
+    const body: PaymentResponseBody = await res.json();
+    ctx.trackCreatedPayment(body.id);
 
     await ctx.cleanup();
   });

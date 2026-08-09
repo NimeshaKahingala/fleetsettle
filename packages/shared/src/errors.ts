@@ -30,6 +30,8 @@ export const ERROR_CODES = [
   "OPENING_BALANCE_LOCKED",
   "LAST_OWNER_REQUIRED",
   "INVITE_CODE_INVALID",
+  "VEHICLE_ARRANGEMENT_MISMATCH",
+  "VEHICLE_ARRANGEMENT_CHANGE_BLOCKED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

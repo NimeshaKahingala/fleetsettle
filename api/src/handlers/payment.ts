@@ -6,6 +6,7 @@ import { correctPayment } from "../domain/payment-correction.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
+import { findBusinessMemberUserId } from "../queries/partner.js";
 import {
   listPaymentsForBusiness,
   type PaymentListFilters,
@@ -55,9 +56,8 @@ export const listPaymentsHandler: RouteHandler<typeof listPaymentsRoute, Env> = 
 
 /**
  * F-2.2/UC-11. `dailyOperations` — grouped with expenses/collections/advances.
- * A partner's identity is not re-checked here (no partner-directory lookup
- * yet, P7's territory) — customer and driver are, matching the party types
- * this phase actually exercises.
+ * GAP-93: every party type is now checked against this business — `partner`
+ * used to skip it, the one place a request-body id was trusted outright.
  */
 export const recordPaymentHandler: RouteHandler<typeof recordPaymentRoute, Env> = async (c) => {
   requireCapability(c, "dailyOperations");
@@ -72,6 +72,9 @@ export const recordPaymentHandler: RouteHandler<typeof recordPaymentRoute, Env> 
   } else if (body.partyType === "driver") {
     const driver = await findDriverForBusiness(reader, businessId, body.partyId);
     if (!driver) throw new NotFoundError("No such driver in this business");
+  } else if (body.partyType === "partner") {
+    const member = await findBusinessMemberUserId(reader, businessId, body.partyId);
+    if (!member) throw new NotFoundError("No such active member in this business");
   }
 
   const result = await recordPayment(c.get("writer"), {

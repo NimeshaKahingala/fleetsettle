@@ -1,6 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   activeDailyLeasesResponseSchema,
+  changeDailyLeaseDriverRequestSchema,
   dailyLeaseResponseSchema,
   startDailyLeaseRequestSchema,
 } from "@fleetsettle/shared/schemas";
@@ -42,8 +43,11 @@ export const startDailyLeaseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot set up a daily lease" },
     404: { description: "No such vehicle or driver in this business" },
-    // DM §7's exclusion constraint — an overlapping daily lease already exists for this vehicle.
-    409: { description: "This vehicle already has a daily lease over one or more of these dates" },
+    // DM §7's exclusion constraint, or GAP-84/F1's arrangement guard.
+    409: {
+      description:
+        "This vehicle already has a daily lease over one or more of these dates, or is not configured for arrangement B (GAP-84)",
+    },
   },
 });
 
@@ -59,5 +63,33 @@ export const getDailyLeaseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read daily leases" },
     404: { description: "No such daily lease in this business" },
+  },
+});
+
+/**
+ * F-4.7/UC-36/GAP-62: "new driver from a date; previous assignment ends."
+ * The current row closes and a new one opens carrying its pattern and rate
+ * forward — never an overwrite (CLAUDE.md → Writes).
+ */
+export const changeDailyLeaseDriverRoute = createRoute({
+  method: "post",
+  path: "/{id}/change-driver",
+  request: {
+    params: dailyLeaseIdParams,
+    body: { content: { "application/json": { schema: changeDailyLeaseDriverRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: dailyLeaseResponseSchema } },
+      description: "The new daily lease, open from effectiveFrom",
+    },
+    400: {
+      description:
+        "This daily lease has already ended, or effectiveFrom is not after its own start date",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot change a daily lease's driver" },
+    404: { description: "No such daily lease or driver in this business" },
+    409: { description: "The new date range overlaps another daily lease on this vehicle" },
   },
 });

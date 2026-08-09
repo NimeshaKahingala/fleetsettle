@@ -49,23 +49,13 @@ async function pickExistingCustomer(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByText("Nimal Perera"));
 }
 
-/**
- * `MoneyField`'s own trigger button carries no accessible name beyond its
- * current value (§6.2's own design — the adjacent `<Label>` is visual
- * only), so two blank fields on the same step are indistinguishable by
- * name alone. `occurrence` picks by DOM order instead — this screen is the
- * first place two ever appear on one step (Monthly amount, then Deposit).
- */
+/** `MoneyField`'s blank trigger is named "Enter {label}" (GAP-85) — defaults to the monthly amount field every call site but one wants. */
 async function enterMoneyField(
   user: ReturnType<typeof userEvent.setup>,
   digits: string,
-  occurrence = 0,
+  triggerName = "Enter monthly amount",
 ) {
-  const triggers = screen.getAllByRole("button", { name: "Rs 0" });
-  const trigger = triggers[occurrence];
-  if (trigger === undefined)
-    throw new Error(`no blank MoneyField at occurrence ${occurrence.toString()}`);
-  await user.click(trigger);
+  await user.click(screen.getByRole("button", { name: triggerName }));
   for (const digit of digits) {
     await user.click(screen.getByRole("button", { name: digit }));
   }
@@ -191,7 +181,7 @@ test("switching from Custom back to a named package uses the package's own rate,
 
   await user.click(await screen.findByRole("button", { name: "Custom" }));
   await user.type(screen.getByLabelText("Daily km limit"), "80");
-  await enterMoneyField(user, "9999");
+  await enterMoneyField(user, "9999", "Enter excess rate per km");
 
   // Switch to the named package instead — its own rate must win, not the 9999 just typed.
   await user.click(screen.getByRole("button", { name: "Standard 100" }));
@@ -291,4 +281,42 @@ test("Back always means back — the app-bar chevron steps back one page at a ti
   expect(await screen.findByText("Step 1 of 7 · Customer")).toBeInTheDocument();
   // Still once — stepping back from step 2 must not also fire the screen's own onBack.
   expect(onBack).toHaveBeenCalledOnce();
+});
+
+test("GAP-84 — a vehicle set up for a different arrangement refuses before the form ever renders", async () => {
+  const post = vi.fn();
+  const get = baseGet({
+    "/api/vehicle/v1": { ...vehicle, arrangement: "C" } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post },
+  );
+
+  expect(
+    await screen.findByText("This vehicle is set up for arrangement C, not a monthly rental."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Step 1 of 7 · Customer")).not.toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("GAP-84 — a vehicle with no current arrangement also refuses (never treated as 'A')", async () => {
+  const get = baseGet({
+    "/api/vehicle/v1": {
+      id: "v1",
+      registration: "CAB-1234",
+      vehicleType: "Car",
+      lifecycle: "active",
+    } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(
+    await screen.findByText(
+      "This vehicle has no current arrangement, so a rental can't be started on it yet.",
+    ),
+  ).toBeInTheDocument();
 });

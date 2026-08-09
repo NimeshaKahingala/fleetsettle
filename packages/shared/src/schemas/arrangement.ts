@@ -65,6 +65,13 @@ export const startDailyLeaseRequestSchema = z
   });
 export type StartDailyLeaseRequest = z.infer<typeof startDailyLeaseRequestSchema>;
 
+/** F-4.7/UC-36/GAP-62: "new driver from a date; previous assignment ends." The pattern and rate carry forward unchanged — only the driver and the effective date are given. */
+export const changeDailyLeaseDriverRequestSchema = z.object({
+  driverId: uuidSchema,
+  effectiveFrom: businessDateSchema,
+});
+export type ChangeDailyLeaseDriverRequest = z.infer<typeof changeDailyLeaseDriverRequestSchema>;
+
 /**
  * UC-20: starting arrangement C — bus charter and short car hire, one flow
  * (DM §8's comment on `trip`). `status` defaults to 'booked': P2 books a
@@ -243,3 +250,21 @@ export const vehicleDailyLeaseHistoryResponseSchema = z.array(vehicleDailyLeaseH
 export type VehicleDailyLeaseHistoryResponse = z.infer<
   typeof vehicleDailyLeaseHistoryResponseSchema
 >;
+
+/** GAP-77: a vehicle's own trip history was unreachable — no read existed. Every status, most recent first; party names resolved the same way `inProgressTripRowSchema` already does. */
+export const vehicleTripHistoryRowSchema = z.object({
+  id: z.string().uuid(),
+  status: z.enum(["hold", "booked", "in_progress", "closed", "cancelled"]),
+  startDate: z.string(),
+  endDate: z.string(),
+  destination: z.string().nullable(),
+  customerId: z.string().uuid().nullable(),
+  customerName: z.string().nullable(),
+  driverId: z.string().uuid().nullable(),
+  driverName: z.string().nullable(),
+  agreedAmountMinor: z.string(),
+});
+export type VehicleTripHistoryRow = z.infer<typeof vehicleTripHistoryRowSchema>;
+
+export const vehicleTripHistoryResponseSchema = z.array(vehicleTripHistoryRowSchema);
+export type VehicleTripHistoryResponse = z.infer<typeof vehicleTripHistoryResponseSchema>;

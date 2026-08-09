@@ -90,9 +90,16 @@ Open a trip that has a customer and a nonzero agreed amount and is **unpaid**. T
 
 **Open since:** 8 August, filed unresolved rather than guessed at. `Screen.tsx:83-91` implements a proper `position: sticky` CTA per M-24, the same pattern every other form uses correctly — so either the report was about something else, or it is a device-only rendering issue a source read cannot confirm or rule out. **Needs a real device, not a resized desktop window.**
 
-## LT-4 · The nested `Sheet` / `AmountPad` question
+## LT-4 · Sheet interaction, and two claims a source read could not settle
 
 **Open since:** 6 August. B11 fixed `Sheet`'s focus handling at the cause and `ActionSheet` is built on `Sheet`, so the nested case *should* be covered — but the original finding was about the interaction, not only the focus, and B9's own checklist still requires this verified manually before B9 is called done. Two minutes: open a sheet that opens another sheet containing an `AmountPad`, enter an amount, close both.
+
+**Widened 8 August by the comprehensive QA pass, which produced two claims that fail against source and can only be settled here** (TRACKER §6, eighth pass). Both came from a session whose click transport had stopped working entirely — Playwright, DOM-node, coordinate and evaluate-scoped clicks all failing together — so the app-defect reading and the harness-artifact reading are indistinguishable from the report alone. Add to the same two minutes:
+
+- **People → Add: is the action sheet actually tappable, and does its lower row clear the tab bar?** Source says it must: `Sheet` is `fixed … z-50` with `max-h-[90svh]` and safe-area padding, and `AppShell`'s tab bar is a flex sibling rather than a fixed overlay, so it cannot sit on top. **Check at a short viewport** (360×640 and shorter), which is the one case geometry alone would not rule out.
+- **Press `Enter` on a vehicle row.** It is a real `<button type="button">`, so this should navigate with no handler of its own. If it genuinely does not, the finding is real and much larger than one screen.
+
+If both behave, they are recorded as artifacts in §6 and nothing is scheduled. If either does not, it is a new gap id — the fix would be in a shared primitive either way.
 
 ## LT-5 · Opening balances (B12)
 

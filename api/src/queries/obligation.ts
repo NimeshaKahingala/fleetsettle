@@ -41,6 +41,28 @@ export async function insertObligation(db: WriteDb, values: NewObligation): Prom
   await db.insert(obligation).values(values);
 }
 
+/**
+ * A10a/GAP-39: `generate-management-fee`'s own idempotent insert path,
+ * backed by `obligation_management_fee_once` (migration 0011) — a second
+ * run for the same period is a no-op, the same shape P13's
+ * `insertAllocationDaysIdempotent` already uses for its own conflict.
+ * `.returning()` after `onConflictDoNothing()` yields only the rows that
+ * actually landed, so the caller can report a real count rather than
+ * `values.length`.
+ */
+export async function insertObligationsIdempotent(
+  db: WriteDb,
+  values: NewObligation[],
+): Promise<number> {
+  if (values.length === 0) return 0;
+  const inserted = await db
+    .insert(obligation)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ id: obligation.id });
+  return inserted.length;
+}
+
 export interface ObligationRow {
   id: string;
   kind: string;

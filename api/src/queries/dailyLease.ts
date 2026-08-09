@@ -80,6 +80,28 @@ export async function findCurrentDailyLeaseForVehicle(
   return rows[0];
 }
 
+/** F-4.7/GAP-62/GAP-25: the first write that ever closes a `daily_lease` row — `effective_to` had no setter anywhere before this. Must land before the replacement's `INSERT` in the same transaction: the EXCLUDE constraint is not deferred, so the old range has to stop overlapping first. */
+export async function endDailyLeaseRow(
+  db: WriteDb,
+  dailyLeaseId: string,
+  effectiveTo: string,
+): Promise<void> {
+  await db.update(dailyLease).set({ effectiveTo }).where(eq(dailyLease.id, dailyLeaseId));
+}
+
+/** F-1.2/GAP-54: the vehicle's currently open `daily_lease` row (id + own start date), so an arrangement change moving off B can close it — distinct from `findCurrentDailyLeaseForVehicle` above, which resolves a borne-by default "as of" a date and returns only the driver. */
+export async function findCurrentDailyLeaseRowForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<{ id: string; effectiveFrom: string } | undefined> {
+  const rows = await db
+    .select({ id: dailyLease.id, effectiveFrom: dailyLease.effectiveFrom })
+    .from(dailyLease)
+    .where(and(eq(dailyLease.vehicleId, vehicleId), isNull(dailyLease.effectiveTo)))
+    .limit(1);
+  return rows[0];
+}
+
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
 export async function findDailyLeaseForBusiness(
   db: ReadDb,

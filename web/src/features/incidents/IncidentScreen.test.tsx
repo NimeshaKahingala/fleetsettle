@@ -257,7 +257,8 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
   expect(await screen.findByText("Repair costs · 2")).toBeInTheDocument();
   const voidedRow = nth(screen.getAllByText("Repairs"), 1);
   expect(voidedRow).toHaveClass("line-through");
-  expect(screen.getByText(/Voided: wrong invoice/)).toBeInTheDocument();
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("wrong invoice")).toBeInTheDocument();
 });
 
 test("Close incident is offered on an open incident", async () => {

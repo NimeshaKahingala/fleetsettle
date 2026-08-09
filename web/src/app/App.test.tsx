@@ -208,9 +208,49 @@ test("an unknown path renders the not-found placeholder, not a blank screen", as
   expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
 });
 
+/** B4: every Review-shell tab this file exercises reads through these five endpoints — one owner, no vehicles, so each resolves to its own honest-empty shape rather than crashing on a wrong one. */
+function mockReviewEndpoints(get: ReturnType<typeof vi.fn>, ownerUserId: string) {
+  get.mockImplementation((path: string) => {
+    if (path === "/api/me")
+      return Promise.resolve({ userId: ownerUserId, businessId: "b1", role: "owner" });
+    if (path === "/api/accounting-period") {
+      return Promise.resolve([
+        {
+          id: "p1",
+          periodStart: "2026-08-01",
+          periodEnd: "2026-08-31",
+          status: "open",
+          closedAt: null,
+        },
+      ]);
+    }
+    if (path.startsWith("/api/reports/vehicle-month")) {
+      return Promise.resolve({
+        period: { id: "p1", periodStart: "2026-08-01", periodEnd: "2026-08-31" },
+        vehicles: [],
+      });
+    }
+    if (path.startsWith("/api/reports/overheads")) return Promise.resolve({ totalMinor: "0" });
+    if (path === "/api/home/paperwork-warnings") return Promise.resolve([]);
+    if (path === `/api/partner/${ownerUserId}`) {
+      return Promise.resolve({
+        userId: ownerUserId,
+        displayName: null,
+        period: { id: "p1", periodStart: "2026-08-01", periodEnd: "2026-08-31" },
+        putIn: { contributionsMinor: "0", outOfPocketMinor: "0" },
+        takenOut: { payoutsMinor: "0", settlementsMinor: "0" },
+        earned: { profitShareMinor: "0", managementFeeMinor: "0" },
+        holdingMinor: "0",
+        balanceMinor: "0",
+      });
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+}
+
 test("owner lands in the Review shell (redirected from / to its default tab), driver lands in the Mine shell (B0b, UI §1.1)", async () => {
   const getOwner = vi.fn();
-  getOwner.mockResolvedValue({ userId: "u2", businessId: "b1", role: "owner" });
+  mockReviewEndpoints(getOwner, "u2");
   const { router: ownerRouter, unmount } = renderWithRouter("/", { get: getOwner });
   expect(await screen.findByRole("heading", { name: "This month" })).toBeInTheDocument();
   await waitFor(() => expect(ownerRouter.state.location.pathname).toBe("/review"));
@@ -238,13 +278,56 @@ test("owner lands in the Review shell (redirected from / to its default tab), dr
 test("Review's tabs navigate between its own routes, and owner_manager never reaches them (M-3)", async () => {
   const user = userEvent.setup();
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u2", businessId: "b1", role: "owner" });
+  mockReviewEndpoints(get, "u2");
   const { router } = renderWithRouter("/review", { get });
 
   await screen.findByRole("heading", { name: "This month" });
   await user.click(screen.getByRole("button", { name: "Reports" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/reports"));
   expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
+});
+
+/** B4-REPORTS-DESIGN.md §10: route-level, since `<Can>` around a card does nothing if the route itself renders for a role holding only `viewOwnData` — a `driver` reaching `/reports` must redirect to `/me`, the same way any non-`/me` path already does for that shell (B0b's `MineLayout`). */
+test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)", async () => {
+  const get = vi.fn();
+  get.mockResolvedValue({ userId: "u3", businessId: "b1", role: "driver", driverId: "d1" });
+
+  const { router } = renderWithRouter("/reports", { get });
+
+  expect(await screen.findByRole("heading", { name: "Mine" })).toBeInTheDocument();
+  await waitFor(() => expect(router.state.location.pathname).toBe("/me"));
+  expect(screen.queryByText("How was this month")).not.toBeInTheDocument();
+});
+
+/** B4-REPORTS-DESIGN.md §5.1/§9.1: the phase-1 six, and no card for a phase-2 report — the assertion that keeps the scope decision from eroding one convenient card at a time. */
+test("the catalogue renders exactly the phase-1 six", async () => {
+  const get = vi.fn();
+  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner_manager" });
+
+  renderWithRouter("/reports", { get });
+
+  expect(await screen.findByText("How was this month")).toBeInTheDocument();
+  expect(screen.getByText("Which trips made money")).toBeInTheDocument();
+  expect(screen.getByText("Is the bus drinking fuel")).toBeInTheDocument();
+  expect(screen.getByText("Who owes us")).toBeInTheDocument();
+  expect(screen.getByText("Cash partners are holding")).toBeInTheDocument();
+  expect(screen.getByText("Lost days")).toBeInTheDocument();
+  // The phase-2 three (§9.1) have no card — checked by name, since a bare
+  // button count would also catch Operate's own five tab-bar buttons.
+  expect(screen.queryByText(/goodwill/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/ageing|overdue/i)).not.toBeInTheDocument();
+  expect(screen.queryByText(/utilisation|utilization/i)).not.toBeInTheDocument();
+});
+
+/** No route for a phase-2 report exists at all (§9.1) — a stray link or a typed-in URL fails visibly rather than resolving to something that looks like it shipped. */
+test("no phase-2 report route resolves — goodwill is not found, not rendered", async () => {
+  const get = vi.fn();
+  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner_manager" });
+
+  const { router } = renderWithRouter("/reports/goodwill", { get });
+
+  expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
+  expect(router.state.location.pathname).toBe("/reports/goodwill");
 });
 
 test("creating a business from the first-run gate replaces it with the operate shell", async () => {

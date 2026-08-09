@@ -62,6 +62,7 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -100,6 +101,30 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
     await ctx.cleanup();
   });
 
+  it("409 — the vehicle is not configured for arrangement A (GAP-84)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "5000000",
+    });
+    expect(res.status).toBe(409);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "VEHICLE_ARRANGEMENT_MISMATCH" });
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request("/api/lease", {
       method: "POST",
@@ -115,6 +140,7 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const driverId = await ctx.createDriver(businessId);
     const linked = await mintLinkedDriver(db, ctx, driverId);
@@ -160,6 +186,7 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
     const businessId = await ctx.createBusiness();
     const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const otherCustomerId = await ctx.createCustomer(otherBusinessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -180,6 +207,7 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -211,6 +239,7 @@ describe("renew a lease (P5, F-2.5/UC-17)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -283,6 +312,7 @@ describe("generate the next billing period (P5)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);

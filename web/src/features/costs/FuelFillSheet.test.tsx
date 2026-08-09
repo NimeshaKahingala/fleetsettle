@@ -40,7 +40,7 @@ test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone â€
 
   expect(await screen.findByRole("button", { name: "Vehicle: NC-1234" })).toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
   await user.click(screen.getByRole("button", { name: "Log fuel fill" }));
@@ -66,7 +66,7 @@ test("litres, when given, reaches the request as a plain number, never money", a
   );
 
   await screen.findByRole("button", { name: "Vehicle: NC-1234" });
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
 

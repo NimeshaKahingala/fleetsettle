@@ -2,6 +2,7 @@ import { parse } from "@fleetsettle/shared";
 import type { ExpenseListRow } from "@fleetsettle/shared/schemas";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { cn } from "../../lib/cn.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
@@ -26,7 +27,7 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
   const voided = expense.voidedAt !== null;
 
   const row = (
-    <Card className="flex flex-col gap-1">
+    <Card accent={voided ? "critical" : undefined} className="flex flex-col gap-1">
       <div className="flex items-center justify-between gap-4">
         <p className={cn("text-body", voided ? "text-ink-muted line-through" : "text-ink-primary")}>
           {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
@@ -39,8 +40,15 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
       <p className="text-caption text-ink-muted">
         {formattedDate}
         {expense.litres !== null ? ` · ${expense.litres.toString()}ℓ` : ""}
-        {expense.voidedReason !== null ? ` · Voided: ${expense.voidedReason}` : ""}
       </p>
+      {voided ? (
+        <div className="flex items-center gap-2">
+          <Badge variant="critical">Voided</Badge>
+          {expense.voidedReason !== null ? (
+            <p className="text-caption text-critical-ink">{expense.voidedReason}</p>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 

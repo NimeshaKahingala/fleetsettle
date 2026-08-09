@@ -23,6 +23,14 @@ test("lists every vehicle with its arrangement label", async () => {
   expect(screen.getByText("Lease out")).toBeInTheDocument();
 });
 
+test("the arrangement label renders as a coloured Badge, not plain text (UI-LF-04)", async () => {
+  const get = vi.fn().mockResolvedValue(vehicles);
+  renderWithProviders(<VehicleListScreen today={today} onSelectVehicle={vi.fn()} />, { get });
+
+  const badge = await screen.findByText("Daily lease");
+  expect(badge.className).toContain("bg-good/15");
+});
+
 test("tapping a row reports that vehicle, not a route change", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);

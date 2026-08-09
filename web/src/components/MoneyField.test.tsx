@@ -9,8 +9,8 @@ test("default variant opens AmountPad in a sheet on tap, and reports the saved v
   const onChange = vi.fn();
   render(<MoneyField label="Fuel amount" valueMinor={null} onChange={onChange} />);
 
-  expect(screen.getByText("Rs 0")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  expect(screen.getByText("Enter fuel amount")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Enter fuel amount" }));
 
   // AmountPad is now open inside the sheet.
   expect(screen.getByRole("textbox", { name: "Fuel amount" })).toBeInTheDocument();
