@@ -1637,6 +1637,8 @@ The other four checklist items are the same shape: open trips, unsettled advance
 
 **Every query in this section has been executed** against the populated fixture branch and returns the §7 figures: UC-76 gives `lost 4 / ran 24 / lease-eligible 28 / 20,000`; UC-74 gives the driver's `2,000` in the 1–30 bucket; UC-56 returns **two rows** (`owed_by_us 9,000`, `owed_to_us 2,000`) and never a net; UC-70 gives `46,000`. Running them found one defect — the UC-75 query filtered `payment.voided_at`, a column that does not exist because payments are corrected through `status` instead (§10.2).
 
+**The four queries GAP-70/GAP-71 added were executed the same way, 9 August 2026** (§16.1 has the fixture-script fix this required first). UC-76's month and reason breakdowns reproduce the identical underlying fact two ways: one row, `2026-07`, `lost 4 / ran 24 / lease-eligible 28 / 20,000`; and three rows by reason — `breakdown 2 / 10,000`, `driver_day_off 1 / 5,000`, `no_passengers 1 / 5,000` — which sum to the same total, as they must. UC-75's banked and driver-advances queries needed data the golden fixture has never seeded — no `business_member`, `banking_event` or `advance` row exists in it, a **separate, pre-existing gap this pass found but did not fix**, since fixing it is `golden.py`'s own concern, not this section's. Supplemented on the scratch branch only, verification-side: one `business_member`, one `banking_event` of `30,000`, one `advance` of `15,000`. The two new queries returned `Sampath savings: 30,000` and the driver's `15,000`; held-per-partner moved from `118,000` to `73,000`, reconciling exactly (`118,000 − 30,000 − 15,000`).
+
 ---
 
 ## 16. Validation against the user flows
@@ -1770,6 +1772,8 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 
 **One correction to this document's own claim.** An earlier draft asserted these fixtures were "derivable from the schema". Two of the figures are not derivable from any single table: **July's `46,000` of costs is `expense` plus the trip's driver fee**, which lives on `obligation`, not `expense`. A cost query that reads only the expense table under-reports every month containing a charter by exactly the driver's fee. The report definitions in §15 must union the two, and UC-70's implementation should be checked against this fixture before it is trusted.
 
+**Re-run for GAP-70/71's verification, 9 August 2026 — and it did not run.** Migration `0004` (1 August) added `business_id NOT NULL` to seven tables, three of which this script writes to (`deposit_movement`, `insurance_claim`, `incident_recovery`); `golden.py` was never updated to match. Nothing caught it, because the script runs by hand and carries no CI wiring — `docs/README.md` calls it "supporting material" for exactly that reason. Fixed in `golden.py` itself, three `INSERT`s gaining the column; the **39/39 above is that fix's own re-run, not the original.** The number never moved — only the script's ability to prove it did. **A second, smaller gap found in the same pass and left as found:** `golden.py` never writes a `business_member` row at all, so the UC-75 held-per-partner query has no fixture row to select — its own verification (§15) must already have supplemented this by hand, the same way GAP-70's queries just did.
+
 ---
 
 ## 17. Open items
@@ -1796,6 +1800,12 @@ When a decision changes: update the use cases, update the flows, update §14 and
 ---
 
 ## 19. What changed
+
+### v1.1.2 — 9 August 2026
+
+**§15's UC-75 and UC-76 blocks gain the queries this document had omitted — GAP-70 and GAP-71, both documents-travel-together corrections rather than new decisions.** UC-75 asks for cash broken down by account and by driver advance, not only the held-vs-liability total; UC-76 asks for the lost-day reason breakdown and a per-month grouping alongside the existing per-weekday one. Both use cases, and F-7.5/FL §9.2 for UC-75, already specified all of it — this section's own SQL just never carried the rest down. Four new blocks: banked-by-destination and advances-by-driver (UC-75), per-month and per-reason lost days (UC-76), each kept arithmetically consistent with the totals they explain rather than correcting those totals' own known simplifications as a side effect. `UI §11.1`'s matching two rows were corrected in the same pass (v1.2.3). No schema, constraint or behaviour change; §16.1's three fixtures untouched.
+
+**All four verified against real Postgres, not assumed** — and doing so surfaced a second, unrelated defect: `golden.py` had not run since migration `0004` (1 August) added `business_id NOT NULL` to three tables it writes to, silently, since the script carries no CI wiring. Fixed in `golden.py`; full details and figures in §15's own verification paragraph and §16.1.
 
 ### v1.1.1 — 8 August 2026
 
