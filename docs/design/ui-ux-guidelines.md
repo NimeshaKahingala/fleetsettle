@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.2 — F-2.1 given its own route rather than a sheet (M-27, §3.3)
-**Date:** 3 August 2026
+**Status:** v1.2.3 — §11.1's UC-75 and UC-76 rows each gain the form the use case actually asks for and this table had dropped: account/driver-advance breakdown for UC-75 (GAP-70), the reason breakdown alongside weekday for UC-76 (GAP-71). `DM §15` v1.1.2 carries the matching query side
+**Date:** 9 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -873,11 +873,13 @@ Charts appear in exactly one place in the Operate shell — a trip's own P&L —
 | UC-72 fuel efficiency | Line over time, single series | A trend, and it must render `NotAvailable` for lease days rather than a zero |
 | UC-73 the year | Column per month + overheads as a separate block beneath | Never stacked into vehicle profit (W-32) |
 | UC-74 who owes us | **Table**, not a chart | It is a work list; the reader acts on rows |
-| UC-75 where is our cash | Stat tiles + a stacked bar of held vs ours | The liability split is the point |
-| UC-76 lost days | Column per month + **weekday distribution** as a second small chart | "Four days lost" and "four Fridays lost" are different conversations |
+| UC-75 where is our cash | Stat tiles + a stacked bar of held vs ours, **plus a breakdown by bank account and by driver advance** | The liability split is the point — and "held" is not one number per partner, it is three: what's in his pocket, what's banked where, what's out with drivers |
+| UC-76 lost days | Column per month + **weekday distribution** and **the reason breakdown** as two second-tier charts | "Four days lost" and "four Fridays lost" are different conversations — and "a bus that breaks down often" and "a driver who takes Fridays off" are a third |
 | UC-77 goodwill given | Single number + a table by reason | And **never** summed with write-offs (W-28) |
 | UC-78 ageing | Horizontal stacked bar of buckets + table | |
 | UC-79 utilisation | Stacked bar of earning / idle / off-road per vehicle | |
+
+**⚑ Both the UC-75 and UC-76 rows above were incomplete against their own use case, and this table is where the gap actually was.** UC-75's own text asks for held cash **"in each account"** and **"out with drivers as advances"** — this table named only the stacked bar (held vs. the deposits liability) and dropped both. UC-76's own text asks for **"the reason breakdown, and the weekday distribution"** together — this table named only the second. `DM §15` had the identical omission in its own SQL, which is not a coincidence: this row is very likely where DM's query was scoped from in the first place, so the two documents were incomplete in the same direction rather than disagreeing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1/§8.2, 7 August 2026), and confirmed a second time building Web-P9/B4 Wave 1 directly against this table: the lost-days screen that shipped from it has a column per driver and a real weekday chart, and nowhere to put a reason a manager might want to see. `DM §15` v1.1.2 carries the query side of both corrections; the chart/table implementation is separate work, scheduled as B4 Wave 2 in `Plan.md`.
 
 ### 11.2 Palette
 

@@ -1,7 +1,7 @@
 # Data Model
 
-**Status:** v1.1.1 — §15's UC-78 block records that the shipped ageing query buckets in the Worker, not in the `CASE` this document specifies. No schema, constraint or behaviour change; the §16.1 fixtures are untouched
-**Date:** 8 August 2026
+**Status:** v1.1.2 — §15's UC-75 and UC-76 blocks each gain the queries this document had omitted: banked-by-destination and advances-by-driver for UC-75 (GAP-70), and per-month and per-reason groupings for UC-76 (GAP-71) alongside the existing per-weekday one. Both are documents-travel-together corrections — UC-75/UC-76 and F-7.5/FL §9.2 already specified all of it; this document's own queries just never carried the rest of it down. No schema, constraint or behaviour change; the §16.1 fixtures are untouched
+**Date:** 9 August 2026
 **Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.4
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
@@ -1460,6 +1460,37 @@ SELECT driver_id,
 
 Off-pattern days have no row (§7), so `not_scheduled` is excluded by construction — the denominator is `ran + lost` and cannot be inflated by either exclusion. That is §1.2 of the use cases expressed as a `WHERE` clause.
 
+**⚑ This query alone satisfies only the weekday half of what UC-76 asks for, and this document never gave the other two their own SQL.** UC-76's own words: *"Per driver, **per month**, with reasons… Shows: the count, the money it represents, **the reason breakdown**, and the **weekday distribution**"* — four things, and the block above computes exactly one of them (weekday) at business-wide-window granularity, with no month dimension and no reason dimension at all. UI §11.1 independently specifies "column per month" as the report's primary form, which this section gave it no query to be built from. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.2, 7 August 2026) as a missing reason breakdown, and found again, larger, building Web-P9/B4 Wave 1 against this section as it stood: `LostDaysRow` (the shipped response shape) carries `weekday` and nothing else, so a report literally cannot be grouped by month from what this query returns — Wave 1 shipped "one column per driver" as the honest reading of a contract with no month in it, rather than the "column per month" UI §11.1 and UC-76 both actually specify.
+
+Per UC-78's own reasoning just above for the identical shape of problem — a party's balance bucketed on its oldest item overstates the old buckets — collapsing month, weekday and reason into one `GROUP BY` would either explode into one sparse row per distinct combination (a driver active across six months and six reasons produces up to 36 rows to reassemble client-side) or silently pick one dimension to aggregate away. Three sibling queries, each answering one of UC-76's four "shows" in the shape a chart can read directly, following the same principle:
+
+```sql
+-- Column per month (UI §11.1's primary form)
+SELECT driver_id,
+       to_char(business_date, 'YYYY-MM')                               AS month,
+       COUNT(*) FILTER (WHERE state = 'did_not_run')                   AS lost,
+       COUNT(*) FILTER (WHERE state LIKE 'ran_%')                      AS ran,
+       COUNT(*)                                                        AS lease_eligible,
+       SUM(expected_minor) FILTER (WHERE state = 'did_not_run')        AS lost_value_minor
+  FROM day_record
+ WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
+   AND state <> 'paused_for_trip'
+ GROUP BY driver_id, month;
+
+-- Reason breakdown — day_record.lost_reason is CHECK-constrained
+-- non-null whenever state = 'did_not_run' (§7), so every lost day this
+-- query touches already carries one; nothing here can be NULL by construction.
+SELECT driver_id, lost_reason,
+       COUNT(*)                                                        AS lost,
+       SUM(expected_minor)                                             AS lost_value_minor
+  FROM day_record
+ WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
+   AND state = 'did_not_run'
+ GROUP BY driver_id, lost_reason;
+```
+
+`to_char(business_date, 'YYYY-MM')` rather than `date_trunc` — the report reads a plain string bucket, not a timestamp, and W-56 already governs how zero and unknown must never collapse: a driver with no lost days in a given month simply has no row for it, which is the correct absence, not a zero to be manufactured. The weekday query above is unchanged; the two new ones join it as siblings, not replacements.
+
 **UC-74 who owes us** — one row per party, ordered by size or by age.
 
 ```sql
@@ -1546,6 +1577,31 @@ Three things this query encodes that prose kept getting wrong:
 - It subtracts `amount_counted_minor`, not `amount_recorded_minor` — when the bank counted less, the partner is still holding the difference until `discrepancy_bearer` decides otherwise (INV-23)
 - It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
 - **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
+
+**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
+
+```sql
+-- Banked, by destination — the same banking_event rows the held-per-
+-- partner query above already subtracts, regrouped so the money is
+-- traceable rather than merely absent.
+SELECT destination, SUM(amount_counted_minor) AS held_minor
+  FROM banking_event
+ WHERE business_id = $1 AND voided_at IS NULL
+ GROUP BY destination;
+
+-- Outstanding with drivers, by driver — the same unsettled-advance rows,
+-- regrouped by who is holding the cash rather than who issued it.
+SELECT d.id, d.name, SUM(a.amount_minor) AS outstanding_minor
+  FROM advance a
+  JOIN driver d ON d.id = a.driver_id
+ WHERE a.business_id = $1
+   AND a.status <> 'settled' AND a.voided_at IS NULL
+ GROUP BY d.id, d.name;
+```
+
+**Both queries must stay arithmetically consistent with the held-per-partner query's own simplification, not a corrected version of it.** The held figure treats a `part_settled` advance as fully outstanding — `status <> 'settled'` on the *full* `amount_minor`, not `amount_minor` net of whatever `advance_settlement` rows already exist against it. The driver-advances breakdown above uses the identical filter and the identical unreduced amount for exactly that reason: if the breakdown quietly became more accurate than the total it is supposed to explain, the two would stop reconciling, and a partner comparing "what I'm short" against "what's outstanding across drivers" would hit a number that doesn't add up. Correcting the *underlying* simplification — netting a part-settled advance against its own `advance_settlement` rows — is a real question, but a separate one, and it is not this section's to decide as a side effect of giving the existing figure somewhere to point.
+
+`banked`'s destination groups are exactly `banking_event.destination` (`text NOT NULL`) — no enum, no lookup table, because F-7.4 never asked for one: destinations are free text a manager types once and reuses.
 
 **UC-70 what a vehicle cost this month — the query most likely to be written wrong**
 
