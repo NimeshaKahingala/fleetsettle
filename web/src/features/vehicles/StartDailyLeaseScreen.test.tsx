@@ -142,3 +142,37 @@ test("an overlapping daily lease is shown as an ordinary outcome, not a raw erro
 
   expect(await screen.findByText(/already has a daily lease/i)).toBeInTheDocument();
 });
+
+test("GAP-84 — a vehicle set up for a different arrangement refuses before the form ever renders", async () => {
+  const post = vi.fn();
+  const get = baseGet({
+    "/api/vehicle/v1": { ...vehicle, arrangement: "C" } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartDailyLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post },
+  );
+
+  expect(
+    await screen.findByText("This vehicle is set up for arrangement C, not a daily lease."),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Choose driver" })).not.toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("GAP-84 — a vehicle with no current arrangement is accepted, not refused", async () => {
+  const get = baseGet({
+    "/api/vehicle/v1": {
+      id: "v1",
+      registration: "CAB-1234",
+      vehicleType: "Bus",
+      lifecycle: "active",
+    } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartDailyLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(await screen.findByRole("button", { name: "Choose driver" })).toBeInTheDocument();
+});

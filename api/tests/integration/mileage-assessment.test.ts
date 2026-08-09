@@ -65,6 +65,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -186,6 +187,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     await ctx.setAutoWaiveThreshold(businessId, 5000n);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -225,6 +227,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -262,6 +265,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -296,6 +300,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -394,6 +399,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
       periodEnd: "2026-12-31",
     });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);

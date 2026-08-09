@@ -70,8 +70,10 @@ export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }
                   }
                 }}
                 className={cn(
-                  "flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5",
-                  isActive ? "text-brand-ink" : "text-ink-secondary",
+                  "relative flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5",
+                  isActive
+                    ? "text-brand-ink before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-full before:bg-brand"
+                    : "text-ink-secondary",
                 )}
               >
                 <Icon className="size-5" aria-hidden />

@@ -292,3 +292,41 @@ test("Back always means back — the app-bar chevron steps back one page at a ti
   // Still once — stepping back from step 2 must not also fire the screen's own onBack.
   expect(onBack).toHaveBeenCalledOnce();
 });
+
+test("GAP-84 — a vehicle set up for a different arrangement refuses before the form ever renders", async () => {
+  const post = vi.fn();
+  const get = baseGet({
+    "/api/vehicle/v1": { ...vehicle, arrangement: "C" } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post },
+  );
+
+  expect(
+    await screen.findByText("This vehicle is set up for arrangement C, not a monthly rental."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Step 1 of 7 · Customer")).not.toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("GAP-84 — a vehicle with no current arrangement also refuses (never treated as 'A')", async () => {
+  const get = baseGet({
+    "/api/vehicle/v1": {
+      id: "v1",
+      registration: "CAB-1234",
+      vehicleType: "Car",
+      lifecycle: "active",
+    } satisfies VehicleResponse,
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(
+    await screen.findByText(
+      "This vehicle has no current arrangement, so a rental can't be started on it yet.",
+    ),
+  ).toBeInTheDocument();
+});

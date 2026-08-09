@@ -1,6 +1,6 @@
 import type { CustomerResponse, DriverResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
 import { ActionSheet } from "../../design/primitives/ActionSheet.js";
 import { Card } from "../../design/primitives/Card.js";
@@ -45,11 +45,14 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
               onClick={() => onSelectDriver(driver)}
               className="w-full text-left"
             >
-              <Card>
-                <p className="text-title text-ink-primary">{driver.name}</p>
-                {driver.mobile !== null ? (
-                  <p className="text-body-sm text-ink-muted">{driver.mobile}</p>
-                ) : null}
+              <Card className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-ink-primary">{driver.name}</p>
+                  {driver.mobile !== null ? (
+                    <p className="text-body-sm text-ink-muted">{driver.mobile}</p>
+                  ) : null}
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
               </Card>
             </button>
           ))}
@@ -64,11 +67,14 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
               onClick={() => onSelectCustomer(customer)}
               className="w-full text-left"
             >
-              <Card>
-                <p className="text-title text-ink-primary">{customer.name}</p>
-                <p className="text-body-sm text-ink-muted">
-                  {customer.customerType === "person" ? "Person" : "Organisation"}
-                </p>
+              <Card className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-title text-ink-primary">{customer.name}</p>
+                  <p className="text-body-sm text-ink-muted">
+                    {customer.customerType === "person" ? "Person" : "Organisation"}
+                  </p>
+                </div>
+                <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
               </Card>
             </button>
           ))}

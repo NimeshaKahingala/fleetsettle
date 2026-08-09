@@ -2,7 +2,7 @@ import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability } from "../auth/context.js";
 import { startDailyLease } from "../domain/dailyLease.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
 import {
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
@@ -41,6 +41,14 @@ export const startDailyLeaseHandler: RouteHandler<typeof startDailyLeaseRoute, E
 
   const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+  // GAP-84/F1: a daily lease is arrangement B, or a vehicle with no current
+  // arrangement yet (VehicleOverviewScreen's own `canStartDailyLease` reads
+  // exactly this pair) — never A or C.
+  if (vehicle.arrangement !== "B" && vehicle.arrangement !== null) {
+    throw new VehicleArrangementMismatchError(
+      `This vehicle is configured for arrangement ${vehicle.arrangement}, not a daily lease`,
+    );
+  }
   const driver = await findDriverForBusiness(reader, businessId, body.driverId);
   if (!driver) throw new NotFoundError("No such driver in this business");
 

@@ -106,6 +106,17 @@ export class DailyLeaseOverlapsError extends AppError {
   }
 }
 
+// GAP-84/F1: neither `startLease` nor `startDailyLease` read the vehicle's
+// own standing arrangement before writing one — a deep link (or any crafted
+// request) could start a real monthly lease on a charter vehicle. The
+// message names the vehicle's actual arrangement so the client can render
+// something more useful than a bare refusal.
+export class VehicleArrangementMismatchError extends AppError {
+  constructor(message: string) {
+    super(409, "VEHICLE_ARRANGEMENT_MISMATCH", message);
+  }
+}
+
 // INV-17 (F-5.4: "will not close while a driver advance against it is
 // unreconciled — this is the one place friction is correct, because
 // unreconciled advances turn trip profit into fiction"). F-5.5 reuses the

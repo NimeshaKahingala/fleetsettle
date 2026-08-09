@@ -98,7 +98,7 @@ E("INSERT INTO expense (id,business_id,vehicle_id,category,amount_minor,spent_on
   "VALUES (%s,%s,%s,'fuel',40000,'2026-07-10','driver',%s,%s)", (U(), biz, bus, drv, jul))
 dep = U()
 E("INSERT INTO deposit (id,business_id,party_type,party_driver_id,daily_lease_id,status) VALUES (%s,%s,'driver',%s,%s,'held')", (dep, biz, drv, dl))
-E("INSERT INTO deposit_movement (id,deposit_id,movement_type,amount_minor,occurred_on,posted_period_id) VALUES (%s,%s,'taken',25000,'2026-07-01',%s)", (U(), dep, jul))
+E("INSERT INTO deposit_movement (id,business_id,deposit_id,movement_type,amount_minor,occurred_on,posted_period_id) VALUES (%s,%s,%s,'taken',25000,'2026-07-01',%s)", (U(), biz, dep, jul))
 
 check("days paused for the charter", one("SELECT count(*) FROM day_record WHERE state='paused_for_trip' AND posted_period_id=%s", (jul,)), 3)
 check("days ran", one("SELECT count(*) FROM day_record WHERE state LIKE 'ran_%%' AND posted_period_id=%s", (jul,)), 24)
@@ -156,16 +156,16 @@ E("INSERT INTO incident (id,business_id,vehicle_id,lease_id,status,occurred_on,o
   "VALUES (%s,%s,%s,%s,'recovery_pending','2026-07-08','2026-07-08','2026-07-19','extend')", (inc, biz, car, lse))
 E("INSERT INTO lease_extension (id,lease_id,incident_id,days_added,applied_on,new_end_date) VALUES (%s,%s,%s,12,'2026-07-20','2026-08-01')", (U(), lse, inc))
 E("INSERT INTO expense (id,business_id,vehicle_id,incident_id,category,amount_minor,spent_on,borne_by,posted_period_id) VALUES (%s,%s,%s,%s,'repairs',70000,'2026-07-28','us',%s)", (U(), biz, car, inc, jul))
-E("INSERT INTO insurance_claim (id,incident_id,claimed_amount_minor,excess_borne_minor,status,received_amount_minor,posted_period_id) VALUES (%s,%s,75000,15000,'submitted',0,%s)", (U(), inc, jul))
+E("INSERT INTO insurance_claim (id,business_id,incident_id,claimed_amount_minor,excess_borne_minor,status,received_amount_minor,posted_period_id) VALUES (%s,%s,%s,75000,15000,'submitted',0,%s)", (U(), biz, inc, jul))
 rec_ins, rec_cust = U(), U()
-E("INSERT INTO incident_recovery (id,incident_id,source,agreed_amount_minor,received_amount_minor,posted_period_id) VALUES (%s,%s,'insurer',60000,0,%s)", (rec_ins, inc, jul))
+E("INSERT INTO incident_recovery (id,business_id,incident_id,source,agreed_amount_minor,received_amount_minor,posted_period_id) VALUES (%s,%s,%s,'insurer',60000,0,%s)", (rec_ins, biz, inc, jul))
 
 pending_jul = one("SELECT COALESCE(SUM(agreed_amount_minor),0) FROM incident_recovery WHERE incident_id=%s AND received_period_id IS NULL", (inc,))
 check("July: pending recovery shown", pending_jul, 60000)
 
 close_and_open(jul, aug, "2026-08-01", "2026-08-31")
 E("INSERT INTO expense (id,business_id,vehicle_id,incident_id,category,amount_minor,spent_on,borne_by,posted_period_id) VALUES (%s,%s,%s,%s,'repairs',25000,'2026-08-04','us',%s)", (U(), biz, car, inc, aug))
-E("INSERT INTO incident_recovery (id,incident_id,source,agreed_amount_minor,received_amount_minor,posted_period_id,received_period_id) VALUES (%s,%s,'customer',20000,20000,%s,%s)", (rec_cust, inc, aug, aug))
+E("INSERT INTO incident_recovery (id,business_id,incident_id,source,agreed_amount_minor,received_amount_minor,posted_period_id,received_period_id) VALUES (%s,%s,%s,'customer',20000,20000,%s,%s)", (rec_cust, biz, inc, aug, aug))
 check("Aug: pending recovery still shown", one("SELECT COALESCE(SUM(agreed_amount_minor),0) FROM incident_recovery WHERE incident_id=%s AND received_period_id IS NULL", (inc,)), 60000)
 
 close_and_open(aug, sep, "2026-09-01", "2026-09-30")

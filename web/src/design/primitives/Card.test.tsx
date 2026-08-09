@@ -17,3 +17,18 @@ test("elevated is the exception, reserved for the day card", () => {
   );
   expect(screen.getByTestId("card")).toHaveClass("shadow-md");
 });
+
+test("accent adds a narrow left border, never a background, and radius stays 12px", () => {
+  render(
+    <Card data-testid="card" accent="critical">
+      Voided
+    </Card>,
+  );
+  const card = screen.getByTestId("card");
+  expect(card).toHaveClass("border-l-critical", "rounded-md");
+});
+
+test("no accent by default", () => {
+  render(<Card data-testid="card">Bus · Tue 30 Jul</Card>);
+  expect(screen.getByTestId("card").className).not.toContain("border-l-");
+});

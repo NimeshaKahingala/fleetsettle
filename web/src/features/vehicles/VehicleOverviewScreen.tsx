@@ -8,7 +8,14 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarDays, CalendarPlus, MoreVertical, Receipt, TriangleAlert } from "lucide-react";
+import {
+  CalendarDays,
+  CalendarPlus,
+  ChevronRight,
+  MoreVertical,
+  Receipt,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
@@ -16,16 +23,16 @@ import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
-
-const ARRANGEMENT_LABEL: Record<string, string> = {
-  A: "Lease out",
-  B: "Daily lease",
-  C: "Trips / charter",
-};
+import { ARRANGEMENT_BADGE_VARIANT, ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
+import {
+  INCIDENT_STATUS_BADGE_VARIANT,
+  INCIDENT_STATUS_LABEL,
+} from "../../lib/incidentStatusLabel.js";
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   insurance: "Insurance",
@@ -33,13 +40,6 @@ const DOC_TYPE_LABEL: Record<string, string> = {
   revenue_licence: "Revenue licence",
   permit: "Permit",
   emissions: "Emissions",
-};
-
-const INCIDENT_STATUS_LABEL: Record<string, string> = {
-  open: "Open",
-  repairs_recorded: "Repairs recorded",
-  recovery_pending: "Recovery pending",
-  closed: "Closed",
 };
 
 export interface VehicleOverviewScreenProps {
@@ -208,9 +208,9 @@ export function VehicleOverviewScreen({
             <div>
               <p className="text-label text-ink-secondary">Arrangement</p>
               {vehicle.arrangement !== undefined ? (
-                <p className="text-body text-ink-primary">
+                <Badge variant={ARRANGEMENT_BADGE_VARIANT[vehicle.arrangement]}>
                   {ARRANGEMENT_LABEL[vehicle.arrangement] ?? vehicle.arrangement}
-                </p>
+                </Badge>
               ) : (
                 <NotAvailable reason="no active arrangement" />
               )}
@@ -260,7 +260,10 @@ export function VehicleOverviewScreen({
                   onClick={() => onSelectIncident(incident.id)}
                   className="w-full text-left"
                 >
-                  <Card className="flex items-center justify-between gap-4">
+                  <Card
+                    accent={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}
+                    className="flex items-center justify-between gap-4"
+                  >
                     <div>
                       <p className="text-body text-ink-primary">
                         {incident.description ?? "Incident with no description"}
@@ -269,9 +272,12 @@ export function VehicleOverviewScreen({
                         {formatShortDate(incident.occurredOn)}
                       </p>
                     </div>
-                    <p className="text-caption text-ink-muted">
-                      {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}>
+                        {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
+                      </Badge>
+                      <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                    </div>
                   </Card>
                 </button>
               ))}

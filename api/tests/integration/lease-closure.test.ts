@@ -72,6 +72,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -109,6 +110,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -163,6 +165,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -191,6 +194,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -219,6 +223,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -246,6 +251,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
       const businessA = await ctx.createBusiness();
       await ctx.createOpenPeriod(businessA, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
       const vehicleId = await ctx.createVehicle(businessA);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessA);
       const ownerA = await mintUser(db, ctx, businessA, "owner");
       const tokenA = await signAccessToken(ownerA.asgardeoSub);
@@ -300,6 +306,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -344,6 +351,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
       const ctx = new TestContext(db);
       const businessA = await ctx.createBusiness();
       const vehicleId = await ctx.createVehicle(businessA);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessA);
       const leaseId = await ctx.createLease(businessA, vehicleId, customerId, { status: "active" });
 
@@ -379,6 +387,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -406,6 +415,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -434,6 +444,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -465,6 +476,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -491,6 +503,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -522,6 +535,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -562,6 +576,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
         periodEnd: "2026-12-31",
       });
       const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
       const customerId = await ctx.createCustomer(businessId);
       const owner = await mintUser(db, ctx, businessId, "owner");
       const token = await signAccessToken(owner.asgardeoSub);
