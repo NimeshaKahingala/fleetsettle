@@ -9,19 +9,23 @@ const OWNER_MANAGER: MeResponse = { userId: "u1", businessId: "b1", role: "owner
 const MANAGER: MeResponse = { userId: "u2", businessId: "b1", role: "manager" };
 
 describe("MoreScreen", () => {
-  test("an owner_manager sees Opening balances, Close the month and Sign out — every row a real B item has built so far", () => {
+  test("an owner_manager sees every row a real B item has built so far, including Reports and My share (B4)", () => {
     renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), OWNER_MANAGER);
 
     expect(screen.getByText("Opening balances")).toBeInTheDocument();
     expect(screen.getByText("Close the month")).toBeInTheDocument();
+    expect(screen.getByText("Reports")).toBeInTheDocument();
+    expect(screen.getByText("My share")).toBeInTheDocument();
     expect(screen.getByText("Sign out")).toBeInTheDocument();
   });
 
-  test("a manager never sees Opening balances or Close the month — absent, not disabled (M-22)", () => {
+  test("a manager sees Reports (viewReports is STAFF-wide) but never Opening balances, Close the month or My share — absent, not disabled (M-22)", () => {
     renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), MANAGER);
 
     expect(screen.queryByText("Opening balances")).not.toBeInTheDocument();
     expect(screen.queryByText("Close the month")).not.toBeInTheDocument();
+    expect(screen.getByText("Reports")).toBeInTheDocument();
+    expect(screen.queryByText("My share")).not.toBeInTheDocument();
     expect(screen.getByText("Sign out")).toBeInTheDocument();
   });
 

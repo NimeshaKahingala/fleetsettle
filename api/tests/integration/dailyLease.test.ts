@@ -36,6 +36,11 @@ describe("set up the daily lease (P2, F-1.7/UC-05)", () => {
     await db.$client.end();
   });
 
+  // GAP-84/F1: `createVehicle()` alone leaves the vehicle with no current
+  // arrangement row — this happy path is also the regression proof that a
+  // vehicle nobody has set up yet is fair game for its first daily lease,
+  // the same "B or none" pair `VehicleOverviewScreen`'s own client-side
+  // gating already used before the Worker checked anything.
   it("happy path — every_day pattern", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
@@ -166,6 +171,52 @@ describe("set up the daily lease (P2, F-1.7/UC-05)", () => {
       dailyLeaseAmountMinor: "500000",
     });
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — the vehicle is configured for arrangement A, not a daily lease (GAP-84)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: "2026-01-01",
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(res.status).toBe(409);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "VEHICLE_ARRANGEMENT_MISMATCH" });
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — arrangement B is also accepted, not only no arrangement yet", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: "2026-01-01",
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedDailyLease(body.id);
 
     await ctx.cleanup();
   });

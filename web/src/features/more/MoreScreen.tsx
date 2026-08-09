@@ -1,4 +1,4 @@
-import { CalendarCheck, LogOut, Wallet } from "lucide-react";
+import { BarChart3, CalendarCheck, LogOut, Wallet } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Can } from "../../components/Can.js";
@@ -12,9 +12,9 @@ import { useAuthActions } from "../../lib/AuthActionsContext.js";
  * §3.1's `/more` hub (GAP-37) — the only door §3.3 gives to `/cash`,
  * `/partners/:id`, `/reports` and `/period/close`. **Rows for what exists
  * only**: a row leading to `NotBuiltYetScreen` is worse than no row.
- * Opening balances (B12, GAP-61) and Close the month (B3) are the two rows
- * past sign-out so far; Reports appears when B4 lands, Cash when B2 does —
- * and per M-22/W-49, a row gated on a capability the current role lacks
+ * Opening balances (B12, GAP-61), Close the month (B3), Reports and My
+ * share (both B4) are the rows past sign-out so far; Cash appears when B2
+ * does — and per M-22/W-49, a row gated on a capability the current role lacks
  * must be **absent**, never merely disabled, which is what `<Can>` gives
  * for free rather than a hand-rolled role check per row. Close the month
  * is the row M-22 was written for by name: a `manager` must not see the
@@ -57,6 +57,38 @@ export function MoreScreen() {
             <Card className="flex items-center gap-3">
               <CalendarCheck className="size-5 text-ink-secondary" aria-hidden />
               <span className="text-body text-ink-primary">Close the month</span>
+            </Card>
+          </button>
+        </Can>
+
+        <Can cap="viewReports">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/reports" })}
+            className="w-full text-left"
+          >
+            <Card className="flex items-center gap-3">
+              <BarChart3 className="size-5 text-ink-secondary" aria-hidden />
+              <span className="text-body text-ink-primary">Reports</span>
+            </Card>
+          </button>
+        </Can>
+
+        {/* B4-REPORTS-DESIGN.md §9.2, decision 10: the owner-manager's own
+            entry point to the same read-only screens `owner`'s Review shell
+            gives four tabs of. `managePartnerCapital` (OWNERS) is what the
+            underlying `GET /api/partner/{userId}` fetch needs anyway — since
+            `owner` never renders Operate's `/more` at all, this row is
+            reachable by `owner_manager` alone in practice. */}
+        <Can cap="managePartnerCapital">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/review" })}
+            className="w-full text-left"
+          >
+            <Card className="flex items-center gap-3">
+              <Wallet className="size-5 text-ink-secondary" aria-hidden />
+              <span className="text-body text-ink-primary">My share</span>
             </Card>
           </button>
         </Can>

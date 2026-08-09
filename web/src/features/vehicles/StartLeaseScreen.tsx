@@ -188,6 +188,24 @@ export function StartLeaseScreen({
     setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
   }
 
+  // GAP-84/F1: a rental is arrangement A. The Worker refuses this on submit
+  // regardless (a deep link bypasses this component entirely), but showing
+  // the seven-step form for a vehicle that can never legally start one is
+  // its own defect — this is the "never the form" half of the fix. Waits
+  // for `vehicleQuery.data` rather than firing on the loading placeholder,
+  // the same tolerance every other field below already has for it.
+  if (vehicleQuery.data !== undefined && vehicleQuery.data.arrangement !== "A") {
+    return (
+      <Screen title={vehicleQuery.data.registration} onBack={onBack}>
+        <p className="text-body text-ink-secondary">
+          {vehicleQuery.data.arrangement === undefined
+            ? "This vehicle has no current arrangement, so a rental can't be started on it yet."
+            : `This vehicle is set up for arrangement ${vehicleQuery.data.arrangement}, not a monthly rental.`}
+        </p>
+      </Screen>
+    );
+  }
+
   // One action per step, in `Screen`'s own sticky slot (M-24) — there is no
   // separate "Back" button anywhere in this screen's own content; the
   // app-bar chevron (wired to `goBack` below, not the raw `onBack` prop) is

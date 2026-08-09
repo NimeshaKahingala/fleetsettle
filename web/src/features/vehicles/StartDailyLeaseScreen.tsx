@@ -169,6 +169,24 @@ export function StartDailyLeaseScreen({
     );
   }
 
+  // GAP-84/F1: a daily lease is arrangement B, or no current arrangement at
+  // all — `VehicleOverviewScreen`'s own `canStartDailyLease` reads exactly
+  // this pair. The Worker refuses this independently on submit (a deep link
+  // bypasses this component entirely); this is the "never the form" half.
+  if (
+    vehicleQuery.data !== undefined &&
+    vehicleQuery.data.arrangement !== "B" &&
+    vehicleQuery.data.arrangement !== undefined
+  ) {
+    return (
+      <Screen title={vehicleQuery.data.registration} onBack={onBack}>
+        <p className="text-body text-ink-secondary">
+          {`This vehicle is set up for arrangement ${vehicleQuery.data.arrangement}, not a daily lease.`}
+        </p>
+      </Screen>
+    );
+  }
+
   return (
     <Screen
       title={vehicleQuery.data?.registration ?? "Start a daily lease"}

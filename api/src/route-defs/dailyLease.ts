@@ -42,8 +42,11 @@ export const startDailyLeaseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot set up a daily lease" },
     404: { description: "No such vehicle or driver in this business" },
-    // DM §7's exclusion constraint — an overlapping daily lease already exists for this vehicle.
-    409: { description: "This vehicle already has a daily lease over one or more of these dates" },
+    // DM §7's exclusion constraint, or GAP-84/F1's arrangement guard.
+    409: {
+      description:
+        "This vehicle already has a daily lease over one or more of these dates, or is not configured for arrangement B (GAP-84)",
+    },
   },
 });
 

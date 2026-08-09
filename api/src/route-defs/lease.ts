@@ -41,7 +41,10 @@ export const startLeaseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot start a lease" },
     404: { description: "No such vehicle or customer in this business" },
-    409: { description: "That accounting period is closed" },
+    // GAP-84/F1: the vehicle's own standing arrangement isn't A, or the accounting period is closed.
+    409: {
+      description: "This vehicle is not configured for arrangement A (GAP-84), or PERIOD_CLOSED",
+    },
   },
 });
 

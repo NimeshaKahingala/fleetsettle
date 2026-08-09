@@ -4,6 +4,7 @@ import { uuidSchema } from "./common.js";
 
 /** Shared across UC-74/UC-78 — the three party kinds a receivable can be against. */
 export const reportPartyTypeSchema = z.enum(["customer", "driver", "partner"]);
+export type ReportPartyType = z.infer<typeof reportPartyTypeSchema>;
 
 export const ageingBucketSchema = z.enum(["current", "1-30", "31-60", "61-90", "over-90"]);
 
