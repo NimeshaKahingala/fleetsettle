@@ -17,7 +17,7 @@ const created: IncidentRecoveryResponse = {
 };
 
 async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: string) {
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter agreed amount" }));
   for (const digit of digits) {
     await user.click(screen.getByRole("button", { name: digit }));
   }

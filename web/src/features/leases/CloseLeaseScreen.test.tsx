@@ -170,7 +170,7 @@ test("an agreed figure keeps Stop the clock disabled until an amount is entered"
   await user.click(await screen.findByRole("button", { name: "An agreed figure" }));
   expect(screen.getByRole("button", { name: "Stop the clock" })).toBeDisabled();
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter agreed amount" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -268,7 +268,7 @@ test("a held deposit: retain requires an amount, then settling advances to close
   await user.click(screen.getByRole("button", { name: "Retain" }));
   expect(screen.getByRole("button", { name: "Settle deposit" })).toBeDisabled();
 
-  await user.click(screen.getByRole("button", { name: "Rs 0" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount to retain" }));
   await user.click(screen.getByRole("button", { name: "5" }));
   await user.click(screen.getByRole("button", { name: "Save" }));
 
