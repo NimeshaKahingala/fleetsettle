@@ -4,13 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { MoneyField } from "../../components/MoneyField.js";
-import { NotAvailable } from "../../components/NotAvailable.js";
+import { PhotoCapture } from "../../components/PhotoCapture.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 
 export interface FuelFillSheetProps {
   open: boolean;
@@ -42,6 +43,7 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
   const [amountMinor, setAmountMinor] = useState<Minor | null>(null);
   const [litresText, setLitresText] = useState("");
   const [borneByUs, setBorneByUs] = useState(false);
+  const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const vehiclesQuery = useQuery({
     queryKey: ["vehicles"],
@@ -56,8 +58,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       setLitresText("");
       setBorneByUs(false);
       setSelectedVehicle(null);
+      photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync-on-open only
   }, [open]);
 
   useEffect(() => {
@@ -95,6 +99,9 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       void queryClient.invalidateQueries({
         queryKey: ["vehicle", selectedVehicle?.id, "expense"],
       });
+      // The record saves first and the photos follow it (UI §6.3) — any
+      // photo captured before Save was only ever held locally until now.
+      photoUpload.flush(expense.id);
       onRecorded(expense);
     },
   });
@@ -152,7 +159,11 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
 
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Photo</span>
-              <NotAvailable reason="photo capture isn't available yet" />
+              <PhotoCapture
+                onCapture={photoUpload.onCapture}
+                uploadStatus={photoUpload.uploadStatus}
+                onRetryUpload={photoUpload.onRetryUpload}
+              />
             </div>
           </div>
         </Disclosure>

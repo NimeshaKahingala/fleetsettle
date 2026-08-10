@@ -21,11 +21,20 @@ export class ApiError extends Error {
   }
 }
 
+export interface BlobResponse {
+  blob: Blob;
+  contentType: string;
+}
+
 export interface ApiClient {
   get<T>(path: string): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
   put<T>(path: string, body: unknown): Promise<T>;
   patch<T>(path: string, body: unknown): Promise<T>;
+  /** A7/GAP-16: the image is the request body, not JSON — `postBinary` sets the caller's own `Content-Type` and expects the usual JSON metadata response back. */
+  postBinary<T>(path: string, blob: Blob, contentType: string): Promise<T>;
+  /** Fetches an attachment's bytes through the Worker — never a public or presigned URL (A7's plan, decisions 1-2), so this always carries the bearer token. */
+  getBlob(path: string): Promise<BlobResponse>;
 }
 
 /**
@@ -61,6 +70,29 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
     return (await res.json()) as T;
   }
 
+  /**
+   * `request<T>()`'s own error handling, for a blob body instead of a JSON
+   * one — the two response shapes can't share one code path (`res.json()`
+   * and `res.blob()` each consume the body once, and only one applies).
+   */
+  async function requestBlob(path: string): Promise<BlobResponse> {
+    const token = await getToken();
+    const res = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as Partial<ErrorBody> | null;
+      throw new ApiError(
+        res.status,
+        body?.code ?? "INTERNAL_ERROR",
+        body?.error ?? res.statusText,
+        body?.requestId ?? "",
+      );
+    }
+
+    const blob = await res.blob();
+    return { blob, contentType: res.headers.get("content-type") ?? blob.type };
+  }
+
   return {
     get: <T>(path: string) => request<T>(path),
     post: <T>(path: string, body: unknown) =>
@@ -69,5 +101,11 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
       request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
     patch: <T>(path: string, body: unknown) =>
       request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+    // The default header block sets Content-Type: application/json before
+    // spreading init?.headers, so this override lands last and wins — the
+    // JSON default is never actually sent for a binary body.
+    postBinary: <T>(path: string, blob: Blob, contentType: string) =>
+      request<T>(path, { method: "POST", body: blob, headers: { "Content-Type": contentType } }),
+    getBlob: (path: string) => requestBlob(path),
   };
 }
