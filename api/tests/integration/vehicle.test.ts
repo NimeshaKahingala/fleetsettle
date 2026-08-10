@@ -302,6 +302,7 @@ describe("vehicle calendar (P6, UC-95)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -376,6 +377,7 @@ describe("vehicle calendar (P6, UC-95)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -726,6 +728,7 @@ describe("vehicle trip history (GAP-77, UC-71)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId, { name: "Kamal Perera" });
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);

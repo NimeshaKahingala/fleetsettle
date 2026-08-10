@@ -1,6 +1,6 @@
-import { toWire, type Minor } from "@fleetsettle/shared";
+import { businessToday, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
 import { changeDailyLeaseDriver, startDailyLease } from "../domain/dailyLease.js";
 import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
 import {
@@ -62,6 +62,7 @@ export const startDailyLeaseHandler: RouteHandler<typeof startDailyLeaseRoute, E
     effectiveFrom: body.effectiveFrom,
     ...(body.effectiveTo !== undefined ? { effectiveTo: body.effectiveTo } : {}),
     dailyLeaseAmountMinor: body.dailyLeaseAmountMinor,
+    today: businessToday(requireBusinessTimezone(c)),
   });
 
   return c.json(
@@ -115,6 +116,7 @@ export const changeDailyLeaseDriverHandler: RouteHandler<
     dailyLeaseId: id,
     newDriverId: body.driverId,
     effectiveFrom: body.effectiveFrom,
+    today: businessToday(requireBusinessTimezone(c)),
   });
 
   return c.json(toResponse(result, result.dailyLeaseAmountMinor), 201);

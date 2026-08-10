@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.4 — §2.3 gains a member-administration row (W-49); F-1.4 corrected to offer the passive `owner` role, not just manager/owner-manager; F-1.8's steps reconciled with its own OQ-2 resolution (code, never phone matching); INV-31 added — a business always keeps at least one active owner
-**Date:** 7 August 2026
+**Status:** v1.1.5 — F-3.4 corrected: agreeing a customer's incident contribution now opens an `Obligation` (GAP-10), reconciling this flow's **Writes** line with migration `0001`'s own column comment (`-- customer contributions become receivable`), which the flow had left unmet. Insurer-sourced recoveries are unchanged — an insurer is never a payer in `POST /api/payment`. §7.2's fixture figures (95,000 / 80,000 / 15,000) are untouched
+**Date:** 9 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -533,20 +533,24 @@ The incident is a **container** that stays open for weeks and gathers everything
 1. **Open it** — date, description, photos.
 2. **Off-road days and the rent** — enter the dates, then choose *for this incident only*: **rent continues** (default) / **credit the days** pro-rata / **extend the rental** by the lost days.
 3. **Repairs** — one cost or several, added as invoices arrive over following weeks, all attached.
-4. **Customer contribution** — negotiated *after* the repair cost is known: agreed amount + note; payable in one go, in instalments, or from the deposit.
+4. **Customer contribution** — negotiated *after* the repair cost is known: agreed amount + note; payable in one go, in instalments, or from the deposit. **⚑ Agreeing the amount opens an obligation the customer can pay against** — otherwise "payable in one go, in instalments, or from the deposit" has nothing for a payment to allocate to. An insurer's contribution (step 5) opens none; an insurer is not a payer in `POST /api/payment`, only a source `IncidentRecovery` records against.
 5. **Insurance** — hidden unless enabled (major damage only): amount claimed, excess borne, status, amount received. Until it arrives it is **pending recovery, not income**.
 6. **Bottom line** — total repairs, total recovered, still expected, **net cost to you**.
 
-**Writes** `Incident`, `IncidentCost[]`, `IncidentRecovery[]`, `RentTreatment`, `InsuranceClaim?`, `LeaseExtension` when the treatment is *extend*.
+**Writes** `Incident`, `IncidentCost[]`, `IncidentRecovery[]`, `RentTreatment`, `InsuranceClaim?`, `LeaseExtension` when the treatment is *extend*, and an `Obligation` when a recovery's source is the customer (⚑ GAP-10, 9 August 2026 — see below).
 *Not a wizard.* The incident is created at step 1 and everything after it is a separate edit, days or weeks apart — a repair invoice in three weeks, an insurance settlement in three months. A six-step form that must be completed in one sitting would be the wrong shape for a record whose entire purpose is to stay open (§6.6).
 *Why the extension is its own record:* choosing *extend* moves the lease end date, and a year later "why does this lease run twelve days long" has exactly one answer. Leaving that to be inferred from two timestamps is leaving it unanswered.
+
+**⚑ Corrected 9 August 2026 — GAP-10.** This step previously left `IncidentRecovery.obligation_id` unset for every source, on the reading that this flow's own **Writes** line never named `Obligation`. That reading was faithful to the line as written but left a hole the line itself hadn't noticed: with no obligation, a customer's agreed contribution has nothing for `POST /api/payment` to allocate against, so "payable in one go, in instalments, or from the deposit" was true in the step's prose and false in the product. Migration `0001`'s own comment on the column — `-- customer contributions become receivable` — already recorded the original intent; this correction just makes the flow document agree with it. **Scope stays narrow**: only `source = 'customer'` opens an obligation. An insurer is never a payer in this product's payment system, so `source = 'insurer'` opens none, and nothing about insurance claims (step 5) changes.
+
 **Accept**
 · §7.2 reproduces: 95,000 spent, 80,000 recovered, **net 15,000**, spread July/August/September with `60,000 pending recovery` visible in July and August — *verified end-to-end against live Postgres*
 · Pending recovery **never** enters profit (INV-4-adjacent — money expected is not money earned)
 · **A recovery carries two dates, not one**: the month it was agreed and became expected, and the month the money actually arrived. They are routinely different — the customer's contribution was agreed and paid in August, the insurer's settled in September. With a single date the two collapse into one month and the *pending recovery* line, which is what makes a bad month visibly temporary, cannot be produced at all
 · Costs and recoveries land in different months and the incident still answers "what did this crash cost" years later (§9.2)
 · Choosing *extend* adds the days to the lease term and the allowance follows automatically (F-2.3)
-· Claims-per-vehicle-per-year is derivable (useful at renewal).
+· Claims-per-vehicle-per-year is derivable (useful at renewal)
+· **A customer's agreed contribution is payable through `POST /api/payment`** — the obligation `recordCustomerContribution` now opens is what the allocation resolves against. §7.2's `60,000`/`80,000`/`95,000`/`15,000` are unchanged: the obligation routes an existing amount to a payment, it does not create or duplicate one.
 
 #### F-3.5 Scheduled maintenance
 *Actor:* Manager · *Source:* UC-13 · *Phase:* 1
