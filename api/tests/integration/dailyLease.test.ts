@@ -1,5 +1,8 @@
+import { businessToday } from "@fleetsettle/shared";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { dayRecord, vehicleDayAllocation } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -32,11 +35,14 @@ async function postChangeDriver(token: string, id: string, body: unknown) {
 }
 
 /**
- * F-1.7 / UC-05 test matrix. Only `daily_lease` + its first `daily_lease_rate`
- * are written in P2 — DM §4.1 attributes the vehicle_day_allocation/day_record
- * calendar entirely to `generate-day-cards` (P13), so there is no INV-1 case
- * here; the 409 this endpoint DOES have is DM §7's exclusion constraint
- * (an overlapping daily lease on the same vehicle).
+ * F-1.7 / UC-05 test matrix. `daily_lease` and its first `daily_lease_rate`
+ * are written here, and — since D-9/GAP-88 — the same rolling horizon of
+ * `vehicle_day_allocation`/`day_record` rows `generate-day-cards` writes
+ * nightly, materialised synchronously in the same transaction so the
+ * calendar, the trip-booking conflict check and the lost-days report never
+ * have a ~24h window where the lease is invisible. The 409 this endpoint
+ * has is DM §7's exclusion constraint (an overlapping daily lease on the
+ * same vehicle) — INV-1 itself is exercised below, GAP-88's own regression.
  */
 describe("set up the daily lease (P2, F-1.7/UC-05)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -79,6 +85,47 @@ describe("set up the daily lease (P2, F-1.7/UC-05)", () => {
     const getRes = await getDailyLease(token, body.id);
     expect(getRes.status).toBe(200);
     expect(await getRes.json()).toMatchObject({ id: body.id, dailyLeaseAmountMinor: "500000" });
+
+    await ctx.cleanup();
+  });
+
+  it("D-9/GAP-88 — today's allocation and day_record exist immediately, with no generate-day-cards run", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: today });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedDailyLease(body.id);
+
+    const allocation = await db
+      .select({ arrangement: vehicleDayAllocation.arrangement })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          eq(vehicleDayAllocation.businessDate, today),
+        ),
+      );
+    expect(allocation).toEqual([{ arrangement: "B" }]);
+
+    const record = await db
+      .select({ state: dayRecord.state, expectedMinor: dayRecord.expectedMinor })
+      .from(dayRecord)
+      .where(and(eq(dayRecord.dailyLeaseId, body.id), eq(dayRecord.businessDate, today)));
+    expect(record).toEqual([{ state: "open", expectedMinor: 500_000n }]);
 
     await ctx.cleanup();
   });

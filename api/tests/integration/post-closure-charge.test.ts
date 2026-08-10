@@ -68,6 +68,7 @@ describe("charge something after everything has closed (P10, F-8.4/UC-91)", () =
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);

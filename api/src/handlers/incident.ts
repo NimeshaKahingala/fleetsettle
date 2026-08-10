@@ -295,6 +295,7 @@ export const recordRecoveryReceivedHandler: RouteHandler<
     recoveryId,
     receivedAmountMinor: body.receivedAmountMinor,
     receivedOn: asBusinessDate(body.receivedOn),
+    userId: requireUserId(c),
   });
 
   return c.json(recoveryToResponse(recovery), 200);

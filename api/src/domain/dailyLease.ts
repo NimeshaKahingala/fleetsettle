@@ -1,6 +1,8 @@
 import { addDays, newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
 import { isExclusionViolation } from "../db/pg-error.js";
+import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
+import { findOpenPeriodRow } from "../queries/accounting-period.js";
 import { DailyLeaseOverlapsError, NotFoundError, ValidationError } from "../errors/app-error.js";
 import {
   endDailyLeaseRow,
@@ -19,6 +21,8 @@ export interface StartDailyLeaseInput {
   effectiveFrom: BusinessDate;
   effectiveTo?: BusinessDate;
   dailyLeaseAmountMinor: Minor;
+  /** Injected — `businessToday()` is the one sanctioned clock read, and it belongs to the handler (IG §4.5). Drives how far the synchronous materialisation below reaches. */
+  today: BusinessDate;
 }
 
 export interface StartedDailyLease {
@@ -26,11 +30,15 @@ export interface StartedDailyLease {
 }
 
 /**
- * F-1.7 / UC-05, one transaction: `daily_lease` and its first `daily_lease_rate`
- * (DM §7). No `vehicle_day_allocation` or `day_record` here — DM §4.1 attributes
- * both, explicitly, to `generate-day-cards`, a rolling-horizon cron job (P13),
- * not the setup step that creates the arrangement. Recorded here rather than
- * silently skipped.
+ * F-1.7 / UC-05, one transaction: `daily_lease`, its first `daily_lease_rate`
+ * (DM §7), and — since D-9/GAP-88 — the rolling 90-day horizon of
+ * `vehicle_day_allocation`/`day_record` rows itself, using the identical
+ * write `generate-day-cards` runs nightly. DM §4.1 used to assign that write
+ * solely to the cron; a lease started today was invisible to the calendar,
+ * the trip-booking conflict check and the lost-days report for up to the
+ * ~24 hours until the next run, which is exactly what CLAUDE.md's "no cron
+ * is a prerequisite for a user action" forbids. The cron's role is now to
+ * extend the horizon forward each night, not to originate the fact.
  */
 export async function startDailyLease(
   writer: Writer,
@@ -39,6 +47,7 @@ export async function startDailyLease(
   try {
     return await writer.transaction(async (tx) => {
       const dailyLeaseId = newId();
+      const effectiveTo = input.effectiveTo ?? null;
       await insertDailyLease(tx, {
         id: dailyLeaseId,
         businessId: input.businessId,
@@ -57,6 +66,30 @@ export async function startDailyLease(
         effectiveFrom: input.effectiveFrom,
       });
 
+      const openPeriod = (await findOpenPeriodRow(tx, input.businessId)) ?? null;
+      await materializeDailyLeaseHorizon(
+        tx,
+        {
+          id: dailyLeaseId,
+          businessId: input.businessId,
+          vehicleId: input.vehicleId,
+          driverId: input.driverId,
+          patternType: input.patternType,
+          patternWeekdays: input.patternWeekdays ?? null,
+          effectiveFrom: input.effectiveFrom,
+          effectiveTo,
+        },
+        [
+          {
+            dailyLeaseAmountMinor: input.dailyLeaseAmountMinor,
+            effectiveFrom: input.effectiveFrom,
+            effectiveTo: null,
+          },
+        ],
+        openPeriod,
+        input.today,
+      );
+
       return { dailyLeaseId };
     });
   } catch (err) {
@@ -72,6 +105,8 @@ export interface ChangeDailyLeaseDriverInput {
   dailyLeaseId: string;
   newDriverId: string;
   effectiveFrom: BusinessDate;
+  /** Injected — `businessToday()` (IG §4.5). Same D-9/GAP-88 materialisation as `startDailyLease`: the reassigned daily lease is a new `daily_lease` row and would otherwise be just as invisible until the next cron run. */
+  today: BusinessDate;
 }
 
 export interface ChangedDailyLeaseDriver {
@@ -134,6 +169,30 @@ export async function changeDailyLeaseDriver(
         dailyLeaseAmountMinor: rate.dailyLeaseAmountMinor,
         effectiveFrom: input.effectiveFrom,
       });
+
+      const openPeriod = (await findOpenPeriodRow(tx, input.businessId)) ?? null;
+      await materializeDailyLeaseHorizon(
+        tx,
+        {
+          id: newDailyLeaseId,
+          businessId: input.businessId,
+          vehicleId: current.vehicleId,
+          driverId: input.newDriverId,
+          patternType: current.patternType,
+          patternWeekdays: current.patternWeekdays,
+          effectiveFrom: input.effectiveFrom,
+          effectiveTo: null,
+        },
+        [
+          {
+            dailyLeaseAmountMinor: rate.dailyLeaseAmountMinor,
+            effectiveFrom: input.effectiveFrom,
+            effectiveTo: null,
+          },
+        ],
+        openPeriod,
+        input.today,
+      );
 
       return {
         id: newDailyLeaseId,

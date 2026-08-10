@@ -325,16 +325,19 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   });
 
   describe("customer contribution (step 4/W-10)", () => {
-    it("happy path — agreed, then received", async () => {
+    it("happy path — agreed opens a payable obligation, then received settles it (D-9/GAP-10)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       await ctx.createOpenPeriod(businessId);
       const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
       const owner = await mintUser(db, ctx, businessId, "manager");
       const token = await signAccessToken(owner.asgardeoSub);
 
       const opened = await post("/api/incident", token, {
         vehicleId,
+        leaseId,
         occurredOn: "2026-07-08",
       });
       const { id: incidentId }: { id: string } = await opened.json();
@@ -350,6 +353,19 @@ describe("incident (P8, F-3.4/UC-12)", () => {
         await agreed.json();
       expect(agreedBody).toMatchObject({ agreedAmountMinor: "20000", receivedAmountMinor: "0" });
 
+      const obligationsAfterAgree = await db
+        .select({
+          amountMinor: obligation.amountMinor,
+          settledMinor: obligation.settledMinor,
+          status: obligation.status,
+          partyCustomerId: obligation.partyCustomerId,
+        })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+      expect(obligationsAfterAgree).toEqual([
+        { amountMinor: 20000n, settledMinor: 0n, status: "pending", partyCustomerId: customerId },
+      ]);
+
       const received = await post(
         `/api/incident/${incidentId}/recovery/${agreedBody.id}/receive`,
         token,
@@ -358,6 +374,12 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       expect(received.status).toBe(200);
       const receivedBody: { receivedAmountMinor: string } = await received.json();
       expect(receivedBody.receivedAmountMinor).toBe("20000");
+
+      const obligationsAfterReceive = await db
+        .select({ settledMinor: obligation.settledMinor, status: obligation.status })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+      expect(obligationsAfterReceive).toEqual([{ settledMinor: 20000n, status: "paid" }]);
 
       const detail = await get(`/api/incident/${incidentId}`, token);
       const detailBody: { bottomLine: Record<string, string> } = await detail.json();
@@ -369,10 +391,10 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       await ctx.cleanup();
     });
 
-    it("409 — a closed accounting period rejects the write", async () => {
+    it("400 — an incident with no lease has no customer to bill a contribution to (D-9/GAP-10)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
-      const periodId = await ctx.createOpenPeriod(businessId);
+      await ctx.createOpenPeriod(businessId);
       const vehicleId = await ctx.createVehicle(businessId);
       const owner = await mintUser(db, ctx, businessId, "manager");
       const token = await signAccessToken(owner.asgardeoSub);
@@ -384,12 +406,80 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const { id: incidentId }: { id: string } = await opened.json();
       ctx.trackCreatedIncident(incidentId);
 
+      const res = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — a closed accounting period rejects the write", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
       await ctx.closePeriod(periodId);
 
       const res = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
         agreedAmountMinor: "20000",
         agreedOn: "2026-07-20",
       });
+      expect(res.status).toBe(409);
+      const body: { code: string } = await res.json();
+      expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
+
+      await ctx.cleanup();
+    });
+
+    it("409 — receiving into a closed period rejects the payment this now writes (D-9/GAP-10)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      const agreedBody: { id: string } = await agreed.json();
+
+      await ctx.closePeriod(periodId);
+
+      const res = await post(
+        `/api/incident/${incidentId}/recovery/${agreedBody.id}/receive`,
+        token,
+        { receivedAmountMinor: "20000", receivedOn: "2026-07-25" },
+      );
       expect(res.status).toBe(409);
       const body: { code: string } = await res.json();
       expect(body).toMatchObject({ code: "PERIOD_CLOSED" });

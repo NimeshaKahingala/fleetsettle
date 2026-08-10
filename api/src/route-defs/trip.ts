@@ -56,7 +56,7 @@ export const bookTripRoute = createRoute({
     // INV-1 (UC-20): the vehicle is already allocated for one or more of these dates.
     409: {
       description:
-        "This vehicle is already allocated for one or more of these dates, or PERIOD_CLOSED (GAP-23)",
+        "This vehicle is already allocated for one or more of these dates, PERIOD_CLOSED (GAP-23), or VEHICLE_ARRANGEMENT_MISMATCH — not standing on arrangement B or C (GAP-87)",
     },
   },
 });

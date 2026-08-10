@@ -104,6 +104,7 @@ export const recordCustomerContributionRoute = createRoute({
       content: { "application/json": { schema: incidentRecoveryResponseSchema } },
       description: "The customer's recovery row, agreed but not yet received",
     },
+    400: { description: "This incident has no lease, so there is no customer to bill" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a customer contribution" },
     404: { description: "No such incident in this business" },
@@ -127,6 +128,9 @@ export const recordRecoveryReceivedRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a recovery as received" },
     404: { description: "No such recovery in this business" },
+    409: {
+      description: "PERIOD_CLOSED — a customer-sourced recovery also posts a payment (D-9/GAP-10)",
+    },
   },
 });
 

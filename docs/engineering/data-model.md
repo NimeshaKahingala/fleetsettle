@@ -1,8 +1,8 @@
 # Data Model
 
-**Status:** v1.1.2 — §15's UC-75 and UC-76 blocks each gain the queries this document had omitted: banked-by-destination and advances-by-driver for UC-75 (GAP-70), and per-month and per-reason groupings for UC-76 (GAP-71) alongside the existing per-weekday one. Both are documents-travel-together corrections — UC-75/UC-76 and F-7.5/FL §9.2 already specified all of it; this document's own queries just never carried the rest of it down. No schema, constraint or behaviour change; the §16.1 fixtures are untouched
+**Status:** v1.1.3 — §4.1's daily-lease (B) materialisation moves off sole cron ownership: `startDailyLease` now writes the same rolling 90-day horizon synchronously, inside its own transaction, and `generate-day-cards` only extends it (D-9, GAP-88) — a documents-disagree correction, CLAUDE.md's "no cron is a prerequisite for a user action" against this document's own prior table. §16's F-3.4 row gains `obligation`, paired with `user-flows.md` v1.1.5's GAP-10 correction. No fixture-figure change in either
 **Date:** 9 August 2026
-**Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.4
+**Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.5
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
 **Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
@@ -354,7 +354,9 @@ An open-ended daily lease has no end date, so "one row per occupied day" cannot 
 |---|---|
 | **Trip** (C) | The full date range, **at booking**. Always bounded, and it must claim the days immediately or two trips could take the same day |
 | **Lease** (A) | Through `end_date`; for an open-ended lease, to a **rolling 90-day horizon**, extended daily by the same cron that rolls billing periods |
-| **Daily lease** (B) | To the same rolling horizon, written by `generate-day-cards` alongside each `day_record` |
+| **Daily lease** (B) | **Materialised synchronously, inside the same transaction that starts the lease** — the full rolling 90-day horizon, using the identical query `generate-day-cards` runs nightly. The cron then only extends the horizon by one day as it rolls, exactly as it already does for lease (A) |
+
+**⚑ D-9 corrects this row for GAP-88, 9 August 2026.** It previously read "to the same rolling horizon, written by `generate-day-cards` alongside each `day_record`" — sole cron ownership — and `startDailyLease` was written faithful to that. But CLAUDE.md's own rule is that no cron may be a prerequisite for a user action, and a lease started today left the calendar, the trip-booking conflict check below, and the lost-days report blind to it for up to the ~24 hours until the next cron run. **`startDailyLease` now materialises the same rolling horizon itself, inside its own transaction** — one bulk `INSERT … SELECT` over the pattern, the same shape `generate-day-cards` already uses, never a per-day loop (Worker CPU is bounded per invocation). The cron's role changes from *originates the fact* to *keeps the horizon rolling forward*, which is the relationship it already has with lease (A) above. Two alternatives were considered and declined — see D-9 in §17.
 
 **This is what makes trip booking work for future dates**, and it is the trap worth naming: a trip booked three months out has *no* `day_record` rows to mark as `paused_for_trip`, because they do not exist yet. So booking does two different things depending on the date:
 
@@ -1669,7 +1671,7 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-3.1 record expense | `expense` |
 | F-3.2 no-vehicle cost | `expense` (`vehicle_id` NULL) |
 | F-3.3 fuel fill | `expense` (`litres`), `odometer_reading` |
-| F-3.4 incident | `incident`, `expense`, `incident_recovery`, `insurance_claim`, `lease_extension` |
+| F-3.4 incident | `incident`, `expense`, `incident_recovery`, `insurance_claim`, `lease_extension`, `obligation` (GAP-10 — customer-sourced recoveries only) |
 | F-3.5 maintenance | `expense`, `odometer_reading` |
 | F-4.1 pending | `day_record`, `obligation`, `vehicle_document`, `message` |
 | F-4.2 confirm day | `day_record`, `obligation`, `payment`, `payment_allocation` |
@@ -1788,6 +1790,7 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-6** | Allocation horizon length (§4.1) | 90 days is a guess. Long enough that a trip booked "next quarter" is inside it; short enough that an open-ended lease does not materialise years. Revisit once real booking lead times are known |
 | **D-8** | `audit_log` has no writer (INV-28) | The table and its index exist; nothing populates them. Either a generic `AFTER INSERT OR UPDATE` trigger over the money tables writing `to_jsonb(NEW)`, or the application writes the row inside the same transaction. **The trigger is the safer choice** — it cannot be forgotten in a new code path, which is the whole argument of §1.1. **Build it as the first implementation task**, before any money table holds live data: §11.2 moved audit into phase one precisely because retrofitting it later means backfilling history that was never captured, and an audit trail with a gap at the beginning is the one stretch someone will eventually need |
 | **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
+| **D-9** | GAP-88: daily-lease (B) materialisation moved off the cron (§4.1) | **Synchronous, inside `startDailyLease`'s own transaction** — one bulk `INSERT … SELECT`, the same query shape `generate-day-cards` already runs, so the cron keeps extending the horizon rather than originating it. Two alternatives declined: *derive occupancy at read time* in `findVehicleCalendar` — rejected because the trip-conflict check and the lost-days report would each need their own separate fallback, and the close-checklist (GAP-94) a fourth, instead of fixing the one write path once; *keep the cron and patch only the calendar/report symptoms* — rejected because it leaves the ~24h blind window in place, which is exactly what CLAUDE.md's "no cron is a prerequisite for a user action" forbids, not a smaller version of it |
 
 ---
 
