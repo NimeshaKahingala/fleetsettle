@@ -1,6 +1,6 @@
 # Data Model
 
-**Status:** v1.1.3 — §4.1's daily-lease (B) materialisation moves off sole cron ownership: `startDailyLease` now writes the same rolling 90-day horizon synchronously, inside its own transaction, and `generate-day-cards` only extends it (D-9, GAP-88) — a documents-disagree correction, CLAUDE.md's "no cron is a prerequisite for a user action" against this document's own prior table. §16's F-3.4 row gains `obligation`, paired with `user-flows.md` v1.1.5's GAP-10 correction. No fixture-figure change in either
+**Status:** v1.1.4 — §12: migration `0013` gives `attachment` its void trio, a content-type and kind/subject-type pair `CHECK`, and a tenant-scoped subject index — A7/GAP-16, the table's first real writer. No fixture-figure change
 **Date:** 9 August 2026
 **Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.5
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
@@ -1232,6 +1232,45 @@ CREATE INDEX audit_by_record ON audit_log (table_name, record_id, changed_at DES
 CREATE RULE audit_log_no_update AS ON UPDATE TO audit_log DO INSTEAD NOTHING;
 CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
 ```
+
+**A7/GAP-16, migration `0013`, tightens `attachment` while it held its first row** — the void trio (W-50), a tenant-scoped live-subject index (no index on `subject_type`/`subject_id` existed before this), and two `CHECK`s a table with real rows could no longer add cheaply:
+
+```sql
+ALTER TABLE attachment
+  ADD COLUMN voided_at     timestamptz,
+  ADD COLUMN voided_reason text,
+  ADD COLUMN voided_by     uuid REFERENCES app_user(id);
+
+ALTER TABLE attachment
+  ADD CONSTRAINT attachment_void_consistency CHECK (
+    (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
+    OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
+        AND voided_reason IS NOT NULL AND voided_reason <> '')
+  );
+
+ALTER TABLE attachment ADD CONSTRAINT attachment_size_positive CHECK (size_bytes > 0);
+
+ALTER TABLE attachment ADD CONSTRAINT attachment_content_type_allowed CHECK (
+  content_type IN ('image/jpeg', 'image/png', 'image/webp')
+);
+
+-- Every combination the schema will ever legally hold, not only the one
+-- pair A7's own API accepts — "legal in the database" and "supported by
+-- this branch's API" are two separate gates (A7's plan, decision 5).
+ALTER TABLE attachment ADD CONSTRAINT attachment_kind_subject_type_pair CHECK (
+  (subject_type = 'expense' AND kind = 'expense_receipt')
+  OR (subject_type = 'lease' AND kind IN ('condition_handover', 'condition_return'))
+  OR (subject_type = 'incident' AND kind = 'incident')
+  OR (subject_type = 'odometer_reading' AND kind = 'odometer')
+  OR (subject_type = 'post_closure_charge' AND kind = 'ticket')
+);
+
+CREATE INDEX attachment_subject_live
+  ON attachment (business_id, subject_type, subject_id, uploaded_at DESC)
+  WHERE voided_at IS NULL;
+```
+
+`attachment` stays outside `assert_period_open()`'s array and `write_audit_log()`'s discovery loop — it carries no `posted_period_id`, so it is not a money table by this document's own definition (§13). The consequence is deliberate, not a gap: **attachment writes are neither period-gated nor audit-logged.**
 
 **`write_audit_log()` (migration `0002`) attaches itself by discovery, not by a hand-maintained list**: it walks every table carrying `posted_period_id` and attaches to each. `business_member` carries no such column — it is not a money table — so the discovery loop has never covered it, and **who granted or revoked a role has been recorded nowhere** (GAP-53). The fix is one explicit attachment, since `write_audit_log()` reads only `NEW.business_id` and `NEW.id`, both present on this table already:
 

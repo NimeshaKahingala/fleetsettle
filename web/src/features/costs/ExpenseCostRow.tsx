@@ -1,11 +1,16 @@
 import { parse } from "@fleetsettle/shared";
-import type { ExpenseListRow } from "@fleetsettle/shared/schemas";
+import type { ExpenseListRow, ListAttachmentsResponse } from "@fleetsettle/shared/schemas";
+import { useQuery } from "@tanstack/react-query";
+import { Image as ImageIcon } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
+import { useApi } from "../../lib/ApiContext.js";
+import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
 import { cn } from "../../lib/cn.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
+import { ReceiptSheet } from "./ReceiptSheet.js";
 import { VoidExpenseSheet } from "./VoidExpenseSheet.js";
 
 export interface ExpenseCostRowProps {
@@ -24,10 +29,30 @@ export interface ExpenseCostRowProps {
  */
 export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: ExpenseCostRowProps) {
   const [voidOpen, setVoidOpen] = useState(false);
+  const [receiptsOpen, setReceiptsOpen] = useState(false);
   const voided = expense.voidedAt !== null;
+  const api = useApi();
 
-  const row = (
-    <Card accent={voided ? "critical" : undefined} className="flex flex-col gap-1">
+  // A voided expense's receipts stay visible (they are evidence of what was
+  // claimed, A7's plan, "Domain and storage") — this query is not gated on
+  // `voided`. Shares its cache key with `ReceiptSheet`'s own query, so
+  // opening it never re-fetches what this row already has.
+  const attachmentsQuery = useQuery({
+    queryKey: ["attachments", "expense", expense.id],
+    queryFn: () =>
+      api.get<ListAttachmentsResponse>(
+        `/api/attachment?${new URLSearchParams({ subjectType: "expense", subjectId: expense.id }).toString()}`,
+      ),
+  });
+  const { uploads: localUploads } = useLocalAttachmentUploads("expense", expense.id);
+  const confirmedCount = attachmentsQuery.data?.length ?? 0;
+  const pendingCount = localUploads.filter(
+    (u) => !(attachmentsQuery.data ?? []).some((a) => a.id === u.id),
+  ).length;
+  const receiptCount = confirmedCount + pendingCount;
+
+  const content = (
+    <div className="flex flex-col gap-1">
       <div className="flex items-center justify-between gap-4">
         <p className={cn("text-body", voided ? "text-ink-muted line-through" : "text-ink-primary")}>
           {EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
@@ -49,22 +74,42 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
           ) : null}
         </div>
       ) : null}
-    </Card>
+    </div>
   );
 
-  return voided ? (
-    row
-  ) : (
-    <>
-      <button type="button" onClick={() => setVoidOpen(true)} className="w-full text-left">
-        {row}
-      </button>
-      <VoidExpenseSheet
-        open={voidOpen}
-        onOpenChange={setVoidOpen}
-        expenseId={expense.id}
-        invalidateKeys={invalidateKeys}
+  return (
+    <Card accent={voided ? "critical" : undefined} className="flex flex-col gap-2">
+      {voided ? (
+        content
+      ) : (
+        <button type="button" onClick={() => setVoidOpen(true)} className="text-left">
+          {content}
+        </button>
+      )}
+      {receiptCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => setReceiptsOpen(true)}
+          className="inline-flex min-h-tap w-fit items-center gap-1 self-start rounded-sm px-2 text-caption text-ink-secondary active:bg-brand-wash"
+        >
+          <ImageIcon className="size-4" aria-hidden />
+          {receiptCount} receipt{receiptCount === 1 ? "" : "s"}
+        </button>
+      ) : null}
+      {!voided ? (
+        <VoidExpenseSheet
+          open={voidOpen}
+          onOpenChange={setVoidOpen}
+          expenseId={expense.id}
+          invalidateKeys={invalidateKeys}
+        />
+      ) : null}
+      <ReceiptSheet
+        open={receiptsOpen}
+        onOpenChange={setReceiptsOpen}
+        subjectType="expense"
+        subjectId={expense.id}
       />
-    </>
+    </Card>
   );
 }

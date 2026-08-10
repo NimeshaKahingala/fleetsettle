@@ -427,12 +427,14 @@ if (input.customerId !== undefined && input.agreedAmountMinor > 0n) { … }
 
 ### A7 · R2 upload (expense receipts only) — closes GAP-16 for one call site, independent of everything else
 
-**Fully planned, not started.** [ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md)
-is the implementation plan, re-validated against the working tree and then revised against a deep review the
-same day — every decision below is recorded there in full, with the reasoning, and this section is now a
-summary of it rather than an independent account. **Build it on its own branch**, `feature/image-upload`, cut
-from `build/p0-foundation`, so the server half (independently mergeable) can land ahead of the client half if
-the client work slips.
+**✅ Done, 9 Aug 2026, on `feature/image-upload`** (cut from `build/p0-foundation`).
+[ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md) is
+the implementation plan, re-validated against the working tree and then revised against a deep review the same
+day — every decision below is recorded there in full, with the reasoning, and this section is now a summary of
+it rather than an independent account. Built as its own seven-commit sequence exactly as sequenced there:
+schema, contract, server, server tests, the `PhotoCapture` fix, client upload infrastructure, then the receipt
+surface — GAP-16 stays open in `TRACKER.md` until that last commit, deliberately, since the API alone does not
+make it honestly closed.
 
 **Narrower than the row above once implied.** `attachment` (DM §12) is already generic and polymorphic, and
 one endpoint's *design* unblocks all five recorded gaps eventually — but this item builds and ships **exactly
@@ -462,13 +464,29 @@ driver gets 403 on both upload and read this branch, not a subject-specific 404,
 attachment read path at all yet; and a receipt-viewing surface is now part of this item's own scope rather
 than assumed to exist already.
 
-**Traps, unchanged and still live:**
-- **`business_id` on the `attachment` row comes from the token**, and reading an object must re-check it. The
-  `r2_key` is an opaque `crypto.randomUUID()`, unrelated to the attachment id (UUIDv7, partly predictable).
-- **A void marks the row; the object stays** — no hard delete. Migration `0013` adds the void trio plus a
-  void-consistency `CHECK`.
+**Traps, built against and confirmed, not merely watched for:**
+- **`business_id` on the `attachment` row comes from the token**, re-checked on every read via the same
+  subject-ownership lookup the write path uses. The `r2_key` is an opaque `crypto.randomUUID()`, unrelated to
+  the attachment id (UUIDv7, partly predictable).
+- **A void marks the row; the object stays** — no hard delete. Migration `0013`'s void trio plus its
+  void-consistency `CHECK` are live; `voidAttachmentHandler` mirrors `voidExpenseHandler` exactly.
+- **The idempotency race is covered by its own test**, not just argued for: two requests carrying the same
+  client-minted id, fired without awaiting either, resolve to exactly one row and one R2 object.
 - **GAP-17 stays open** — the pipeline still runs on the main thread with no Web Worker or 3s timeout.
-  Unchanged by this item; do not let it look closed by association.
+  Unchanged by this item; it does not look closed, and TRACKER.md says so explicitly.
+
+**Done means** — a fuel fill recorded with two receipt photos closes its sheet before either finishes
+uploading; reopening it via `ExpenseCostRow`'s new receipt indicator shows both, fetched as blobs through the
+Worker; a linked-driver token gets 403 on both upload and read of any attachment (decision 4 — this branch
+gives drivers no attachment read path at all); voiding one leaves it 404 on read, its R2 object untouched.
+
+**Verification is split, and the split matters.** The client half is actually proven: `npm run typecheck`,
+`npm run lint` and the full `web` test suite are green, including the new sheet/uploader/receipt-surface tests
+(the concurrency, retry-after-close and voided-stays-visible cases among them). **The server half is not** —
+`api/tests/integration/attachment.test.ts` (26 cases: the standard matrix, idempotent replay, the concurrent-
+same-id race, row/object corruption, and the linked-driver class) typechecks and lints clean but has never been
+run, because no `TEST_DATABASE_URL` was configured this session (finding B, still open). Do not read "26 cases
+written" as "26 cases passing" — run them against a disposable Neon branch before treating this as closed.
 
 ### A8 · Expense odometer wiring and the borne-by preview — independent
 

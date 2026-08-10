@@ -9,7 +9,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 | 3 | [engineering/data-model.md](engineering/data-model.md) | **The schema.** DDL, constraints, triggers, the report queries, the flow-to-table matrix | Behaviour |
 | 4 | [engineering/tech-stack.md](engineering/tech-stack.md) | **The stack.** Runtime, database, driver, auth, storage, and the four platform constraints that shaped the schema | How to build on it |
 | 5 | [engineering/implementation-guidelines.md](engineering/implementation-guidelines.md) | **How to build on it.** Layering, error shape, transactions, testing, CI | The stack itself |
-| 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-27`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
+| 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-28`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
 | 7 | [design/brand-guidelines.md](design/brand-guidelines.md) | **Identity.** The mark, lockups, icon assets, voice | Colour and type — those are §6 |
 
 Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set.
@@ -64,10 +64,10 @@ Three rules that have already earned their place:
 |---|---|---|
 | use-cases | v1.2.4 | 7 Aug 2026 |
 | user-flows | v1.1.5 | 9 Aug 2026 |
-| data-model | v1.1.3 | 9 Aug 2026 |
+| data-model | v1.1.4 | 9 Aug 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
-| implementation-guidelines | v1.5 | 5 Aug 2026 |
-| ui-ux-guidelines | v1.2.4 | 9 Aug 2026 |
+| implementation-guidelines | v1.6 | 9 Aug 2026 |
+| ui-ux-guidelines | v1.2.5 | 9 Aug 2026 |
 | brand-guidelines | v1.0.1 | 31 Jul 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).

@@ -1,7 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.5 — §9 rewritten against the shipped pipeline: QA/production environments, deploy safety, the non-inheritable-binding and rate-limit-namespace traps
-**Date:** 5 August 2026
+**Status:** v1.6 — §10 item 10: R2 objects are served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-28)
+**Date:** 9 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -444,7 +444,7 @@ Secrets via `wrangler secret put --env <name>`, never in `vars` — those are pl
 7. `/api/docs` 404s in production, verified in CI.
 8. Composite FKs make cross-business writes structurally impossible (§5).
 9. Security headers on the assets Worker — CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`. The highest value-to-effort item on this list.
-10. R2 objects are served through **presigned, expiring URLs**, never a public bucket. Condition photos are evidence in disputes and often show number plates.
+10. R2 objects are served **through the Worker, re-authorised on every request**, never a public bucket and never a presigned URL — reversed from a prior draft of this line by A7/GAP-16 (UI §6.3's M-28): a presigned GET can outlive the check that issued it, where a Worker read re-runs `business_id` and the capability check every single time. Condition photos are evidence in disputes and often show number plates.
 
 ---
 
