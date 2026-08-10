@@ -144,7 +144,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 21 | **B2** · partners, banking, cash | M | Six screens backed by A2, plus a mileage-package create screen (GAP-67) and a partner-payout screen (GAP-69). Needs no B0b |
 | 22 | **A14** · the printed slip's share link (F-6.6, GAP-65) | M | The spec's own "not optional" clause — a signed, expiring, no-login link — has no backend mechanism and no client button. **Travels with B5**: F-6.5/F-6.6's read-only content renders inside `DriverDetailScreen`/B5, and this adds only the *unauthenticated share* half, so deferring B5 defers its natural companion too |
 | 23 | **A8** · odometer + borne-by preview | S | Completes a shipped form (GAP-30, GAP-32). Blocks nothing |
-| 24 | **A7** · R2 upload | M | Unblocks five photo gaps at once — but **no Track B item currently claims the screens** that would use them, so it buys surface rather than product. Promote it the moment a photo screen is scheduled, not before |
+| 24 | **A7** · R2 upload (expense receipts only) | M | **Fully planned** — [ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md), build on its own `feature/image-upload` branch. Narrower than earlier editions of this row: it closes GAP-16 for expense receipts only, including a small receipt-viewing surface on `ExpenseCostRow`, not the other four photo call sites (condition sets, incident damage) — those stay unbuilt behind a second branch. Still ranked low because it is one call site's worth of product, and the remaining four gaps still have **no Track B item claiming their screens**. Promote the second branch the moment a condition-photo or incident-photo screen is scheduled |
 | 25 | **A9b** · the rest of soft delete | L | ~15 near-identical void endpoints (GAP-12, GAP-36) plus GAP-60's `replaces_id` linkage, which should be decided **before** fifteen void paths are written without it. A batch to grind, not a design problem. **GAP-60's shape decided 9 Aug 2026**: a nullable, self-referencing `replaces_id uuid` column on each of the 12 tables, not one shared polymorphic table — typed and indexable, and Postgres can enforce it as a real per-table FK. Not yet built; lands with this item |
 | 26 | **B7** · offline and the PWA | L | Cross-cutting: it wraps every screen, so building it before the screens exist means rebuilding it per screen |
 | — | **In-app "invite a member" screen** | S | Still unlettered, and **no longer blocked**: A11 built `POST /api/business-member/invite`/`POST /api/driver/{id}/link-invite` with no caller because they needed B0b's role-aware shell to live in, and B0b landed 8 Aug. It is also the only thing standing between LT-1 and running without a hand-rolled API call. Size it and give it a letter |
@@ -176,7 +176,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 **10a is withdrawn, and 10b takes its slot, on the owning documents rather than on judgment.** `user-flows.md` marks F-8.3 and F-8.4 *Phase: 2* in their own headers; `use-cases.md` §9.1 names UC-90 and UC-91 under **Second**. B3's checklist in this file asked for both sheets regardless — the third time this document has treated a shipped backend as evidence of phase ownership (P10's write-off endpoints here, P11's nine report endpoints in the B4 scope decision, P2's `opening-balance` in B12's own step list). **The tell is the same every time: the endpoint exists, so the screen feels due.** Meanwhile F-8.5 — *Phase: 1*, UC-96 under **First** — had its client half sitting in B9's small-fixes bucket at rank 15. Correcting the phase reading swaps them, and the swap is the whole refinement: **the correction path a manager needs in week one now outranks two sheets for a phase nobody has started.**
 
-**A7 low (row 24, renumbered from 19 by the 8 August re-sequence).** It is the highest ratio of unblocked surface to effort on either track, and it stays low anyway, because unblocked surface is not shipped product while no screen calls it. Promote it the moment a photo screen is scheduled — not before.
+**A7 low (row 24, renumbered from 19 by the 8 August re-sequence).** Now fully planned — see the row's own note — and scoped down to expense receipts only, with its own receipt-viewing surface, so it is closer to shipped product than earlier editions of this row assumed. It stays low anyway: the other four photo call sites (condition sets, incident damage) are the ones that were "unblocked surface, no screen calling it," and this item deliberately does not build them. Promote the second branch the moment a condition-photo or incident-photo screen is scheduled — not before.
 
 **6 and 7 (B11, B10) jumped ahead of A11, which itself was the top of the queue as of yesterday.** The reasoning is a straight severity comparison, not a change of philosophy: A11's absence means two roles have no possible user, which is severe but static — it has been true since before A0 and nothing makes it worse by waiting a few more items. GAP-49/50/51's absence means the **one role that already works is actively broken today**, in production-adjacent QA, for anyone who opens the app in dark mode or tries to run a bus on a daily-fee driver — both ordinary, not edge cases. A live bug in shipped surface outranks a missing plumbing layer for surface that doesn't exist yet, which is the same reasoning that put GAP-3 ahead of A6 on 6 August. **This is now the second time a live/production signal has reordered this queue on arrival** (GAP-3 was the first) — worth noticing as a pattern: nothing about reading source or mocks surfaced either one.
 
@@ -224,7 +224,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | **A10b** | ✅ The incident contribution that is not a receivable — done 9 Aug, after `user-flows.md` F-3.4 (v1.1.5) decided it | GAP-10 ✅ | 1 endpoint changed + 1 migration (`0012`) | a `doc-change` on `user-flows.md` F-3.4 |
 | *(unnumbered)* | ✅ **`bookTrip`'s own arrangement gate** — done 9 Aug, riding with the above | GAP-87 ✅ | 0 new + 1 changed handler | F1's own GAP-84 fix |
 | **A14** | **The printed slip's signed share link (F-6.6)** — **new 8 Aug, flow-inventory audit** | GAP-65 | 1–2 + client | — |
-| **A7** | R2 upload — unblocks five gaps, independent | GAP-16 | 1–2 | B-photos |
+| **A7** | R2 upload (expense receipts only) — independent, fully planned but not started | GAP-16 | 4 + a migration (`0013`) | B-photos |
 | **A8** | Odometer wiring + borne-by preview, independent | GAP-30, GAP-32 | 1 | — |
 | **A9b** | The rest of soft delete | GAP-12, GAP-36 | ~15 + a migration | — |
 
@@ -425,23 +425,50 @@ if (input.customerId !== undefined && input.agreedAmountMinor > 0n) { … }
 
 **Done means** — **A10a:** a managed vehicle's profit drops by its management fee in UC-70, and `GET /api/partner/{userId}`'s directly-read `monthly_amount_minor` still agrees with what the generator writes. **✅ A10b:** F-3.4 said which way it goes, and an agreed customer contribution now shows up as a receivable a payment can settle. **Both:** G-2 still lands on 15,000.
 
-### A7 · R2 upload — closes GAP-16, independent of everything else
+### A7 · R2 upload (expense receipts only) — closes GAP-16 for one call site, independent of everything else
 
-**One endpoint unblocks five recorded gaps**: condition photos at lease start and close, incident damage photos, expense receipts, and the side-by-side comparison. `attachment` (DM §12) is already generic and polymorphic, its `kind` CHECK already lists every value the five need (**no migration**), and `PhotoCapture` + the tested `photo-pipeline.ts` are built with **0 real callers**.
+**Fully planned, not started.** [ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md)
+is the implementation plan, re-validated against the working tree and then revised against a deep review the
+same day — every decision below is recorded there in full, with the reasoning, and this section is now a
+summary of it rather than an independent account. **Build it on its own branch**, `feature/image-upload`, cut
+from `build/p0-foundation`, so the server half (independently mergeable) can land ahead of the client half if
+the client work slips.
 
-**Decide the upload path before writing anything, and record it.** IG §10 requires objects be *served* through presigned expiring URLs, never a public bucket — that is about reads, and it is not negotiable (condition photos are dispute evidence and show number plates). It does **not** dictate how bytes get in. Two options, and the plan's title has been quietly assuming the first:
+**Narrower than the row above once implied.** `attachment` (DM §12) is already generic and polymorphic, and
+one endpoint's *design* unblocks all five recorded gaps eventually — but this item builds and ships **exactly
+one** call site, expense receipts, not all five at once. Condition photos (lease start/close), incident damage
+photos and the handover/return comparison stay unbuilt, on purpose: four of the five call sites only learn
+their `subject_id` after the record saves, and the lease wizard's post-save ordering is the risky part of
+that, deliberately left for a second branch. `PhotoCapture` + the tested `photo-pipeline.ts` are built with
+**0 real callers** today; this item gives them their first one, plus a small **receipt-viewing surface** on
+`ExpenseCostRow` — GAP-16 does not honestly close for expenses until a user can see what they uploaded, not
+only until the API can accept it.
 
-- **Presigned PUT** — the client uploads straight to R2. Needs the S3 API and real credentials signed with `aws4fetch`, i.e. two new secrets, because **a bucket binding cannot presign**. Keeps large bodies out of the Worker entirely.
-- **Upload through the Worker** using the `R2` binding (`env.R2.put()`) — no new secrets, no signing library, and the Worker is already the only thing that can authorise the write and insert the `attachment` row in the same breath. The client pipeline compresses before upload, so the bodies are small.
+**Decided, not merely proposed: upload through the Worker binding (`env.R2.put()`), presign nothing, in
+either direction.** IG §10 requires objects be *served* through presigned expiring URLs; the plan amends that
+line instead — reads go through the Worker too, re-authorised on every request, which serves W-49's own reason
+better than a URL that outlives its own check. Presigned PUT was rejected on four counts (routine orphans, a
+bearer capability replacing a per-request check, two new secrets with no rotation story, and a stated client
+invariant against any direct fetch) — full argument in the plan's Decisions §1–2.
 
-**Recommendation: upload through the binding, presign only for reads.** It is fewer moving parts, needs no credential rotation story, and keeps the `attachment` row and the object from ever disagreeing. Write the reason down either way — this is the kind of choice that gets silently reversed later.
+**The bucket exists now.** `api/wrangler.jsonc` carries the real `fleetsettle-attachments` / `-qa` buckets;
+that dependency has landed.
 
-**The bucket exists now.** `api/wrangler.jsonc` gained real `fleetsettle-attachments` / `-qa` buckets in the uncommitted deployment work; before A7 that binding was a `todo-provision-before-deploy` placeholder. A7 depends on that work landing, which is the one external dependency on this track.
+**What the deep review changed, in one line each** (full account in the plan's own revision log): migration
+number is `0013`, not `0012` (`0012` was taken in the meantime); the idempotent-retry compensation logic was
+rewritten to close an orphan-object race the first draft still allowed; the migration now also constrains
+`content_type` and the `kind`/`subject_type` pair, and adds a tenant-scoped live-subject index; a linked
+driver gets 403 on both upload and read this branch, not a subject-specific 404, because drivers get no
+attachment read path at all yet; and a receipt-viewing surface is now part of this item's own scope rather
+than assumed to exist already.
 
-**Traps:**
-- **`business_id` on the `attachment` row comes from the token**, and reading an object must re-check it. An `r2_key` is guessable if it encodes anything predictable; make it opaque and still verify.
-- **`attachment` has no `voided_at` and no `archived_at`** — there is currently no way to remove a wrongly-uploaded photo, and A9 does not cover it because it is not a money table. Decide whether that is a gap or intended, and record it. Do not add a hard delete without deciding.
-- **GAP-17 stays open** — the pipeline still runs on the main thread with no Worker + 3s timeout. Unchanged by this item; do not let it look closed.
+**Traps, unchanged and still live:**
+- **`business_id` on the `attachment` row comes from the token**, and reading an object must re-check it. The
+  `r2_key` is an opaque `crypto.randomUUID()`, unrelated to the attachment id (UUIDv7, partly predictable).
+- **A void marks the row; the object stays** — no hard delete. Migration `0013` adds the void trio plus a
+  void-consistency `CHECK`.
+- **GAP-17 stays open** — the pipeline still runs on the main thread with no Web Worker or 3s timeout.
+  Unchanged by this item; do not let it look closed by association.
 
 ### A8 · Expense odometer wiring and the borne-by preview — independent
 
@@ -1167,7 +1194,8 @@ done    A1  GET /api/expense ✅                     ~~B1 ExpenseListScreen~~ wi
 now     A10 the other two silent zeros                 B0b three shells + capability gate  ← first
         A13 change arrangement (GAP-54, F-1.2)
         GAP-41 overheads filter (B4 needs it)
-        A7  R2 upload (unblocks 5 gaps; independent)   B3  close the month  (needs B0b)
+        A7  R2 upload (expense receipts only;          B3  close the month  (needs B0b)
+            planned, own branch; independent)
         A8  odometer wiring, borne-by preview          B4  Review shell + 9 reports (needs B0b, GAP-41)
         A9b the rest of soft delete                    B5  Mine shell      (needs B0b)
         —   in-app "invite a member" screen             B9  UI-UX-REVIEW fixes — ready (GAP-44–48, GAP-55)
