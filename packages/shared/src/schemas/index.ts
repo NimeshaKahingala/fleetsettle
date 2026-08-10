@@ -1,6 +1,7 @@
 export * from "./accounting-period.js";
 export * from "./adjustment.js";
 export * from "./arrangement.js";
+export * from "./attachment.js";
 export * from "./audit-log.js";
 export * from "./business.js";
 export * from "./business-member.js";
