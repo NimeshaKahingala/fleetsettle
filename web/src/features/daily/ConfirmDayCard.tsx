@@ -11,12 +11,14 @@ import { useState } from "react";
 import type { z } from "zod";
 import { DayCard } from "../../components/DayCard.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { SyncChip } from "../../components/SyncChip.js";
 import { Card } from "../../design/primitives/Card.js";
 import { ReasonPicker, type ReasonOption } from "../../components/ReasonPicker.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { LOST_REASON_OPTIONS } from "../../lib/lostReasonLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { SomethingElseSheet } from "./SomethingElseSheet.js";
 
 export interface ConfirmDayCardProps {
@@ -97,6 +99,26 @@ export function ConfirmDayCard({
       queryClient.setQueryData(dayQueryKey, data);
     },
   });
+
+  // GAP-101: this is the flow UI §7.1 optimises for — a failed read must
+  // not silently `return null` the same way pending does, or a day that
+  // needs confirming vanishes from Home indistinguishably from "nothing
+  // scheduled here."
+  const dayState = useQueryState(dayQuery);
+  const leaseState = useQueryState(leaseQuery);
+  const failedState =
+    dayState.kind === "error" ? dayState : leaseState.kind === "error" ? leaseState : null;
+  if (failedState !== null) {
+    return (
+      <Card elevated={elevated}>
+        <QueryStateFailure
+          error={failedState.error}
+          retry={failedState.retry}
+          of={`${vehicleLabel}'s day`}
+        />
+      </Card>
+    );
+  }
 
   if (dayQuery.data === undefined || leaseQuery.data === undefined) return null;
 

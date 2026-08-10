@@ -16,6 +16,7 @@ import { EntityPicker, type EntityOption } from "../../components/EntityPicker.j
 import { MoneyField } from "../../components/MoneyField.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { AlertStrip } from "../../components/AlertStrip.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
@@ -23,6 +24,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { TriangleAlert } from "lucide-react";
 
@@ -97,6 +99,15 @@ export function StartLeaseScreen({
     queryKey: ["customer"],
     queryFn: () => api.get<CustomerResponse[]>("/api/customer"),
   });
+  // GAP-101: `vehicleQuery`'s state gates the arrangement check just below
+  // — a failed read must not silently let that check pass by never
+  // running. `paperworkWarningsQuery`'s state guards the same warning UI
+  // §7.4 puts above the primary action at step 6 — `?? []` used to make a
+  // failed paperwork read indistinguishable from "nothing to warn about".
+  const vehicleState = useQueryState(vehicleQuery);
+  const paperworkState = useQueryState(paperworkWarningsQuery);
+  const customersState = useQueryState(customersQuery);
+  const mileagePackagesState = useQueryState(mileagePackagesQuery);
 
   // Step 0 — customer
   const [customer, setCustomer] = useState<EntityOption | null>(null);
@@ -188,6 +199,22 @@ export function StartLeaseScreen({
     setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
   }
 
+  // GAP-101: a failed vehicle read must not silently skip the arrangement
+  // check just below — that check is GAP-84/F1's whole "never the form"
+  // fix, and a form that appears to have passed it because the read never
+  // came back is worse than one that never checked at all.
+  if (vehicleState.kind === "error") {
+    return (
+      <Screen title="Start a rental" onBack={onBack}>
+        <QueryStateFailure
+          error={vehicleState.error}
+          retry={vehicleState.retry}
+          of="this vehicle"
+        />
+      </Screen>
+    );
+  }
+
   // GAP-84/F1: a rental is arrangement A. The Worker refuses this on submit
   // regardless (a deep link bypasses this component entirely), but showing
   // the seven-step form for a vehicle that can never legally start one is
@@ -255,6 +282,13 @@ export function StartLeaseScreen({
 
         {step === 0 ? (
           <div className="flex flex-col gap-4">
+            {customersState.kind === "error" ? (
+              <QueryStateFailure
+                error={customersState.error}
+                retry={customersState.retry}
+                of="the customer list"
+              />
+            ) : null}
             <EntityPicker
               label="Customer"
               options={customerOptions}
@@ -336,6 +370,13 @@ export function StartLeaseScreen({
 
         {step === 3 ? (
           <div className="flex flex-col gap-4">
+            {mileagePackagesState.kind === "error" ? (
+              <QueryStateFailure
+                error={mileagePackagesState.error}
+                retry={mileagePackagesState.retry}
+                of="mileage packages"
+              />
+            ) : null}
             <div className="flex flex-col gap-2">
               <Label>Mileage package</Label>
               <div className="flex flex-wrap gap-2">
@@ -448,7 +489,16 @@ export function StartLeaseScreen({
 
         {step === 6 ? (
           <div className="flex flex-col gap-4">
-            {vehicleWarning !== undefined ? (
+            {paperworkState.kind === "error" ? (
+              // GAP-101 (Mode 3): a failed paperwork read is not the same
+              // fact as "nothing to warn about" — UI §7.4 puts this strip
+              // above the primary action specifically so it can't be
+              // missed, and letting the read fail silently would remove it
+              // instead of warning about it.
+              <AlertStrip severity="warning" icon={TriangleAlert}>
+                Couldn't check this vehicle's paperwork.
+              </AlertStrip>
+            ) : vehicleWarning !== undefined ? (
               <AlertStrip
                 severity={vehicleWarning.isExpired ? "critical" : "warning"}
                 icon={TriangleAlert}

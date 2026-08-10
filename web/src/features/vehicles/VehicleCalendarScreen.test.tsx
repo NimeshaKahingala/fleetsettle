@@ -3,6 +3,7 @@ import type { VehicleCalendarDay, VehicleResponse } from "@fleetsettle/shared/sc
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleCalendarScreen } from "./VehicleCalendarScreen.js";
 
@@ -35,6 +36,24 @@ test("renders the current month's label and grid", async () => {
   });
 
   expect(await screen.findByText("July 2026")).toBeInTheDocument();
+});
+
+test("GAP-101/INV-1: a failed calendar read shows a failure notice, never every day rendered as free", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path.startsWith("/api/vehicle/v1/calendar")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading this month's calendar."),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
 });
 
 test("each of the seven day-states renders its own colour and glyph (UI §7.6)", async () => {

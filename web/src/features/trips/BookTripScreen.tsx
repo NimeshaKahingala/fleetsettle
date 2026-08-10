@@ -18,11 +18,13 @@ import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { CreateDriverForm } from "../people/CreateDriverForm.js";
 
@@ -114,6 +116,16 @@ export function BookTripScreen({
     queryFn: () => api.get<VehicleDailyLeaseHistoryRow[]>(`/api/vehicle/${vehicleId}/daily-lease`),
     enabled: step === 2,
   });
+
+  // GAP-101 (Mode 3): a failed read must not be indistinguishable from
+  // "nothing to warn about" — `?? []` alone can't tell them apart, and this
+  // screen has two such warnings: the paperwork strip and the paused-lease-
+  // days strip, both specified above the primary action (UI §7.4/§7.5).
+  const customersState = useQueryState(customersQuery);
+  const driversState = useQueryState(driversQuery);
+  const paperworkState = useQueryState(paperworkWarningsQuery);
+  const calendarState = useQueryState(calendarQuery);
+  const dailyLeaseHistoryState = useQueryState(dailyLeaseHistoryQuery);
 
   const customerOptions: EntityOption[] = (customersQuery.data ?? []).map((c) => ({
     id: c.id,
@@ -211,6 +223,13 @@ export function BookTripScreen({
                 setEndDate(value);
               }}
             />
+            {customersState.kind === "error" ? (
+              <QueryStateFailure
+                error={customersState.error}
+                retry={customersState.retry}
+                of="the customer list"
+              />
+            ) : null}
             <EntityPicker
               label="Customer (optional)"
               options={customerOptions}
@@ -236,6 +255,13 @@ export function BookTripScreen({
 
         {step === 1 ? (
           <div className="flex flex-col gap-4">
+            {driversState.kind === "error" ? (
+              <QueryStateFailure
+                error={driversState.error}
+                retry={driversState.retry}
+                of="the driver list"
+              />
+            ) : null}
             <EntityPicker
               label="Driver (optional)"
               options={driverOptions}
@@ -267,7 +293,15 @@ export function BookTripScreen({
 
         {step === 2 ? (
           <div className="flex flex-col gap-4">
-            {pausedDaysCount > 0 ? (
+            {calendarState.kind === "error" || dailyLeaseHistoryState.kind === "error" ? (
+              // GAP-101 (Mode 3): whether this trip pauses a daily lease is
+              // exactly the kind of fact `?? []` used to erase on a failed
+              // read — silently rendering as "nothing paused" instead of
+              // "couldn't check".
+              <AlertStrip severity="warning" icon={TriangleAlert}>
+                Couldn't check whether this pauses a daily lease.
+              </AlertStrip>
+            ) : pausedDaysCount > 0 ? (
               <AlertStrip severity="warning" icon={TriangleAlert}>
                 This pauses {pausedDaysCount} day{pausedDaysCount === 1 ? "" : "s"} of the daily
                 lease
@@ -287,7 +321,11 @@ export function BookTripScreen({
                 .
               </AlertStrip>
             ) : null}
-            {vehicleWarning !== undefined ? (
+            {paperworkState.kind === "error" ? (
+              <AlertStrip severity="warning" icon={TriangleAlert}>
+                Couldn't check this vehicle's paperwork.
+              </AlertStrip>
+            ) : vehicleWarning !== undefined ? (
               <AlertStrip
                 severity={vehicleWarning.isExpired ? "critical" : "warning"}
                 icon={TriangleAlert}

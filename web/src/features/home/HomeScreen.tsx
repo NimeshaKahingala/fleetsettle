@@ -19,10 +19,12 @@ import { useState } from "react";
 import { AlertStrip } from "../../components/AlertStrip.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ConfirmDayCard } from "../daily/ConfirmDayCard.js";
 
 export interface HomeScreenProps {
@@ -133,6 +135,19 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
     queryFn: () => api.get<InProgressTripRow[]>("/api/trip"),
   });
 
+  // GAP-101/M-28: each section still renders the instant its own read
+  // resolves, unblocked by the others (this screen's own doc comment,
+  // above) — but a *failed* read must not be indistinguishable from one
+  // still pending. `?? []` alone can't tell "nothing yet" from "never
+  // coming", which is exactly how this screen used to render "Nothing
+  // needs you today" while the Worker was down and rent was overdue.
+  const paperworkState = useQueryState(paperworkQuery);
+  const activeLeasesState = useQueryState(activeLeasesQuery);
+  const unconfirmedState = useQueryState(unconfirmedQuery);
+  const receivablesState = useQueryState(receivablesQuery);
+  const depositReleasesState = useQueryState(depositReleasesQuery);
+  const tripsState = useQueryState(tripsQuery);
+
   const paperworkWarnings = paperworkQuery.data ?? [];
   const activeLeases = activeLeasesQuery.data ?? [];
   const unconfirmedDays = unconfirmedQuery.data ?? [];
@@ -150,12 +165,28 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
     rentDue.length > 0 ||
     depositReleases.length > 0 ||
     inProgressTrips.length > 0;
+  const anySectionErrored =
+    paperworkState.kind === "error" ||
+    activeLeasesState.kind === "error" ||
+    unconfirmedState.kind === "error" ||
+    receivablesState.kind === "error" ||
+    depositReleasesState.kind === "error" ||
+    tripsState.kind === "error";
 
   return (
     <Screen title="Home">
       <div className="flex flex-col gap-4">
-        {!anySectionHasContent ? <EmptyState message="Nothing needs you today" /> : null}
+        {!anySectionHasContent && !anySectionErrored ? (
+          <EmptyState message="Nothing needs you today" />
+        ) : null}
 
+        {paperworkState.kind === "error" ? (
+          <QueryStateFailure
+            error={paperworkState.error}
+            retry={paperworkState.retry}
+            of="paperwork warnings"
+          />
+        ) : null}
         {paperworkWarnings.map((row) => (
           <AlertStrip
             key={`${row.subjectType}-${row.subjectId}-${row.docType}`}
@@ -174,6 +205,13 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
           </AlertStrip>
         ))}
 
+        {activeLeasesState.kind === "error" ? (
+          <QueryStateFailure
+            error={activeLeasesState.error}
+            retry={activeLeasesState.retry}
+            of="today's vehicles"
+          />
+        ) : null}
         {activeLeases.length > 0 ? <TodayCards leases={activeLeases} today={today} /> : null}
 
         {/* Reuses ConfirmDayCard verbatim for a past date: it derives its
@@ -185,6 +223,13 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
             date-aware rate lookup for this call site specifically). The
             backend write itself is already date-correct regardless
             (handlers/day-record.ts uses findDailyLeaseRateForDate). */}
+        {unconfirmedState.kind === "error" ? (
+          <QueryStateFailure
+            error={unconfirmedState.error}
+            retry={unconfirmedState.retry}
+            of="earlier unconfirmed days"
+          />
+        ) : null}
         {unconfirmedDays.length > 0 ? (
           <Section
             title="Earlier days"
@@ -203,6 +248,13 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
           />
         ) : null}
 
+        {receivablesState.kind === "error" ? (
+          <QueryStateFailure
+            error={receivablesState.error}
+            retry={receivablesState.retry}
+            of="rent due"
+          />
+        ) : null}
         {rentDue.length > 0 ? (
           <Section
             title="Rent due"
@@ -219,6 +271,13 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
           />
         ) : null}
 
+        {depositReleasesState.kind === "error" ? (
+          <QueryStateFailure
+            error={depositReleasesState.error}
+            retry={depositReleasesState.retry}
+            of="deposits to release"
+          />
+        ) : null}
         {depositReleases.length > 0 ? (
           <Section
             title="Deposits to release"
@@ -235,6 +294,13 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
           />
         ) : null}
 
+        {tripsState.kind === "error" ? (
+          <QueryStateFailure
+            error={tripsState.error}
+            retry={tripsState.retry}
+            of="trips in progress"
+          />
+        ) : null}
         {inProgressTrips.length > 0 ? (
           <Section
             title="Trips in progress"

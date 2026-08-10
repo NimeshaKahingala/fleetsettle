@@ -12,6 +12,7 @@ import type { z } from "zod";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Timeline } from "../../components/Timeline.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Label } from "../../design/primitives/Label.js";
@@ -19,6 +20,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { paymentAuditEntryToTimeline } from "./auditEntryToTimeline.js";
 
 export interface CorrectPaymentSheetProps {
@@ -85,6 +87,14 @@ export function CorrectPaymentSheet({
     queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),
     enabled: open,
   });
+  // GAP-101: a failed audit read used to leave `timelineEntries` silently
+  // empty (`?? []`), so the History section just didn't render — no
+  // different from a payment with a genuinely empty trail. `membersQuery`
+  // failing is not blocking: `paymentAuditEntryToTimeline` already
+  // degrades a missing member to "A former member," a real, honest label,
+  // not a fabricated one.
+  const auditState = useQueryState(auditQuery);
+  const historyFailure = auditState.kind === "error" ? auditState : null;
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -165,7 +175,16 @@ export function CorrectPaymentSheet({
             Correct payment
           </Button>
 
-          {timelineEntries.length > 0 ? (
+          {historyFailure !== null ? (
+            <div className="flex flex-col gap-3 border-t border-line-hairline pt-4">
+              <Label>History</Label>
+              <QueryStateFailure
+                error={historyFailure.error}
+                retry={historyFailure.retry}
+                of="this payment's history"
+              />
+            </div>
+          ) : timelineEntries.length > 0 ? (
             <div className="flex flex-col gap-3 border-t border-line-hairline pt-4">
               <Label>History</Label>
               <Timeline entries={timelineEntries} />

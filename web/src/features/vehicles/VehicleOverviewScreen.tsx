@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
@@ -33,6 +34,7 @@ import {
   INCIDENT_STATUS_BADGE_VARIANT,
   INCIDENT_STATUS_LABEL,
 } from "../../lib/incidentStatusLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 const DOC_TYPE_LABEL: Record<string, string> = {
   insurance: "Insurance",
@@ -118,10 +120,11 @@ export function VehicleOverviewScreen({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
-  const { data: vehicle, isLoading } = useQuery({
+  const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
   });
+  const vehicle = vehicleQuery.data;
   const documentsQuery = useQuery({
     queryKey: ["vehicle", vehicleId, "document"],
     queryFn: () => api.get<VehicleDocumentResponse[]>(`/api/vehicle/${vehicleId}/document`),
@@ -142,6 +145,12 @@ export function VehicleOverviewScreen({
     queryKey: ["vehicle", vehicleId, "incident"],
     queryFn: () => api.get<IncidentResponse[]>(`/api/vehicle/${vehicleId}/incident`),
   });
+  const vehicleState = useQueryState(vehicleQuery);
+  const documentsState = useQueryState(documentsQuery);
+  const expensesState = useQueryState(expensesQuery);
+  const leaseHistoryState = useQueryState(leaseHistoryQuery);
+  const dailyLeaseHistoryState = useQueryState(dailyLeaseHistoryQuery);
+  const incidentsState = useQueryState(incidentsQuery);
 
   const documents = documentsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
@@ -151,6 +160,12 @@ export function VehicleOverviewScreen({
     dailyLeaseHistoryQuery.data ?? [],
     onSelectLease,
   );
+  const historyFailure =
+    leaseHistoryState.kind === "error"
+      ? leaseHistoryState
+      : dailyLeaseHistoryState.kind === "error"
+        ? dailyLeaseHistoryState
+        : null;
 
   // F-1.7's entry point, and the one this flow was missing entirely until
   // B10 (GAP-51). Offered when the vehicle is on arrangement B **or has no
@@ -192,7 +207,13 @@ export function VehicleOverviewScreen({
       onBack={onBack}
       action={{ label: "Vehicle actions", icon: MoreVertical, onClick: () => setActionsOpen(true) }}
     >
-      {isLoading || vehicle === undefined ? (
+      {vehicleState.kind === "error" ? (
+        <QueryStateFailure
+          error={vehicleState.error}
+          retry={vehicleState.retry}
+          of="this vehicle"
+        />
+      ) : vehicle === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -217,6 +238,13 @@ export function VehicleOverviewScreen({
             </div>
           </Card>
 
+          {documentsState.kind === "error" ? (
+            <QueryStateFailure
+              error={documentsState.error}
+              retry={documentsState.retry}
+              of="paperwork"
+            />
+          ) : null}
           {documents.length > 0 ? (
             <Section
               title="Paperwork"
@@ -234,6 +262,13 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {expensesState.kind === "error" ? (
+            <QueryStateFailure
+              error={expensesState.error}
+              retry={expensesState.retry}
+              of="this vehicle's costs"
+            />
+          ) : null}
           {expenses.length > 0 ? (
             <Section
               title="Costs"
@@ -249,6 +284,13 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {incidentsState.kind === "error" ? (
+            <QueryStateFailure
+              error={incidentsState.error}
+              retry={incidentsState.retry}
+              of="incidents"
+            />
+          ) : null}
           {incidents.length > 0 ? (
             <Section
               title="Incidents"
@@ -284,6 +326,16 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {historyFailure !== null ? (
+            <QueryStateFailure
+              error={historyFailure.error}
+              retry={() => {
+                if (leaseHistoryState.kind === "error") leaseHistoryState.retry();
+                if (dailyLeaseHistoryState.kind === "error") dailyLeaseHistoryState.retry();
+              }}
+              of="this vehicle's history"
+            />
+          ) : null}
           {historyEntries.length > 0 ? (
             <section className="flex flex-col gap-2">
               <h2 className="text-label font-medium text-ink-secondary">

@@ -3,8 +3,10 @@ import type { RankedTripsResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { HorizontalBarChart, type HorizontalBarDatum } from "./charts/HorizontalBarChart.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -82,7 +84,21 @@ export function TripRankingReportScreen({ onBack }: TripRankingReportScreenProps
     queryFn: () => api.get<RankedTripsResponse>("/api/reports/trips"),
   });
 
-  if (query.data === undefined) {
+  const state = useQueryState(query);
+
+  if (state.kind === "error") {
+    return (
+      <ReportScreen
+        title="Which trips made money"
+        onBack={onBack}
+        table={
+          <QueryStateFailure error={state.error} retry={state.retry} of="which trips made money" />
+        }
+      />
+    );
+  }
+
+  if (state.kind !== "ready") {
     return (
       <ReportScreen
         title="Which trips made money"
@@ -92,7 +108,7 @@ export function TripRankingReportScreen({ onBack }: TripRankingReportScreenProps
     );
   }
 
-  if (query.data.length === 0) {
+  if (state.data.length === 0) {
     return (
       <ReportScreen
         title="Which trips made money"
@@ -106,8 +122,8 @@ export function TripRankingReportScreen({ onBack }: TripRankingReportScreenProps
     <ReportScreen
       title="Which trips made money"
       onBack={onBack}
-      chart={<HorizontalBarChart data={toChartData(query.data)} />}
-      table={<ReportTable columns={COLUMNS} rows={query.data} rowKey={(row) => row.id} />}
+      chart={<HorizontalBarChart data={toChartData(state.data)} />}
+      table={<ReportTable columns={COLUMNS} rows={state.data} rowKey={(row) => row.id} />}
     />
   );
 }

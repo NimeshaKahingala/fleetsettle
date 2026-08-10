@@ -9,6 +9,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleOverviewScreen } from "./VehicleOverviewScreen.js";
 
@@ -48,6 +49,46 @@ test("renders the vehicle's fields once loaded", async () => {
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.getByText("Daily lease")).toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1");
+});
+
+test("GAP-101: a failed vehicle read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Something went wrong loading this vehicle.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed paperwork read shows a failure notice rather than a silently missing Paperwork section", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1/document") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(baseVehicle);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Something went wrong loading paperwork.")).toBeInTheDocument();
 });
 
 test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", async () => {

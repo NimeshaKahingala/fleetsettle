@@ -7,6 +7,7 @@ import type {
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { CloseMonthScreen } from "./CloseMonthScreen.js";
 
@@ -55,6 +56,47 @@ test("all five checklist rows render, with their real counts (U-7: warns and lis
 
   // U-7: the close button stays enabled regardless of the counts above.
   expect(screen.getByRole("button", { name: "Close this month" })).not.toBeDisabled();
+});
+
+test("GAP-101: a failed checklist read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period/checklist") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/payment") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(
+    <CloseMonthScreen today={today} onBack={() => {}} />,
+    { get },
+    () => Promise.resolve(),
+    OWNER_MANAGER,
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the close checklist."),
+  ).toBeInTheDocument();
+});
+
+test("GAP-101: a failed payments read shows a failure notice, never a false 'No payments recorded yet.'", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period/checklist") return Promise.resolve(checklist);
+    if (path === "/api/payment") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(
+    <CloseMonthScreen today={today} onBack={() => {}} />,
+    { get },
+    () => Promise.resolve(),
+    OWNER_MANAGER,
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading recent payments."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("No payments recorded yet.")).not.toBeInTheDocument();
 });
 
 test("a manager never sees Close this month — absent, not disabled (M-22)", async () => {

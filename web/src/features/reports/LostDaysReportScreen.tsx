@@ -3,8 +3,10 @@ import type { LostDaysResponse, LostReason } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { LOST_REASON_OPTIONS } from "../../lib/lostReasonLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ColumnChart, type ColumnDatum } from "./charts/ColumnChart.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -185,7 +187,24 @@ export function LostDaysReportScreen({
     </div>
   );
 
-  if (query.data === undefined) {
+  const state = useQueryState(query);
+
+  if (state.kind === "error") {
+    return (
+      <ReportScreen
+        title="Lost days"
+        onBack={onBack}
+        table={
+          <div className="flex flex-col gap-3">
+            {paramsForm}
+            <QueryStateFailure error={state.error} retry={state.retry} of="lost days" />
+          </div>
+        }
+      />
+    );
+  }
+
+  if (state.kind !== "ready") {
     return (
       <ReportScreen
         title="Lost days"
@@ -200,7 +219,7 @@ export function LostDaysReportScreen({
     );
   }
 
-  const totals = toDriverTotals(query.data.byWeekday);
+  const totals = toDriverTotals(state.data.byWeekday);
 
   if (totals.length === 0) {
     return (
@@ -226,11 +245,11 @@ export function LostDaysReportScreen({
       chart={
         <div className="flex flex-col gap-4">
           {paramsForm}
-          <ColumnChart data={toMonthChartData(query.data.byMonth)} />
+          <ColumnChart data={toMonthChartData(state.data.byMonth)} />
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">By weekday</p>
             <ColumnChart
-              data={toWeekdayChartData(query.data.byWeekday)}
+              data={toWeekdayChartData(state.data.byWeekday)}
               height={120}
               color="var(--color-chart-3)"
             />
@@ -238,7 +257,7 @@ export function LostDaysReportScreen({
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">By reason</p>
             <ColumnChart
-              data={toReasonChartData(query.data.byReason)}
+              data={toReasonChartData(state.data.byReason)}
               height={120}
               color="var(--color-chart-4)"
             />

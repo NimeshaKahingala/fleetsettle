@@ -13,6 +13,7 @@ import {
   createAsgardeoTokenGetter,
 } from "./lib/auth-asgardeo.js";
 import { createStubSignOut, createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
+import { shouldRetryQuery } from "./lib/queryRetry.js";
 import "./design/tokens.css";
 
 const root = document.getElementById("root");
@@ -43,6 +44,10 @@ const queryClient = new QueryClient({
       }
     },
   }),
+  // GAP-101/UI §9.5: a 4xx is a decided answer, not a hiccup — without this,
+  // QueryState's error branch sits behind ~7s of the default 3-attempt
+  // backoff before isError ever turns true, on every read in the client.
+  defaultOptions: { queries: { retry: shouldRetryQuery } },
 });
 const apiClient = createApiClient(apiBaseUrl, getToken);
 const router = createAppRouteTree(businessToday());

@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, LabelList, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { Card } from "../../design/primitives/Card.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
 
@@ -119,8 +121,21 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
     queryKey: ["reports", "cash-position"],
     queryFn: () => api.get<CashPositionResponse>("/api/reports/cash-position"),
   });
+  const state = useQueryState(query);
 
-  if (query.data === undefined) {
+  // GAP-101/F2: `ReportScreen`'s own chrome (title, back button) stays up
+  // regardless of the read's outcome — only the body changes, so a failed
+  // read never traps the manager behind a screen with no way back.
+  if (state.kind === "error") {
+    return (
+      <ReportScreen
+        title="Where is our cash"
+        onBack={onBack}
+        table={<QueryStateFailure error={state.error} retry={state.retry} of="the cash position" />}
+      />
+    );
+  }
+  if (state.kind !== "ready") {
     return (
       <ReportScreen
         title="Where is our cash"
@@ -130,7 +145,8 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
     );
   }
 
-  const deposits = parse(query.data.depositsHeldMinor);
+  const data = state.data;
+  const deposits = parse(data.depositsHeldMinor);
 
   return (
     <ReportScreen
@@ -139,7 +155,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
       chart={
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2">
-            {query.data.partners.map((p) => (
+            {data.partners.map((p) => (
               <Card key={p.userId} className="flex flex-col gap-1">
                 <span className="text-caption text-ink-muted">
                   {p.displayName ?? "Unnamed partner"}
@@ -148,16 +164,16 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
               </Card>
             ))}
           </div>
-          <CashStackedBar data={query.data} />
+          <CashStackedBar data={data} />
           <p className="text-caption text-ink-muted">
             Rs {format(deposits)} held for customers — a liability, not partner cash.
           </p>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">In each account</p>
-            {query.data.banked.length > 0 ? (
+            {data.banked.length > 0 ? (
               <ReportTable
                 columns={BANKED_COLUMNS}
-                rows={query.data.banked}
+                rows={data.banked}
                 rowKey={(row) => row.destination}
               />
             ) : (
@@ -166,10 +182,10 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">With drivers, as advances</p>
-            {query.data.driverAdvances.length > 0 ? (
+            {data.driverAdvances.length > 0 ? (
               <ReportTable
                 columns={DRIVER_ADVANCE_COLUMNS}
-                rows={query.data.driverAdvances}
+                rows={data.driverAdvances}
                 rowKey={(row) => row.driverId}
               />
             ) : (
@@ -184,7 +200,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
             <p className="text-caption text-ink-muted">Held per partner</p>
             <ReportTable
               columns={PARTNER_COLUMNS}
-              rows={query.data.partners}
+              rows={data.partners}
               rowKey={(row) => row.userId}
             />
             <p className="text-body-sm text-ink-secondary">
@@ -195,7 +211,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
             <p className="text-caption text-ink-muted">In each account</p>
             <ReportTable
               columns={BANKED_COLUMNS}
-              rows={query.data.banked}
+              rows={data.banked}
               rowKey={(row) => row.destination}
             />
           </div>
@@ -203,7 +219,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
             <p className="text-caption text-ink-muted">With drivers, as advances</p>
             <ReportTable
               columns={DRIVER_ADVANCE_COLUMNS}
-              rows={query.data.driverAdvances}
+              rows={data.driverAdvances}
               rowKey={(row) => row.driverId}
             />
           </div>

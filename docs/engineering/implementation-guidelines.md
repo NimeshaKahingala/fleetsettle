@@ -1,7 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.5 — §9 rewritten against the shipped pipeline: QA/production environments, deploy safety, the non-inheritable-binding and rate-limit-namespace traps
-**Date:** 5 August 2026
+**Status:** v1.5.1 — §16.1 gains a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
+**Date:** 10 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -549,6 +549,7 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | Level-2 field required to save | Component test | UI §4, every create form |
 | Linked driver reaches another driver's data | Integration tests | §8.3, its own test class |
 | 44px targets, axe | Component test | UI §9 |
+| A read with no error state (UI §6.4/M-28) | Guard script | `useQuery(` in `web/src` without `useQueryState`/`QueryState` |
 
 The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
 
