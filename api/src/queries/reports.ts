@@ -451,6 +451,69 @@ export async function listPartnerCashPositions(
   });
 }
 
+/** GAP-70/DM §15: the same `banking_event` rows `listPartnerCashPositions` already subtracts, regrouped by destination — no enum, `destination` is free text a manager types once and reuses (F-7.4). */
+export interface BankedRow {
+  destination: string;
+  heldMinor: bigint;
+}
+
+export async function listBankedByDestination(
+  db: ReadDb,
+  businessId: string,
+): Promise<BankedRow[]> {
+  const rows = await db
+    .select({
+      destination: bankingEvent.destination,
+      total: sql<string>`SUM(${bankingEvent.amountCountedMinor})`,
+    })
+    .from(bankingEvent)
+    .where(and(eq(bankingEvent.businessId, businessId), isNull(bankingEvent.voidedAt)))
+    .groupBy(bankingEvent.destination);
+  return rows.map((r) => ({ destination: r.destination, heldMinor: BigInt(r.total) }));
+}
+
+/**
+ * GAP-70/DM §15: the same unsettled-advance rows `listPartnerCashPositions`
+ * already subtracts, regrouped by who is holding the cash rather than who
+ * issued it. Kept arithmetically consistent with that query's own
+ * simplification — a `part_settled` advance counts at its full
+ * `amount_minor` here too, not netted against `advance_settlement`
+ * (correcting that underlying simplification is a separate question, DM
+ * §15's own stated reason for not doing it here).
+ */
+export interface DriverAdvanceRow {
+  driverId: string;
+  driverName: string | null;
+  outstandingMinor: bigint;
+}
+
+export async function listAdvancesOutstandingByDriver(
+  db: ReadDb,
+  businessId: string,
+): Promise<DriverAdvanceRow[]> {
+  const rows = await db
+    .select({
+      driverId: driver.id,
+      driverName: driver.name,
+      total: sql<string>`SUM(${advance.amountMinor})`,
+    })
+    .from(advance)
+    .innerJoin(driver, eq(driver.id, advance.driverId))
+    .where(
+      and(
+        eq(advance.businessId, businessId),
+        ne(advance.status, "settled"),
+        isNull(advance.voidedAt),
+      ),
+    )
+    .groupBy(driver.id, driver.name);
+  return rows.map((r) => ({
+    driverId: r.driverId,
+    driverName: r.driverName,
+    outstandingMinor: BigInt(r.total),
+  }));
+}
+
 /**
  * Deposits held — the liability shown *beside* the cash position (§6.13),
  * never netted into `listPartnerCashPositions`'s own figure. DM §10.4's own
@@ -516,6 +579,83 @@ export async function listLostDays(
     )
     .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`);
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
+}
+
+/** GAP-71/DM §15: the same rows as `listLostDays`, regrouped by calendar month instead of weekday — UI §11.1's primary form for UC-76 ("column per month"). `to_char` rather than `date_trunc`: the report reads a plain string bucket, not a timestamp, and a driver with no lost days in a given month simply has no row for it (W-56 — the correct absence, not a manufactured zero). */
+export interface LostDaysMonthRow {
+  driverId: string;
+  lost: number;
+  ran: number;
+  leaseEligible: number;
+  lostValueMinor: bigint;
+  month: string;
+}
+
+export async function listLostDaysByMonth(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<LostDaysMonthRow[]> {
+  const rows = await db
+    .select({
+      driverId: dayRecord.driverId,
+      lost: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run')::int`,
+      ran: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} LIKE 'ran_%')::int`,
+      leaseEligible: sql<number>`COUNT(*)::int`,
+      lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}) FILTER (WHERE ${dayRecord.state} = 'did_not_run'), 0)`,
+      month: sql<string>`to_char(${dayRecord.businessDate}, 'YYYY-MM')`,
+    })
+    .from(dayRecord)
+    .where(
+      and(
+        eq(dayRecord.businessId, businessId),
+        gte(dayRecord.businessDate, from),
+        lte(dayRecord.businessDate, to),
+        ne(dayRecord.state, "paused_for_trip"),
+      ),
+    )
+    .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`);
+  return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
+}
+
+/** GAP-71/DM §15: lost days only, grouped by `lost_reason` — CHECK-constrained non-null whenever `state = 'did_not_run'` (§7), so nothing this query touches can be `NULL` by construction. */
+export interface LostDaysReasonRow {
+  driverId: string;
+  reason: string;
+  lost: number;
+  lostValueMinor: bigint;
+}
+
+export async function listLostDaysByReason(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<LostDaysReasonRow[]> {
+  const rows = await db
+    .select({
+      driverId: dayRecord.driverId,
+      reason: dayRecord.lostReason,
+      lost: sql<number>`COUNT(*)::int`,
+      lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}), 0)`,
+    })
+    .from(dayRecord)
+    .where(
+      and(
+        eq(dayRecord.businessId, businessId),
+        gte(dayRecord.businessDate, from),
+        lte(dayRecord.businessDate, to),
+        eq(dayRecord.state, "did_not_run"),
+      ),
+    )
+    .groupBy(dayRecord.driverId, dayRecord.lostReason);
+  // allow: lost_reason is NOT NULL whenever state = 'did_not_run' (CHECK, DM §7) — the WHERE clause above guarantees every row's reason is non-null
+  return rows.map((r) => ({
+    ...r,
+    reason: r.reason as string,
+    lostValueMinor: BigInt(r.lostValueMinor),
+  }));
 }
 
 /**

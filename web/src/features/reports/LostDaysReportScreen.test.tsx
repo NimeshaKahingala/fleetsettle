@@ -1,20 +1,22 @@
-import { asBusinessDate, type Minor } from "@fleetsettle/shared";
+import { asBusinessDate } from "@fleetsettle/shared";
 import type { LostDaysResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
-import { LostDaysReportScreen, toChartData, toDriverTotals } from "./LostDaysReportScreen.js";
+import {
+  LostDaysReportScreen,
+  toDriverTotals,
+  toMonthChartData,
+  toReasonChartData,
+  toWeekdayChartData,
+} from "./LostDaysReportScreen.js";
 
 const today = asBusinessDate("2026-07-15");
 
-function minor(v: bigint): Minor {
-  return v as Minor;
-}
-
 describe("toDriverTotals", () => {
   test("sums per-weekday rows into one total per driver", () => {
-    const rows: LostDaysResponse = [
+    const rows: LostDaysResponse["byWeekday"] = [
       {
         driverId: "d1",
         driverName: "Sunil",
@@ -60,56 +62,140 @@ describe("toDriverTotals", () => {
   });
 });
 
-describe("toChartData (lost days)", () => {
-  test("falls back to 'Unnamed driver' and uses the raw day count as the axis value", () => {
-    const data = toChartData([
+describe("toMonthChartData (GAP-71)", () => {
+  test("sums across drivers per month and sorts chronologically, not by count", () => {
+    const rows: LostDaysResponse["byMonth"] = [
+      {
+        driverId: "d2",
+        driverName: null,
+        month: "2026-08",
+        lost: 5,
+        ran: 1,
+        leaseEligible: 6,
+        lostValueMinor: "250000",
+      },
       {
         driverId: "d1",
         driverName: "Sunil",
-        lost: 3,
-        ran: 5,
-        leaseEligible: 8,
-        lostValueMinor: minor(150000n),
+        month: "2026-07",
+        lost: 1,
+        ran: 3,
+        leaseEligible: 4,
+        lostValueMinor: "50000",
       },
       {
         driverId: "d2",
         driverName: null,
-        lost: 0,
-        ran: 4,
+        month: "2026-07",
+        lost: 2,
+        ran: 2,
         leaseEligible: 4,
-        lostValueMinor: minor(0n),
+        lostValueMinor: "100000",
       },
+    ];
+    expect(toMonthChartData(rows)).toEqual([
+      { id: "2026-07", label: "Jul 2026", value: 3, formattedValue: "3" },
+      { id: "2026-08", label: "Aug 2026", value: 5, formattedValue: "5" },
     ]);
-    expect(data).toEqual([
-      { id: "d1", label: "Sunil", value: 3, formattedValue: "3" },
-      { id: "d2", label: "Unnamed driver", value: 0, formattedValue: "0" },
+  });
+});
+
+describe("toWeekdayChartData (GAP-71)", () => {
+  test("all seven weekdays render, Sunday first, zeros included", () => {
+    const rows: LostDaysResponse["byWeekday"] = [
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        weekday: 5,
+        lost: 2,
+        ran: 2,
+        leaseEligible: 4,
+        lostValueMinor: "100000",
+      },
+    ];
+    const data = toWeekdayChartData(rows);
+    expect(data).toHaveLength(7);
+    expect(data[0]).toMatchObject({ label: "Sun", value: 0 });
+    expect(data[5]).toMatchObject({ label: "Fri", value: 2 });
+    expect(data[6]).toMatchObject({ label: "Sat", value: 0 });
+  });
+});
+
+describe("toReasonChartData (GAP-71)", () => {
+  test("sums across drivers per reason, labelled and ordered like ReasonPicker", () => {
+    const rows: LostDaysResponse["byReason"] = [
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        reason: "no_passengers",
+        lost: 2,
+        lostValueMinor: "100000",
+      },
+      { driverId: "d2", driverName: null, reason: "breakdown", lost: 1, lostValueMinor: "50000" },
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        reason: "no_passengers",
+        lost: 1,
+        lostValueMinor: "50000",
+      },
+    ];
+    expect(toReasonChartData(rows)).toEqual([
+      { id: "breakdown", label: "Breakdown", value: 1, formattedValue: "1" },
+      { id: "no_passengers", label: "No passengers", value: 3, formattedValue: "3" },
     ]);
+  });
+
+  test("a reason with no lost days in the window is omitted, not shown at zero", () => {
+    expect(toReasonChartData([])).toEqual([]);
   });
 });
 
 test("sums per-weekday rows into one figure per driver, and shows the ran+lost denominator", async () => {
   const user = userEvent.setup();
-  const rows: LostDaysResponse = [
-    {
-      driverId: "d1",
-      driverName: "Sunil",
-      weekday: 1,
-      lost: 1,
-      ran: 3,
-      leaseEligible: 4,
-      lostValueMinor: "50000",
-    },
-    {
-      driverId: "d1",
-      driverName: "Sunil",
-      weekday: 5,
-      lost: 2,
-      ran: 2,
-      leaseEligible: 4,
-      lostValueMinor: "100000",
-    },
-  ];
-  const get = vi.fn().mockResolvedValue(rows);
+  const response: LostDaysResponse = {
+    byWeekday: [
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        weekday: 1,
+        lost: 1,
+        ran: 3,
+        leaseEligible: 4,
+        lostValueMinor: "50000",
+      },
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        weekday: 5,
+        lost: 2,
+        ran: 2,
+        leaseEligible: 4,
+        lostValueMinor: "100000",
+      },
+    ],
+    byMonth: [
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        month: "2026-07",
+        lost: 3,
+        ran: 5,
+        leaseEligible: 8,
+        lostValueMinor: "150000",
+      },
+    ],
+    byReason: [
+      {
+        driverId: "d1",
+        driverName: "Sunil",
+        reason: "no_passengers",
+        lost: 3,
+        lostValueMinor: "150000",
+      },
+    ],
+  };
+  const get = vi.fn().mockResolvedValue(response);
   renderWithProviders(
     <LostDaysReportScreen
       from={asBusinessDate("2026-07-01")}
@@ -121,13 +207,18 @@ test("sums per-weekday rows into one figure per driver, and shows the ran+lost d
     { get },
   );
 
-  await user.click(await screen.findByRole("button", { name: "View as table" }));
+  // The primary chart view renders first — GAP-71's month/weekday/reason charts.
+  expect(await screen.findByText("By weekday")).toBeInTheDocument();
+  expect(screen.getByText("By reason")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "View as table" }));
   expect(screen.getByText("3 / 8")).toBeInTheDocument();
   expect(screen.getByText("Rs 1,500")).toBeInTheDocument();
 });
 
 test("no daily-lease days in the window reads as its own message, not 'no days lost'", async () => {
-  const get = vi.fn().mockResolvedValue([] satisfies LostDaysResponse);
+  const empty: LostDaysResponse = { byWeekday: [], byMonth: [], byReason: [] };
+  const get = vi.fn().mockResolvedValue(empty);
   renderWithProviders(
     <LostDaysReportScreen
       from={asBusinessDate("2026-07-01")}

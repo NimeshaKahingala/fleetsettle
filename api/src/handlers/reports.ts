@@ -1,4 +1,5 @@
 import { toWire, type Minor } from "@fleetsettle/shared";
+import type { LostReason } from "@fleetsettle/shared/schemas";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
 import {
@@ -183,6 +184,15 @@ export const getCashPositionReportHandler: RouteHandler<
         heldMinor: toWire(p.heldMinor as Minor),
       })),
       depositsHeldMinor: toWire(report.depositsHeldMinor as Minor),
+      banked: report.banked.map((b) => ({
+        destination: b.destination,
+        heldMinor: toWire(b.heldMinor as Minor),
+      })),
+      driverAdvances: report.driverAdvances.map((a) => ({
+        driverId: a.driverId,
+        driverName: a.driverName,
+        outstandingMinor: toWire(a.outstandingMinor as Minor),
+      })),
     },
     200,
   );
@@ -196,18 +206,37 @@ export const getLostDaysReportHandler: RouteHandler<typeof getLostDaysReportRout
   const businessId = requireBusinessId(c);
   const { from, to } = c.req.valid("query");
 
-  const rows = await getLostDaysReport(c.get("reader"), businessId, from, to);
+  const report = await getLostDaysReport(c.get("reader"), businessId, from, to);
 
   return c.json(
-    rows.map((r) => ({
-      driverId: r.driverId,
-      driverName: r.driverName,
-      weekday: r.weekday,
-      lost: r.lost,
-      ran: r.ran,
-      leaseEligible: r.leaseEligible,
-      lostValueMinor: toWire(r.lostValueMinor as Minor),
-    })),
+    {
+      byWeekday: report.byWeekday.map((r) => ({
+        driverId: r.driverId,
+        driverName: r.driverName,
+        weekday: r.weekday,
+        lost: r.lost,
+        ran: r.ran,
+        leaseEligible: r.leaseEligible,
+        lostValueMinor: toWire(r.lostValueMinor as Minor),
+      })),
+      byMonth: report.byMonth.map((r) => ({
+        driverId: r.driverId,
+        driverName: r.driverName,
+        month: r.month,
+        lost: r.lost,
+        ran: r.ran,
+        leaseEligible: r.leaseEligible,
+        lostValueMinor: toWire(r.lostValueMinor as Minor),
+      })),
+      byReason: report.byReason.map((r) => ({
+        driverId: r.driverId,
+        driverName: r.driverName,
+        // DM §7's CHECK guarantees this is one of the six lost_reason values whenever state = 'did_not_run' — the query only ever selects those rows
+        reason: r.reason as LostReason,
+        lost: r.lost,
+        lostValueMinor: toWire(r.lostValueMinor as Minor),
+      })),
+    },
     200,
   );
 };
