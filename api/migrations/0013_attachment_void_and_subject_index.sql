@@ -29,7 +29,7 @@ ALTER TABLE attachment
   ADD CONSTRAINT attachment_void_consistency CHECK (
     (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
     OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-        AND voided_reason IS NOT NULL AND voided_reason <> '')
+        AND voided_reason IS NOT NULL AND voided_reason IS DISTINCT FROM '')
   );
 
 ALTER TABLE attachment

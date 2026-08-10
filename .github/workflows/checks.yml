@@ -10,7 +10,7 @@ on:
 jobs:
   gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     # Node defaults its old-space heap to roughly 2 GB, and `eslint .` across
     # this workspace now exceeds that: the first full run of this gate after

@@ -126,12 +126,10 @@ test("a receipt indicator shows the count and opens the receipt sheet — GAP-16
     uploadedAt: "2026-08-08T10:00:00Z",
   };
   const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
-  const getBlob = vi
-    .fn()
-    .mockResolvedValue({
-      blob: new Blob(["fake"], { type: "image/jpeg" }),
-      contentType: "image/jpeg",
-    });
+  const getBlob = vi.fn().mockResolvedValue({
+    blob: new Blob(["fake"], { type: "image/jpeg" }),
+    contentType: "image/jpeg",
+  });
   renderWithProviders(
     <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
     { get, getBlob },
