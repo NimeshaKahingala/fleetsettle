@@ -188,6 +188,60 @@ test("loads an existing draft batch and resolves party names for display", async
   expect(screen.getByText("Rs 1,200")).toBeInTheDocument();
 });
 
+test("GAP-101: a saved batch with real entries that fails to hydrate blocks Save and Confirm, rather than risking a silent overwrite on the next full-replace write", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/opening-balance") {
+      return Promise.resolve({
+        id: "b1",
+        goLiveDate: "2026-08-01",
+        status: "draft",
+        committedAt: null,
+        entries: [
+          {
+            id: "e1",
+            kind: "driver_arrears",
+            partyDriverId: "d1",
+            amountMinor: "120000",
+            vehicleId: null,
+            originalDueDate: null,
+          },
+        ],
+      } satisfies OpeningBalanceBatchResponse);
+    }
+    if (path === "/api/driver") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/customer") return Promise.resolve([customer]);
+    if (path === "/api/business-member") return Promise.resolve([member]);
+    if (path === "/api/vehicle") return Promise.resolve([vehicle]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(<OpeningBalanceScreen today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText(/Couldn't load what you already saved/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save as draft" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Confirm and go live" })).toBeDisabled();
+});
+
+test("GAP-101: the driver list failing inside 'Add a starting figure' shows a failure notice in place of an empty picker", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({
+    "/api/driver": Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1")),
+  });
+  renderWithProviders(<OpeningBalanceScreen today={today} onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: "Add a starting figure" }));
+  await user.click(await screen.findByText("We owe a driver"));
+
+  expect(
+    await screen.findByText("Something went wrong loading the driver list."),
+  ).toBeInTheDocument();
+  // Nothing was saved to lose (no batch existed) — this is a picker-level
+  // failure, not a write-blocking one, so the banner from the other test
+  // must not appear here.
+  expect(screen.queryByText(/Couldn't load what you already saved/)).not.toBeInTheDocument();
+});
+
 test("a closed first period shows the lock explanation, not a raw error", async () => {
   const user = userEvent.setup();
   const put = vi

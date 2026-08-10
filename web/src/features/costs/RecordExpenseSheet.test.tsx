@@ -3,6 +3,7 @@ import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schem
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { RecordExpenseSheet } from "./RecordExpenseSheet.js";
 
@@ -99,6 +100,27 @@ test("no vehicleId prop shows a vehicle picker, and leaving it blank is a valid 
   await vi.waitFor(() => expect(post).toHaveBeenCalled());
   const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
   expect("vehicleId" in body).toBe(false);
+});
+
+test("GAP-101: a failed vehicle-list read shows a notice, and amount/category still save (the picker fails in place)", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ ...created, vehicleId: null });
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <RecordExpenseSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
+    { post, get },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the vehicle list."),
+  ).toBeInTheDocument();
+
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Office" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
 });
 
 test("overriding borne-by to Us reaches the request", async () => {

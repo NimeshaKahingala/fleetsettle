@@ -4,8 +4,10 @@ import type {
   MeResponse,
   RedeemInviteResponse,
 } from "@fleetsettle/shared/schemas";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
 
@@ -53,32 +55,34 @@ export function FirstRunGate({ renderOperate, renderReview, renderMine }: FirstR
       }
     },
     // The 404 first-run case is already handled above, inside the query
-    // function itself — anything that still reaches `isError` is either a
-    // real server error (won't fix itself within a few hundred
-    // milliseconds) or the injected token getter throwing outright (not
-    // wired yet — deterministic, will never succeed on retry). The default
-    // QueryClient's 3-attempt exponential backoff would otherwise leave the
-    // very first screen on "Loading…" for several seconds before ever
-    // showing either state.
-    retry: false,
+    // function itself — anything that still reaches `isError` is a real
+    // server error or the injected token getter throwing outright. No local
+    // `retry: false` override needed here any more: `main.tsx`'s
+    // `shouldRetryQuery` (GAP-101) already skips the retry ladder for every
+    // 4xx `ApiError`, which is this query's own case, project-wide — one
+    // statement of the policy instead of two that could drift apart.
   });
+  const meState = useQueryState(meQuery);
 
-  // `isPending` (not `isLoading`, which stays `boolean` even inside the
-  // pending variant to also cover a paused/offline fetch) is the field
-  // TanStack Query v5 actually narrows `data`'s type on.
-  if (meQuery.isPending) {
-    return <p className="p-4 text-body-sm text-ink-muted">Loading…</p>;
-  }
-
-  if (meQuery.isError) {
+  // GAP-101/M-28: `QueryState`'s own idle/pending/error/ready split, applied
+  // to the very first read in the app — its error branch is what matters
+  // here: this used to be one of the two hand-rolled `isError` checks
+  // anywhere in the client (the other was `CloseMonthScreen`'s). `idle` is
+  // unreachable — this query carries no `enabled:`, so it folds into the
+  // same fallback as `pending` rather than adding a branch nothing reaches.
+  if (meState.kind === "error") {
     return (
-      <p className="p-4 text-body-sm text-critical-ink">
-        {meQuery.error instanceof Error ? meQuery.error.message : "Something went wrong."}
-      </p>
+      <div className="p-4">
+        <QueryStateFailure error={meState.error} retry={meState.retry} of="your account" />
+      </div>
     );
   }
 
-  if (meQuery.data === null) {
+  if (meState.kind !== "ready") {
+    return <p className="p-4 text-body-sm text-ink-muted">Loading…</p>;
+  }
+
+  if (meState.data === null) {
     return (
       <div className="flex flex-col gap-8 p-4">
         <h1 className="text-title-lg text-ink-primary">Get started</h1>
@@ -105,7 +109,7 @@ export function FirstRunGate({ renderOperate, renderReview, renderMine }: FirstR
     );
   }
 
-  const { role } = meQuery.data;
+  const { role } = meState.data;
   if (role === "owner_manager" || role === "manager") return <>{renderOperate()}</>;
   if (role === "owner") return <>{renderReview()}</>;
   return <>{renderMine()}</>;

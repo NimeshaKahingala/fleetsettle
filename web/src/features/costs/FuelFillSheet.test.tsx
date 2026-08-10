@@ -3,6 +3,7 @@ import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schem
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { FuelFillSheet } from "./FuelFillSheet.js";
 
@@ -62,6 +63,20 @@ test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone â€
     }),
   );
   expect(onRecorded).toHaveBeenCalledWith(created);
+});
+
+test("GAP-101: a failed vehicle-list read shows a notice on the ten-second flow, never a blank picker with no explanation", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  const post = vi.fn().mockResolvedValue(created);
+  renderWithProviders(
+    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
+    { get, post },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the vehicle list."),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Choose vehicle" })).toBeInTheDocument();
 });
 
 test("litres, when given, reaches the request as a plain number, never money", async () => {

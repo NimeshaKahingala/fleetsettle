@@ -2,6 +2,7 @@ import type { DriverBalancesResponse, DriverResponse } from "@fleetsettle/shared
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { DriverDetailScreen } from "./DriverDetailScreen.js";
 
@@ -39,6 +40,32 @@ test("renders the driver's name and both balances, never a signed net (W-2)", as
   expect(screen.getByText("You owe him")).toBeInTheDocument();
   expect(screen.getByText("Rs 12,000")).toBeInTheDocument();
   expect(screen.getByText("Net: you owe him")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed balances read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading this driver's balances."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
 });
 
 test("Offset opens the offset sheet", async () => {

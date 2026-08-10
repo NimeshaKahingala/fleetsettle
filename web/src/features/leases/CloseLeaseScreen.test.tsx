@@ -9,6 +9,7 @@ import type {
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { CloseLeaseScreen } from "./CloseLeaseScreen.js";
 
@@ -125,6 +126,42 @@ test("the happy path: no deposit, no closing reading, straight through to close-
   expect(onClosed).toHaveBeenCalledWith("v1");
 });
 
+test("GAP-101: a failed deposit read offers Try again, never a silent 'no deposit' that skips a real settlement", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/lease/l1/deposit") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/lease/l1") return Promise.resolve(lease);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/lease/l1/closure-summary") return Promise.resolve(emptySummary);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  const post = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/lease/l1/close") return Promise.resolve({ finalPeriod });
+    return Promise.reject(new Error(`unexpected POST ${path}`));
+  });
+  renderWithProviders(
+    <CloseLeaseScreen leaseId="l1" today={today} onBack={() => {}} onClosed={() => {}} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Stop the clock" }));
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+
+  expect(await screen.findByText("Step 4 of 5 · Deposit")).toBeInTheDocument();
+  expect(
+    await screen.findByText("Something went wrong loading this lease's deposit."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("No deposit was taken on this lease.")).not.toBeInTheDocument();
+  // The sticky primary action becomes "Try again" rather than "Next" —
+  // proceeding would silently treat an unchecked deposit as none at all.
+  // (QueryStateFailure's own inline retry button makes this two, not one.)
+  expect(screen.getAllByRole("button", { name: "Try again" })).toHaveLength(2);
+  expect(screen.queryByRole("button", { name: "Next" })).not.toBeInTheDocument();
+});
+
 test("the closure summary lists unpaid dues and any open incident", async () => {
   const user = userEvent.setup();
   const get = baseGet({
@@ -156,6 +193,30 @@ test("the closure summary lists unpaid dues and any open incident", async () => 
   expect(screen.getByText("Unpaid dues · 1")).toBeInTheDocument();
   expect(screen.getByText("Mileage excess")).toBeInTheDocument();
   expect(screen.getByText("Open incidents · 1")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed closure-summary read shows a failure notice, never an eternal spinner", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/lease/l1/closure-summary") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/lease/l1") return Promise.resolve(lease);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/lease/l1/deposit") return Promise.resolve(null);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  const post = vi.fn().mockResolvedValue({ finalPeriod });
+  renderWithProviders(
+    <CloseLeaseScreen leaseId="l1" today={today} onBack={() => {}} onClosed={() => {}} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Stop the clock" }));
+
+  expect(
+    await screen.findByText("Something went wrong loading the closure summary."),
+  ).toBeInTheDocument();
 });
 
 test("an agreed figure keeps Stop the clock disabled until an amount is entered", async () => {

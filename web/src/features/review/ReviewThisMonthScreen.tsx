@@ -10,8 +10,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { VehiclePerformanceCard } from "./VehiclePerformanceCard.js";
 
 export interface ReviewThisMonthScreenProps {
@@ -117,7 +119,40 @@ export function ReviewThisMonthScreen({
     queryFn: () => api.get<PartnerSummaryResponse>(`/api/partner/${me.userId}`),
   });
 
-  if (currentReportQuery.data === undefined) {
+  const periodsState = useQueryState(periodsQuery);
+  const currentReportState = useQueryState(currentReportQuery);
+  const previousReportState = useQueryState(previousReportQuery);
+  const overheadsState = useQueryState(overheadsQuery);
+  const partnerState = useQueryState(partnerQuery);
+
+  // GAP-101: `periodsQuery` failing is checked first — without it `current`
+  // never resolves, so `currentReportQuery` stays `idle` forever, not
+  // `pending`. `previousReportQuery` failing is not blocking here: a missing
+  // delta already reads as "nothing to compare against" (§5.4's own rule),
+  // the same honest omission a genuinely first period gets.
+  if (periodsState.kind === "error") {
+    return (
+      <Screen title="This month">
+        <QueryStateFailure
+          error={periodsState.error}
+          retry={periodsState.retry}
+          of="the accounting periods"
+        />
+      </Screen>
+    );
+  }
+  if (currentReportState.kind === "error") {
+    return (
+      <Screen title="This month">
+        <QueryStateFailure
+          error={currentReportState.error}
+          retry={currentReportState.retry}
+          of="this month"
+        />
+      </Screen>
+    );
+  }
+  if (currentReportState.kind !== "ready") {
     return (
       <Screen title="This month">
         <p className="text-body text-ink-muted">Loading…</p>
@@ -125,10 +160,11 @@ export function ReviewThisMonthScreen({
     );
   }
 
-  const myShare = computeMyShare(currentReportQuery.data.vehicles, me.userId);
+  const currentReport = currentReportState.data;
+  const myShare = computeMyShare(currentReport.vehicles, me.userId);
   const previousShare =
-    previousReportQuery.data !== undefined
-      ? computeMyShare(previousReportQuery.data.vehicles, me.userId)
+    previousReportState.kind === "ready"
+      ? computeMyShare(previousReportState.data.vehicles, me.userId)
       : undefined;
   const delta = computeDeltaPercent(myShare, previousShare);
   // eslint-disable-next-line no-restricted-syntax -- rounding a display percentage, not a money amount
@@ -158,7 +194,7 @@ export function ReviewThisMonthScreen({
         </Card>
 
         <div className="flex flex-col gap-2">
-          {currentReportQuery.data.vehicles.map((v) => {
+          {currentReport.vehicles.map((v) => {
             const mine = v.ownerShares.find((s) => s.userId === me.userId);
             const warning = vehicleWarnings.get(v.vehicleId);
             return (
@@ -175,18 +211,30 @@ export function ReviewThisMonthScreen({
           })}
         </div>
 
-        {overheadsQuery.data !== undefined ? (
+        {overheadsState.kind === "error" ? (
+          <QueryStateFailure
+            error={overheadsState.error}
+            retry={overheadsState.retry}
+            of="overheads"
+          />
+        ) : overheadsState.kind === "ready" ? (
           <Card className="flex justify-between">
             <span className="text-body-sm text-ink-secondary">Overheads (no vehicle)</span>
-            <Money value={parse(overheadsQuery.data.totalMinor)} />
+            <Money value={parse(overheadsState.data.totalMinor)} />
           </Card>
         ) : null}
 
-        {partnerQuery.data !== undefined ? (
+        {partnerState.kind === "error" ? (
+          <QueryStateFailure
+            error={partnerState.error}
+            retry={partnerState.retry}
+            of="what you're owed"
+          />
+        ) : partnerState.kind === "ready" ? (
           <button type="button" onClick={onSelectMyMoney} className="w-full text-left">
             <Card className="flex items-center justify-between">
               <span className="text-body text-ink-primary">What I'm owed</span>
-              <Money value={parse(partnerQuery.data.balanceMinor)} className="font-medium" />
+              <Money value={parse(partnerState.data.balanceMinor)} className="font-medium" />
             </Card>
           </button>
         ) : null}

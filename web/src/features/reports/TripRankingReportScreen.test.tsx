@@ -2,6 +2,7 @@ import type { RankedTripsResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { TripRankingReportScreen, toChartData } from "./TripRankingReportScreen.js";
 
@@ -55,4 +56,14 @@ test("no closed trips yet reads as a real message, not an empty chart", async ()
   renderWithProviders(<TripRankingReportScreen onBack={() => {}} />, { get });
 
   expect(await screen.findByText("No closed trips yet.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed read shows a failure notice, never a false 'No closed trips yet.'", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<TripRankingReportScreen onBack={() => {}} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading which trips made money."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("No closed trips yet.")).not.toBeInTheDocument();
 });

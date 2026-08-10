@@ -10,12 +10,14 @@ import { useState } from "react";
 import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { MoneyField } from "../../components/MoneyField.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import type { OpeningBalanceEntryDraft } from "./OpeningBalanceScreen.js";
 
 export type OpeningBalanceEntryKind =
@@ -113,6 +115,13 @@ export function AddOpeningBalanceEntrySheet({
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
     enabled: open,
   });
+  // GAP-101: each party list fails its own picker in place — the rest of
+  // the sheet (kind, amount, due date) stays usable regardless of which
+  // one failed.
+  const driversState = useQueryState(driversQuery);
+  const customersState = useQueryState(customersQuery);
+  const membersState = useQueryState(membersQuery);
+  const vehiclesState = useQueryState(vehiclesQuery);
 
   function reset(): void {
     setKind(null);
@@ -143,6 +152,15 @@ export function AddOpeningBalanceEntrySheet({
     id: v.id,
     label: v.registration,
   }));
+
+  const partyState =
+    kind === null
+      ? null
+      : partyKindFor(kind) === "customer"
+        ? customersState
+        : partyKindFor(kind) === "partner"
+          ? membersState
+          : driversState;
 
   const canAdd = kind !== null && party !== null && amountMinor !== null && amountMinor > 0n;
 
@@ -201,18 +219,33 @@ export function AddOpeningBalanceEntrySheet({
         </div>
 
         {kind !== null ? (
-          <EntityPicker
-            label={
-              partyKindFor(kind) === "customer"
-                ? "Customer"
-                : partyKindFor(kind) === "partner"
-                  ? "Partner"
-                  : "Driver"
-            }
-            options={partyOptions}
-            value={party}
-            onChange={setParty}
-          />
+          <>
+            {partyState?.kind === "error" ? (
+              <QueryStateFailure
+                error={partyState.error}
+                retry={partyState.retry}
+                of={
+                  partyKindFor(kind) === "customer"
+                    ? "the customer list"
+                    : partyKindFor(kind) === "partner"
+                      ? "the partner list"
+                      : "the driver list"
+                }
+              />
+            ) : null}
+            <EntityPicker
+              label={
+                partyKindFor(kind) === "customer"
+                  ? "Customer"
+                  : partyKindFor(kind) === "partner"
+                    ? "Partner"
+                    : "Driver"
+              }
+              options={partyOptions}
+              value={party}
+              onChange={setParty}
+            />
+          </>
         ) : null}
 
         <MoneyField label="Amount" valueMinor={amountMinor} onChange={setAmountMinor} />
@@ -254,12 +287,20 @@ export function AddOpeningBalanceEntrySheet({
         ) : null}
 
         <Disclosure sectionName="Link to a vehicle">
-          <EntityPicker
-            label="Vehicle"
-            options={vehicleOptions}
-            value={vehicle}
-            onChange={setVehicle}
-          />
+          {vehiclesState.kind === "error" ? (
+            <QueryStateFailure
+              error={vehiclesState.error}
+              retry={vehiclesState.retry}
+              of="the vehicle list"
+            />
+          ) : (
+            <EntityPicker
+              label="Vehicle"
+              options={vehicleOptions}
+              value={vehicle}
+              onChange={setVehicle}
+            />
+          )}
         </Disclosure>
 
         <Button type="button" onClick={handleAdd} disabled={!canAdd}>

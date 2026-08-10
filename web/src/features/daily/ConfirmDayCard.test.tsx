@@ -44,6 +44,18 @@ test("not yet confirmed: shows DayCard with the rate in force as the expected am
   expect(screen.getByRole("button", { name: "Paid in full" })).toBeInTheDocument();
 });
 
+test("GAP-101: a failed lease read shows a failure notice, never a silent 'return null' that drops this day off Home entirely", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === `/api/daily-lease/${dailyLeaseId}`) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    throw new ApiError(404, "NOT_FOUND", "not found", "req-1");
+  });
+  renderWithProviders(<ConfirmDayCard {...props()} />, { get });
+
+  expect(await screen.findByText("Something went wrong loading Bus's day.")).toBeInTheDocument();
+});
+
 test("GAP-3 — a pre-generated `open` row is not treated as confirmed: shows DayCard with its own expected amount, not the settled summary", async () => {
   const record: DayRecordResponse = {
     id: "dr1",

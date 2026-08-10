@@ -1,6 +1,7 @@
 import type { ReceivablesResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { ReceivablesReportScreen } from "./ReceivablesReportScreen.js";
 
@@ -35,4 +36,12 @@ test("an empty response reads as a real fact, not a loading state that never res
   renderWithProviders(<ReceivablesReportScreen onBack={() => {}} />, { get });
 
   expect(await screen.findByText("No one owes us anything.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed read shows a failure notice, never a false 'no one owes us anything'", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<ReceivablesReportScreen onBack={() => {}} />, { get });
+
+  expect(await screen.findByText("Something went wrong loading who owes us.")).toBeInTheDocument();
+  expect(screen.queryByText("No one owes us anything.")).not.toBeInTheDocument();
 });

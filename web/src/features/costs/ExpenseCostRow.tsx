@@ -10,6 +10,7 @@ import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
 import { cn } from "../../lib/cn.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ReceiptSheet } from "./ReceiptSheet.js";
 import { VoidExpenseSheet } from "./VoidExpenseSheet.js";
 
@@ -44,6 +45,10 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
         `/api/attachment?${new URLSearchParams({ subjectType: "expense", subjectId: expense.id }).toString()}`,
       ),
   });
+  // GAP-101: a failed read must not collapse into "0 receipts" — that's a
+  // confident wrong answer on a row a manager may be relying on for
+  // dispute evidence. Distinguish "definitely none" from "couldn't check".
+  const attachmentsState = useQueryState(attachmentsQuery);
   const { uploads: localUploads } = useLocalAttachmentUploads("expense", expense.id);
   const confirmedCount = attachmentsQuery.data?.length ?? 0;
   const pendingCount = localUploads.filter(
@@ -86,7 +91,9 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
           {content}
         </button>
       )}
-      {receiptCount > 0 ? (
+      {attachmentsState.kind === "error" ? (
+        <p className="text-caption text-ink-muted">Receipts couldn't be checked</p>
+      ) : receiptCount > 0 ? (
         <button
           type="button"
           onClick={() => setReceiptsOpen(true)}

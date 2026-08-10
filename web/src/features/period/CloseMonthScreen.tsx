@@ -8,6 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Can } from "../../components/Can.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Dialog, DialogConfirmFooter } from "../../design/primitives/Dialog.js";
@@ -16,6 +17,7 @@ import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { can } from "../../lib/capabilities.js";
 import { useMe } from "../../lib/useMe.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CorrectPaymentSheet } from "./CorrectPaymentSheet.js";
 
 export interface CloseMonthScreenProps {
@@ -68,6 +70,8 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
     queryKey: ["payment"],
     queryFn: () => api.get<PaymentListRow[]>("/api/payment"),
   });
+  const checklistState = useQueryState(checklistQuery);
+  const paymentsState = useQueryState(paymentsQuery);
 
   const closeMutation = useMutation({
     mutationFn: () => api.post<CloseAccountingPeriodResponse>("/api/accounting-period/close", {}),
@@ -105,12 +109,12 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
           </p>
         ) : null}
 
-        {checklistQuery.isError && closedResult === null ? (
-          <p className="text-body-sm text-critical-ink">
-            {checklistQuery.error instanceof Error
-              ? checklistQuery.error.message
-              : "No open accounting period for this business."}
-          </p>
+        {checklistState.kind === "error" && closedResult === null ? (
+          <QueryStateFailure
+            error={checklistState.error}
+            retry={checklistState.retry}
+            of="the close checklist"
+          />
         ) : null}
 
         {checklistQuery.data !== undefined && closedResult === null ? (
@@ -145,7 +149,13 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
 
         <div className="flex flex-col gap-2 border-t border-line-hairline pt-4">
           <h2 className="text-label font-medium text-ink-secondary">Recent payments</h2>
-          {(paymentsQuery.data ?? []).length === 0 ? (
+          {paymentsState.kind === "error" ? (
+            <QueryStateFailure
+              error={paymentsState.error}
+              retry={paymentsState.retry}
+              of="recent payments"
+            />
+          ) : (paymentsQuery.data ?? []).length === 0 ? (
             <p className="text-body-sm text-ink-muted">No payments recorded yet.</p>
           ) : (
             (paymentsQuery.data ?? []).slice(0, 20).map((row) => {

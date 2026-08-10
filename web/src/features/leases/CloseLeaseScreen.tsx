@@ -16,6 +16,7 @@ import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
@@ -25,6 +26,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface CloseLeaseScreenProps {
   leaseId: string;
@@ -175,6 +177,9 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
     onSuccess: (lease) => onClosed(lease.vehicleId),
   });
 
+  const summaryState = useQueryState(summaryQuery);
+  const depositState = useQueryState(depositQuery);
+
   const deposit = depositQuery.data ?? null;
   const hasDeposit = deposit !== null;
 
@@ -193,15 +198,20 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
         : step === 2
           ? { label: "Next", onClick: () => setStep(3) }
           : step === 3
-            ? hasDeposit
-              ? {
-                  label: "Settle deposit",
-                  onClick: () => settleDepositMutation.mutate(),
-                  disabled:
-                    settleDepositMutation.isPending ||
-                    (depositAction === "retain" && retainAmountMinor === null),
-                }
-              : { label: "Next", onClick: () => setStep(4) }
+            ? // GAP-101: a failed deposit read must not silently fall through
+              // to "no deposit, Next" — that would skip settling a real
+              // deposit this screen simply couldn't confirm.
+              depositState.kind === "error"
+              ? { label: "Try again", onClick: depositState.retry }
+              : hasDeposit
+                ? {
+                    label: "Settle deposit",
+                    onClick: () => settleDepositMutation.mutate(),
+                    disabled:
+                      settleDepositMutation.isPending ||
+                      (depositAction === "retain" && retainAmountMinor === null),
+                  }
+                : { label: "Next", onClick: () => setStep(4) }
             : {
                 label: "Close out",
                 onClick: () => closeOutMutation.mutate(),
@@ -364,6 +374,12 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
                   />
                 ) : null}
               </>
+            ) : summaryState.kind === "error" ? (
+              <QueryStateFailure
+                error={summaryState.error}
+                retry={summaryState.retry}
+                of="the closure summary"
+              />
             ) : (
               <p className="text-body-sm text-ink-muted">Loading…</p>
             )}
@@ -378,7 +394,13 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
 
         {step === 3 ? (
           <div className="flex flex-col gap-4">
-            {depositQuery.data === undefined ? (
+            {depositState.kind === "error" ? (
+              <QueryStateFailure
+                error={depositState.error}
+                retry={depositState.retry}
+                of="this lease's deposit"
+              />
+            ) : depositQuery.data === undefined ? (
               <p className="text-body-sm text-ink-muted">Loading…</p>
             ) : !hasDeposit ? (
               <p className="text-body text-ink-secondary">No deposit was taken on this lease.</p>

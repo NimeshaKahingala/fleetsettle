@@ -9,11 +9,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, MoreVertical, TriangleAlert, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CustomerContributionSheet } from "./CustomerContributionSheet.js";
 import { InsuranceClaimSheet } from "./InsuranceClaimSheet.js";
@@ -112,6 +114,8 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
     queryKey: ["incident", incidentId, "expense"],
     queryFn: () => api.get<ExpenseListRow[]>(`/api/incident/${incidentId}/expense`),
   });
+  const incidentState = useQueryState(incidentQuery);
+  const expensesState = useQueryState(expensesQuery);
 
   const incident = incidentQuery.data;
   const expenses = expensesQuery.data ?? [];
@@ -183,7 +187,13 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
           }
         : {})}
     >
-      {incident === undefined ? (
+      {incidentState.kind === "error" ? (
+        <QueryStateFailure
+          error={incidentState.error}
+          retry={incidentState.retry}
+          of="this incident"
+        />
+      ) : incident === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -281,6 +291,13 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
             </>
           ) : null}
 
+          {expensesState.kind === "error" ? (
+            <QueryStateFailure
+              error={expensesState.error}
+              retry={expensesState.retry}
+              of="repair costs"
+            />
+          ) : null}
           {expenses.length > 0 ? (
             <Section
               title="Repair costs"

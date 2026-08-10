@@ -3,10 +3,12 @@ import type { DriverBalancesResponse, DriverResponse } from "@fleetsettle/shared
 import { useQuery } from "@tanstack/react-query";
 import { HandCoins, PiggyBank, Wallet } from "lucide-react";
 import { useState } from "react";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { TwoBalances } from "../../components/TwoBalances.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { AdvanceSheet } from "./AdvanceSheet.js";
 import { DepositSheet } from "./DepositSheet.js";
 import { OffsetSheet } from "./OffsetSheet.js";
@@ -53,6 +55,14 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
     queryKey: ["driver", driverId, "balances"],
     queryFn: () => api.get<DriverBalancesResponse>(`/api/driver/${driverId}/balances`),
   });
+  const driverState = useQueryState(driverQuery);
+  const balancesState = useQueryState(balancesQuery);
+  const failedState =
+    driverState.kind === "error"
+      ? driverState
+      : balancesState.kind === "error"
+        ? balancesState
+        : null;
 
   const actions: ActionSheetAction[] = [
     { key: "pay", label: "Pay the driver", icon: HandCoins, onSelect: () => setPayOpen(true) },
@@ -76,7 +86,13 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
       onBack={onBack}
       primaryAction={{ label: "Driver money", onClick: () => setActionsOpen(true) }}
     >
-      {driverQuery.data === undefined || balancesQuery.data === undefined ? (
+      {failedState !== null ? (
+        <QueryStateFailure
+          error={failedState.error}
+          retry={failedState.retry}
+          of="this driver's balances"
+        />
+      ) : driverQuery.data === undefined || balancesQuery.data === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <TwoBalances

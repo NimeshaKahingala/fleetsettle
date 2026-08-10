@@ -8,6 +8,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { TripDetailScreen } from "./TripDetailScreen.js";
 
@@ -131,6 +132,30 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(voidedRow).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong trip")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed trip read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText("Something went wrong loading this trip.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed costs read shows a failure notice rather than a silently empty costs list", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/trip/t1/expense") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/trip/t1") return Promise.resolve(bookedTrip);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/driver/d1") return Promise.resolve(driver);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading this trip's costs."),
+  ).toBeInTheDocument();
 });
 
 test("GAP-57 — Received shows the real trip_fare receivable, and Advance to him stays an honest gap (W-56)", async () => {

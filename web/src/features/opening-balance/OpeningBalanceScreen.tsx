@@ -21,6 +21,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { ApiError } from "../../lib/api.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import {
   AddOpeningBalanceEntrySheet,
   type OpeningBalanceEntryKind,
@@ -119,6 +120,28 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
     customersQuery.data !== undefined &&
     membersQuery.data !== undefined &&
     vehiclesQuery.data !== undefined;
+
+  const batchState = useQueryState(batchQuery);
+  const driversLookupState = useQueryState(driversQuery);
+  const customersLookupState = useQueryState(customersQuery);
+  const membersLookupState = useQueryState(membersQuery);
+  const vehiclesLookupState = useQueryState(vehiclesQuery);
+  const lookupsErrored =
+    driversLookupState.kind === "error" ||
+    customersLookupState.kind === "error" ||
+    membersLookupState.kind === "error" ||
+    vehiclesLookupState.kind === "error";
+  // GAP-101: "Save as draft" and "Confirm and go live" both PUT the whole
+  // local `entries` list as a full replace (`domain/opening-balance.ts`'s
+  // own "not incremental CRUD"). If a previously-saved batch has entries
+  // and the lookups needed to hydrate them into local state never
+  // resolved, saving now would silently discard those entries — a failed
+  // read has to block the write it would otherwise corrupt, not just
+  // degrade the read.
+  const savedBatchHasEntries =
+    batchQuery.data !== undefined && batchQuery.data !== null && batchQuery.data.entries.length > 0;
+  const writeBlocked =
+    batchState.kind === "error" || (savedBatchHasEntries && !seeded && lookupsErrored);
 
   useEffect(() => {
     if (seeded || batchQuery.data === undefined || !lookupsReady) return;
@@ -249,6 +272,14 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
 
   const status = batchQuery.data?.status ?? null;
 
+  function retryHydration(): void {
+    if (batchState.kind === "error") batchState.retry();
+    if (driversLookupState.kind === "error") driversLookupState.retry();
+    if (customersLookupState.kind === "error") customersLookupState.retry();
+    if (membersLookupState.kind === "error") membersLookupState.retry();
+    if (vehiclesLookupState.kind === "error") vehiclesLookupState.retry();
+  }
+
   return (
     <Screen
       title="Opening balances"
@@ -256,7 +287,7 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
       primaryAction={{
         label: "Save as draft",
         onClick: () => saveMutation.mutate(),
-        disabled: saveMutation.isPending,
+        disabled: saveMutation.isPending || writeBlocked,
       }}
     >
       <div className="flex flex-col gap-4">
@@ -265,6 +296,17 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
           dues, deposits, advances and cash on hand. None of this counts as income or a cost; it is
           only a starting point.
         </p>
+
+        {writeBlocked ? (
+          <AlertStrip
+            severity="warning"
+            icon={TriangleAlert}
+            action={{ label: "Try again", onClick: retryHydration }}
+          >
+            Couldn't load what you already saved — saving now would overwrite it, so Save and
+            Confirm are off until this loads.
+          </AlertStrip>
+        ) : null}
 
         {status === "committed" ? (
           <p className="rounded-sm bg-surface px-4 py-3 text-body-sm text-ink-secondary">
@@ -322,7 +364,7 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
         <Button
           type="button"
           onClick={() => setConfirmOpen(true)}
-          disabled={commitMutation.isPending}
+          disabled={commitMutation.isPending || writeBlocked}
         >
           Confirm and go live
         </Button>

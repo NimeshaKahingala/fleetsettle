@@ -10,6 +10,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { BookTripScreen } from "./BookTripScreen.js";
 
@@ -170,4 +171,56 @@ test("a paperwork warning for this vehicle shows on the confirm step (F-10.1)", 
   await user.click(screen.getByRole("button", { name: "Next" }));
 
   expect(await screen.findByText(/insurance expires 2026-08-01/)).toBeInTheDocument();
+});
+
+test("GAP-101 (Mode 3): a failed paperwork read shows a warning on the confirm step, never silently nothing", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/home/paperwork-warnings") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path === "/api/customer") return Promise.resolve([]);
+    if (path === "/api/driver") return Promise.resolve([driver]);
+    if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve([]);
+    if (path === "/api/vehicle/v1/daily-lease") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+
+  expect(await screen.findByText("Couldn't check this vehicle's paperwork.")).toBeInTheDocument();
+});
+
+test("GAP-101 (Mode 3): a failed calendar read shows a warning that the pause impact couldn't be checked, never a silent 'nothing paused'", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path.startsWith("/api/vehicle/v1/calendar")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path === "/api/customer") return Promise.resolve([]);
+    if (path === "/api/driver") return Promise.resolve([driver]);
+    if (path === "/api/home/paperwork-warnings") return Promise.resolve([]);
+    if (path === "/api/vehicle/v1/daily-lease") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+
+  expect(
+    await screen.findByText("Couldn't check whether this pauses a daily lease."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/pauses \d+ day/)).not.toBeInTheDocument();
 });

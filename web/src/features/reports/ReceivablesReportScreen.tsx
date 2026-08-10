@@ -2,7 +2,9 @@ import { parse } from "@fleetsettle/shared";
 import type { ReceivablesResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { PartyName } from "./PartyName.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -51,18 +53,21 @@ export function ReceivablesReportScreen({ onBack }: ReceivablesReportScreenProps
     queryKey: ["reports", "receivables"],
     queryFn: () => api.get<ReceivablesResponse>("/api/reports/receivables"),
   });
+  const state = useQueryState(query);
 
   return (
     <ReportScreen
       title="Who owes us"
       onBack={onBack}
       table={
-        query.data === undefined ? (
+        state.kind === "error" ? (
+          <QueryStateFailure error={state.error} retry={state.retry} of="who owes us" />
+        ) : state.kind !== "ready" ? (
           <p className="text-body text-ink-muted">Loading…</p>
-        ) : query.data.length === 0 ? (
+        ) : state.data.length === 0 ? (
           <p className="text-body text-ink-secondary">No one owes us anything.</p>
         ) : (
-          <ReportTable columns={COLUMNS} rows={query.data} rowKey={(row) => row.partyId} />
+          <ReportTable columns={COLUMNS} rows={state.data} rowKey={(row) => row.partyId} />
         )
       }
     />

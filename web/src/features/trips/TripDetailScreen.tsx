@@ -10,10 +10,12 @@ import { Ban } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import {
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
@@ -97,6 +99,8 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     queryKey: ["trip", tripId, "expense"],
     queryFn: () => api.get<ExpenseListRow[]>(`/api/trip/${tripId}/expense`),
   });
+  const tripState = useQueryState(tripQuery);
+  const expensesState = useQueryState(expensesQuery);
 
   const expenses = expensesQuery.data ?? [];
   const costsSoFar = expenses
@@ -143,7 +147,9 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
         ? { primaryAction: { label: "Close trip", onClick: () => setCloseOpen(true) } }
         : {})}
     >
-      {trip === undefined ? (
+      {tripState.kind === "error" ? (
+        <QueryStateFailure error={tripState.error} retry={tripState.retry} of="this trip" />
+      ) : trip === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -205,6 +211,13 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             ) : null}
           </Card>
 
+          {expensesState.kind === "error" ? (
+            <QueryStateFailure
+              error={expensesState.error}
+              retry={expensesState.retry}
+              of="this trip's costs"
+            />
+          ) : null}
           {expenses.length > 0 ? (
             <Section
               title="Costs"

@@ -3,6 +3,7 @@ import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleListScreen } from "./VehicleListScreen.js";
 
@@ -48,6 +49,16 @@ test("an empty fleet is a real, good state, not a blank screen", async () => {
   renderWithProviders(<VehicleListScreen today={today} onSelectVehicle={vi.fn()} />, { get });
 
   expect(await screen.findByText("No vehicles yet.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed read shows a failure notice, never a false 'No vehicles yet.'", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<VehicleListScreen today={today} onSelectVehicle={vi.fn()} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading the vehicle list."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("No vehicles yet.")).not.toBeInTheDocument();
 });
 
 test("Add a vehicle opens the create-vehicle sheet", async () => {

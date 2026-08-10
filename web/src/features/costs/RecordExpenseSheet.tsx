@@ -11,10 +11,12 @@ import { ReasonPicker } from "../../components/ReasonPicker.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
 
@@ -73,6 +75,10 @@ export function RecordExpenseSheet({
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
     enabled: open && vehicleId === undefined,
   });
+  // GAP-101: a failed vehicle-list read must fail the picker in place, not
+  // silently render as "you have no vehicles" (`?? []`) — the rest of the
+  // sheet (amount, category, date) stays usable regardless.
+  const vehiclesState = useQueryState(vehiclesQuery);
 
   useEffect(() => {
     if (open) {
@@ -150,6 +156,13 @@ export function RecordExpenseSheet({
 
         {vehicleId === undefined ? (
           <div className="flex flex-col gap-1">
+            {vehiclesState.kind === "error" ? (
+              <QueryStateFailure
+                error={vehiclesState.error}
+                retry={vehiclesState.retry}
+                of="the vehicle list"
+              />
+            ) : null}
             <EntityPicker
               label="Vehicle"
               options={vehicleOptions}

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { PhotoCapture } from "../../components/PhotoCapture.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { Input } from "../../design/primitives/Input.js";
@@ -12,6 +13,7 @@ import { Label } from "../../design/primitives/Label.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface FuelFillSheetProps {
   open: boolean;
@@ -51,6 +53,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
     enabled: open,
   });
   const vehicles = vehiclesQuery.data ?? [];
+  // GAP-101: this is level 1 and required to save — a failed read must say
+  // so rather than render an empty, unexplained picker on the flow UI §7.3
+  // specifies as ten seconds end to end.
+  const vehiclesState = useQueryState(vehiclesQuery);
 
   useEffect(() => {
     if (open) {
@@ -112,6 +118,13 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Log a fuel fill">
       <div className="flex flex-col gap-4">
+        {vehiclesState.kind === "error" ? (
+          <QueryStateFailure
+            error={vehiclesState.error}
+            retry={vehiclesState.retry}
+            of="the vehicle list"
+          />
+        ) : null}
         <EntityPicker
           label="Vehicle"
           options={vehicles.map((v) => ({ id: v.id, label: v.registration }))}

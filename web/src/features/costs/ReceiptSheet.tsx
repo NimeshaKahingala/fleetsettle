@@ -2,10 +2,11 @@ import type { AttachmentSubjectType, ListAttachmentsResponse } from "@fleetsettl
 import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 /**
  * A7/GAP-16, commit 7. GAP-16 does not honestly close for expenses until a
@@ -31,6 +32,9 @@ export function ReceiptSheet({ open, onOpenChange, subjectType, subjectId }: Rec
       ),
     enabled: open,
   });
+  // GAP-101: a failed read here is not "no receipts" — NotAvailable would
+  // claim the read succeeded and found nothing, which is a different fact.
+  const attachmentsState = useQueryState(attachmentsQuery);
   const { uploads: localUploads, retry } = useLocalAttachmentUploads(subjectType, subjectId);
 
   const confirmedIds = new Set((attachmentsQuery.data ?? []).map((a) => a.id));
@@ -46,8 +50,12 @@ export function ReceiptSheet({ open, onOpenChange, subjectType, subjectId }: Rec
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Receipts">
       <div className="flex flex-col gap-4">
-        {attachmentsQuery.isError ? (
-          <NotAvailable reason="couldn't load receipts — check your connection" />
+        {attachmentsState.kind === "error" ? (
+          <QueryStateFailure
+            error={attachmentsState.error}
+            retry={attachmentsState.retry}
+            of="these receipts"
+          />
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {(attachmentsQuery.data ?? []).map((attachment) => (

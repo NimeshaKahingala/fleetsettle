@@ -1,6 +1,7 @@
 import type { CashPositionResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { CashPositionReportScreen } from "./CashPositionReportScreen.js";
 
@@ -43,4 +44,16 @@ test("empty banked/driverAdvances render an honest message rather than an empty 
 
   expect(await screen.findByText("Nothing banked yet.")).toBeInTheDocument();
   expect(screen.getByText("No advances outstanding.")).toBeInTheDocument();
+});
+
+test("GAP-101/F2: a failed read shows a failure notice, with the back button still reachable, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  const onBack = vi.fn();
+  renderWithProviders(<CashPositionReportScreen onBack={onBack} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading the cash position."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+  await screen.findByRole("button", { name: "Back" });
 });
