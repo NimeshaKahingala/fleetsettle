@@ -42,7 +42,7 @@ jobs:
   guard:
     needs: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     environment: production
     steps:
       - uses: actions/checkout@v5
@@ -62,7 +62,7 @@ jobs:
   deploy:
     needs: guard
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: production
     steps:
       - uses: actions/checkout@v5

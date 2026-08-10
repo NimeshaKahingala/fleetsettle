@@ -54,6 +54,50 @@ test("nothing outstanding renders the empty state, not a blank screen", async ()
   expect(await screen.findByText("Nothing needs you today")).toBeInTheDocument();
 });
 
+test("GAP-101: one failed read shows its own failure notice and never renders the empty state, while the section that succeeded still renders", async () => {
+  const receivables: ReceivableRow[] = [
+    {
+      partyType: "customer",
+      partyId: "c1",
+      partyName: "Perera Tours",
+      outstandingMinor: "1500000",
+      oldestDueOn: "2026-07-01",
+    },
+  ];
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/home/paperwork-warnings") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/reports/receivables") return Promise.resolve(receivables);
+    if (path.startsWith("/api/day-record/")) {
+      return Promise.reject(new ApiError(404, "NOT_FOUND", "not yet confirmed", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Rent due · 1")).toBeInTheDocument();
+  expect(screen.getByText("Something went wrong loading paperwork warnings.")).toBeInTheDocument();
+  expect(screen.queryByText("Nothing needs you today")).not.toBeInTheDocument();
+});
+
+test("GAP-101: every read failing shows a failure notice per section, never 'Nothing needs you today' — the false-empty state this item exists to close", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading paperwork warnings."),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Something went wrong loading today's vehicles.")).toBeInTheDocument();
+  expect(
+    screen.getByText("Something went wrong loading earlier unconfirmed days."),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Something went wrong loading rent due.")).toBeInTheDocument();
+  expect(screen.getByText("Something went wrong loading deposits to release.")).toBeInTheDocument();
+  expect(screen.getByText("Something went wrong loading trips in progress.")).toBeInTheDocument();
+  expect(screen.queryByText("Nothing needs you today")).not.toBeInTheDocument();
+});
+
 test("a paperwork warning renders as an alert strip, styled by isExpired, with a vehicle action but not a driver one", async () => {
   const warnings: PaperworkWarningRow[] = [
     {

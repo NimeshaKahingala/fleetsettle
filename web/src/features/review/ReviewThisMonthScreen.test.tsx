@@ -7,6 +7,7 @@ import type {
 } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import {
   ReviewThisMonthScreen,
@@ -145,4 +146,54 @@ test("first period: no predecessor, so the delta line is omitted entirely — an
   expect(await screen.findByText("Overheads (no vehicle)")).toBeInTheDocument();
   expect(screen.getByText("Rs 2,000")).toBeInTheDocument();
   expect(await screen.findByText("What I'm owed")).toBeInTheDocument();
+});
+
+test("GAP-101/F2: a failed vehicle-month read blocks the screen with a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period") return Promise.resolve(periods);
+    if (path.startsWith("/api/reports/vehicle-month")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+
+  renderWithProviders(
+    <ReviewThisMonthScreen onSelectVehicle={() => {}} onSelectMyMoney={() => {}} />,
+    { get },
+    undefined,
+    me,
+  );
+
+  expect(await screen.findByText("Something went wrong loading this month.")).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+});
+
+test("GAP-101: overheads and 'What I'm owed' each fail in place — a failed secondary read doesn't silently vanish, and doesn't block the vehicles that did load", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period") return Promise.resolve(periods);
+    if (path.startsWith("/api/reports/vehicle-month")) return Promise.resolve(currentReport);
+    if (path.startsWith("/api/reports/overheads")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/home/paperwork-warnings") return Promise.resolve([]);
+    if (path === "/api/partner/u1") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+
+  renderWithProviders(
+    <ReviewThisMonthScreen onSelectVehicle={() => {}} onSelectMyMoney={() => {}} />,
+    { get },
+    undefined,
+    me,
+  );
+
+  expect(await screen.findByText("NB-1234")).toBeInTheDocument();
+  expect(await screen.findByText("Something went wrong loading overheads.")).toBeInTheDocument();
+  expect(
+    await screen.findByText("Something went wrong loading what you're owed."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Overheads (no vehicle)")).not.toBeInTheDocument();
+  expect(screen.queryByText("What I'm owed")).not.toBeInTheDocument();
 });

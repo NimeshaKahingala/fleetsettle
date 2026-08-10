@@ -7,6 +7,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { LeaseHubScreen } from "./LeaseHubScreen.js";
 
@@ -100,6 +101,32 @@ test("renders terms, billing periods and dues once loaded", async () => {
   expect(screen.getByText("Rent")).toBeInTheDocument();
   expect(screen.getByText("Mileage excess")).toBeInTheDocument();
   expect(screen.getByText(/Paid/)).toBeInTheDocument();
+});
+
+test("GAP-101: a failed lease read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Something went wrong loading this lease.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed dues read shows a failure notice, never a silently empty 'Dues' section that hides money owed", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/lease/l1/obligation") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/lease/l1") return Promise.resolve(lease);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Something went wrong loading dues.")).toBeInTheDocument();
+  expect(screen.queryByText(/Dues ·/)).not.toBeInTheDocument();
 });
 
 test("a pending due opens an action sheet offering collect payment and adjust or waive", async () => {

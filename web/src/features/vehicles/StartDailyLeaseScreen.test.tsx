@@ -178,3 +178,37 @@ test("GAP-84 — a vehicle with no current arrangement is accepted, not refused"
 
   expect(await screen.findByRole("button", { name: "Choose driver" })).toBeInTheDocument();
 });
+
+test("GAP-101: a failed vehicle read blocks the form rather than silently skipping the GAP-84 arrangement check", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <StartDailyLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(await screen.findByText("Something went wrong loading this vehicle.")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Choose driver" })).not.toBeInTheDocument();
+});
+
+test("GAP-101: a failed driver-list read shows a notice above the picker rather than an emptied one", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/driver") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <StartDailyLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the driver list."),
+  ).toBeInTheDocument();
+});

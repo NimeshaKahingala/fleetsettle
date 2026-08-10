@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.4 — §6.1 gains `Badge`: a live QA/code visual-semantics review (`UI-LOOK-FEEL-REQUIRED-CHANGES-2026-08-09.md`) found arrangement, incident status and voided-expense reason all rendering as plain muted text with no shared primitive for state — B16 in `Plan.md`
-**Date:** 9 August 2026
+**Status:** v1.2.5 — §6.4 gains `QueryState`, §9.5 becomes "Loading and failing": GAP-101 (`GAP-101-READ-ERROR-CONTRACT-PLAN-2026-08-10.md`) found that §9.5 specified loading but was silent on a read that fails, and every screen author followed the spec exactly — 30 of 32 query-using files, 81 of 83 call sites, treat a failed read as a slow one or worse
+**Date:** 10 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -111,6 +111,7 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-26** ⚑ | **Landscape is supported, not locked.** Below `md` in landscape the app bar collapses to 44px, the tab bar becomes icon-only at 44px, and the sticky action stays | Locking orientation is the obvious answer and it is not available: **WCAG 2.1 SC 1.3.4 Orientation** forbids restricting content to one orientation unless it is essential, and a ledger is not essential in that sense. The manifest's `orientation` field is also ignored outside standalone mode and on iOS, so a lock would be a lock in name only. That leaves making landscape work: ~192px of content between the chrome is enough for the day card once the chrome gives back 24px |
 | **M-25** ⚑ | **The interface has no accounting vocabulary and no abbreviations of the reserved words** (FL §1.5, U-6). "Daily lease amount" is never shortened to "rate" on a screen where "driver day fee" could also appear | The two words mean opposite directions of money. UC-04 already had to split them once |
 | **M-27** ⚑ | **F-2.1 is a route (`/vehicles/:id/lease/new`), the one create flow that is not a sheet.** M-5's own rule already says why — "sheets for anything under one screenful; routes for anything multi-step" — but F-2.1 is also the first *create* flow long enough to hit that line: every other create (vehicle, driver, customer) is short enough to fit M-5's sheet half | A sheet here fails on mechanics, not taste: `Sheet` registers exactly one mobile history entry (§3.3), so hardware back would discard a multi-step, high-commitment write instead of stepping back one field; its `max-h-[90svh]` scroll region nests inside `Screen`'s own (§6.1: "the only scrolling element"); and F-10.1's `AlertStrip` warning, specified as sitting "above the primary action," would often sit below the fold of that nested scroll on exactly the screen where missing it costs money. Vehicle-scoped rather than `/leases/new` because F-2.1's own **Pre** is a vehicle precondition (INV-1) and F-1.5's Accept already names the calendar as an entry point with the date pre-filled |
+| **M-28** ⚑ | **Every read has three visible outcomes: data, a real nothing, or a stated failure.** A screen that can render only "loading" and "data" is unfinished, whether or not it looks finished | Found 10 August 2026 (GAP-101): §9.5 specified the first two and was silent on the third, so nothing in the client could render a failed read as anything but an eternal spinner — or worse, a fallback (`?? []`, `?? 0`) that renders it as a confident wrong answer. W-56 already forbids the second half on reports specifically; this makes it a rule for every read, and gives it a component (`QueryState`, §6.4) rather than 32 hand-rolled branches |
 
 ---
 
@@ -548,7 +549,8 @@ The failure that matters is not a slow upload — it is a manager who taps Save,
 |---|---|
 | `Money` | Tabular, `Rs` prefix, thousands grouped, cents only when non-zero (M-16). Never truncated, never abbreviated to "5k" on a money screen |
 | `StatTile` | Label, value (hero or title), optional delta with arrow **and** sign **and** word, optional sparkline. §11. *Sparkline:* single 1.5px `--color-ink-muted` stroke, last 30 points, no axes, no dots, no fill, no interaction — it is a shape, not a chart. Below 6 points it renders nothing rather than a misleading near-straight line (M-13). Tapping the tile opens the full report; the sparkline itself is `aria-hidden` |
-| `NotAvailable` | M-13. Renders the em-dash with a caption saying *why* — "no closing odometer" — and an info affordance. Never zero |
+| `NotAvailable` | M-13. Renders the em-dash with a caption saying *why* — "no closing odometer" — and an info affordance. Never zero. **Means the number does not exist** — never means "the read failed"; those are different facts and stay visually distinct (§11.4) |
+| `QueryState` | M-28. Wraps one read (or, via `combineQueryStates`, several) in four states — `idle`, `pending`, `error`, `ready` — never three. **`idle` (a disabled query, `enabled: false`) is not `pending`**: a query that was never asked must not render a spinner, or it spins forever. `error` renders `EmptyState`'s sibling — icon, a status-mapped sentence built from the failed request's own `ApiError.status` (never a raw error string, never a status number, and inside the §9.6 vocabulary lock), and **Try again** wired to `refetch`. Combining several reads resolves `error` over `pending` over `idle`, because a screen with one failed read has already failed regardless of what else is still in flight |
 | `Provisional` | The striped-edge treatment for estimated figures: an apportioned mileage split (UC-14), a pending insurance recovery (W-11), an unsynced write (M-12). One visual language for "this number is not final" |
 | `AlertStrip` | Home items 1–2, and inline warnings (M-9). Icon + text + one action |
 | `SyncChip` | "Not yet saved" on the record itself, not in a global banner |
@@ -811,11 +813,25 @@ There are exactly two blocks in the product. If a third appears, it needs a deci
 
 Never show a settled state for something the server has not accepted **without** the chip. The chip is the whole honesty mechanism.
 
-### 9.5 Loading
+### 9.5 Loading and failing
 
 - **Cache-first.** Anything seen before renders instantly from cache and revalidates behind.
 - Skeletons only where layout is knowable; otherwise a single centred spinner after 300ms. Never a spinner that appears and vanishes in 80ms.
 - The day card renders from cache and is tappable before any request resolves.
+- **A read that fails is never presented as loading, and never as empty.** M-28/`QueryState` (§6.4) is the mechanism. Concretely, this forbids the pattern that produced GAP-101: a query's `data` reads `undefined` in both the pending and the error case, so a guard written as `if (query.data === undefined) return <Loading/>` cannot tell them apart, and a fallback written as `query.data ?? []` or `?? 0` turns a failed read into a confident, wrong "nothing" — worse than the spinner, because it asserts something rather than merely stalling.
+- The status a failed read shows is drawn from the request's own `ApiError.status`, not a generic sentence:
+
+  | Status | Says | Offers |
+  |---|---|---|
+  | 401 | "You've been signed out." | Sign in |
+  | 403 | "You don't have access to {what}." | — |
+  | 404 | "{What} isn't here any more." | — |
+  | other 4xx | "{What} couldn't be loaded." | Try again |
+  | 5xx | "Something went wrong loading {what}." + the request ID, as a caption | Try again |
+  | not an `ApiError` (offline, token getter failure) | "Couldn't reach the server. Check your connection." | Try again |
+
+  `{what}` is mandatory — there is no bare failure message, the same discipline `NotAvailable`'s `reason` already holds — and where a reserved word applies (§9.6), it is used, never abbreviated.
+- **Retrying a decided answer is not resilience.** A 4xx is the server's considered response, not a hiccup; retrying it three times with backoff before showing the failure (TanStack Query's own default) only makes the eternal-spinner problem last seven seconds longer. 5xx and network failures keep the retry ladder, because those genuinely do resolve themselves.
 
 ### 9.6 The vocabulary lock
 
@@ -916,6 +932,8 @@ Sequential encoding is one hue (blue), light→dark. Diverging is blue↔red wit
 ### 11.4 Degradation is a visual rule, not just a data rule
 
 W-56 says reports degrade to "not available", never to zero. On screen that means the `NotAvailable` component *in place of the mark*, with the reason in the caption — a bar of height zero and a bar for missing data must never look the same.
+
+**"Not available" and "failed to load" are two different facts and render as two different components (M-28).** `NotAvailable` means the report ran and this figure genuinely has no value — no closing odometer, no predecessor period. A report whose read *failed* — the request never came back — is `QueryState`'s error state (§6.4/§9.5), not `NotAvailable`: the chart does not render at all, rather than rendering with every bar reading "not available," which would claim the report ran and came back empty.
 
 ---
 
@@ -1105,6 +1123,7 @@ Installable, offline-capable, and deliberately modest about it:
 | Every report renders `NotAvailable`, not `0`, against the empty and partial fixtures | W-56 / M-13 |
 | Reserved-vocabulary lint over `i18n/en.json` — the banned-word list from §9.6 | U-6 / M-25 |
 | The §7.1–7.3 golden fixtures render their exact figures on screen | The regression suite already exists; the UI should assert against it too |
+| A file calling `useQuery(` also references `useQueryState`/`QueryState`, or carries a reasoned `-- allow:` exemption — `scripts/check-forbidden.mjs`, in the `PostToolUse` hook | M-28. GAP-101 shipped inside a session that gate-passed twice, because a screen with no error branch passes every test that only mocks success — the lint rule is the mechanism that keeps the next screen from doing the same |
 
 ---
 

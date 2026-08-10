@@ -3,6 +3,7 @@ import type { LostDaysResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import {
   LostDaysReportScreen,
@@ -231,4 +232,21 @@ test("no daily-lease days in the window reads as its own message, not 'no days l
   );
 
   expect(await screen.findByText("No daily-lease days in this window.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed read shows a failure notice, never a false 'No daily-lease days in this window.'", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <LostDaysReportScreen
+      from={asBusinessDate("2026-07-01")}
+      to={today}
+      today={today}
+      onParamsChange={() => {}}
+      onBack={() => {}}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Something went wrong loading lost days.")).toBeInTheDocument();
+  expect(screen.queryByText("No daily-lease days in this window.")).not.toBeInTheDocument();
 });

@@ -2,6 +2,7 @@ import type { CustomerResponse, DriverResponse } from "@fleetsettle/shared/schem
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { PeopleListScreen } from "./PeopleListScreen.js";
 
@@ -41,6 +42,24 @@ test("lists drivers and customers in their own sections with counts", async () =
 
   expect(await screen.findByText("Drivers · 1")).toBeInTheDocument();
   expect(screen.getByText("Sunil Perera")).toBeInTheDocument();
+  expect(screen.getByText("Customers · 1")).toBeInTheDocument();
+  expect(screen.getByText("Perera Transport")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed driver read shows a failure notice, never a false 'Drivers · 0' — the customers section is unaffected", async () => {
+  const failingGet = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/driver") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/customer") return Promise.resolve(customers);
+    throw new Error(`unexpected path: ${path}`);
+  });
+  renderWithProviders(<PeopleListScreen onSelectDriver={vi.fn()} onSelectCustomer={vi.fn()} />, {
+    get: failingGet,
+  });
+
+  expect(await screen.findByText("Something went wrong loading drivers.")).toBeInTheDocument();
+  expect(screen.queryByText(/Drivers ·/)).not.toBeInTheDocument();
   expect(screen.getByText("Customers · 1")).toBeInTheDocument();
   expect(screen.getByText("Perera Transport")).toBeInTheDocument();
 });

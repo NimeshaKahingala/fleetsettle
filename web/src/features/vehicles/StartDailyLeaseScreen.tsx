@@ -12,6 +12,7 @@ import { AlertStrip } from "../../components/AlertStrip.js";
 import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { MoneyField } from "../../components/MoneyField.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Screen } from "../../design/primitives/Screen.js";
@@ -19,6 +20,7 @@ import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { ApiError } from "../../lib/api.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateDriverForm } from "../people/CreateDriverForm.js";
 import { TriangleAlert } from "lucide-react";
 
@@ -108,6 +110,8 @@ export function StartDailyLeaseScreen({
     queryKey: ["driver"],
     queryFn: () => api.get<DriverResponse[]>("/api/driver"),
   });
+  const vehicleState = useQueryState(vehicleQuery);
+  const driversState = useQueryState(driversQuery);
 
   const [driver, setDriver] = useState<EntityOption | null>(null);
   const [addDriverOpen, setAddDriverOpen] = useState(false);
@@ -169,6 +173,20 @@ export function StartDailyLeaseScreen({
     );
   }
 
+  // GAP-101: a failed vehicle read must not silently skip the arrangement
+  // check just below — same reasoning as `StartLeaseScreen`'s identical fix.
+  if (vehicleState.kind === "error") {
+    return (
+      <Screen title="Start a daily lease" onBack={onBack}>
+        <QueryStateFailure
+          error={vehicleState.error}
+          retry={vehicleState.retry}
+          of="this vehicle"
+        />
+      </Screen>
+    );
+  }
+
   // GAP-84/F1: a daily lease is arrangement B, or no current arrangement at
   // all — `VehicleOverviewScreen`'s own `canStartDailyLease` reads exactly
   // this pair. The Worker refuses this independently on submit (a deep link
@@ -200,6 +218,13 @@ export function StartDailyLeaseScreen({
       }}
     >
       <div className="flex flex-col gap-4">
+        {driversState.kind === "error" ? (
+          <QueryStateFailure
+            error={driversState.error}
+            retry={driversState.retry}
+            of="the driver list"
+          />
+        ) : null}
         <EntityPicker
           label="Driver"
           options={driverOptions}

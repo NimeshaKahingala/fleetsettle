@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ReasonPicker, type ReasonOption } from "../../components/ReasonPicker.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { FuelFillSheet } from "../costs/FuelFillSheet.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 
@@ -48,6 +49,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
     enabled: tripVehiclePickerOpen,
   });
+  const vehiclesState = useQueryState(vehiclesQuery);
 
   const actions: ActionSheetAction[] = [
     { key: "fuel", label: "Fuel", icon: Fuel, onSelect: () => setFuelOpen(true) },
@@ -91,6 +93,15 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         title="New trip — choose a vehicle"
         reasons={(vehiclesQuery.data ?? []).map((v) => ({ key: v.id, label: v.registration }))}
         onSelect={selectTripVehicle}
+        {...(vehiclesState.kind === "error"
+          ? {
+              error: {
+                error: vehiclesState.error,
+                retry: vehiclesState.retry,
+                of: "the vehicle list",
+              },
+            }
+          : {})}
       />
     </>
   );

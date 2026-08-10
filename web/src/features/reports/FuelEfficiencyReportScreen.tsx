@@ -5,7 +5,9 @@ import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { TrendLineChart, type TrendLineDatum } from "./charts/TrendLineChart.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -100,6 +102,8 @@ export function FuelEfficiencyReportScreen({
     },
     enabled: vehicleId !== undefined,
   });
+  const vehiclesState = useQueryState(vehiclesQuery);
+  const reportState = useQueryState(reportQuery);
 
   const vehicleOptions: EntityOption[] = (vehiclesQuery.data ?? []).map((v) => ({
     id: v.id,
@@ -109,6 +113,13 @@ export function FuelEfficiencyReportScreen({
 
   const paramsForm = (
     <div className="flex flex-col gap-3">
+      {vehiclesState.kind === "error" ? (
+        <QueryStateFailure
+          error={vehiclesState.error}
+          retry={vehiclesState.retry}
+          of="the vehicle list"
+        />
+      ) : null}
       <EntityPicker
         label="Vehicle"
         options={vehicleOptions}
@@ -140,7 +151,27 @@ export function FuelEfficiencyReportScreen({
     return <ReportScreen title="Is the bus drinking fuel" onBack={onBack} table={paramsForm} />;
   }
 
-  if (reportQuery.data === undefined) {
+  if (reportState.kind === "error") {
+    return (
+      <ReportScreen
+        title="Is the bus drinking fuel"
+        subtitle={`${from} – ${to}`}
+        onBack={onBack}
+        table={
+          <div className="flex flex-col gap-3">
+            {paramsForm}
+            <QueryStateFailure
+              error={reportState.error}
+              retry={reportState.retry}
+              of="this vehicle's fuel efficiency"
+            />
+          </div>
+        }
+      />
+    );
+  }
+
+  if (reportState.kind !== "ready") {
     return (
       <ReportScreen
         title="Is the bus drinking fuel"
@@ -156,7 +187,7 @@ export function FuelEfficiencyReportScreen({
     );
   }
 
-  const hasAnyReading = reportQuery.data.points.some((p) => p.kmPerLitre !== null);
+  const hasAnyReading = reportState.data.points.some((p) => p.kmPerLitre !== null);
 
   return (
     <ReportScreen
@@ -167,7 +198,7 @@ export function FuelEfficiencyReportScreen({
         <div className="flex flex-col gap-3">
           {paramsForm}
           {hasAnyReading ? (
-            <TrendLineChart data={toChartData(reportQuery.data.points)} />
+            <TrendLineChart data={toChartData(reportState.data.points)} />
           ) : (
             <NotAvailable reason="no complete fill-to-fill pair in this window" />
           )}
@@ -176,12 +207,12 @@ export function FuelEfficiencyReportScreen({
       table={
         <div className="flex flex-col gap-3">
           {paramsForm}
-          {reportQuery.data.points.length === 0 ? (
+          {reportState.data.points.length === 0 ? (
             <p className="text-body text-ink-secondary">No fuel fills recorded in this window.</p>
           ) : (
             <ReportTable
               columns={COLUMNS}
-              rows={reportQuery.data.points}
+              rows={reportState.data.points}
               rowKey={(row) => row.spentOn}
             />
           )}

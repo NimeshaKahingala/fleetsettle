@@ -21,7 +21,7 @@ jobs:
   deploy:
     needs: checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     environment: qa
     steps:
       - uses: actions/checkout@v5

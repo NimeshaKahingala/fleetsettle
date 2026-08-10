@@ -3,6 +3,7 @@ import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { QuickAddSheet } from "./QuickAddSheet.js";
 
@@ -65,4 +66,19 @@ test("New trip picks a vehicle, then reports it — no route change of its own (
   await user.click(await screen.findByRole("button", { name: "NC-1234" }));
 
   expect(onBookTrip).toHaveBeenCalledWith("v1");
+});
+
+test("GAP-101: a failed vehicle-list read shows a notice in the New trip picker, never a silently empty list", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <QuickAddSheet open onOpenChange={() => {}} today={today} onBookTrip={vi.fn()} />,
+    { get },
+  );
+
+  await user.click(screen.getByRole("button", { name: "New trip" }));
+
+  expect(
+    await screen.findByText("Something went wrong loading the vehicle list."),
+  ).toBeInTheDocument();
 });
