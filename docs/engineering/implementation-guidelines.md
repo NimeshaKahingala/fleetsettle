@@ -1,6 +1,6 @@
 # Implementation Guidelines
 
-**Status:** v1.5.1 — §16.1 gains a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
+**Status:** v1.6.1 — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
 **Date:** 10 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
@@ -444,7 +444,7 @@ Secrets via `wrangler secret put --env <name>`, never in `vars` — those are pl
 7. `/api/docs` 404s in production, verified in CI.
 8. Composite FKs make cross-business writes structurally impossible (§5).
 9. Security headers on the assets Worker — CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`. The highest value-to-effort item on this list.
-10. R2 objects are served through **presigned, expiring URLs**, never a public bucket. Condition photos are evidence in disputes and often show number plates.
+10. R2 objects are served **through the Worker, re-authorised on every request**, never a public bucket and never a presigned URL — reversed from a prior draft of this line by A7/GAP-16 (UI §6.3's M-29): a presigned GET can outlive the check that issued it, where a Worker read re-runs `business_id` and the capability check every single time. Condition photos are evidence in disputes and often show number plates.
 
 ---
 

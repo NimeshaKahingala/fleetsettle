@@ -705,3 +705,22 @@ export const writeOffRecovery = pgTable("write_off_recovery", {
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
 });
+
+/** A7/GAP-16, migration 0013. Not a money table (no posted_period_id) — deliberately outside assert_period_open() and write_audit_log(), see 0013's header. subject_type/subject_id is polymorphic and carries no FK; the kind/subject_type pair and content_type are constrained in SQL, not here. */
+export const attachment = pgTable("attachment", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  kind: text("kind").notNull(),
+  r2Key: text("r2_key").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  uploadedBy: uuid("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: "string" })
+    .notNull()
+    .defaultNow(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});

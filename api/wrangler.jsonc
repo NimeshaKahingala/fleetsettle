@@ -31,7 +31,7 @@
   // Cloudflare is a deliberate step for whoever holds that account, not
   // something to fabricate here.
   "kv_namespaces": [{ "binding": "KV", "id": "todo-provision-before-deploy" }],
-  "r2_buckets": [{ "binding": "R2", "bucket_name": "todo-provision-before-deploy" }],
+  "r2_buckets": [{ "binding": "R2", "bucket_name": "fleetsettle-attachments-dev" }],
   "queues": {
     "producers": [{ "binding": "MESSAGE_QUEUE", "queue": "todo-provision-before-deploy" }],
   },

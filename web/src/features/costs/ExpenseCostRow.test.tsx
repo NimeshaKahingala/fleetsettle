@@ -1,4 +1,8 @@
-import type { ExpenseListRow } from "@fleetsettle/shared/schemas";
+import type {
+  AttachmentResponse,
+  ExpenseListRow,
+  ListAttachmentsResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -97,4 +101,69 @@ test("passes the caller's own invalidateKeys through to the void mutation's succ
   await vi.waitFor(() =>
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["trip", "t1", "expense"] }),
   );
+});
+
+test("no receipt indicator when the expense has no attachments", async () => {
+  const get = vi.fn().mockResolvedValue([] satisfies ListAttachmentsResponse);
+  renderWithProviders(
+    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    { get },
+  );
+
+  await vi.waitFor(() => expect(get).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: /receipt/ })).toBeNull();
+});
+
+test("a receipt indicator shows the count and opens the receipt sheet — GAP-16 not honestly closed until a user can see what they uploaded", async () => {
+  const user = userEvent.setup();
+  const receipt: AttachmentResponse = {
+    id: "att-1",
+    kind: "expense_receipt",
+    subjectType: "expense",
+    subjectId: "e1",
+    contentType: "image/jpeg",
+    sizeBytes: 12345,
+    uploadedAt: "2026-08-08T10:00:00Z",
+  };
+  const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+  const getBlob = vi.fn().mockResolvedValue({
+    blob: new Blob(["fake"], { type: "image/jpeg" }),
+    contentType: "image/jpeg",
+  });
+  renderWithProviders(
+    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    { get, getBlob },
+  );
+
+  const indicator = await screen.findByRole("button", { name: "1 receipt" });
+  // Voiding stays reachable and separate — the row's own tap target, not
+  // buried behind the receipts indicator (GAP-81, finding F).
+  expect(screen.getByRole("button", { name: /Repairs/ })).toBeInTheDocument();
+
+  await user.click(indicator);
+  expect(screen.getByText("Receipts")).toBeInTheDocument();
+});
+
+test("a voided expense's receipts stay visible — they are evidence of what was claimed", async () => {
+  const voided: ExpenseListRow = {
+    ...liveExpense,
+    voidedAt: "2026-08-08T12:00:00Z",
+    voidedReason: "Wrong vehicle",
+  };
+  const receipt: AttachmentResponse = {
+    id: "att-1",
+    kind: "expense_receipt",
+    subjectType: "expense",
+    subjectId: "e1",
+    contentType: "image/jpeg",
+    sizeBytes: 12345,
+    uploadedAt: "2026-08-08T10:00:00Z",
+  };
+  const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+  renderWithProviders(
+    <ExpenseCostRow expense={voided} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    { get },
+  );
+
+  expect(await screen.findByRole("button", { name: "1 receipt" })).toBeInTheDocument();
 });

@@ -437,19 +437,20 @@ if (input.customerId !== undefined && input.agreedAmountMinor > 0n) { … }
 
 ### A7 · R2 upload (expense receipts only) — closes GAP-16 for one call site, independent of everything else
 
-**Built, on `feature/image-upload`, not yet merged or verified — updated 10 Aug 2026.** [ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md)
-is the implementation plan, re-validated against the working tree and then revised against a deep review the
-same day — every decision below is recorded there in full, with the reasoning, and this section is now a
-summary of it rather than an independent account. **Built on its own branch**, `feature/image-upload`, cut
-from `build/p0-foundation` at `9554f3b`, as the seven commits the plan itself sequenced: schema, error codes,
-the endpoint, integration tests, the `PhotoCapture` fix, client upload infrastructure, then the receipt
-surface. **Not the same claim as done** — that branch's own `ATTACHMENT-UPLOAD-PENDING-2026-08-10.md` (its
-eighth and last commit) lists what's still open before it can be trusted: the 26-case integration suite has
-never actually run (no `TEST_DATABASE_URL` in the session that wrote it — typechecks and lints clean, which
-is not the same claim as passing), the golden fixtures are unverified for the same reason, manual QA on a real
-viewport is unchecked, and no PR is open. The client half alone is proven — `npm run check` clean, full `web`
-suite green. It is also now three commits behind this branch (GAP-101, then GAP-103/104/105/106), where it
-was one when its own pending-doc was written; re-sync before opening the PR.
+**Built and verified, on `feature/image-upload` — updated 10 Aug 2026.** [ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md](ATTACHMENT-UPLOAD-IMPLEMENTATION-PLAN-2026-08-09.md)
+is the implementation plan; every decision below is recorded there in full, and this section is a summary of
+it. Built as its own seven-commit sequence exactly as sequenced there: schema, contract, server, server tests,
+the `PhotoCapture` fix, client upload infrastructure, then the receipt surface — GAP-16 stays open in
+`TRACKER.md` until a real PR merges, since neither the API accepting uploads nor a clean diff was ever the bar.
+**The 26-case integration suite ran for real this session** (the branch's own `ATTACHMENT-UPLOAD-PENDING-2026-08-10.md`
+correctly flagged it as never having run — no `TEST_DATABASE_URL` in the authoring session) and found two real
+bugs, neither in the attachment feature's own logic: migration `0013` had never been applied to the test
+database, and `TestContext.createBusiness()` had no cleanup for `attachment` rows, breaking teardown via the
+FK. Both fixed; **26/26 green**, including the concurrency and row/object-corruption cases. The full suite
+then confirmed the golden fixtures unmoved (134,000/15,000/7,500) and nothing else regressed (the 9 unrelated
+failures were the documented Neon-contention flake, confirmed by a different subset failing on retry).
+`wrangler.jsonc`'s placeholder bucket name is renamed. **What's still open**: manual QA on a real viewport, and
+the PR — #18 was opened, then closed by the owner without merging; a fresh one is pending.
 
 **Narrower than the row above once implied.** `attachment` (DM §12) is already generic and polymorphic, and
 one endpoint's *design* unblocks all five recorded gaps eventually — but this item builds and ships **exactly
@@ -483,19 +484,30 @@ than assumed to exist already.
 - **`business_id` on the `attachment` row comes from the token**, re-checked on every read via the same
   subject-ownership lookup the write path uses. The `r2_key` is an opaque `crypto.randomUUID()`, unrelated to
   the attachment id (UUIDv7, partly predictable).
-- **A void marks the row; the object stays** — no hard delete. Migration `0013`'s void trio and its
-  void-consistency `CHECK` are written; unverified against real Postgres along with the rest of the suite.
+- **A void marks the row; the object stays** — no hard delete. Migration `0013`'s void trio plus its
+  void-consistency `CHECK` are live and verified against real Postgres; `voidAttachmentHandler` mirrors
+  `voidExpenseHandler` exactly.
+- **The idempotency race is covered by its own test, and it passes**: two requests carrying the same
+  client-minted id, fired without awaiting either, resolve to exactly one row and one R2 object.
 - **GAP-17 stays open** — the pipeline still runs on the main thread with no Web Worker or 3s timeout.
   Unchanged by this item; `TRACKER.md`'s own GAP-16 row says so explicitly, so it can't be read as closed by
   association.
 
-**Before this branch is trusted or merged** (full list: `ATTACHMENT-UPLOAD-PENDING-2026-08-10.md`): open the
-PR and let CI actually run the 26-case integration suite; confirm the golden fixtures (134,000/15,000/7,500)
-are unmoved; a manual pass on a real 360×640 viewport (record a fuel fill with two receipts, confirm the sheet
-closes before either upload finishes, reopen via `ExpenseCostRow`'s receipt indicator, void one and confirm it
-404s); rename `wrangler.jsonc`'s placeholder dev bucket name. **One thing flagged as genuinely undecided, not
-merely unbuilt**: no document states how long an `attachment` row or its R2 object should live — worth its own
-gap before anyone builds a purge job on the strength of an assumption.
+**Done means** — a fuel fill recorded with two receipt photos closes its sheet before either finishes
+uploading; reopening it via `ExpenseCostRow`'s new receipt indicator shows both, fetched as blobs through the
+Worker; a linked-driver token gets 403 on both upload and read of any attachment (decision 4 — this branch
+gives drivers no attachment read path at all); voiding one leaves it 404 on read, its R2 object untouched.
+
+**Verification, both halves now proven.** The client half: `npm run typecheck`, `npm run lint` and the full
+`web` test suite green, including the sheet/uploader/receipt-surface tests. **The server half, run for the
+first time this session**: `api/tests/integration/attachment.test.ts`'s 26 cases (standard matrix, idempotent
+replay, concurrent-same-id race, row/object corruption, linked-driver class) — 26/26, after fixing the
+migration-not-applied and cleanup-FK bugs described above. The full integration suite then confirmed the
+golden fixtures unmoved and nothing else regressed. `wrangler.jsonc`'s placeholder bucket name is renamed.
+**What remains**: manual QA on a real 360×640 viewport, and a PR (#18 opened then closed without merging by
+the owner; a fresh one is pending). **One thing flagged as genuinely undecided, not merely unbuilt**: no
+document states how long an `attachment` row or its R2 object should live — worth its own gap before anyone
+builds a purge job on the strength of an assumption.
 
 ### A8 · Expense odometer wiring and the borne-by preview — independent
 

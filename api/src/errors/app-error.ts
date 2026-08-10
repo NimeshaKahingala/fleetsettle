@@ -220,3 +220,49 @@ export class InviteCodeInvalidError extends AppError {
     super(400, "INVITE_CODE_INVALID", message);
   }
 }
+
+// A7/GAP-16: the server backstop against the path where the client's own
+// 200KB encoder never ran (photo-pipeline.ts's no-2D-context fallback
+// returns the original, undownscaled File). 5 MiB, not 200KB — the two
+// caps govern different things (A7's plan, "Domain and storage").
+export class AttachmentTooLargeError extends AppError {
+  constructor(message = "This file is larger than the 5 MiB upload limit") {
+    super(413, "ATTACHMENT_TOO_LARGE", message);
+  }
+}
+
+// Migration 0013's content_type allowlist CHECK, enforced here first for a
+// field-level message rather than a raw constraint violation reaching a user.
+export class AttachmentTypeUnsupportedError extends AppError {
+  constructor(message = "Only JPEG, PNG or WebP images are accepted") {
+    super(400, "ATTACHMENT_TYPE_UNSUPPORTED", message);
+  }
+}
+
+// W-50: void, never delete — a second void would silently overwrite the
+// first correction's own reason and actor, the same pattern as
+// ExpenseAlreadyVoidedError.
+export class AttachmentAlreadyVoidedError extends AppError {
+  constructor(message = "This attachment has already been voided") {
+    super(409, "ATTACHMENT_ALREADY_VOIDED", message);
+  }
+}
+
+// A7's plan, decision 5: "legal in the database" (migration 0013's
+// kind/subject_type CHECK) and "supported by this branch's API" are two
+// separate gates. A subjectType this branch does not build yet fails here,
+// predictably, rather than by an unhandled dispatch-map lookup.
+export class AttachmentSubjectUnsupportedError extends AppError {
+  constructor(message = "Uploads for this subject type are not available yet") {
+    super(400, "ATTACHMENT_SUBJECT_UNSUPPORTED", message);
+  }
+}
+
+// A7's plan, "Idempotency": the client-minted id already names a different
+// kind/subjectType/subjectId — the same id is being reused for a different
+// fact, not a retry of the same one.
+export class AttachmentIdConflictError extends AppError {
+  constructor(message = "This attachment id is already in use for a different upload") {
+    super(409, "ATTACHMENT_ID_CONFLICT", message);
+  }
+}
