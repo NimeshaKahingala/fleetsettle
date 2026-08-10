@@ -1,7 +1,7 @@
 import { newId } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { bankingEvent, expense, ownershipShare, payment } from "../../src/db/schema.js";
+import { advance, bankingEvent, expense, ownershipShare, payment } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -464,6 +464,21 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/fuel-efficiency?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-31&to=2026-07-01`,
+        token,
+      );
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("receivables (UC-74)", () => {
@@ -547,11 +562,12 @@ describe("reports (P11)", () => {
   });
 
   describe("cash position (UC-75)", () => {
-    it("happy path — held per partner, deposits shown beside it as a liability", async () => {
+    it("happy path — held per partner, deposits shown beside it, and GAP-70's banked/driverAdvances given their own rows", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       const periodId = await ctx.createOpenPeriod(businessId);
       const customerId = await ctx.createCustomer(businessId);
+      const driverId = await ctx.createDriver(businessId, { name: "Kamal" });
       const owner = await mintUser(db, ctx, businessId, "owner");
 
       const paymentId = newId();
@@ -576,7 +592,7 @@ describe("reports (P11)", () => {
         amountRecordedMinor: 10_000n,
         amountCountedMinor: 10_000n,
         bankedOn: "2026-07-06",
-        destination: "bank",
+        destination: "Sampath savings",
         postedPeriodId: periodId,
       });
       ctx.trackCreatedBankingEvent(bankingEventId);
@@ -588,24 +604,75 @@ describe("reports (P11)", () => {
         occurredOn: "2026-07-05",
       });
 
+      // issuedByUserId set explicitly — listPartnerCashPositions's held figure only subtracts
+      // an advance from the partner who issued it, while GAP-70's driverAdvances breakdown
+      // (queries/reports.ts::listAdvancesOutstandingByDriver) sums every outstanding advance
+      // business-wide, unscoped by issuer, per DM §15. Setting the issuer here is what makes
+      // the two figures reconcile in this test, the same way DM §15's own verification pass did.
+      const advanceId = newId();
+      await db.insert(advance).values({
+        id: advanceId,
+        businessId,
+        driverId,
+        amountMinor: 4_000n,
+        issuedOn: "2026-07-05",
+        issuedByUserId: owner.userId,
+        status: "open",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedAdvance(advanceId);
+
       const token = await signAccessToken(owner.asgardeoSub);
       const res = await getReport("/cash-position", token);
       expect(res.status).toBe(200);
       const body: {
         partners: { userId: string; heldMinor: string }[];
         depositsHeldMinor: string;
+        banked: { destination: string; heldMinor: string }[];
+        driverAdvances: { driverId: string; driverName: string | null; outstandingMinor: string }[];
       } = await res.json();
 
+      // held = received(30,000) - banked(10,000) - advanced(4,000) = 16,000 — GAP-70's two new
+      // breakdowns must stay arithmetically consistent with this figure's own subtrahends.
       const ownerRow = body.partners.find((p) => p.userId === owner.userId);
-      expect(ownerRow?.heldMinor).toBe("20000");
+      expect(ownerRow?.heldMinor).toBe("16000");
       expect(body.depositsHeldMinor).toBe("5000");
+
+      const bankedRow = body.banked.find((b) => b.destination === "Sampath savings");
+      expect(bankedRow?.heldMinor).toBe("10000");
+
+      const advanceRow = body.driverAdvances.find((a) => a.driverId === driverId);
+      expect(advanceRow?.driverName).toBe("Kamal");
+      expect(advanceRow?.outstandingMinor).toBe("4000");
+
+      await ctx.cleanup();
+    });
+
+    it("a settled advance is excluded from driverAdvances, matching heldMinor's own exclusion", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      await ctx.createAdvance(businessId, periodId, driverId, {
+        amountMinor: 4_000n,
+        status: "settled",
+      });
+
+      const token = await signAccessToken(owner.asgardeoSub);
+      const res = await getReport("/cash-position", token);
+      expect(res.status).toBe(200);
+      const body: { driverAdvances: { driverId: string }[] } = await res.json();
+
+      expect(body.driverAdvances.find((a) => a.driverId === driverId)).toBeUndefined();
 
       await ctx.cleanup();
     });
   });
 
   describe("lost days (UC-76)", () => {
-    it("happy path — resolved to a driver name, the denominator is ran + lost", async () => {
+    it("happy path — resolved to a driver name, the denominator is ran + lost, and GAP-71's byMonth/byReason reconcile with byWeekday's own total", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       const periodId = await ctx.createOpenPeriod(businessId);
@@ -664,22 +731,115 @@ describe("reports (P11)", () => {
 
       const res = await getReport("/lost-days?from=2026-07-01&to=2026-07-31", token);
       expect(res.status).toBe(200);
-      const rows: {
-        driverId: string;
-        driverName: string | null;
-        lost: number;
-        ran: number;
-        lostValueMinor: string;
-      }[] = await res.json();
+      const body: {
+        byWeekday: {
+          driverId: string;
+          driverName: string | null;
+          lost: number;
+          ran: number;
+          lostValueMinor: string;
+        }[];
+        byMonth: {
+          driverId: string;
+          driverName: string | null;
+          month: string;
+          lost: number;
+          ran: number;
+          lostValueMinor: string;
+        }[];
+        byReason: {
+          driverId: string;
+          driverName: string | null;
+          reason: string;
+          lost: number;
+          lostValueMinor: string;
+        }[];
+      } = await res.json();
 
-      const driverRows = rows.filter((r) => r.driverId === driverId);
-      const totalLost = driverRows.reduce((sum, r) => sum + r.lost, 0);
-      const totalRan = driverRows.reduce((sum, r) => sum + r.ran, 0);
-      const totalLostValue = driverRows.reduce((sum, r) => sum + BigInt(r.lostValueMinor), 0n);
+      const weekdayRows = body.byWeekday.filter((r) => r.driverId === driverId);
+      const totalLost = weekdayRows.reduce((sum, r) => sum + r.lost, 0);
+      const totalRan = weekdayRows.reduce((sum, r) => sum + r.ran, 0);
+      const totalLostValue = weekdayRows.reduce((sum, r) => sum + BigInt(r.lostValueMinor), 0n);
       expect(totalLost).toBe(2);
       expect(totalRan).toBe(3);
       expect(totalLostValue).toBe(10_000n);
-      expect(driverRows[0]?.driverName).toBe("Kamal");
+      expect(weekdayRows[0]?.driverName).toBe("Kamal");
+
+      // Every lost day in this window falls in July, so byMonth must reconcile exactly.
+      const monthRows = body.byMonth.filter((r) => r.driverId === driverId);
+      expect(monthRows).toHaveLength(1);
+      expect(monthRows[0]?.month).toBe("2026-07");
+      expect(monthRows[0]?.lost).toBe(2);
+      expect(monthRows[0]?.ran).toBe(3);
+      expect(monthRows[0]?.lostValueMinor).toBe("10000");
+
+      // Both lost days share one reason, so byReason must also reconcile with the same total.
+      const reasonRows = body.byReason.filter((r) => r.driverId === driverId);
+      expect(reasonRows).toHaveLength(1);
+      expect(reasonRows[0]?.reason).toBe("no_passengers");
+      expect(reasonRows[0]?.lost).toBe(2);
+      expect(reasonRows[0]?.lostValueMinor).toBe("10000");
+      expect(reasonRows[0]?.driverName).toBe("Kamal");
+
+      await ctx.cleanup();
+    });
+
+    it("byReason splits two different reasons into two rows, each valued independently", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-03",
+        { state: "did_not_run", expectedMinor: 5_000n, lostReason: "breakdown" },
+      );
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-08-03",
+        { state: "did_not_run", expectedMinor: 5_000n, lostReason: "driver_day_off" },
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-01&to=2026-08-31", token);
+      expect(res.status).toBe(200);
+      const body: {
+        byMonth: { driverId: string; month: string; lost: number }[];
+        byReason: { driverId: string; reason: string; lost: number }[];
+      } = await res.json();
+
+      const reasonRows = body.byReason.filter((r) => r.driverId === driverId);
+      expect(reasonRows.map((r) => r.reason).sort()).toEqual(["breakdown", "driver_day_off"]);
+      expect(reasonRows.every((r) => r.lost === 1)).toBe(true);
+
+      const monthRows = body.byMonth.filter((r) => r.driverId === driverId);
+      expect(monthRows.map((r) => r.month).sort()).toEqual(["2026-07", "2026-08"]);
+      expect(monthRows.every((r) => r.lost === 1)).toBe(true);
+
+      await ctx.cleanup();
+    });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-31&to=2026-07-01", token);
+      expect(res.status).toBe(400);
 
       await ctx.cleanup();
     });
@@ -782,6 +942,18 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/goodwill?from=2026-07-31&to=2026-07-01", token);
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("utilisation (UC-79, owners only)", () => {
@@ -842,6 +1014,21 @@ describe("reports (P11)", () => {
         token,
       );
       expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+
+    it("400 — GAP-92: from after to is refused, not answered with a negative totalDays", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-14&to=2026-07-01`,
+        token,
+      );
+      expect(res.status).toBe(400);
 
       await ctx.cleanup();
     });

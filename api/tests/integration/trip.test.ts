@@ -98,6 +98,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
@@ -156,6 +157,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -245,6 +247,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -287,6 +290,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -330,6 +334,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -358,6 +363,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     // Deliberately no ctx.createOpenPeriod — proves a charter that never
     // raises an obligation is never refused for one either.
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -377,6 +383,7 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -421,6 +428,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
@@ -579,6 +587,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -627,6 +636,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -663,6 +673,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const linked = await mintLinkedDriver(db, ctx, driverId);
     const token = await signAccessToken(linked.asgardeoSub);
@@ -691,6 +702,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
     await ctx.createOpenPeriod(otherBusinessId);
     const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
     const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
@@ -729,6 +741,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
     const driverId = await ctx.createDriver(businessId);
     const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
     const owner = await mintUser(db, ctx, businessId, "owner");
@@ -790,6 +803,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -841,6 +855,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -877,6 +892,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const linked = await mintLinkedDriver(db, ctx, driverId);
     const token = await signAccessToken(linked.asgardeoSub);
@@ -903,6 +919,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
     const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
     const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
@@ -927,6 +944,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -961,6 +979,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -993,6 +1012,7 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -1043,6 +1063,7 @@ describe("GET /api/trip — in progress (Home item 7, UI §3.2)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId, { registration: "CAB-4444" });
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId, { name: "Perera Tours" });
     const driverId = await ctx.createDriver(businessId, { name: "Ranil" });
     const owner = await mintUser(db, ctx, businessId, "owner");
@@ -1068,6 +1089,7 @@ describe("GET /api/trip — in progress (Home item 7, UI §3.2)", () => {
 
     const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
     const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
     const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
     const otherToken = await signAccessToken(otherOwner.asgardeoSub);
     const otherRes = await postTrip(otherToken, {
@@ -1143,6 +1165,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -1200,6 +1223,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const ownerToken = await signAccessToken(owner.asgardeoSub);
@@ -1225,6 +1249,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const businessId = await ctx.createBusiness();
     const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
     const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
     const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
     const otherToken = await signAccessToken(otherOwner.asgardeoSub);
     const otherTrip = await postTrip(otherToken, {
@@ -1265,6 +1290,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -1304,6 +1330,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -1344,6 +1371,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -1368,6 +1396,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
     const customerId = await ctx.createCustomer(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -1397,6 +1426,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const businessId = await ctx.createBusiness();
     const otherBusinessId = await ctx.createBusiness();
     const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
     const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
     const otherToken = await signAccessToken(otherOwner.asgardeoSub);
     const otherTrip = await postTrip(otherToken, {

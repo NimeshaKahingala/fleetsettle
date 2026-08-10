@@ -310,7 +310,7 @@ test("the catalogue renders exactly the phase-1 six", async () => {
   expect(screen.getByText("Which trips made money")).toBeInTheDocument();
   expect(screen.getByText("Is the bus drinking fuel")).toBeInTheDocument();
   expect(screen.getByText("Who owes us")).toBeInTheDocument();
-  expect(screen.getByText("Cash partners are holding")).toBeInTheDocument();
+  expect(screen.getByText("Where is our cash")).toBeInTheDocument();
   expect(screen.getByText("Lost days")).toBeInTheDocument();
   // The phase-2 three (§9.1) have no card — checked by name, since a bare
   // button count would also catch Operate's own five tab-bar buttons.

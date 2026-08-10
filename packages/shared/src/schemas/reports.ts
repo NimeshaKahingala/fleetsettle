@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { accountingPeriodSummarySchema } from "./accounting-period.js";
 import { uuidSchema } from "./common.js";
+import { lostReasonSchema } from "./day-record.js";
 
 /** Shared across UC-74/UC-78 — the three party kinds a receivable can be against. */
 export const reportPartyTypeSchema = z.enum(["customer", "driver", "partner"]);
@@ -110,9 +111,26 @@ export const partnerCashRowSchema = z.object({
 });
 export type PartnerCashRow = z.infer<typeof partnerCashRowSchema>;
 
+/** GAP-70/DM §15: the same `banking_event` rows `partnerCashRowSchema.heldMinor` already subtracts, regrouped by destination so the money is traceable rather than merely absent. `destination` is free text (F-7.4 never asked for an enum). */
+export const bankedRowSchema = z.object({
+  destination: z.string(),
+  heldMinor: z.string(),
+});
+export type BankedRow = z.infer<typeof bankedRowSchema>;
+
+/** GAP-70/DM §15: the same unsettled-advance rows the held figure already subtracts, regrouped by who is holding the cash. Kept arithmetically consistent with the held figure's own simplification — a `part_settled` advance counts at its full `amount_minor` here too, not netted against `advance_settlement` (DM §15's own stated reason). */
+export const driverAdvanceRowSchema = z.object({
+  driverId: uuidSchema,
+  driverName: z.string().nullable(),
+  outstandingMinor: z.string(),
+});
+export type DriverAdvanceRow = z.infer<typeof driverAdvanceRowSchema>;
+
 export const cashPositionResponseSchema = z.object({
   partners: z.array(partnerCashRowSchema),
   depositsHeldMinor: z.string(),
+  banked: z.array(bankedRowSchema),
+  driverAdvances: z.array(driverAdvanceRowSchema),
 });
 export type CashPositionResponse = z.infer<typeof cashPositionResponseSchema>;
 
@@ -132,7 +150,37 @@ export const lostDaysRowSchema = z.object({
 });
 export type LostDaysRow = z.infer<typeof lostDaysRowSchema>;
 
-export const lostDaysResponseSchema = z.array(lostDaysRowSchema);
+/** GAP-71/DM §15: the same rows as `lostDaysRowSchema`, regrouped by calendar month (`to_char(business_date, 'YYYY-MM')`) instead of weekday — UI §11.1's primary form for UC-76 ("column per month"). A driver with no lost days in a given month has no row for it — the correct absence, not a manufactured zero (W-56). */
+export const lostDaysMonthRowSchema = z.object({
+  driverId: uuidSchema,
+  driverName: z.string().nullable(),
+  month: z.string(),
+  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+  lost: z.number().int().nonnegative(),
+  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+  ran: z.number().int().nonnegative(),
+  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+  leaseEligible: z.number().int().nonnegative(),
+  lostValueMinor: z.string(),
+});
+export type LostDaysMonthRow = z.infer<typeof lostDaysMonthRowSchema>;
+
+/** GAP-71/DM §15: lost days only, grouped by `lost_reason` — CHECK-constrained non-null whenever a day is lost (§7), so nothing here is ever null by construction. "A bus that breaks down often" and "a driver who takes Fridays off" are different conversations UC-76 asks to keep separate. */
+export const lostDaysReasonRowSchema = z.object({
+  driverId: uuidSchema,
+  driverName: z.string().nullable(),
+  reason: lostReasonSchema,
+  // eslint-disable-next-line no-restricted-syntax -- a day count, not money
+  lost: z.number().int().nonnegative(),
+  lostValueMinor: z.string(),
+});
+export type LostDaysReasonRow = z.infer<typeof lostDaysReasonRowSchema>;
+
+export const lostDaysResponseSchema = z.object({
+  byWeekday: z.array(lostDaysRowSchema),
+  byMonth: z.array(lostDaysMonthRowSchema),
+  byReason: z.array(lostDaysReasonRowSchema),
+});
 export type LostDaysResponse = z.infer<typeof lostDaysResponseSchema>;
 
 /** UC-77: every waiver/auto-waiver/goodwill adjustment given in the window — never pooled with a write-off (W-28, reported separately by UC-90/UC-74). */

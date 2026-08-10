@@ -121,6 +121,12 @@ interface DailyLeaseOverrides {
   dailyLeaseAmountMinor?: bigint;
 }
 
+interface ManagementFeeAgreementOverrides {
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  monthlyAmountMinor?: bigint;
+}
+
 interface DayRecordOverrides {
   state?:
     "open" | "ran_paid_full" | "ran_paid_short" | "ran_unpaid" | "did_not_run" | "paused_for_trip";
@@ -419,6 +425,27 @@ export class TestContext {
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, id));
     });
 
+    return id;
+  }
+
+  /** Bare `management_fee_agreement` — for tests that need one in place without going through `POST /api/management-fee-agreement`. */
+  async createManagementFeeAgreement(
+    vehicleId: string,
+    managerUserId: string,
+    overrides: ManagementFeeAgreementOverrides = {},
+  ): Promise<string> {
+    const id = newId();
+    await this.#db.insert(managementFeeAgreement).values({
+      id,
+      vehicleId,
+      managerUserId,
+      monthlyAmountMinor: overrides.monthlyAmountMinor ?? 15_000_00n,
+      effectiveFrom: overrides.effectiveFrom ?? "2026-07-01",
+      effectiveTo: overrides.effectiveTo,
+    });
+    this.track(async () => {
+      await this.#db.delete(managementFeeAgreement).where(eq(managementFeeAgreement.id, id));
+    });
     return id;
   }
 
@@ -924,9 +951,13 @@ export class TestContext {
     });
   }
 
-  /** F-1.7: `POST /api/daily-lease` writes `daily_lease` and its first `daily_lease_rate` (domain/dailyLease.ts) — this is that write's teardown. */
+  /** F-1.7: `POST /api/daily-lease` writes `daily_lease`, its first `daily_lease_rate`, and — since D-9/GAP-88 — the synchronous `vehicle_day_allocation`/`day_record` horizon (domain/dailyLease.ts) — this is that write's teardown, children before the `daily_lease` row `day_record`'s own FK requires. */
   trackCreatedDailyLease(dailyLeaseId: string): void {
     this.track(async () => {
+      await this.#db.delete(dayRecord).where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
+      await this.#db
+        .delete(vehicleDayAllocation)
+        .where(eq(vehicleDayAllocation.sourceId, dailyLeaseId));
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId));
       await this.#db.delete(dailyLease).where(eq(dailyLease.id, dailyLeaseId));
     });
@@ -979,6 +1010,20 @@ export class TestContext {
   trackGeneratedLeaseCalendar(leaseId: string): void {
     this.track(async () => {
       await this.#db.delete(vehicleDayAllocation).where(eq(vehicleDayAllocation.sourceId, leaseId));
+    });
+  }
+
+  /** A10a/`generate-management-fee`: the generator's own obligation write for one agreement — `source_id` is the agreement id, one row per period it has run against. */
+  trackGeneratedManagementFeeObligations(agreementId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(obligation)
+        .where(
+          and(
+            eq(obligation.sourceType, "management_fee_agreement"),
+            eq(obligation.sourceId, agreementId),
+          ),
+        );
     });
   }
 
@@ -1135,13 +1180,45 @@ export class TestContext {
    * child rows before the incident itself (all three carry a `NOT NULL
    * REFERENCES incident(id)`; `expense.incident_id` does not, so an
    * incident-tagged expense is still that test's own `trackCreatedExpense`
-   * to clean up).
+   * to clean up). Since D-9/GAP-10, a customer-sourced recovery also carries
+   * an `obligation_id` (migration `0012`'s real FK), and `recordRecoveryReceived`
+   * may have paid it — so the `payment`/`payment_allocation` pair and the
+   * `obligation` itself are unwound first, grandchildren before children.
    */
   trackCreatedIncident(incidentId: string): void {
     this.track(async () => {
+      const recoveries = await this.#db
+        .select({ obligationId: incidentRecovery.obligationId })
+        .from(incidentRecovery)
+        .where(eq(incidentRecovery.incidentId, incidentId));
+      const obligationIds = recoveries
+        .map((r) => r.obligationId)
+        .filter((id): id is string => id !== null);
+
+      let paymentIds: string[] = [];
+      if (obligationIds.length > 0) {
+        const allocations = await this.#db
+          .select({ paymentId: paymentAllocation.paymentId })
+          .from(paymentAllocation)
+          .where(inArray(paymentAllocation.obligationId, obligationIds));
+        paymentIds = allocations.map((a) => a.paymentId);
+        await this.#db
+          .delete(paymentAllocation)
+          .where(inArray(paymentAllocation.obligationId, obligationIds));
+      }
+
+      // incident_recovery.obligation_id (migration 0012) must clear before
+      // the obligation row it points to can go.
       await this.#db.delete(incidentRecovery).where(eq(incidentRecovery.incidentId, incidentId));
       await this.#db.delete(insuranceClaim).where(eq(insuranceClaim.incidentId, incidentId));
       await this.#db.delete(leaseExtension).where(eq(leaseExtension.incidentId, incidentId));
+
+      for (const paymentId of paymentIds) {
+        await this.#db.delete(payment).where(eq(payment.id, paymentId));
+      }
+      if (obligationIds.length > 0) {
+        await this.#db.delete(obligation).where(inArray(obligation.id, obligationIds));
+      }
       await this.#db.delete(incident).where(eq(incident.id, incidentId));
     });
   }

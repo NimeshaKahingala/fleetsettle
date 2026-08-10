@@ -1,6 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   activeDailyLeasesResponseSchema,
+  changeDailyLeaseDriverRequestSchema,
   dailyLeaseResponseSchema,
   startDailyLeaseRequestSchema,
 } from "@fleetsettle/shared/schemas";
@@ -62,5 +63,33 @@ export const getDailyLeaseRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read daily leases" },
     404: { description: "No such daily lease in this business" },
+  },
+});
+
+/**
+ * F-4.7/UC-36/GAP-62: "new driver from a date; previous assignment ends."
+ * The current row closes and a new one opens carrying its pattern and rate
+ * forward — never an overwrite (CLAUDE.md → Writes).
+ */
+export const changeDailyLeaseDriverRoute = createRoute({
+  method: "post",
+  path: "/{id}/change-driver",
+  request: {
+    params: dailyLeaseIdParams,
+    body: { content: { "application/json": { schema: changeDailyLeaseDriverRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: dailyLeaseResponseSchema } },
+      description: "The new daily lease, open from effectiveFrom",
+    },
+    400: {
+      description:
+        "This daily lease has already ended, or effectiveFrom is not after its own start date",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot change a daily lease's driver" },
+    404: { description: "No such daily lease or driver in this business" },
+    409: { description: "The new date range overlaps another daily lease on this vehicle" },
   },
 });

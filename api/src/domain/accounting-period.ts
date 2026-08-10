@@ -8,6 +8,7 @@ import {
   openSuccessorPeriod,
   type CloseChecklist,
 } from "../queries/accounting-period.js";
+import { generateManagementFeeObligationsTx } from "./management-fee.js";
 
 type ReadDb = Reader | Writer | Tx;
 
@@ -74,6 +75,16 @@ export async function closeAccountingPeriod(
       businessId: input.businessId,
       periodStart: newPeriodStart,
       periodEnd: newPeriodEnd,
+    });
+
+    // A10a/GAP-39/W-53: the new period's own management-fee obligations,
+    // generated here for immediacy rather than waiting for the next cron
+    // tick — `generate-management-fee` (scheduled.ts) is what catches up a
+    // period that opened some other way (or an agreement granted mid-period).
+    await generateManagementFeeObligationsTx(tx, {
+      businessId: input.businessId,
+      periodId: newPeriodId,
+      periodStart: newPeriodStart,
     });
 
     return {

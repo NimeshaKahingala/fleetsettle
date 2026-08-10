@@ -13,7 +13,13 @@ import {
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
 
-/** The tenancy check every partner-facing field needs: `user_id` here means a `business_member`, never bare `app_user.id` (CLAUDE.md → Tenancy). */
+/**
+ * The tenancy check every partner-facing field needs: `user_id` here means
+ * an **active** `business_member`, never bare `app_user.id` (CLAUDE.md →
+ * Tenancy). Filters `revoked_at IS NULL` — GAP-90: `listPartnerCashPositions`
+ * already scopes to active members, and this guard disagreeing with it is
+ * what let a revoked member's summary reach a `TypeError` instead of a 404.
+ */
 export async function findBusinessMemberUserId(
   db: ReadDb,
   businessId: string,
@@ -22,7 +28,13 @@ export async function findBusinessMemberUserId(
   const rows = await db
     .select({ id: businessMember.userId })
     .from(businessMember)
-    .where(and(eq(businessMember.businessId, businessId), eq(businessMember.userId, userId)))
+    .where(
+      and(
+        eq(businessMember.businessId, businessId),
+        eq(businessMember.userId, userId),
+        isNull(businessMember.revokedAt),
+      ),
+    )
     .limit(1);
   return rows[0];
 }
@@ -445,13 +457,15 @@ export async function sumPartnerPayoutsForUser(
  * A2/UC-67/W-53 "earned: management fee" — summed directly from
  * `management_fee_agreement.monthly_amount_minor` for every agreement
  * active on `asOfDate`, deliberately **not** read from
- * `obligation WHERE kind = 'management_fee'`. That obligation kind exists
- * in the enum (`sumVehicleCostsForPeriod` already reads it) but nothing in
- * this codebase ever writes one — no generator turns a
- * `management_fee_agreement` into a period obligation the way
- * `generate-billing-periods` does for rent. Reading the dead path would
- * return a confident `0` forever (W-56); this reads the one table that is
- * actually populated. Recorded as a gap rather than silently worked around.
+ * `obligation WHERE kind = 'management_fee'` even though A10a
+ * (domain/management-fee.ts) now populates that kind for real. Kept as the
+ * agreement-table read on purpose: this figure is a manager's *earned*
+ * total as of any date within a period (`getPartnerSummary` calls it once
+ * per period in `sumAllTimeEarnedForUser`'s loop), while the generator only
+ * ever posts one obligation per agreement per *period*, dated to the
+ * period's start — the two are not the same shape, and switching this read
+ * to the obligation table is a real question for whoever revisits it, not a
+ * side effect of A10a landing.
  */
 export async function sumManagementFeeAsOfDate(
   db: ReadDb,
@@ -475,4 +489,38 @@ export async function sumManagementFeeAsOfDate(
       ),
     );
   return rows.reduce((sum, row) => sum + row.monthlyAmountMinor, 0n);
+}
+
+export interface ManagementFeeAgreementForGeneration {
+  id: string;
+  vehicleId: string;
+  managerUserId: string;
+  monthlyAmountMinor: bigint;
+}
+
+/** A10a/GAP-39/W-53: every agreement effective on `asOfDate` (a period's own `period_start`), unscoped by manager — the generator raises one obligation per agreement, not per manager. The same effective-dated filter `sumManagementFeeAsOfDate` above uses, without narrowing to one `managerUserId`. */
+export async function listManagementFeeAgreementsEffectiveAsOf(
+  db: ReadDb,
+  businessId: string,
+  asOfDate: string,
+): Promise<ManagementFeeAgreementForGeneration[]> {
+  return db
+    .select({
+      id: managementFeeAgreement.id,
+      vehicleId: managementFeeAgreement.vehicleId,
+      managerUserId: managementFeeAgreement.managerUserId,
+      monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor,
+    })
+    .from(managementFeeAgreement)
+    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        lte(managementFeeAgreement.effectiveFrom, asOfDate),
+        or(
+          isNull(managementFeeAgreement.effectiveTo),
+          gte(managementFeeAgreement.effectiveTo, asOfDate),
+        ),
+      ),
+    );
 }

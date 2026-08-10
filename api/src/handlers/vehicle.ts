@@ -1,12 +1,13 @@
 import { businessToday, newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
-import { createVehicle } from "../domain/vehicles.js";
+import { changeVehicleArrangement, createVehicle } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
 import { listExpensesForVehicle } from "../queries/expense.js";
 import { listIncidentsForVehicle } from "../queries/incident.js";
 import { listLeasesForVehicle } from "../queries/lease.js";
+import { listTripsForVehicle } from "../queries/trip.js";
 import {
   findVehicleCalendar,
   findVehicleForBusiness,
@@ -16,6 +17,7 @@ import {
   type VehicleRow,
 } from "../queries/vehicle.js";
 import type {
+  changeVehicleArrangementRoute,
   createVehicleRoute,
   getVehicleCalendarRoute,
   getVehicleRoute,
@@ -24,6 +26,7 @@ import type {
   listVehicleExpensesRoute,
   listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
+  listVehicleTripsRoute,
   listVehiclesRoute,
   upsertVehicleDocumentRoute,
 } from "../route-defs/vehicle.js";
@@ -150,6 +153,29 @@ export const upsertVehicleDocumentHandler: RouteHandler<
     },
     200,
   );
+};
+
+/** F-1.2/UC-94/GAP-54. `manageEntities` — the same gate `createVehicleHandler` uses. */
+export const changeVehicleArrangementHandler: RouteHandler<
+  typeof changeVehicleArrangementRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const result = await changeVehicleArrangement(c.get("writer"), {
+    vehicleId: id,
+    arrangement: body.arrangement,
+    effectiveFrom: body.effectiveFrom,
+  });
+
+  return c.json(result, 201);
 };
 
 /** Vehicle overview's paperwork tab (Web-P5). */
@@ -279,6 +305,36 @@ export const listVehicleDailyLeaseHistoryHandler: RouteHandler<
       dailyLeaseAmountMinor: toWire(row.dailyLeaseAmountMinor as Minor),
       driverId: row.driverId,
       driverName: row.driverName,
+    })),
+    200,
+  );
+};
+
+/** GAP-77/UC-71: an arrangement-C vehicle's own trip history. `dailyOperations` — matches `listVehicleIncidentsHandler`'s own gate, not this file's `manageEntities`. */
+export const listVehicleTripsHandler: RouteHandler<typeof listVehicleTripsRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listTripsForVehicle(c.get("reader"), businessId, id);
+  return c.json(
+    rows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      startDate: row.startDate,
+      endDate: row.endDate,
+      destination: row.destination,
+      customerId: row.customerId,
+      customerName: row.customerName,
+      driverId: row.driverId,
+      driverName: row.driverName,
+      agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     })),
     200,
   );

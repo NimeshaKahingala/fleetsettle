@@ -63,8 +63,8 @@ Three rules that have already earned their place:
 | Document | Version | Date |
 |---|---|---|
 | use-cases | v1.2.4 | 7 Aug 2026 |
-| user-flows | v1.1.4 | 7 Aug 2026 |
-| data-model | v1.1.2 | 9 Aug 2026 |
+| user-flows | v1.1.5 | 9 Aug 2026 |
+| data-model | v1.1.3 | 9 Aug 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
 | implementation-guidelines | v1.5 | 5 Aug 2026 |
 | ui-ux-guidelines | v1.2.4 | 9 Aug 2026 |
