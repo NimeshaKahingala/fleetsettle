@@ -6,6 +6,7 @@ import {
   adjustment,
   advance,
   advanceSettlement,
+  attachment,
   bankingEvent,
   billingPeriod,
   business,
@@ -169,6 +170,12 @@ export class TestContext {
       timezone: overrides.timezone ?? "Asia/Colombo",
     });
     this.track(async () => {
+      // A7/GAP-16: attachment.business_id REFERENCES business(id), no
+      // cascade. Swept by businessId, not tracked per-row, the same
+      // reason trackCreatedBusinessMemberInvites sweeps rather than tracks
+      // — tests that upload through the real endpoint have no factory
+      // call of their own to hang a per-row track() off.
+      await this.#db.delete(attachment).where(eq(attachment.businessId, id));
       await this.#db.delete(business).where(eq(business.id, id));
     });
     return id;
@@ -773,6 +780,11 @@ export class TestContext {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- userId kept for call-site symmetry with mintUser; see the comment above for why it's no longer torn down
   trackCreatedBusiness(businessId: string, userId: string): void {
     this.track(async () => {
+      // A7/GAP-16: attachment.business_id REFERENCES business(id), no cascade —
+      // a test that uploads through the real endpoint (rather than a factory
+      // method with its own track()) leaves rows here that must clear before
+      // the business itself can go.
+      await this.#db.delete(attachment).where(eq(attachment.businessId, businessId));
       await this.#db.delete(accountingPeriod).where(eq(accountingPeriod.businessId, businessId));
       await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
       await this.#db.delete(businessMember).where(eq(businessMember.businessId, businessId));
