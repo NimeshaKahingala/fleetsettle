@@ -133,21 +133,22 @@ export const getAgeingReportRoute = createRoute({
   },
 });
 
-/** UC-75/DM §15: what each partner is holding, plus deposits held as a liability beside it. */
+/** UC-75/DM §15: what each partner is holding, what is banked by destination, what is out with drivers as advances, and deposits held as a liability beside all of it (GAP-70). */
 export const getCashPositionReportRoute = createRoute({
   method: "get",
   path: "/cash-position",
   responses: {
     200: {
       content: { "application/json": { schema: cashPositionResponseSchema } },
-      description: "Cash held per partner, and deposits held as a liability",
+      description:
+        "Cash held per partner, banked by destination, out with drivers as advances, and deposits held as a liability",
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read reports" },
   },
 });
 
-/** UC-76/DM §15: the report UC-06 calls the driver's only protection. */
+/** UC-76/DM §15: the report UC-06 calls the driver's only protection — per driver, grouped three ways (weekday, month, reason — GAP-71), valued at the daily lease amount. */
 export const getLostDaysReportRoute = createRoute({
   method: "get",
   path: "/lost-days",
@@ -155,7 +156,7 @@ export const getLostDaysReportRoute = createRoute({
   responses: {
     200: {
       content: { "application/json": { schema: lostDaysResponseSchema } },
-      description: "Lost days per driver per weekday, valued at the daily lease amount",
+      description: "Lost days per driver, by weekday, by month and by reason",
     },
     400: { description: "from is after to (GAP-92)" },
     401: { description: "Missing or invalid access token" },

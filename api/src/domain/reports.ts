@@ -7,9 +7,13 @@ import {
   findOwnershipSharesAsOf,
   findPartyNames,
   findPeriodBoundaries,
+  listAdvancesOutstandingByDriver,
   listAgeingBuckets,
+  listBankedByDestination,
   listClosedTripsForReport,
   listLostDays,
+  listLostDaysByMonth,
+  listLostDaysByReason,
   listOffRoadRangesForVehicle,
   listPartnerCashPositions,
   listReceivables,
@@ -280,32 +284,80 @@ export async function getAgeingReport(
   return rows.map((r) => ({ ...r, partyName: resolvePartyName(names, r.partyType, r.partyId) }));
 }
 
-/** UC-75/DM §15: what each partner holds, plus deposits held shown *beside* it — never netted in (§6.13). */
+/**
+ * UC-75/DM §15: what each partner holds, plus deposits held shown *beside*
+ * it — never netted in (§6.13). GAP-70 adds `banked` and `driverAdvances` —
+ * the same two subtrahends `heldMinor` already nets out, given their own
+ * rows so a reader can see *where* the missing money went, not only that it
+ * is missing. Kept arithmetically consistent with `heldMinor`'s own
+ * simplification (queries/reports.ts's own doc comments), not a corrected
+ * version of it.
+ */
 export async function getCashPositionReport(
   db: ReadDb,
   businessId: string,
 ): Promise<{
   partners: Awaited<ReturnType<typeof listPartnerCashPositions>>;
   depositsHeldMinor: bigint;
+  banked: Awaited<ReturnType<typeof listBankedByDestination>>;
+  driverAdvances: Awaited<ReturnType<typeof listAdvancesOutstandingByDriver>>;
 }> {
-  const [partners, depositsHeldMinor] = await Promise.all([
+  const [partners, depositsHeldMinor, banked, driverAdvances] = await Promise.all([
     listPartnerCashPositions(db, businessId),
     sumDepositsHeld(db, businessId),
+    listBankedByDestination(db, businessId),
+    listAdvancesOutstandingByDriver(db, businessId),
   ]);
-  return { partners, depositsHeldMinor };
+  return { partners, depositsHeldMinor, banked, driverAdvances };
 }
 
-/** UC-76/DM §15: per driver, per weekday, resolved to a display name — the denominator is `ran + lost` (§1.2), never inflated by an off-pattern or charter day. */
+/**
+ * UC-76/DM §15: per driver, resolved to a display name, in the three sibling
+ * groupings UI §11.1 asks for — weekday (unchanged since Wave 1), month
+ * (GAP-71, the primary "column per month" form) and reason (GAP-71, "a bus
+ * that breaks down often" vs "a driver who takes Fridays off"). Three
+ * separate arrays rather than one denser cube, per DM §15's own reasoning:
+ * a driver active across six months and six reasons would otherwise explode
+ * into up to 36 sparse rows to reassemble client-side. The denominator
+ * shown anywhere is `ran + lost` (§1.2), never inflated by an off-pattern
+ * or charter day — `byReason` alone has no `ran`/`leaseEligible`, since a
+ * reason only exists for a lost day.
+ */
 export async function getLostDaysReport(
   db: ReadDb,
   businessId: string,
   from: string,
   to: string,
-): Promise<(Awaited<ReturnType<typeof listLostDays>>[number] & { driverName: string | null })[]> {
-  const rows = await listLostDays(db, businessId, from, to);
-  const driverIds = [...new Set(rows.map((r) => r.driverId))];
+): Promise<{
+  byWeekday: (Awaited<ReturnType<typeof listLostDays>>[number] & { driverName: string | null })[];
+  byMonth: (Awaited<ReturnType<typeof listLostDaysByMonth>>[number] & {
+    driverName: string | null;
+  })[];
+  byReason: (Awaited<ReturnType<typeof listLostDaysByReason>>[number] & {
+    driverName: string | null;
+  })[];
+}> {
+  const [byWeekdayRows, byMonthRows, byReasonRows] = await Promise.all([
+    listLostDays(db, businessId, from, to),
+    listLostDaysByMonth(db, businessId, from, to),
+    listLostDaysByReason(db, businessId, from, to),
+  ]);
+
+  const driverIds = [
+    ...new Set([
+      ...byWeekdayRows.map((r) => r.driverId),
+      ...byMonthRows.map((r) => r.driverId),
+      ...byReasonRows.map((r) => r.driverId),
+    ]),
+  ];
   const names = await findPartyNames(db, businessId, [], driverIds);
-  return rows.map((r) => ({ ...r, driverName: names.drivers.get(r.driverId) ?? null }));
+  const nameFor = (driverId: string): string | null => names.drivers.get(driverId) ?? null;
+
+  return {
+    byWeekday: byWeekdayRows.map((r) => ({ ...r, driverName: nameFor(r.driverId) })),
+    byMonth: byMonthRows.map((r) => ({ ...r, driverName: nameFor(r.driverId) })),
+    byReason: byReasonRows.map((r) => ({ ...r, driverName: nameFor(r.driverId) })),
+  };
 }
 
 /** UC-77: every waiver/auto-waiver/goodwill adjustment given in the window — never pooled with a write-off (W-28). */

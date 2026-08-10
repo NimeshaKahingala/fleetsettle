@@ -15,7 +15,7 @@ const CARDS: { key: ReportKey; label: string }[] = [
   { key: "trips", label: "Which trips made money" },
   { key: "fuel-efficiency", label: "Is the bus drinking fuel" },
   { key: "receivables", label: "Who owes us" },
-  { key: "cash-position", label: "Cash partners are holding" },
+  { key: "cash-position", label: "Where is our cash" },
   { key: "lost-days", label: "Lost days" },
 ];
 

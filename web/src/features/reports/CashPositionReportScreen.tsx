@@ -71,7 +71,7 @@ function CashStackedBar({ data }: { data: CashPositionResponse }) {
   );
 }
 
-const COLUMNS: ReportTableColumn<CashPositionResponse["partners"][number]>[] = [
+const PARTNER_COLUMNS: ReportTableColumn<CashPositionResponse["partners"][number]>[] = [
   { key: "name", header: "Partner", render: (row) => row.displayName ?? "Unnamed partner" },
   {
     key: "held",
@@ -81,16 +81,37 @@ const COLUMNS: ReportTableColumn<CashPositionResponse["partners"][number]>[] = [
   },
 ];
 
+const BANKED_COLUMNS: ReportTableColumn<CashPositionResponse["banked"][number]>[] = [
+  { key: "destination", header: "Account", render: (row) => row.destination },
+  {
+    key: "held",
+    header: "Held",
+    align: "end",
+    render: (row) => <Money value={parse(row.heldMinor)} />,
+  },
+];
+
+const DRIVER_ADVANCE_COLUMNS: ReportTableColumn<CashPositionResponse["driverAdvances"][number]>[] =
+  [
+    { key: "driver", header: "Driver", render: (row) => row.driverName ?? "Unnamed driver" },
+    {
+      key: "outstanding",
+      header: "Outstanding",
+      align: "end",
+      render: (row) => <Money value={parse(row.outstandingMinor)} />,
+    },
+  ];
+
 /**
- * UC-75 / `GET /api/reports/cash-position` — **Wave 1, under the narrower
- * title.** GAP-70 is still open: the response has no field for banked cash
- * or driver advances, so "Where is our cash" would be a lie about money the
- * report cannot account for — the exact confident-wrong-number failure
- * W-56 exists to prevent. This screen answers only what the contract can
- * prove: what each partner is personally holding, plus deposits held as a
- * liability, never merged into the partner figures. Reverts to its real
- * title in Wave 2, in the same change that adds the missing fields
- * (B4-REPORTS-DESIGN.md §5.3/§8.1).
+ * UC-75 / `GET /api/reports/cash-position` — **Wave 2, the full contract.**
+ * GAP-70 closed: `heldMinor` nets `received − banked − advanced`, and this
+ * screen now gives the two subtrahends their own place to be seen, exactly
+ * as UI §11.1 asks ("a breakdown by bank account and by driver advance") —
+ * the report can now say *where* the missing money went, not only that it
+ * is missing (W-56). Both breakdowns are kept arithmetically consistent
+ * with `heldMinor`'s own simplification rather than a corrected version of
+ * it (DM §15's own stated reason) — a `part_settled` advance counts at its
+ * full amount in both places.
  */
 export function CashPositionReportScreen({ onBack }: CashPositionReportScreenProps) {
   const api = useApi();
@@ -102,7 +123,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
   if (query.data === undefined) {
     return (
       <ReportScreen
-        title="Cash partners are holding"
+        title="Where is our cash"
         onBack={onBack}
         table={<p className="text-body text-ink-muted">Loading…</p>}
       />
@@ -113,10 +134,10 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
 
   return (
     <ReportScreen
-      title="Cash partners are holding"
+      title="Where is our cash"
       onBack={onBack}
       chart={
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2">
             {query.data.partners.map((p) => (
               <Card key={p.userId} className="flex flex-col gap-1">
@@ -131,14 +152,61 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
           <p className="text-caption text-ink-muted">
             Rs {format(deposits)} held for customers — a liability, not partner cash.
           </p>
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">In each account</p>
+            {query.data.banked.length > 0 ? (
+              <ReportTable
+                columns={BANKED_COLUMNS}
+                rows={query.data.banked}
+                rowKey={(row) => row.destination}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">Nothing banked yet.</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">With drivers, as advances</p>
+            {query.data.driverAdvances.length > 0 ? (
+              <ReportTable
+                columns={DRIVER_ADVANCE_COLUMNS}
+                rows={query.data.driverAdvances}
+                rowKey={(row) => row.driverId}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">No advances outstanding.</p>
+            )}
+          </div>
         </div>
       }
       table={
-        <div className="flex flex-col gap-3">
-          <ReportTable columns={COLUMNS} rows={query.data.partners} rowKey={(row) => row.userId} />
-          <p className="text-body-sm text-ink-secondary">
-            Held for customers (deposits): <Money value={deposits} />
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">Held per partner</p>
+            <ReportTable
+              columns={PARTNER_COLUMNS}
+              rows={query.data.partners}
+              rowKey={(row) => row.userId}
+            />
+            <p className="text-body-sm text-ink-secondary">
+              Held for customers (deposits): <Money value={deposits} />
+            </p>
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">In each account</p>
+            <ReportTable
+              columns={BANKED_COLUMNS}
+              rows={query.data.banked}
+              rowKey={(row) => row.destination}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">With drivers, as advances</p>
+            <ReportTable
+              columns={DRIVER_ADVANCE_COLUMNS}
+              rows={query.data.driverAdvances}
+              rowKey={(row) => row.driverId}
+            />
+          </div>
         </div>
       }
     />
