@@ -1,5 +1,6 @@
 import { parse } from "@fleetsettle/shared";
 import type { DriverViewResponse, LostReason } from "@fleetsettle/shared/schemas";
+import { MoreVertical } from "lucide-react";
 import { Money } from "../../components/Money.js";
 import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
@@ -8,6 +9,7 @@ import { LOST_REASON_LABEL } from "../../lib/lostReasonLabel.js";
 
 export interface DriverActivitySectionsProps {
   view: DriverViewResponse;
+  onSettleAdvance?: (advance: DriverViewResponse["advances"][number]) => void;
 }
 
 const DAY_STATE_LABEL: Record<DriverViewResponse["days"][number]["state"], string> = {
@@ -69,11 +71,11 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * Shared read-only rendering for A5's two driver-history endpoints. Mine and
- * staff detail intentionally keep separate screen shells and affordances; only
- * these inert rows are shared so the two views cannot disagree on wording.
+ * Shared rendering for A5's two driver-history endpoints. Mine passes no
+ * advance handler and stays read-only; staff detail passes the one GAP-100
+ * write affordance that belongs to managers.
  */
-export function DriverActivitySections({ view }: DriverActivitySectionsProps) {
+export function DriverActivitySections({ view, onSettleAdvance }: DriverActivitySectionsProps) {
   return (
     <div className="flex flex-col gap-5">
       {view.days.length > 0 ? (
@@ -128,17 +130,38 @@ export function DriverActivitySections({ view }: DriverActivitySectionsProps) {
         <Section
           title="Advances"
           count={view.advances.length}
-          items={view.advances.map((advance) => (
-            <Card key={advance.id} className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-body text-ink-primary">{formatShortDate(advance.issuedOn)}</p>
-                <Badge variant={ADVANCE_STATUS_VARIANT[advance.status]}>
-                  {ADVANCE_STATUS_LABEL[advance.status]}
-                </Badge>
-              </div>
-              <Money value={parse(advance.amountMinor)} />
-            </Card>
-          ))}
+          items={view.advances.map((advance) => {
+            const canSettle = onSettleAdvance !== undefined && advance.status !== "settled";
+            const row = (
+              <Card className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-body text-ink-primary">{formatShortDate(advance.issuedOn)}</p>
+                  <Badge variant={ADVANCE_STATUS_VARIANT[advance.status]}>
+                    {ADVANCE_STATUS_LABEL[advance.status]}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Money value={parse(advance.amountMinor)} />
+                  {canSettle ? (
+                    <MoreVertical className="size-4 text-ink-muted" aria-hidden />
+                  ) : null}
+                </div>
+              </Card>
+            );
+            return canSettle ? (
+              <button
+                key={advance.id}
+                type="button"
+                className="w-full text-left"
+                aria-label={`Settle advance from ${formatShortDate(advance.issuedOn)}`}
+                onClick={() => onSettleAdvance(advance)}
+              >
+                {row}
+              </button>
+            ) : (
+              <div key={advance.id}>{row}</div>
+            );
+          })}
         />
       ) : (
         <EmptyCard>No advances in this window.</EmptyCard>

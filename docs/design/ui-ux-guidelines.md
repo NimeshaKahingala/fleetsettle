@@ -1,6 +1,6 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.9 — low-API UI branch: B6/B5 core screens and safe B2 callers are now real routes; More includes Cash, Members, Mileage packages and My share. DateField's v1.2.7 M-17 shortcut removal and v1.2.8 Toast host still stand
+**Status:** v1.3.0 — low-API UI branch: B6/B5 core screens, B2 callers, Vehicle sharing, and GAP-100's advance issue/settle callers are now real routes/actions. DateField's v1.2.7 M-17 shortcut removal and v1.2.8 Toast host still stand
 **Date:** 11 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
@@ -141,7 +141,7 @@ Five tabs maximum, labels always visible, 56px tall plus `env(safe-area-inset-bo
 | **Vehicles** | List → vehicle → calendar, costs, leases, trips, paperwork, month | F-1.1, F-1.2, F-1.5, F-3.x, F-7.1 |
 | **＋ Add** | Quick-add sheet (M-4) — not a destination, no route change | F-3.1, F-3.3, F-2.2, F-5.1, F-6.1 |
 | **People** | Drivers and customers. A driver's page is the two-balance screen | F-1.6…F-1.8, F-6.x, F-2.8 |
-| **More** | Cash, reports, period close, members, mileage packages, settings, message log, business | F-1.4, F-1.8, F-1.9, F-7.x, F-9.x, F-10.2, F-10.4 |
+| **More** | Cash, vehicle sharing, reports, period close, members, mileage packages, settings, message log, business | F-1.4, F-1.8, F-1.9, F-7.x, F-9.x, F-10.2, F-10.4 |
 
 **The `＋` at other sizes.** On `base`–`sm` it is a full-width bottom sheet. On `md` it is the same action list in a centred sheet at 420px rather than edge-to-edge. On `lg`+ the tab bar has become a left rail (§14) and `＋` sits at its top as a labelled button, opening the identical list. One component, three placements — the actions and their order never change, because muscle memory for "fuel is the first one" is the point.
 

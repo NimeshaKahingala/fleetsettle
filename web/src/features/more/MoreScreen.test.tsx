@@ -9,13 +9,14 @@ const OWNER_MANAGER: MeResponse = { userId: "u1", businessId: "b1", role: "owner
 const MANAGER: MeResponse = { userId: "u2", businessId: "b1", role: "manager" };
 
 describe("MoreScreen", () => {
-  test("an owner_manager sees every row a real B item has built so far, including Reports, Cash, Mileage packages, Members and My share", () => {
+  test("an owner_manager sees every row a real B item has built so far, including Reports, Cash, Vehicle sharing, Mileage packages, Members and My share", () => {
     renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), OWNER_MANAGER);
 
     expect(screen.getByText("Opening balances")).toBeInTheDocument();
     expect(screen.getByText("Close the month")).toBeInTheDocument();
     expect(screen.getByText("Reports")).toBeInTheDocument();
     expect(screen.getByText("Cash")).toBeInTheDocument();
+    expect(screen.getByText("Vehicle sharing")).toBeInTheDocument();
     expect(screen.getByText("Mileage packages")).toBeInTheDocument();
     expect(screen.getByText("Members")).toBeInTheDocument();
     expect(screen.getByText("My share")).toBeInTheDocument();
@@ -29,6 +30,7 @@ describe("MoreScreen", () => {
     expect(screen.queryByText("Close the month")).not.toBeInTheDocument();
     expect(screen.getByText("Reports")).toBeInTheDocument();
     expect(screen.queryByText("Cash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Vehicle sharing")).not.toBeInTheDocument();
     expect(screen.getByText("Mileage packages")).toBeInTheDocument();
     expect(screen.queryByText("Members")).not.toBeInTheDocument();
     expect(screen.queryByText("My share")).not.toBeInTheDocument();

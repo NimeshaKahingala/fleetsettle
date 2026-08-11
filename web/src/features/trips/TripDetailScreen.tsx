@@ -11,6 +11,7 @@ import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
@@ -22,6 +23,7 @@ import {
 } from "../../lib/obligationStatusLabel.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
+import { AdvanceSheet } from "../people/AdvanceSheet.js";
 import { CancelTripSheet } from "./CancelTripSheet.js";
 import { CloseTripSheet } from "./CloseTripSheet.js";
 
@@ -52,9 +54,10 @@ function formatShortDate(date: string, options: { year?: boolean } = {}): string
  * Tappable to collect, via the same `CollectPaymentSheet` a lease's dues
  * use — party-level (§6.5), never a trip-specific write.
  *
- * **Advance to him** stays `NotAvailable`: `GET /api/advance` doesn't exist
- * yet (Web-P8b's own gap, the plan already named it before this screen
- * needed it).
+ * **Advance to him** can be recorded for a booked trip with a driver. Existing
+ * trip advances still are not listed here because there is no trip-scoped
+ * advance read; settlement happens from the driver's history, where the
+ * composed read already exists.
  *
  * A closed trip's own profit/costs/distance breakdown is likewise not
  * re-derived here — `POST /{id}/close`'s response is the only place that
@@ -69,6 +72,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   const [closeOpen, setCloseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
 
   const tripQuery = useQuery({
     queryKey: ["trip", tripId],
@@ -109,6 +113,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
 
   const canAct = trip?.status === "booked";
+  const canRecordAdvance = canAct && trip?.driverId !== null && trip?.driverId !== undefined;
 
   // GAP-45: the title used to show a full year on both halves of the date
   // range unconditionally, clipping mid-digit at 360px next to the cancel
@@ -204,7 +209,13 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             {trip.driverId !== null ? (
               <div className="flex flex-col gap-1">
                 <p className="text-body text-ink-primary">Advance to him</p>
-                <NotAvailable reason="advances aren't shown here yet" />
+                {canRecordAdvance ? (
+                  <Button variant="outline" onClick={() => setAdvanceOpen(true)}>
+                    Record advance
+                  </Button>
+                ) : (
+                  <NotAvailable reason="shown on driver history" />
+                )}
               </div>
             ) : null}
             {trip.status === "closed" ? (
@@ -266,6 +277,16 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               dues={receivable !== null ? [receivable] : []}
               today={today}
               onCollected={() => void queryClient.invalidateQueries({ queryKey: ["trip", tripId] })}
+            />
+          ) : null}
+          {trip.driverId !== null ? (
+            <AdvanceSheet
+              open={advanceOpen}
+              onOpenChange={setAdvanceOpen}
+              driverId={trip.driverId}
+              tripId={tripId}
+              today={today}
+              title="Record trip advance"
             />
           ) : null}
         </div>

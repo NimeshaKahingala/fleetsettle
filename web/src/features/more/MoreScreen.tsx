@@ -3,6 +3,7 @@ import {
   BarChart3,
   CalendarCheck,
   ChevronRight,
+  Handshake,
   LogOut,
   Route,
   Users,
@@ -95,6 +96,20 @@ export function MoreScreen() {
             <Card className="flex items-center gap-3">
               <Banknote className="size-5 text-ink-secondary" aria-hidden />
               <span className="flex-1 text-body text-ink-primary">Cash</span>
+              <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+            </Card>
+          </button>
+        </Can>
+
+        <Can cap="managePartnerCapital">
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/vehicle-sharing" })}
+            className="w-full text-left"
+          >
+            <Card className="flex items-center gap-3">
+              <Handshake className="size-5 text-ink-secondary" aria-hidden />
+              <span className="flex-1 text-body text-ink-primary">Vehicle sharing</span>
               <ChevronRight className="size-4 text-ink-muted" aria-hidden />
             </Card>
           </button>

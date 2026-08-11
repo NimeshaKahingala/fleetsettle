@@ -21,6 +21,7 @@ import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primi
 import { CashScreen } from "../features/cash/CashScreen.js";
 import { MileagePackagesScreen } from "../features/cash/MileagePackagesScreen.js";
 import { PartnerDetailScreen } from "../features/cash/PartnerDetailScreen.js";
+import { PartnerSetupScreen } from "../features/cash/PartnerSetupScreen.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
@@ -340,6 +341,12 @@ function PartnerDetailRoute({ today }: { today: BusinessDate }) {
   );
 }
 
+/** F-1.3/F-1.4: ownership shares and vehicle-manager sharing are setup, not cash movement. */
+function PartnerSetupRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return <PartnerSetupScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
 /** F-1.9/GAP-67: saved mileage packages, reached from More because they are setup data reused by the lease start flow rather than a vehicle's own record. */
 function MileagePackagesRoute() {
   const navigate = useNavigate();
@@ -520,16 +527,14 @@ function MineRoute({ today }: { today: BusinessDate }) {
  * tabs). `＋` (quick-add) is deliberately absent from this map — it is a
  * sheet trigger, never a route (§3.1: "no route change").
  *
- * GAP-89: an `owner_manager`/`manager` reaches `/review*`, `/reports*`,
- * `/period/close` and `/opening-balances` from Operate's own `/more` hub
- * (they are rows under it, not a separate shell for these roles), so they
- * highlight **More** rather than falling through to Home. `/trips/:id`,
- * `/incidents/:id` and `/leases/:id` (including its own `/close` step)
- * highlight **Vehicles**, the domain parent every one of them shares
- * regardless of whether the tap came from Home, the vehicle itself, or the
- * calendar — true origin-tracking was considered and declined (it would
- * need state threaded through every `navigate()` call site that can reach
- * these routes).
+ * GAP-89: More-owned routes (`/review*`, `/reports*`, `/period/close`,
+ * `/opening-balances`, B2/member/package setup routes) highlight **More**
+ * rather than falling through to Home. `/trips/:id`, `/incidents/:id` and
+ * `/leases/:id` (including its own `/close` step) highlight **Vehicles**, the
+ * domain parent every one of them shares regardless of whether the tap came
+ * from Home, the vehicle itself, or the calendar — true origin-tracking was
+ * considered and declined (it would need state threaded through every
+ * `navigate()` call site that can reach these routes).
  */
 function tabForPathname(pathname: string): OperateTabKey {
   if (pathname.startsWith("/vehicles")) return "vehicles";
@@ -543,6 +548,7 @@ function tabForPathname(pathname: string): OperateTabKey {
     pathname.startsWith("/members") ||
     pathname.startsWith("/cash") ||
     pathname.startsWith("/partners") ||
+    pathname.startsWith("/vehicle-sharing") ||
     pathname.startsWith("/mileage-packages")
   ) {
     return "more";
@@ -809,6 +815,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <PartnerDetailRoute today={today} />,
   });
 
+  const partnerSetupRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/vehicle-sharing",
+    component: () => <PartnerSetupRoute today={today} />,
+  });
+
   const mileagePackagesRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/mileage-packages",
@@ -954,6 +966,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     membersRoute,
     cashRoute,
     partnerDetailRoute,
+    partnerSetupRoute,
     mileagePackagesRoute,
     reviewThisMonthRoute,
     reviewVehiclesRoute,

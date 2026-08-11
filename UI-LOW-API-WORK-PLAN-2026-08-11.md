@@ -18,16 +18,29 @@ Implemented on branch `codex/ui-low-api-work-2026-08-11`:
 - UI-8 in-app member invite/manage UI and driver access links.
 - UI-9 safe callers: Cash screen, Partner detail, capital contribution,
   banking event, partner payout/settlement, mileage-package create/archive,
-  and `BorneByPaidBy` paid-by member selection.
+  `BorneByPaidBy` paid-by member selection, initial ownership-share setup,
+  and management-agreement create/revoke under Vehicle sharing.
 - UI-10 Toast primitive and host.
+- UI-11 GAP-100 client callers: trip-scoped advance issue from Trip detail and
+  advance settlement from staff Driver detail. Mine remains read-only.
 
 Still pending after this branch:
 
-- B2 ownership shares and management-agreement/share-vehicle setup UI.
 - GAP-1 per-vehicle capability scoping and any UI that would imply it.
 - A14 signed printed-slip/share-link backend and the statement links that
   depend on it.
-- GAP-100 advance settlement.
+- GAP-44 structured double-booking dialog, because its chosen fix requires a
+  backend error payload first.
+- A8 odometer wiring and borne-by preview.
+- A9b broader soft-delete/backfill work.
+- Ownership-share replacement for a vehicle that already has a current split;
+  the current UI intentionally supports initial setup only because the backend
+  has no close-and-replace share operation yet.
+- Richer advance settlement context: driver-history advance rows do not yet
+  expose `settledMinor` or `tripId`, so the settlement sheet cannot show the
+  remaining amount or trip context. The backend still enforces over-settlement.
+- Management-agreement API hardening: the UI only offers `manager` members, but
+  the handler currently validates membership rather than role.
 
 This is not the product spec. If this plan disagrees with `docs/`,
 `TRACKER.md`, or `Plan.md`, use this order of truth:
@@ -75,15 +88,15 @@ Out of scope for this batch:
 
 ## Current state
 
-- `Plan.md` currently puts B9 at the head of the queue, followed by B15 and B6.
+- `Plan.md` now puts the remaining work behind the low-API UI branch: GAP-44
+  when its wire payload is scheduled, GAP-1 policy scoping, then A14/A8/A9b/B7
+  unless the user reprioritizes.
 - F3 and F4 are recorded closed in `Plan.md` and `TRACKER.md`.
-- B9 recently closed GAP-83 and GAP-105 by rebuilding `DateField` around one
-  real native date input.
-- That DateField change added a `showShortcuts` prop and disabled
-  Today/Yesterday only on the report range screens.
-- The current product/design decision supersedes that partial approach:
-  remove Today/Yesterday shortcut buttons from normal single-date fields too,
-  unless a future explicit design decision reintroduces them everywhere.
+- B9 closed GAP-83 and GAP-105 by rebuilding `DateField` around one real
+  native date input.
+- GAP-108 then removed the temporary `showShortcuts` branch and removed
+  Today/Yesterday shortcut buttons from normal single-date fields too. A future
+  product/design decision would need to reintroduce them deliberately.
 
 ## Implementation order
 
@@ -382,6 +395,10 @@ Acceptance:
 
 - Partner and banking data can be created/read through the UI where endpoints
   already exist.
+- Initial ownership splits can be created for vehicles without a current split;
+  changing an existing split waits for a close-and-replace backend operation.
+- Management agreements can be granted and revoked; revoked rows stay visible
+  and inert.
 - Money values preserve string/bigint rules.
 - Screens are usable at 360 x 640.
 - Tests cover at least one happy path and one failed read/write per surface.
@@ -421,6 +438,10 @@ Delay these unless the user explicitly reprioritizes them:
 - A14 signed printed-slip share link.
 - Full structured double-booking conflict dialog if the backend does not yet
   provide conflict details.
+- Ownership-share replacement after an existing current split.
+- Management-agreement API role validation beyond the UI's manager-only picker.
+- Rich advance settlement display until the driver-view response includes
+  `settledMinor` and `tripId`.
 - A9b broader soft-delete/backfill work.
 - GAP-1 per-vehicle capability scoping.
 - Phase-2 write-off and post-closure charge screens.

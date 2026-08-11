@@ -259,6 +259,64 @@ test("GAP-64 — Record an advance posts to /api/advance", async () => {
   );
 });
 
+test("GAP-100 — an open advance can be settled from staff driver detail", async () => {
+  const user = userEvent.setup();
+  const history: DriverViewResponse = {
+    ...emptyHistory,
+    advances: [{ id: "a1", amountMinor: "100000", issuedOn: "2026-08-03", status: "open" }],
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(history);
+    throw new Error(`unexpected path ${path}`);
+  });
+  const post = vi.fn().mockResolvedValue({
+    id: "a1",
+    driverId: "d1",
+    tripId: null,
+    amountMinor: "100000",
+    issuedOn: "2026-08-03",
+    status: "part_settled",
+    settledMinor: "25000",
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get, post });
+
+  await user.click(await screen.findByRole("button", { name: /Settle advance from 3 Aug 2026/ }));
+  await user.click(await screen.findByRole("button", { name: "Enter amount" }));
+  for (const digit of "25000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Save settlement" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/advance/a1/settle",
+      expect.objectContaining({
+        kind: "spent",
+        amountMinor: "25000",
+      }),
+    ),
+  );
+});
+
 test("GAP-66 — Record a deposit posts to /api/deposit", async () => {
   const user = userEvent.setup();
   const get = baseGet();

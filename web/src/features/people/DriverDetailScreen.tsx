@@ -3,6 +3,7 @@ import type {
   DriverBalancesResponse,
   DriverLinkInviteResponse,
   DriverResponse,
+  DriverViewAdvance,
   DriverViewResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ import { DepositSheet } from "./DepositSheet.js";
 import { DriverActivitySections } from "./DriverActivitySections.js";
 import { OffsetSheet } from "./OffsetSheet.js";
 import { PayDriverSheet } from "./PayDriverSheet.js";
+import { SettleAdvanceSheet } from "./SettleAdvanceSheet.js";
 
 export interface DriverDetailScreenProps {
   driverId: string;
@@ -61,6 +63,8 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
   const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [settleAdvanceOpen, setSettleAdvanceOpen] = useState(false);
+  const [selectedAdvance, setSelectedAdvance] = useState<DriverViewAdvance | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
 
   const driverQuery = useQuery({
@@ -175,7 +179,13 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
           ) : historyQuery.data === undefined ? (
             <p className="text-body-sm text-ink-muted">Loading history…</p>
           ) : (
-            <DriverActivitySections view={historyQuery.data} />
+            <DriverActivitySections
+              view={historyQuery.data}
+              onSettleAdvance={(advance) => {
+                setSelectedAdvance(advance);
+                setSettleAdvanceOpen(true);
+              }}
+            />
           )}
         </div>
       )}
@@ -236,6 +246,13 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         open={advanceOpen}
         onOpenChange={setAdvanceOpen}
         driverId={driverId}
+        today={today}
+      />
+      <SettleAdvanceSheet
+        open={settleAdvanceOpen}
+        onOpenChange={setSettleAdvanceOpen}
+        driverId={driverId}
+        advance={selectedAdvance}
         today={today}
       />
       <DepositSheet
