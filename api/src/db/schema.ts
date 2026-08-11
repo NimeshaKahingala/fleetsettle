@@ -314,6 +314,21 @@ export const openingBalanceEntry = pgTable("opening_balance_entry", {
   originalDueDate: date("original_due_date", { mode: "string" }),
 });
 
+// GAP-103/migration 0014: the only durable link between one opening_balance_entry
+// and whatever it materialised elsewhere (obligation/deposit_movement/advance/
+// payment) — not itself a money table (see the migration's own header).
+export const openingBalancePosting = pgTable("opening_balance_posting", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  batchId: uuid("batch_id").notNull(),
+  entryKind: text("entry_kind").notNull(),
+  targetTable: text("target_table").notNull(),
+  targetId: uuid("target_id").notNull(),
+  depositId: uuid("deposit_id"),
+  reversedAt: timestamp("reversed_at", { withTimezone: true, mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
 export const dayRecord = pgTable("day_record", {
   id: uuid("id").primaryKey(),
   businessId: uuid("business_id").notNull(),

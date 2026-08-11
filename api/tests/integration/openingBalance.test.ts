@@ -23,6 +23,18 @@ async function commitOpeningBalance(token: string) {
   return request("/api/opening-balance/commit", { method: "POST", ...bearer(token) });
 }
 
+async function getReceivables(token: string) {
+  return request("/api/reports/receivables", bearer(token));
+}
+
+async function getCashPosition(token: string) {
+  return request("/api/reports/cash-position", bearer(token));
+}
+
+async function getDriverBalances(token: string, driverId: string) {
+  return request(`/api/driver/${driverId}/balances`, bearer(token));
+}
+
 /**
  * F-0.2 / UC-09 test matrix. Only `opening_balance_batch` and its entries
  * are written (DM §10.6) — the vehicle/lease/daily-lease terms UC-09 also
@@ -40,6 +52,12 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
   it("happy path — save a draft, correct it, then confirm (idempotently)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
+    // GAP-103: commit now materialises into obligation/deposit/advance/payment,
+    // which needs a real accounting period to post to — the same period a real
+    // business always already has by the time it can reach this screen
+    // (domain/setup.ts creates one in the same transaction as the business
+    // itself; this factory doesn't, so the test supplies it explicitly).
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
     const vehicleId = await ctx.createVehicle(businessId);
     const customerId = await ctx.createCustomer(businessId);
     const driverId = await ctx.createDriver(businessId);
@@ -85,6 +103,16 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     expect(committed.status).toBe("committed");
     expect(committed.committedAt).not.toBeNull();
 
+    // GAP-103: the commit that just happened materialised the sole
+    // surviving entry (customer_due, 999900) into a real obligation —
+    // "Who owes us" is the report that was blind to it before this fix.
+    const receivablesAfterCommit: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(receivablesAfterCommit).toContainEqual(
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "999900" }),
+    );
+
     // Confirm is idempotent (CLAUDE.md → Writes) — a retry is a no-op, not a failure.
     const secondCommitRes = await commitOpeningBalance(token);
     expect(secondCommitRes.status).toBe(200);
@@ -92,6 +120,15 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
       await secondCommitRes.json();
     expect(secondCommitted.status).toBe("committed");
     expect(secondCommitted.committedAt).toBe(committed.committedAt);
+
+    // A retried commit must not double the receivable — still exactly 999900,
+    // not 1999800, and still exactly one row for this customer.
+    const receivablesAfterRetry: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(receivablesAfterRetry.filter((r) => r.partyId === customerId)).toEqual([
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "999900" }),
+    ]);
 
     // The Alternates clause: a correction after commit, before the first
     // period closes, is still just a save — this business has vehicle_id in
@@ -102,6 +139,77 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     });
     expect(postCommitCorrection.status).toBe(200);
     expect(await postCommitCorrection.json()).toMatchObject({ status: "committed" });
+
+    // GAP-103's correction path: the prior commit's obligation (999900) is
+    // reversed, not left standing beside the new one — the receivable for
+    // this customer is now exactly the corrected figure, never both.
+    const receivablesAfterCorrection: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(receivablesAfterCorrection.filter((r) => r.partyId === customerId)).toEqual([
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "1" }),
+    ]);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-103: commit materialises all six entry kinds into the real tables their own reports read", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+    const customerId = await ctx.createCustomer(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const saveRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [
+        { kind: "customer_due", partyCustomerId: customerId, amountMinor: "1200000" },
+        { kind: "driver_arrears", partyDriverId: driverId, amountMinor: "500000" },
+        { kind: "owed_to_driver", partyDriverId: driverId, amountMinor: "300000" },
+        { kind: "deposit_held", partyDriverId: driverId, amountMinor: "1000000" },
+        { kind: "advance_outstanding", partyDriverId: driverId, amountMinor: "200000" },
+        { kind: "cash_held", partyUserId: owner.userId, amountMinor: "5000000" },
+      ],
+    });
+    expect(saveRes.status).toBe(200);
+    const saved: { id: string } = await saveRes.json();
+    ctx.trackCreatedOpeningBalance(saved.id);
+
+    const commitRes = await commitOpeningBalance(token);
+    expect(commitRes.status).toBe(200);
+
+    // customer_due → obligation, owed_to_us/customer — "Who owes us".
+    const receivables: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(receivables).toContainEqual(
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "1200000" }),
+    );
+
+    // driver_arrears (owed_to_us) and owed_to_driver (owed_by_us) →
+    // obligation, both sides — CLAUDE.md's "never net the driver's two
+    // balances" means both must be independently visible.
+    const balances: { owedToUsMinor: string; owedByUsMinor: string } = await (
+      await getDriverBalances(token, driverId)
+    ).json();
+    expect(balances).toMatchObject({ owedToUsMinor: "500000", owedByUsMinor: "300000" });
+
+    // deposit_held → deposit + deposit_movement, advance_outstanding →
+    // advance, cash_held → payment — all three read by one report (UC-75).
+    const cashPosition: {
+      partners: { userId: string; heldMinor: string }[];
+      depositsHeldMinor: string;
+      driverAdvances: { driverId: string; outstandingMinor: string }[];
+    } = await (await getCashPosition(token)).json();
+    expect(cashPosition.depositsHeldMinor).toBe("1000000");
+    expect(cashPosition.driverAdvances).toContainEqual(
+      expect.objectContaining({ driverId, outstandingMinor: "200000" }),
+    );
+    expect(cashPosition.partners).toContainEqual(
+      expect.objectContaining({ userId: owner.userId, heldMinor: "5000000" }),
+    );
 
     await ctx.cleanup();
   });
