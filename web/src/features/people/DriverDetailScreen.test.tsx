@@ -1,10 +1,28 @@
-import type { DriverBalancesResponse, DriverResponse } from "@fleetsettle/shared/schemas";
+import type {
+  DriverBalancesResponse,
+  DriverResponse,
+  DriverViewResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { DriverDetailScreen } from "./DriverDetailScreen.js";
+
+const emptyHistory: DriverViewResponse = {
+  owedToUsMinor: "0",
+  owedByUsMinor: "0",
+  days: [],
+  trips: [],
+  advances: [],
+  offsets: [],
+  deposit: null,
+};
+
+function isDriverHistoryPath(path: string): boolean {
+  return path.startsWith("/api/driver/d1/view?");
+}
 
 test("renders the driver's name and both balances, never a signed net (W-2)", async () => {
   const get = vi.fn();
@@ -26,6 +44,7 @@ test("renders the driver's name and both balances, never a signed net (W-2)", as
         owedByUsMinor: "1200000",
       } satisfies DriverBalancesResponse);
     }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
     throw new Error(`unexpected path ${path}`);
   });
   renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
@@ -58,6 +77,7 @@ test("GAP-101: a failed balances read shows a failure notice, never an eternal s
     if (path === "/api/driver/d1/balances") {
       return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
     }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
     throw new Error(`unexpected path ${path}`);
   });
   renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
@@ -82,6 +102,7 @@ test("Offset opens the offset sheet", async () => {
         licenceExpiry: null,
       } satisfies DriverResponse);
     }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
     return Promise.resolve({
       driverId: "d1",
       owedToUsMinor: "0",
@@ -108,14 +129,77 @@ function baseGet() {
         licenceExpiry: null,
       } satisfies DriverResponse);
     }
-    return Promise.resolve({
-      driverId: "d1",
-      owedToUsMinor: "0",
-      owedByUsMinor: "0",
-    } satisfies DriverBalancesResponse);
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
+    throw new Error(`unexpected path ${path}`);
   });
   return get;
 }
+
+test("A5: staff driver detail shows recent days, trips, advances, offsets and deposit", async () => {
+  const history: DriverViewResponse = {
+    owedToUsMinor: "200000",
+    owedByUsMinor: "900000",
+    days: [
+      {
+        businessDate: "2026-08-10",
+        state: "paused_for_trip",
+        earnedMinor: "0",
+        receivedMinor: "0",
+        lostReason: null,
+      },
+    ],
+    trips: [
+      {
+        id: "t1",
+        vehicleId: "v1",
+        closingDate: "2026-08-09",
+        agreedAmountMinor: "3000000",
+        driverFeeMinor: "500000",
+      },
+    ],
+    advances: [{ id: "a1", amountMinor: "100000", issuedOn: "2026-08-03", status: "open" }],
+    offsets: [{ id: "o1", amountMinor: "50000", occurredOn: "2026-08-05" }],
+    deposit: { id: "dep1", heldMinor: "250000" },
+  };
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "200000",
+        owedByUsMinor: "900000",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(history);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Recent days · 1")).toBeInTheDocument();
+  expect(screen.getByText("Excused for trip")).toBeInTheDocument();
+  expect(screen.getByText("Trips and fees · 1")).toBeInTheDocument();
+  expect(screen.getByText("Driver fee")).toBeInTheDocument();
+  expect(screen.getByText("Advances · 1")).toBeInTheDocument();
+  expect(screen.getByText("Offsets · 1")).toBeInTheDocument();
+  expect(screen.getByText("Held deposit")).toBeInTheDocument();
+});
 
 /** GAP-63/64/66 (B13) — the three actions found by the 8 Aug flow-inventory audit, each a write endpoint that existed with no caller until now. */
 test("Driver money opens the action sheet with all three new actions", async () => {
@@ -196,4 +280,44 @@ test("GAP-66 — Record a deposit posts to /api/deposit", async () => {
       expect.objectContaining({ driverId: "d1", amountMinor: "25000" }),
     ),
   );
+});
+
+test("F-1.8: Driver access creates a link invite code", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    code: "DRV-123",
+    expiresAt: "2026-08-12T00:00:00.000Z",
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, {
+    get: baseGet(),
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Driver access" }));
+  await user.click(await screen.findByRole("button", { name: "Create account link" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/driver/d1/link-invite", {}));
+  expect(await screen.findByText("DRV-123")).toBeInTheDocument();
+});
+
+test("F-1.8: Driver access unlinks after confirmation", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "d1",
+    name: "Sunil Perera",
+    mobile: null,
+    driverDayFeeMinor: null,
+    driverTripFeeMinor: null,
+    licenceExpiry: null,
+  } satisfies DriverResponse);
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, {
+    get: baseGet(),
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Driver access" }));
+  await user.click(await screen.findByRole("button", { name: "Unlink account" }));
+  await user.click(await screen.findByRole("button", { name: "Unlink account" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/driver/d1/unlink", {}));
 });

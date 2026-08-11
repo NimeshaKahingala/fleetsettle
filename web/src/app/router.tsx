@@ -18,13 +18,19 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
+import { CashScreen } from "../features/cash/CashScreen.js";
+import { MileagePackagesScreen } from "../features/cash/MileagePackagesScreen.js";
+import { PartnerDetailScreen } from "../features/cash/PartnerDetailScreen.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
 import { LeaseHubScreen } from "../features/leases/LeaseHubScreen.js";
+import { MembersScreen } from "../features/members/MembersScreen.js";
+import { MineScreen } from "../features/mine/MineScreen.js";
 import { MoreScreen } from "../features/more/MoreScreen.js";
 import { OpeningBalanceScreen } from "../features/opening-balance/OpeningBalanceScreen.js";
+import { CustomerDetailScreen } from "../features/people/CustomerDetailScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
@@ -283,10 +289,12 @@ function DriverDetailRoute() {
   return <DriverDetailScreen driverId={driverId} onBack={() => void navigate({ to: "/people" })} />;
 }
 
-/** Web-P6 builds the real customer screen; a placeholder still needs its own way back to the list (§7.5's back-button convention) — unlike the tab-root placeholders (Home/More), which have nothing to return to. */
-function PlaceholderDetailRoute({ title }: { title: string }) {
+function CustomerDetailRoute() {
+  const { customerId } = useParams({ from: "/people/customers/$customerId" });
   const navigate = useNavigate();
-  return <NotBuiltYetScreen title={title} onBack={() => void navigate({ to: "/people" })} />;
+  return (
+    <CustomerDetailScreen customerId={customerId} onBack={() => void navigate({ to: "/people" })} />
+  );
 }
 
 /** F-0.2/B12 — reached from `/more`'s own row, gated `<Can cap="manageOpeningBalances">` there. `onBack` returns to `/more`, matching every other action reached from that hub. */
@@ -299,6 +307,43 @@ function OpeningBalanceRoute({ today }: { today: BusinessDate }) {
 function CloseMonthRoute({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
   return <CloseMonthScreen today={today} onBack={() => void navigate({ to: "/more" })} />;
+}
+
+/** A11/UI-8: owner-only member access under More, not People — this grants access to the business itself, distinct from customer/driver records. */
+function MembersRoute() {
+  const navigate = useNavigate();
+  return <MembersScreen onBack={() => void navigate({ to: "/more" })} />;
+}
+
+function CashRoute({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  return (
+    <CashScreen
+      today={today}
+      onBack={() => void navigate({ to: "/more" })}
+      onSelectPartner={(userId) => {
+        void navigate({ to: "/partners/$userId", params: { userId } });
+      }}
+    />
+  );
+}
+
+function PartnerDetailRoute({ today }: { today: BusinessDate }) {
+  const { userId } = useParams({ from: "/partners/$userId" });
+  const navigate = useNavigate();
+  return (
+    <PartnerDetailScreen
+      userId={userId}
+      today={today}
+      onBack={() => void navigate({ to: "/cash" })}
+    />
+  );
+}
+
+/** F-1.9/GAP-67: saved mileage packages, reached from More because they are setup data reused by the lease start flow rather than a vehicle's own record. */
+function MileagePackagesRoute() {
+  const navigate = useNavigate();
+  return <MileagePackagesScreen onBack={() => void navigate({ to: "/more" })} />;
 }
 
 /** B4/§5.4: `This month`'s own tab — the per-vehicle card navigates into the read-only Vehicles-tab detail (never `VehicleOverviewScreen`, §7.8's "no entry affordance anywhere"); "What I'm owed" navigates to `My money`, the same figure in more detail. */
@@ -466,8 +511,8 @@ function LostDaysReportRoute({ today }: { today: BusinessDate }) {
 }
 
 /** B5's own item builds `MineScreen`; B0b only needs the route and the shell to exist. */
-function MineRoute() {
-  return <NotBuiltYetScreen title="Mine" />;
+function MineRoute({ today }: { today: BusinessDate }) {
+  return <MineScreen today={today} />;
 }
 
 /**
@@ -494,7 +539,11 @@ function tabForPathname(pathname: string): OperateTabKey {
     pathname.startsWith("/review") ||
     pathname.startsWith("/reports") ||
     pathname.startsWith("/period/close") ||
-    pathname.startsWith("/opening-balances")
+    pathname.startsWith("/opening-balances") ||
+    pathname.startsWith("/members") ||
+    pathname.startsWith("/cash") ||
+    pathname.startsWith("/partners") ||
+    pathname.startsWith("/mileage-packages")
   ) {
     return "more";
   }
@@ -721,7 +770,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const customerDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people/customers/$customerId",
-    component: () => <PlaceholderDetailRoute title="Customer" />,
+    component: CustomerDetailRoute,
   });
 
   const moreRoute = createRoute({
@@ -740,6 +789,30 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     getParentRoute: () => rootRoute,
     path: "/period/close",
     component: () => <CloseMonthRoute today={today} />,
+  });
+
+  const membersRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/members",
+    component: MembersRoute,
+  });
+
+  const cashRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/cash",
+    component: () => <CashRoute today={today} />,
+  });
+
+  const partnerDetailRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/partners/$userId",
+    component: () => <PartnerDetailRoute today={today} />,
+  });
+
+  const mileagePackagesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/mileage-packages",
+    component: MileagePackagesRoute,
   });
 
   // B0b: the Review shell's four tabs and the Mine shell's one screen —
@@ -857,7 +930,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const mineRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/me",
-    component: MineRoute,
+    component: () => <MineRoute today={today} />,
   });
 
   const routeTree = rootRoute.addChildren([
@@ -878,6 +951,10 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     moreRoute,
     openingBalanceRoute,
     closeMonthRoute,
+    membersRoute,
+    cashRoute,
+    partnerDetailRoute,
+    mileagePackagesRoute,
     reviewThisMonthRoute,
     reviewVehiclesRoute,
     reviewVehicleDetailRoute,

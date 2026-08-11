@@ -55,6 +55,7 @@ export function AdvanceSheet({ open, onOpenChange, driverId, today }: AdvanceShe
       } satisfies IssueAdvanceWireRequest),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "balances"] });
+      void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "view"] });
       reset({ issuedOn: today });
       onOpenChange(false);
     },

@@ -20,6 +20,7 @@ import type { Env } from "../types.js";
 
 function toResponse(row: BusinessMemberRow) {
   return {
+    id: row.id,
     userId: row.userId,
     displayName: row.displayName,
     role: row.role as "owner" | "owner_manager" | "manager",

@@ -6,7 +6,7 @@ import type {
   VehicleLeaseHistoryRow,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
@@ -281,6 +281,84 @@ test("paperwork lists every document type with a date set", async () => {
   expect(screen.getByText("Insurance")).toBeInTheDocument();
   expect(screen.getByText("Revenue licence")).toBeInTheDocument();
   expect(screen.getByText("Expires 30 Sept 2026")).toBeInTheDocument();
+});
+
+test("GAP-102: Renew paperwork from the vehicle actions menu upserts the selected document", async () => {
+  const user = userEvent.setup();
+  const put = vi.fn().mockResolvedValue({
+    docType: "permit",
+    expiryDate: "2027-01-15",
+    reference: "permit-42",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get: baseGet(), put },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Renew paperwork" }));
+  await user.click(await screen.findByRole("button", { name: "Permit" }));
+  fireEvent.change(screen.getByLabelText(/Permit expiry/), {
+    target: { value: "2027-01-15" },
+  });
+  await user.type(screen.getByLabelText("Reference (optional)"), "permit-42");
+  await user.click(screen.getByRole("button", { name: "Save paperwork" }));
+
+  await vi.waitFor(() =>
+    expect(put).toHaveBeenCalledWith("/api/vehicle/v1/document", {
+      docType: "permit",
+      expiryDate: "2027-01-15",
+      reference: "permit-42",
+    }),
+  );
+});
+
+test("GAP-102: tapping an existing paperwork row opens it prefilled for renewal", async () => {
+  const user = userEvent.setup();
+  const documents: VehicleDocumentResponse[] = [
+    { docType: "revenue_licence", expiryDate: "2027-01-15", reference: "RL-1" },
+  ];
+  const put = vi.fn().mockResolvedValue({
+    docType: "revenue_licence",
+    expiryDate: "2027-02-20",
+    reference: "RL-1",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get: baseGet({ "/api/vehicle/v1/document": documents }), put },
+  );
+
+  await user.click(await screen.findByRole("button", { name: /Revenue licence/ }));
+  const expiryInput = screen.getByLabelText(/Revenue licence expiry/);
+  expect(expiryInput).toHaveValue("2027-01-15");
+  expect(screen.getByLabelText("Reference (optional)")).toHaveValue("RL-1");
+
+  fireEvent.change(expiryInput, { target: { value: "2027-02-20" } });
+  await user.click(screen.getByRole("button", { name: "Save paperwork" }));
+
+  await vi.waitFor(() =>
+    expect(put).toHaveBeenCalledWith("/api/vehicle/v1/document", {
+      docType: "revenue_licence",
+      expiryDate: "2027-02-20",
+      reference: "RL-1",
+    }),
+  );
 });
 
 test("a voided expense stays in the costs list, struck through, with its reason (W-50)", async () => {

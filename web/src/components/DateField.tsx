@@ -1,7 +1,6 @@
-import { addDays, asBusinessDate, type BusinessDate } from "@fleetsettle/shared";
+import { asBusinessDate, type BusinessDate } from "@fleetsettle/shared";
 import { useId, useRef } from "react";
 import { Label } from "../design/primitives/Label.js";
-import { cn } from "../lib/cn.js";
 
 const weekdayFormatter = new Intl.DateTimeFormat("en-GB", {
   weekday: "short",
@@ -21,20 +20,11 @@ export interface DateFieldProps {
   onChange: (value: BusinessDate) => void;
   /** Injected — never read from the device clock here (CLAUDE.md → Time); the caller computes it via the business timezone. */
   today: BusinessDate;
-  /**
-   * M-17's Today/Yesterday chips — right for a single entry date (an
-   * expense, a payment) and wrong for a report's own "From"/"To" range
-   * endpoint, where "Today" on the *end* of an arbitrary range reads as a
-   * non-sequitur and two chip-bearing fields side by side (GAP-83/GAP-105)
-   * came to six visible controls for two values. Defaults to `true`,
-   * M-17's own default; range/report call sites turn it off explicitly.
-   */
-  showShortcuts?: boolean;
 }
 
 /**
- * §6.3 `DateField` (M-17): Today / Yesterday chips plus the native picker.
- * Shows the weekday — "Tue 30 Jul" is checkable, "30/07" is not.
+ * §6.3 `DateField` (M-17): a native picker with a weekday display. Shows
+ * the weekday — "Tue 30 Jul" is checkable, "30/07" is not.
  *
  * The native `<input type="date">` is the actual click/tap/Tab target,
  * overlaid full-size and `opacity-0` on top of a decorative, `aria-hidden`
@@ -46,43 +36,14 @@ export interface DateFieldProps {
  * on a direct click/focus of a real `<input type="date">`, so `showPicker()`
  * below is only ever a same-tap enhancement, never the only path in.
  */
-export function DateField({ label, value, onChange, today, showShortcuts = true }: DateFieldProps) {
+export function DateField({ label, value, onChange, today }: DateFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const inputId = useId();
-  const yesterday = addDays(today, -1);
-
-  function chipClass(selected: boolean): string {
-    return cn(
-      "min-h-tap rounded-sm border px-3 text-body",
-      selected
-        ? "border-brand bg-brand-wash text-brand-ink"
-        : "border-line-strong text-ink-primary",
-    );
-  }
+  void today;
 
   return (
     <div className="flex flex-col gap-2">
       <Label htmlFor={inputId}>{label}</Label>
-      {showShortcuts ? (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            aria-pressed={value === today}
-            className={chipClass(value === today)}
-            onClick={() => onChange(today)}
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            aria-pressed={value === yesterday}
-            className={chipClass(value === yesterday)}
-            onClick={() => onChange(yesterday)}
-          >
-            Yesterday
-          </button>
-        </div>
-      ) : null}
       <div className="relative min-h-tap rounded-sm focus-within:ring-[3px] focus-within:ring-offset-2 focus-within:ring-focus-ring">
         <div
           aria-hidden="true"

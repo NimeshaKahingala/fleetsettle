@@ -79,3 +79,15 @@ test("the active tab carries a visual marker beyond text colour (UI-LF-03)", () 
   expect(screen.getByRole("button", { name: "People" }).className).toContain("before:bg-brand");
   expect(screen.getByRole("button", { name: "Home" }).className).not.toContain("before:bg-brand");
 });
+
+test("GAP-47: below-md landscape keeps the tab bar 44px high and icon-only visually", () => {
+  const { container } = render(
+    <AppShell shell="operate" activeTab="home">
+      <p>Home content</p>
+    </AppShell>,
+  );
+
+  expect(container.querySelector("nav")).toHaveClass("max-md:landscape:h-11");
+  expect(screen.getByRole("button", { name: "Home" })).toHaveClass("max-md:landscape:gap-0");
+  expect(screen.getByText("Home")).toHaveClass("max-md:landscape:sr-only");
+});

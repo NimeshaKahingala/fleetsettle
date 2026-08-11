@@ -1,16 +1,26 @@
-import { businessToday, parse } from "@fleetsettle/shared";
-import type { DriverBalancesResponse, DriverResponse } from "@fleetsettle/shared/schemas";
-import { useQuery } from "@tanstack/react-query";
-import { HandCoins, PiggyBank, Wallet } from "lucide-react";
+import { addDays, businessToday, parse } from "@fleetsettle/shared";
+import type {
+  DriverBalancesResponse,
+  DriverLinkInviteResponse,
+  DriverResponse,
+  DriverViewResponse,
+} from "@fleetsettle/shared/schemas";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { HandCoins, Link2, PiggyBank, Unlink, UserCog, Wallet } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { TwoBalances } from "../../components/TwoBalances.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
+import { Button } from "../../design/primitives/Button.js";
+import { Card } from "../../design/primitives/Card.js";
+import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Screen } from "../../design/primitives/Screen.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { AdvanceSheet } from "./AdvanceSheet.js";
 import { DepositSheet } from "./DepositSheet.js";
+import { DriverActivitySections } from "./DriverActivitySections.js";
 import { OffsetSheet } from "./OffsetSheet.js";
 import { PayDriverSheet } from "./PayDriverSheet.js";
 
@@ -40,9 +50,15 @@ export interface DriverDetailScreenProps {
  */
 export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const today = businessToday();
+  const from = addDays(today, -30);
   const [offsetOpen, setOffsetOpen] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [accessActionsOpen, setAccessActionsOpen] = useState(false);
+  const [linkInviteOpen, setLinkInviteOpen] = useState(false);
+  const [linkInvite, setLinkInvite] = useState<DriverLinkInviteResponse | null>(null);
+  const [unlinkOpen, setUnlinkOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
@@ -55,8 +71,14 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
     queryKey: ["driver", driverId, "balances"],
     queryFn: () => api.get<DriverBalancesResponse>(`/api/driver/${driverId}/balances`),
   });
+  const historyQuery = useQuery({
+    queryKey: ["driver", driverId, "view", from, today],
+    queryFn: () =>
+      api.get<DriverViewResponse>(`/api/driver/${driverId}/view?from=${from}&to=${today}`),
+  });
   const driverState = useQueryState(driverQuery);
   const balancesState = useQueryState(balancesQuery);
+  const historyState = useQueryState(historyQuery);
   const failedState =
     driverState.kind === "error"
       ? driverState
@@ -80,10 +102,51 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
     },
   ];
 
+  const linkInviteMutation = useMutation({
+    mutationFn: () => api.post<DriverLinkInviteResponse>(`/api/driver/${driverId}/link-invite`, {}),
+    onSuccess: (issued) => setLinkInvite(issued),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: () => api.post<DriverResponse>(`/api/driver/${driverId}/unlink`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["driver", driverId] });
+      setUnlinkOpen(false);
+    },
+  });
+
+  const accessActions: ActionSheetAction[] = [
+    {
+      key: "link",
+      label: "Create account link",
+      icon: Link2,
+      onSelect: () => {
+        setLinkInvite(null);
+        setLinkInviteOpen(true);
+        linkInviteMutation.mutate();
+      },
+    },
+    {
+      key: "unlink",
+      label: "Unlink account",
+      icon: Unlink,
+      onSelect: () => setUnlinkOpen(true),
+    },
+  ];
+
   return (
     <Screen
       title={driverQuery.data?.name ?? "Driver"}
       onBack={onBack}
+      {...(driverQuery.data !== undefined
+        ? {
+            action: {
+              label: "Driver access",
+              icon: UserCog,
+              onClick: () => setAccessActionsOpen(true),
+            },
+          }
+        : {})}
       primaryAction={{ label: "Driver money", onClick: () => setActionsOpen(true) }}
     >
       {failedState !== null ? (
@@ -95,13 +158,26 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
       ) : driverQuery.data === undefined || balancesQuery.data === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
-        <TwoBalances
-          owedToYouMinor={parse(balancesQuery.data.owedToUsMinor)}
-          owedToYouDetail="—"
-          owedByYouMinor={parse(balancesQuery.data.owedByUsMinor)}
-          owedByYouDetail="—"
-          onOffset={() => setOffsetOpen(true)}
-        />
+        <div className="flex flex-col gap-5">
+          <TwoBalances
+            owedToYouMinor={parse(balancesQuery.data.owedToUsMinor)}
+            owedToYouDetail="—"
+            owedByYouMinor={parse(balancesQuery.data.owedByUsMinor)}
+            owedByYouDetail="—"
+            onOffset={() => setOffsetOpen(true)}
+          />
+          {historyState.kind === "error" ? (
+            <QueryStateFailure
+              error={historyState.error}
+              retry={historyState.retry}
+              of="this driver's history"
+            />
+          ) : historyQuery.data === undefined ? (
+            <p className="text-body-sm text-ink-muted">Loading history…</p>
+          ) : (
+            <DriverActivitySections view={historyQuery.data} />
+          )}
+        </div>
       )}
       <ActionSheet
         open={actionsOpen}
@@ -109,6 +185,46 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         title="Driver money"
         actions={actions}
       />
+      <ActionSheet
+        open={accessActionsOpen}
+        onOpenChange={setAccessActionsOpen}
+        title="Driver access"
+        actions={accessActions}
+      />
+      <Sheet open={linkInviteOpen} onOpenChange={setLinkInviteOpen} title="Driver account link">
+        <div className="flex flex-col gap-4">
+          {linkInviteMutation.isPending ? (
+            <p className="text-body-sm text-ink-muted">Creating link…</p>
+          ) : linkInviteMutation.isError ? (
+            <p className="text-body-sm text-critical-ink">{linkInviteMutation.error.message}</p>
+          ) : linkInvite !== null ? (
+            <Card className="flex flex-col gap-2">
+              <p className="text-label text-ink-secondary">Invite code</p>
+              <p className="break-all text-title text-ink-primary">{linkInvite.code}</p>
+              <p className="text-caption text-ink-muted">Expires {linkInvite.expiresAt}</p>
+            </Card>
+          ) : null}
+          <Button size="cta" onClick={() => setLinkInviteOpen(false)}>
+            Done
+          </Button>
+        </div>
+      </Sheet>
+      <Sheet open={unlinkOpen} onOpenChange={setUnlinkOpen} title="Unlink account?">
+        <div className="flex flex-col gap-4 pb-2">
+          <p className="text-body text-ink-secondary">
+            The driver will lose app access. Their driver record and history stay unchanged.
+          </p>
+          {unlinkMutation.isError ? (
+            <p className="text-body-sm text-critical-ink">{unlinkMutation.error.message}</p>
+          ) : null}
+          <DialogConfirmFooter
+            confirmLabel="Unlink account"
+            variant="destructive"
+            onConfirm={() => unlinkMutation.mutate()}
+            onCancel={() => setUnlinkOpen(false)}
+          />
+        </div>
+      </Sheet>
       <OffsetSheet
         open={offsetOpen}
         onOpenChange={setOffsetOpen}

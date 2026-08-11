@@ -4,6 +4,31 @@ This document is a handoff plan for a fresh Codex chat. It focuses on UI work
 that can move with little or no new API dependency. Report work and offline/PWA
 support are deliberately delayed.
 
+## Implementation status
+
+Implemented on branch `codex/ui-low-api-work-2026-08-11`:
+
+- UI-1 DateField global simplification.
+- UI-2 landscape compact chrome.
+- UI-3 Quick Add payments.
+- UI-4 Customer detail, except the statement view.
+- UI-5 vehicle paperwork metadata write.
+- UI-6 Driver Mine screen, except the A14-backed statement link.
+- UI-7 staff driver history.
+- UI-8 in-app member invite/manage UI and driver access links.
+- UI-9 safe callers: Cash screen, Partner detail, capital contribution,
+  banking event, partner payout/settlement, mileage-package create/archive,
+  and `BorneByPaidBy` paid-by member selection.
+- UI-10 Toast primitive and host.
+
+Still pending after this branch:
+
+- B2 ownership shares and management-agreement/share-vehicle setup UI.
+- GAP-1 per-vehicle capability scoping and any UI that would imply it.
+- A14 signed printed-slip/share-link backend and the statement links that
+  depend on it.
+- GAP-100 advance settlement.
+
 This is not the product spec. If this plan disagrees with `docs/`,
 `TRACKER.md`, or `Plan.md`, use this order of truth:
 

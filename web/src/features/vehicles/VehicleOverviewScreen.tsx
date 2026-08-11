@@ -12,6 +12,7 @@ import {
   CalendarDays,
   CalendarPlus,
   ChevronRight,
+  FileText,
   MoreVertical,
   Receipt,
   Route,
@@ -37,14 +38,8 @@ import {
   INCIDENT_STATUS_LABEL,
 } from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
-
-const DOC_TYPE_LABEL: Record<string, string> = {
-  insurance: "Insurance",
-  registration: "Registration",
-  revenue_licence: "Revenue licence",
-  permit: "Permit",
-  emissions: "Emissions",
-};
+import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
+import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
@@ -125,6 +120,8 @@ export function VehicleOverviewScreen({
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
+  const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -192,6 +189,15 @@ export function VehicleOverviewScreen({
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    {
+      key: "paperwork",
+      label: "Renew paperwork",
+      icon: FileText,
+      onSelect: () => {
+        setSelectedDocument(null);
+        setRenewPaperworkOpen(true);
+      },
+    },
     ...(canStartDailyLease
       ? [
           {
@@ -275,14 +281,32 @@ export function VehicleOverviewScreen({
               title="Paperwork"
               count={documents.length}
               items={documents.map((doc) => (
-                <Card key={doc.docType} className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">
-                    {DOC_TYPE_LABEL[doc.docType] ?? doc.docType}
-                  </p>
-                  <p className="text-body-sm text-ink-muted">
-                    Expires {formatShortDate(doc.expiryDate)}
-                  </p>
-                </Card>
+                <button
+                  key={doc.docType}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDocument(doc);
+                    setRenewPaperworkOpen(true);
+                  }}
+                  className="w-full text-left"
+                >
+                  <Card className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-body text-ink-primary">
+                        {VEHICLE_DOC_TYPE_LABEL[doc.docType] ?? doc.docType}
+                      </p>
+                      {doc.reference !== undefined ? (
+                        <p className="text-caption text-ink-muted">{doc.reference}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-body-sm text-ink-muted">
+                        Expires {formatShortDate(doc.expiryDate)}
+                      </p>
+                      <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                    </div>
+                  </Card>
+                </button>
               ))}
             />
           ) : null}
@@ -389,6 +413,13 @@ export function VehicleOverviewScreen({
             vehicleId={vehicleId}
             today={today}
             onRecorded={() => setRecordExpenseOpen(false)}
+          />
+          <RenewVehicleDocumentSheet
+            open={renewPaperworkOpen}
+            onOpenChange={setRenewPaperworkOpen}
+            vehicleId={vehicleId}
+            today={today}
+            {...(selectedDocument !== null ? { initialDocument: selectedDocument } : {})}
           />
           <ActionSheet
             open={actionsOpen}
