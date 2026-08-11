@@ -176,12 +176,14 @@ export function LostDaysReportScreen({
         label="From"
         value={from}
         today={today}
+        showShortcuts={false}
         onChange={(date) => onParamsChange({ from: date, to })}
       />
       <DateField
         label="To"
         value={to}
         today={today}
+        showShortcuts={false}
         onChange={(date) => onParamsChange({ from, to: date })}
       />
     </div>

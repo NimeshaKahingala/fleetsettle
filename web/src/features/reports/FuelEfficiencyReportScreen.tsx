@@ -131,6 +131,7 @@ export function FuelEfficiencyReportScreen({
           label="From"
           value={from}
           today={today}
+          showShortcuts={false}
           onChange={(date) => {
             if (vehicleId !== undefined) onParamsChange({ vehicleId, from: date, to });
           }}
@@ -139,6 +140,7 @@ export function FuelEfficiencyReportScreen({
           label="To"
           value={to}
           today={today}
+          showShortcuts={false}
           onChange={(date) => {
             if (vehicleId !== undefined) onParamsChange({ vehicleId, from, to: date });
           }}

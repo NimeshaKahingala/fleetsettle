@@ -29,15 +29,15 @@ Evaluation method: each review file was checked against the current source tree,
   - [x] MP-07 style tests cover touch/coarse-pointer modal behavior at the primitive level before individual screens are trusted. (`Sheet.test.tsx`.)
   - [ ] A real iOS Safari or Android Chrome pass confirms the fix after the desktop touch-emulation pass is green. **Not done** — no automated run in this environment can substitute for it.
 
-- [ ] **GAP-83 / GAP-105 / MP-01 / MP-06 - DateField accessibility and fallback.**
+- [x] **GAP-83 / GAP-105 / MP-01 / MP-06 - DateField accessibility and fallback.** Closed 11 Aug 2026 — see TRACKER.md's closed row for the full account.
   Make `DateField` one clear date control by default. The hidden native input must not be a separate invisible Tab stop, and the picker button needs a real fallback when `showPicker()` is unavailable.
   Acceptance checklist:
-  - [ ] Remove the focusable `sr-only` date input pattern, or overlay the native input over the visible target so keyboard and pointer users get one visible control.
-  - [ ] Make Today/Yesterday shortcuts opt-in through a prop, not present on every date field.
-  - [ ] Range screens do not render six visible date controls for two values.
-  - [ ] The visible date target has an accessible name that says it opens/edits a date.
-  - [ ] Safari/non-`showPicker` browsers can still open or focus a usable date input.
-  - [ ] Tests cover default DateField, shortcut-enabled DateField, range report fields, keyboard tab order, and the no-`showPicker` branch.
+  - [x] Remove the focusable `sr-only` date input pattern, or overlay the native input over the visible target so keyboard and pointer users get one visible control. (The overlay option — the real input is now the full-size, `opacity-0` target directly over a decorative weekday display.)
+  - [x] Make Today/Yesterday shortcuts opt-in through a prop, not present on every date field. **Deviation, deliberate**: shipped as opt-*out* (`showShortcuts` defaults `true`, M-17's own stated default for an ordinary entry field) rather than opt-in/default-false, since M-17 explicitly specifies "every date field" — turned off only where the review's own complaint actually lived (`FuelEfficiencyReportScreen`/`LostDaysReportScreen`'s From/To pairs), not silently reinterpreted across the ~20 other entry-form call sites. Flagging this rather than checking it off as if the literal wording was followed.
+  - [x] Range screens do not render six visible date controls for two values. (Verified by screenshot at 360×640 — two controls for two values.)
+  - [x] The visible date target has an accessible name that says it opens/edits a date. (`aria-label="{label}: {weekday}, opens a date picker"`.)
+  - [x] Safari/non-`showPicker` browsers can still open or focus a usable date input. (By construction — a real `<input type="date">` is the direct target in every browser; `showPicker()` is layered on top, never load-bearing. Logical/jsdom-level confirmation only; no real Safari, same limitation as GAP-104/F4.)
+  - [x] Tests cover default DateField, shortcut-enabled DateField, range report fields, keyboard tab order, and the no-`showPicker` branch. (Unit tests for all but tab order, which was instead verified with a real Chromium tab-order trace + screenshot, not a jsdom test — noted in TRACKER.md's closed row.)
 
 - [ ] **GAP-106 - Cash-position deposit label is party-specific but the data is not.**
   `CashPositionReportScreen` labels a party-agnostic held-deposit total as "Held for customers".
