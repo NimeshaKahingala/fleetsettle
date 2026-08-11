@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.5 — F-3.4 corrected: agreeing a customer's incident contribution now opens an `Obligation` (GAP-10), reconciling this flow's **Writes** line with migration `0001`'s own column comment (`-- customer contributions become receivable`), which the flow had left unmet. Insurer-sourced recoveries are unchanged — an insurer is never a payer in `POST /api/payment`. §7.2's fixture figures (95,000 / 80,000 / 15,000) are untouched
-**Date:** 9 August 2026
+**Status:** v1.1.6 — F-8.3, F-8.4 and F-9.3's `*Phase:*` tags, plus F-9.2's report-catalogue Phase column for UC-73/77/78/79, move from 2 to 1, mirroring `use-cases.md` v1.2.5 §9.1 — this document owns mechanics, not the phase decision itself, and follows it here rather than restating the reasoning
+**Date:** 11 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -798,12 +798,12 @@ Held by each partner, in each account, plus advances outstanding with drivers.
 · **The one thing it cannot undo:** if a receipt message already went out (UC-82), the log is append-only (INV-13) and the message stands. The reversal records that a correction is owed and the next message says so plainly.
 
 #### F-8.3 Write off what you will not collect
-*Actor:* Owner / owner-manager · *Source:* UC-90, W-28 · *Phase:* 2
+*Actor:* Owner / owner-manager · *Source:* UC-90, W-28 · *Phase:* **1** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
 **Steps** Amount, party, reason, date.
 **Accept** · **INV-14** — never pooled with waivers, never in the same report line · clears the balance from the home screen and receivables · records the loss against the vehicle it arose from · party history stays intact, and a written-off customer returning next year **arrives with that visible at F-2.1 step 1** · **INV-15** — later payment is a **recovery** linked to the write-off, netting against it, never fresh income.
 
 #### F-8.4 Charge something after everything has closed
-*Actor:* Manager · *Source:* UC-91, W-29 · *Phase:* 2
+*Actor:* Manager · *Source:* UC-91, W-29 · *Phase:* **1** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
 A camera fine or toll arrives three weeks after the car went back.
 **Steps** Log the charge against the **closed** lease or trip → it creates an outstanding balance for that party even though nothing is active → optionally send it with a photo of the ticket.
 **Accept** · Who bears it follows the arrangement (§6.7): customer's on a lease, driver's on a daily lease, ours on a charter with one tap to deduct from his fee · survivable because of **the deposit hold window** (F-2.7) and **a route to write-off** (F-8.3) · posts per F-8.1.
@@ -845,20 +845,20 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 · **A period cannot close without creating its successor.** Two reasons, and the second is the one that matters: every money record requires an open period to post to, so a close with no successor stops the business dead — *and* W-35 needs somewhere to put a late fact. A close that leaves nowhere to post is a close that breaks the rule it exists to serve.
 
 #### F-9.2 The report catalogue
-*Actor:* Owner or manager · *Source:* UC-70…UC-79, W-56 · *Phase:* 1–2
+*Actor:* Owner or manager · *Source:* UC-70…UC-79, W-56 · *Phase:* 1 (was 1–2; UC-73/77/78/79 moved to 1 in v1.1.6, mirroring `use-cases.md` v1.2.5)
 
 | Report | Counts | Degrades to "not available" when | Phase |
 |---|---|---|---|
 | **UC-70** this month | Rent by billing period, daily amounts by day, trips by closing date (INV-30). Excludes below-the-line costs, deposits, advances, pending recoveries and opening balances | never | 1 |
 | **UC-71** trips that made money | Profit, and profit per km | no closing odometer — the trip leaves the ranking rather than ranking at zero | 1 |
 | **UC-72** fuel efficiency | Only fuel **you** bought | no complete fill-to-fill pair; always for arrangement B lease days | 1 |
-| **UC-73** the year | As UC-70, with overheads (UC-66) beneath vehicle profit, never spread across it | never | 2 |
+| **UC-73** the year | As UC-70, with overheads (UC-66) beneath vehicle profit, never spread across it | never | 1 |
 | **UC-74** who owes us | Customers, drivers, trip balances, post-closure charges. Excludes write-offs | never | 1 |
 | **UC-75** where is our cash | Held by partner and account, **plus driver advances only** — not arrears, not his fares | never | 1 |
 | **UC-76** lost days | `lost` out of `ran + lost`, valued at the rate in force each day, with reasons and weekday distribution | never | 1 |
-| **UC-77** goodwill given | Waivers and adjustments including auto-waived ones, **never pooled with write-offs** (INV-14) | never | 2 |
-| **UC-78** ageing | Buckets from the **agreed settlement point**, not the calendar; opening balances from their real due dates | never | 2 |
-| **UC-79** utilisation | Days earning / idle / off-road, revenue per available day | distance-based figures without odometer readings | 2 |
+| **UC-77** goodwill given | Waivers and adjustments including auto-waived ones, **never pooled with write-offs** (INV-14) | never | 1 |
+| **UC-78** ageing | Buckets from the **agreed settlement point**, not the calendar; opening balances from their real due dates | never | 1 |
+| **UC-79** utilisation | Days earning / idle / off-road, revenue per available day | distance-based figures without odometer readings | 1 |
 
 **Accept**
 · **INV-19/W-56** — every report degrades to "not available", never to zero. A testable rule, not a sentiment: assert it per report with empty and partial fixtures
@@ -867,7 +867,7 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 · Below-the-line costs never enter profit but are always reachable (INV-5).
 
 #### F-9.3 Export
-*Actor:* Owner · *Source:* UC-99, W-49 · *Phase:* 2
+*Actor:* Owner · *Source:* UC-99, W-49 · *Phase:* **1** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
 A year of transactions to CSV, a statement to PDF, for an accountant or a tax filing.
 **Accept** · Exports respect §2.3 permissions · a driver can export only his own statement.
 
