@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.2.6 — M-29: `PhotoCapture`'s upload reverses §6.3's own prior wording, from a presigned R2 PUT to the Worker's `R2` binding — A7/GAP-16's plan, decision 1. Renumbered from M-28 on merge with `develop`, which had independently claimed M-28 the same day for GAP-101's read-error contract (§6.4's `QueryState`, §9.5 "Loading and failing") — same collision shape as migration `0012`→`0013`, second claimant renumbers
-**Date:** 10 August 2026
+**Status:** v1.3.0 — low-API UI branch: B6/B5 core screens, B2 callers, Vehicle sharing, and GAP-100's advance issue/settle callers are now real routes/actions. DateField's v1.2.7 M-17 shortcut removal and v1.2.8 Toast host still stand
+**Date:** 11 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -100,7 +100,7 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-14** | **Two balances are never rendered as one signed number** (UC §6.4, W-2). The net is muted, secondary, and adjacent to an explicit **Offset** action | A single signed figure *is* a silent netting, whatever the storage does |
 | **M-15** | **Money amounts are always ink-coloured. Direction and status are carried by a word, a sign and a marker — never by hue alone** | Red/green is non-functional for ~5% of users and identical in greyscale ([colour-blind guidance](https://www.tableau.com/blog/examining-data-viz-rules-dont-use-red-green-together)). It also matches the data-viz rule that text wears text tokens |
 | **M-16** ⚑ | **Cents are stored always and displayed only when non-zero.** `Rs 5,000` and `Rs 5,000.50`, never `Rs 5,000.00` | INV-20 keeps minor units; a column of `.00` costs six characters of width on a 360px screen and communicates nothing |
-| **M-17** | **Every date field defaults to today and offers Today / Yesterday chips plus a picker.** Native `<input type="date">` for the picker | U-8 makes past-dating normal. Native date input is the most accessible and lightest option on mobile ([native vs custom](https://blog.openreplay.com/custom-date-picker/)); a custom calendar earns its place only in the vehicle calendar (F-1.5) and range pickers |
+| **M-17** | **Every date field defaults to today and renders one native date picker with a weekday display.** No Today/Yesterday shortcut chips | U-8 makes past-dating normal, but two shortcut buttons beside every field create duplicate date-setting affordances and become confusing once several date fields are on screen. Native date input stays the most accessible and lightest option on mobile ([native vs custom](https://blog.openreplay.com/custom-date-picker/)); a custom calendar earns its place only in the vehicle calendar (F-1.5) and range pickers |
 | **M-18** ⚑ | **Photos are captured with `<input capture>`, not `getUserMedia`** | Camera permission is not reliably persisted for iOS home-screen PWAs ([known WebKit issue](https://kb.strich.io/article/29-camera-access-issues-in-ios-pwa)). The file-input path uses the OS camera app, works everywhere, and needs no permission plumbing. Compress client-side before R2 |
 | **M-19** | **Body text is 16px minimum and never smaller than 12px anywhere** | Anything under 16px on an input triggers iOS auto-zoom, which breaks a fixed bottom bar and re-lays out the form mid-entry |
 | **M-20** | **Dark mode is authored, not inverted**, and both modes ship from day one | Managers work at dusk and in vehicles. An inverted palette breaks the validated chart colours (§11.2) |
@@ -141,7 +141,7 @@ Five tabs maximum, labels always visible, 56px tall plus `env(safe-area-inset-bo
 | **Vehicles** | List → vehicle → calendar, costs, leases, trips, paperwork, month | F-1.1, F-1.2, F-1.5, F-3.x, F-7.1 |
 | **＋ Add** | Quick-add sheet (M-4) — not a destination, no route change | F-3.1, F-3.3, F-2.2, F-5.1, F-6.1 |
 | **People** | Drivers and customers. A driver's page is the two-balance screen | F-1.6…F-1.8, F-6.x, F-2.8 |
-| **More** | Cash, reports, period close, settings, message log, business | F-7.x, F-9.x, F-10.2, F-10.4 |
+| **More** | Cash, vehicle sharing, reports, period close, members, mileage packages, settings, message log, business | F-1.4, F-1.8, F-1.9, F-7.x, F-9.x, F-10.2, F-10.4 |
 
 **The `＋` at other sizes.** On `base`–`sm` it is a full-width bottom sheet. On `md` it is the same action list in a centred sheet at 420px rather than edge-to-edge. On `lg`+ the tab bar has become a left rail (§14) and `＋` sits at its top as a labelled button, opening the identical list. One component, three placements — the actions and their order never change, because muscle memory for "fuel is the first one" is the point.
 
@@ -511,7 +511,7 @@ The net line is never styled as a total, never bold, and never the thing a tap a
 | `Field` | Top-aligned visible label, always. Placeholder is never the label — it disappears on the first keystroke ([form UX](https://www.designstudiouiux.com/blog/form-ux-design-best-practices/)). Optional fields are marked "optional"; required fields are not asterisked, because at level 1 everything is required and nothing is |
 | `Disclosure` | The U-2 level-2 container (M-6). Labelled "More" on first use, then the section name once opened; **remembers per form** (U-2) |
 | `EntityPicker` | Vehicle / driver / customer. Pre-filled by U-3, opens a searchable sheet, recent-first, with "Add new" at the bottom |
-| `DateField` | M-17. Today / Yesterday chips + native picker. Shows the weekday, because "Tue 30 Jul" is checkable and "30/07" is not |
+| `DateField` | M-17. One native picker with a weekday display, because "Tue 30 Jul" is checkable and "30/07" is not |
 | `ReasonPicker` | Single-select list in a sheet. Used by lost-day reasons, adjustment reasons, write-off reasons |
 | `PhotoCapture` | M-18, plus the pipeline below — a condition set is six photos and the naive version stalls on 4G |
 **`PhotoCapture`** — named slots for condition sets (front, back, left, right, interior, existing marks); a free grid for receipts and odometer photos.
@@ -552,6 +552,7 @@ The failure that matters is not a slow upload — it is a manager who taps Save,
 | `StatTile` | Label, value (hero or title), optional delta with arrow **and** sign **and** word, optional sparkline. §11. *Sparkline:* single 1.5px `--color-ink-muted` stroke, last 30 points, no axes, no dots, no fill, no interaction — it is a shape, not a chart. Below 6 points it renders nothing rather than a misleading near-straight line (M-13). Tapping the tile opens the full report; the sparkline itself is `aria-hidden` |
 | `NotAvailable` | M-13. Renders the em-dash with a caption saying *why* — "no closing odometer" — and an info affordance. Never zero. **Means the number does not exist** — never means "the read failed"; those are different facts and stay visually distinct (§11.4) |
 | `QueryState` | M-28. Wraps one read (or, via `combineQueryStates`, several) in four states — `idle`, `pending`, `error`, `ready` — never three. **`idle` (a disabled query, `enabled: false`) is not `pending`**: a query that was never asked must not render a spinner, or it spins forever. `error` renders `EmptyState`'s sibling — icon, a status-mapped sentence built from the failed request's own `ApiError.status` (never a raw error string, never a status number, and inside the §9.6 vocabulary lock), and **Try again** wired to `refetch`. Combining several reads resolves `error` over `pending` over `idle`, because a screen with one failed read has already failed regardless of what else is still in flight |
+| `Toast` / `ToastViewport` | M-11. A 5-second, dismissible status surface hosted by `AppShell` above the tab bar, with optional action. `ToastProvider` is app-wide. Undo is only wired where the write qualifies under M-11; money writes, sent messages and settled obligations use recorded correction flows instead |
 | `Provisional` | The striped-edge treatment for estimated figures: an apportioned mileage split (UC-14), a pending insurance recovery (W-11), an unsynced write (M-12). One visual language for "this number is not final" |
 | `AlertStrip` | Home items 1–2, and inline warnings (M-9). Icon + text + one action |
 | `SyncChip` | "Not yet saved" on the record itself, not in a global banner |

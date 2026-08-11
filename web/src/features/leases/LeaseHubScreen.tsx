@@ -17,6 +17,7 @@ import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import {
+  OBLIGATION_KIND_LABEL,
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
@@ -37,12 +38,6 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   closing: "Closing",
   closed: "Closed",
-};
-
-const DUE_KIND_LABEL: Record<string, string> = {
-  rent: "Rent",
-  mileage_excess: "Mileage excess",
-  post_closure_charge: "Late charge",
 };
 
 function formatShortDate(date: string): string {
@@ -254,7 +249,7 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
                   <Card className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-body text-ink-primary">
-                        {DUE_KIND_LABEL[due.kind] ?? due.kind}
+                        {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
                       </p>
                       <p className="text-caption text-ink-muted">
                         {formatShortDate(due.dueOn)} ·{" "}

@@ -72,3 +72,20 @@ test('onBack renders a back button before the title and fires on click (§7.5/§
   await user.click(backButton);
   expect(onBack).toHaveBeenCalledOnce();
 });
+
+test("GAP-47: below-md landscape compacts the app bar and scroll padding", () => {
+  const { container } = render(
+    <Screen title="Log a fuel fill" primaryAction={{ label: "Save", onClick: vi.fn() }}>
+      <p>Amount</p>
+    </Screen>,
+  );
+
+  expect(container.querySelector("header")).toHaveClass("max-md:landscape:h-11");
+  expect(screen.getByRole("heading", { name: "Log a fuel fill" })).toHaveClass(
+    "max-md:landscape:text-title",
+  );
+  expect(container.querySelector(".overflow-y-auto")).toHaveClass("max-md:landscape:p-3");
+  expect(container.querySelector(".overflow-y-auto")).toHaveClass(
+    "max-md:landscape:scroll-pb-[76px]",
+  );
+});

@@ -33,7 +33,12 @@ const customer: CustomerResponse = {
   mobile: null,
   address: null,
 };
-const member: BusinessMemberResponse = { userId: "u1", displayName: "Nimal", role: "owner" };
+const member: BusinessMemberResponse = {
+  id: "bm1",
+  userId: "u1",
+  displayName: "Nimal",
+  role: "owner",
+};
 const vehicle: VehicleResponse = {
   id: "v1",
   registration: "CAB-1234",

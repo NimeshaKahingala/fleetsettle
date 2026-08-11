@@ -59,6 +59,7 @@ export function PayDriverSheet({ open, onOpenChange, driverId, today }: PayDrive
       } satisfies PayDriverWireRequest),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "balances"] });
+      void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "view"] });
       reset({ occurredOn: today });
       onOpenChange(false);
     },

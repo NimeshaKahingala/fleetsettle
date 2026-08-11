@@ -103,3 +103,17 @@ test("Offset is the only action, and is explicit", async () => {
   await user.click(screen.getByRole("button", { name: "Offset…" }));
   expect(onOffset).toHaveBeenCalledOnce();
 });
+
+test("omitting Offset keeps read-only shells free of write affordances", () => {
+  render(
+    <TwoBalances
+      driverName="Sunil Perera"
+      owedToYouMinor={parse("800000")}
+      owedToYouDetail="—"
+      owedByYouMinor={parse("1200000")}
+      owedByYouDetail="—"
+    />,
+  );
+
+  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+});

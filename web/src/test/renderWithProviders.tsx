@@ -1,6 +1,7 @@
 import type { MeResponse } from "@fleetsettle/shared/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
+import { ToastProvider } from "../design/primitives/Toast.js";
 import type { ApiClient } from "../lib/api.js";
 import { ApiProvider } from "../lib/ApiContext.js";
 import { AuthActionsProvider } from "../lib/AuthActionsContext.js";
@@ -31,7 +32,7 @@ export function renderWithProviders(
     <QueryClientProvider client={queryClient}>
       <ApiProvider client={api as ApiClient}>
         <AuthActionsProvider queryClient={queryClient} rawSignOut={signOut}>
-          {ui}
+          <ToastProvider>{ui}</ToastProvider>
         </AuthActionsProvider>
       </ApiProvider>
     </QueryClientProvider>,

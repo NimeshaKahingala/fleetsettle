@@ -1,5 +1,9 @@
 import { asBusinessDate } from "@fleetsettle/shared";
-import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  BusinessMemberResponse,
+  ExpenseResponse,
+  VehicleResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -32,6 +36,10 @@ const created: ExpenseResponse = {
   litres: null,
   note: null,
 };
+
+const members: BusinessMemberResponse[] = [
+  { id: "bm2", userId: "u2", displayName: "Nimal", role: "owner_manager" },
+];
 
 async function fillAmount(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Enter amount" }));
@@ -126,6 +134,7 @@ test("GAP-101: a failed vehicle-list read shows a notice, and amount/category st
 test("overriding borne-by to Us reaches the request", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
   renderWithProviders(
     <RecordExpenseSheet
       open
@@ -134,7 +143,7 @@ test("overriding borne-by to Us reaches the request", async () => {
       today={today}
       onRecorded={vi.fn()}
     />,
-    { post },
+    { post, get },
   );
 
   await fillAmount(user);
@@ -151,9 +160,42 @@ test("overriding borne-by to Us reaches the request", async () => {
   );
 });
 
+test("GAP-31: overriding paid-by to another member reaches the request", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ ...created, paidByUserId: "u2" });
+  const get = vi.fn().mockResolvedValue(members);
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+    />,
+    { post, get },
+  );
+
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Fuel" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(screen.getByRole("button", { name: "Paid by: You" }));
+  await user.click(await screen.findByRole("button", { name: /Nimal/ }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ paidByUserId: "u2" }),
+    ),
+  );
+});
+
 test("a photo captured before Save uploads after the expense exists, tagged with its own id (UI §6.3: the record saves first)", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
   const postBinary = vi.fn().mockResolvedValue({ id: "att-1" });
   renderWithProviders(
     <RecordExpenseSheet
@@ -163,7 +205,7 @@ test("a photo captured before Save uploads after the expense exists, tagged with
       today={today}
       onRecorded={vi.fn()}
     />,
-    { post, postBinary },
+    { post, get, postBinary },
   );
 
   await user.click(screen.getByRole("button", { name: "More" }));

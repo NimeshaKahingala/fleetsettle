@@ -12,7 +12,7 @@ export interface TwoBalancesProps {
   /** "You owe him" — e.g. an unpaid trip fee. */
   owedByYouMinor: Minor;
   owedByYouDetail: string;
-  onOffset: () => void;
+  onOffset?: (() => void) | undefined;
 }
 
 /**
@@ -20,8 +20,10 @@ export interface TwoBalancesProps {
  * signed net balance** (W-2) — the net line is always a sentence
  * ("you owe him", "he owes you", "settled") plus an unsigned `Money`,
  * muted, never bold, and never the thing a tap acts on. `Offset…` is the
- * only action, and it is explicit: it writes one recorded action with a
- * date and a note, never an implicit netting of the two balances.
+ * only action when the caller supplies one, and it is explicit: it writes
+ * one recorded action with a date and a note, never an implicit netting of
+ * the two balances. Mine omits it because the driver's own shell is
+ * read-only by design.
  */
 export function TwoBalances({
   driverName,
@@ -66,9 +68,11 @@ export function TwoBalances({
         ) : null}
       </div>
 
-      <Button size="cta" variant="outline" onClick={onOffset}>
-        Offset…
-      </Button>
+      {onOffset !== undefined ? (
+        <Button size="cta" variant="outline" onClick={onOffset}>
+          Offset…
+        </Button>
+      ) : null}
     </Card>
   );
 }

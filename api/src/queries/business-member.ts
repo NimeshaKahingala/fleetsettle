@@ -6,6 +6,7 @@ type ReadDb = Reader | Writer | Tx;
 type WriteDb = Writer | Tx;
 
 export interface BusinessMemberRow {
+  id: string;
   userId: string;
   displayName: string | null;
   role: string;
@@ -18,6 +19,7 @@ export async function listBusinessMembersForBusiness(
 ): Promise<BusinessMemberRow[]> {
   return db
     .select({
+      id: businessMember.id,
       userId: businessMember.userId,
       displayName: appUser.displayName,
       role: businessMember.role,

@@ -12,5 +12,11 @@ export const OBLIGATION_STATUS_LABEL: Record<string, string> = {
   written_off: "Written off",
 };
 
+export const OBLIGATION_KIND_LABEL: Record<string, string> = {
+  rent: "Rent",
+  mileage_excess: "Mileage excess",
+  post_closure_charge: "Late charge",
+};
+
 /** Tappable only while genuinely outstanding — the same rule every obligation list in this client uses. */
 export const OPEN_OBLIGATION_STATUSES = new Set(["pending", "part_paid"]);

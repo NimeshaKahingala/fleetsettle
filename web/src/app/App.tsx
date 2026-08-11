@@ -4,6 +4,7 @@ import { RouterProvider, type AnyRouter } from "@tanstack/react-router";
 import type { ApiClient } from "../lib/api.js";
 import { ApiProvider } from "../lib/ApiContext.js";
 import { AuthActionsProvider } from "../lib/AuthActionsContext.js";
+import { ToastProvider } from "../design/primitives/Toast.js";
 
 export interface AppProps {
   router: AnyRouter;
@@ -27,7 +28,9 @@ export function App({ router, queryClient, apiClient, signOut }: AppProps) {
     <QueryClientProvider client={queryClient}>
       <ApiProvider client={apiClient}>
         <AuthActionsProvider queryClient={queryClient} rawSignOut={signOut}>
-          <RouterProvider router={router} />
+          <ToastProvider>
+            <RouterProvider router={router} />
+          </ToastProvider>
         </AuthActionsProvider>
       </ApiProvider>
     </QueryClientProvider>
