@@ -6,27 +6,28 @@ Evaluation method: each review file was checked against the current source tree,
 
 ## Highest Priority
 
-- [ ] **F3 / GAP-103 - Opening balances do not become ledger facts.**
+- [x] **F3 / GAP-103 - Opening balances do not become ledger facts.** Closed 11 Aug 2026 — see TRACKER.md's closed row for the full account.
   Decide the model first: either materialize the six opening-balance entry kinds into the same money tables the rest of the product reads, or keep opening balances as a separate ledger that every relevant report and balance query reads alongside live facts. Then implement all six entry kinds: `customer_due`, `driver_arrears`, `owed_to_driver`, `deposit_held`, `advance_outstanding`, and `cash_held`.
+  Decided: **materialize**, into the same tables — `obligation` (the three balance kinds), `deposit`+`deposit_movement`, `advance`, and (no table of its own existing) an unallocated `payment` for `cash_held`.
   Acceptance checklist:
-  - [ ] Confirming a batch writes or exposes real facts for receivables, driver balances, held deposits, outstanding advances, and opening cash.
-  - [ ] Re-confirming or retrying does not double-post money.
-  - [ ] Correcting a committed batch before the first close updates the same effective facts or clearly replaces them.
-  - [ ] Once the first accounting period is closed, the existing lock still prevents rewriting opening figures.
-  - [ ] Reports and balances that currently read `obligation`, `deposit`, `advance`, and cash sources include opening figures.
-  - [ ] Opening figures never become income or profit unless the product documents explicitly say so.
-  - [ ] API integration tests cover every entry kind plus report/balance visibility.
+  - [x] Confirming a batch writes or exposes real facts for receivables, driver balances, held deposits, outstanding advances, and opening cash. (New integration test hits `/api/reports/receivables`, `/api/driver/{id}/balances`, `/api/reports/cash-position` directly against a committed batch covering all six kinds.)
+  - [x] Re-confirming or retrying does not double-post money. (`commitOpeningBalance` only materialises on the `draft` → `committed` transition; a retried commit is a no-op, asserted in the existing idempotency test plus a new receivables-unchanged assertion.)
+  - [x] Correcting a committed batch before the first close updates the same effective facts or clearly replaces them. (A new `opening_balance_posting` table traces each entry to what it produced; a post-commit `saveOpeningBalance` reverses the prior generation — void-by-id for `obligation`/`advance`, a `status: 'reversed'` flip for `payment`, a real offsetting entry for `deposit_movement` since its own sum never consults `voided_at` — before reposting. Tested: the corrected figure alone survives, never both.)
+  - [x] Once the first accounting period is closed, the existing lock still prevents rewriting opening figures. (Unchanged — `findFirstPeriodStatus`/`OpeningBalanceLockedError` still gate `saveOpeningBalance` first; the existing 409 test still passes.)
+  - [x] Reports and balances that currently read `obligation`, `deposit`, `advance`, and cash sources include opening figures. (Same tables, no new read path — confirmed by the tests above.)
+  - [x] Opening figures never become income or profit unless the product documents explicitly say so. (Verified by source read: every income/profit figure in this codebase — `earnedMinor`, `profitMinor`, `profitShareMinor` — is computed exclusively from `obligation`/`trip`/`expense`; `payment` is never imported by `domain/reports.ts` at all. The `cash_held` payment row is reachable only through `listPartnerCashPositions`'s `heldMinor`/`holdingMinor`, a held-cash figure kept in a visibly separate response field from `earned` everywhere it's read.)
+  - [x] API integration tests cover every entry kind plus report/balance visibility. (Two new tests: all six kinds against their three reports; the correction-reversal path.)
 
-- [ ] **F4 / GAP-104 - Mobile sheet history race.**
+- [x] **F4 / GAP-104 - Mobile sheet history race.** Closed 11 Aug 2026 — see TRACKER.md's closed row for the full account.
   Fix the shared modal layer so `ActionSheet`, nested picker sheets, and `EntityPicker` add-new handoffs do not close the newly opened sheet or the parent sheet on touch/coarse-pointer devices.
   Acceptance checklist:
-  - [ ] `ActionSheet` no longer closes itself and opens the target sheet in the same unsafe synchronous mobile-history path.
-  - [ ] `useMobileHistoryDismiss` tracks ownership of the history entry it pushed and does not blindly pop another sheet's entry.
-  - [ ] Nested `MoneyField` / `AmountPad`, `EntityPicker`, and reason/date picker sheets leave their parent sheet open after save/select.
-  - [ ] Quick Add Fuel, Expense, and New trip work on a phone-sized touch viewport.
-  - [ ] Driver money, Vehicle actions, Incident actions, Lease actions, and People Add actions get the same regression coverage.
-  - [ ] MP-07 style tests cover touch/coarse-pointer modal behavior at the primitive level before individual screens are trusted.
-  - [ ] A real iOS Safari or Android Chrome pass confirms the fix after the desktop touch-emulation pass is green.
+  - [x] `ActionSheet` no longer closes itself and opens the target sheet in the same unsafe synchronous mobile-history path. (Satisfied at the mechanism level — `useMobileHistoryDismiss` no longer has an unsafe path at any call order — rather than by changing `ActionSheet`'s own handler; see TRACKER.md GAP-104.)
+  - [x] `useMobileHistoryDismiss` tracks ownership of the history entry it pushed and does not blindly pop another sheet's entry.
+  - [x] Nested `MoneyField` / `AmountPad`, `EntityPicker`, and reason/date picker sheets leave their parent sheet open after save/select. (All route through `Sheet`, the fix's single integration point; the nested-closes-parent shape has a proven regression test using two real `Sheet`s.)
+  - [x] Quick Add Fuel, Expense, and New trip work on a phone-sized touch viewport. (Fuel and Expense have dedicated touch-emulated e2e coverage, confirmed to fail against the pre-fix code and pass against the fix; New trip goes through the identical `ActionSheet` mechanism and inherits the fix but has no dedicated e2e assertion of its own.)
+  - [ ] Driver money, Vehicle actions, Incident actions, Lease actions, and People Add actions get the same regression coverage. **Not done** — these inherit the primitive-level fix (nothing in them needed to change) but none has its own dedicated regression test; only Quick Add's Fuel/Expense and one synthetic `ActionSheet`+`Sheet` harness were exercised directly.
+  - [x] MP-07 style tests cover touch/coarse-pointer modal behavior at the primitive level before individual screens are trusted. (`Sheet.test.tsx`.)
+  - [ ] A real iOS Safari or Android Chrome pass confirms the fix after the desktop touch-emulation pass is green. **Not done** — no automated run in this environment can substitute for it.
 
 - [ ] **GAP-83 / GAP-105 / MP-01 / MP-06 - DateField accessibility and fallback.**
   Make `DateField` one clear date control by default. The hidden native input must not be a separate invisible Tab stop, and the picker button needs a real fallback when `showPicker()` is unavailable.

@@ -38,6 +38,7 @@ import {
   offsetRecord,
   openingBalanceBatch,
   openingBalanceEntry,
+  openingBalancePosting,
   ownershipShare,
   partnerPayout,
   payment,
@@ -1069,9 +1070,63 @@ export class TestContext {
     });
   }
 
-  /** F-0.2: `PUT /api/opening-balance` writes `opening_balance_batch` and its entries (domain/opening-balance.ts) — this is that write's teardown. */
+  /**
+   * F-0.2: `PUT /api/opening-balance` writes `opening_balance_batch` and its
+   * entries (domain/opening-balance.ts); a commit additionally materialises
+   * into `obligation`/`deposit`+`deposit_movement`/`advance`/`payment`
+   * (GAP-103), traced by `opening_balance_posting`. Swept by batch id
+   * through that table rather than tracked per-row, since a post-commit
+   * correction can leave more than one generation of postings behind (a
+   * reversed one is kept, by design, for the reason `voidObligationById`
+   * and its siblings keep every other void). `deposit_movement` is swept
+   * by `depositId`, not by each posting's own `targetId` — a correction's
+   * offsetting "refunded" entry shares the same `deposit`, but is never
+   * itself a tracked posting, only the movement it corrects is.
+   */
   trackCreatedOpeningBalance(batchId: string): void {
     this.track(async () => {
+      const postings = await this.#db
+        .select({
+          targetTable: openingBalancePosting.targetTable,
+          targetId: openingBalancePosting.targetId,
+          depositId: openingBalancePosting.depositId,
+        })
+        .from(openingBalancePosting)
+        .where(eq(openingBalancePosting.batchId, batchId));
+
+      const idsFor = (table: string) =>
+        postings.filter((p) => p.targetTable === table).map((p) => p.targetId);
+      const obligationIds = idsFor("obligation");
+      const advanceIds = idsFor("advance");
+      const paymentIds = idsFor("payment");
+      const depositIds = [
+        ...new Set(postings.filter((p) => p.depositId !== null).map((p) => p.depositId as string)),
+      ];
+
+      if (obligationIds.length > 0) {
+        await this.#db
+          .delete(paymentAllocation)
+          .where(inArray(paymentAllocation.obligationId, obligationIds));
+        await this.#db.delete(obligation).where(inArray(obligation.id, obligationIds));
+      }
+      if (advanceIds.length > 0) {
+        await this.#db
+          .delete(advanceSettlement)
+          .where(inArray(advanceSettlement.advanceId, advanceIds));
+        await this.#db.delete(advance).where(inArray(advance.id, advanceIds));
+      }
+      if (paymentIds.length > 0)
+        await this.#db.delete(payment).where(inArray(payment.id, paymentIds));
+      if (depositIds.length > 0) {
+        await this.#db
+          .delete(depositMovement)
+          .where(inArray(depositMovement.depositId, depositIds));
+        await this.#db.delete(deposit).where(inArray(deposit.id, depositIds));
+      }
+
+      await this.#db
+        .delete(openingBalancePosting)
+        .where(eq(openingBalancePosting.batchId, batchId));
       await this.#db.delete(openingBalanceEntry).where(eq(openingBalanceEntry.batchId, batchId));
       await this.#db.delete(openingBalanceBatch).where(eq(openingBalanceBatch.id, batchId));
     });

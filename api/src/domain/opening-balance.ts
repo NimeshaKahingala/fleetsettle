@@ -1,16 +1,42 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
-import { findFirstPeriodStatus } from "../queries/accounting-period.js";
-import { NotFoundError, OpeningBalanceLockedError } from "../errors/app-error.js";
+import type { Tx, Writer } from "../db/client.js";
+import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { findFirstPeriodStatus, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import {
+  findDepositMovementAmount,
+  insertAdvances,
+  insertDepositMovement,
+  insertDepositMovements,
+  insertDeposits,
+  voidAdvanceById,
+  type NewAdvance,
+  type NewDeposit,
+  type NewDepositMovement,
+} from "../queries/driver-money.js";
+import {
+  insertObligations,
+  voidObligationById,
+  type NewObligation,
+} from "../queries/obligation.js";
+import { insertPayments, markPaymentReversed, type NewPayment } from "../queries/payment.js";
+import {
+  NotFoundError,
+  OpeningBalanceLockedError,
+  PeriodClosedError,
+} from "../errors/app-error.js";
 import {
   deleteEntriesForBatch,
+  findActivePostingsForBatch,
   findBatchForBusiness,
   findEntriesForBatch,
   insertBatch,
   insertEntries,
+  insertPostings,
   markBatchCommitted,
+  markPostingsReversed,
   updateBatchGoLiveDate,
   type NewOpeningBalanceEntry,
+  type NewOpeningBalancePosting,
   type OpeningBalanceEntryRow,
 } from "../queries/opening-balance.js";
 
@@ -34,6 +60,7 @@ export interface SaveOpeningBalanceInput {
   businessId: string;
   goLiveDate: BusinessDate;
   entries: OpeningBalanceEntryInput[];
+  actorUserId: string;
 }
 
 export interface SavedOpeningBalance {
@@ -42,6 +69,252 @@ export interface SavedOpeningBalance {
   status: "draft" | "committed";
   committedAt: string | null;
   entries: OpeningBalanceEntryRow[];
+}
+
+/**
+ * GAP-103: the write half `commitOpeningBalance` never had. One entry
+ * becomes one row in whichever real table its report already reads —
+ * `obligation` for the three balance kinds that already are a receivable
+ * or payable, `deposit`/`deposit_movement` for `deposit_held`, `advance`
+ * for `advance_outstanding`, and a `payment` for `cash_held` (queries/
+ * reports.ts's `listPartnerCashPositions` already derives a partner's
+ * held cash as `received − banked − advanced`; an opening float is just a
+ * starting `received` with no allocation, the same shape a real surplus
+ * payment already leaves). `opening_balance_posting` (migration 0014)
+ * records which row each entry produced, so a correction (below) can find
+ * and reverse exactly those rows without touching anything else.
+ *
+ * One `resolvePeriodLinkage` call for the whole batch, not one per entry —
+ * every entry belongs to the same go-live date, so they all post to the
+ * same period. `goLiveDate`, not each entry's own `originalDueDate`,
+ * decides which period receives the posting (W-35): a due date the
+ * business remembers from before it existed cannot itself have an
+ * `accounting_period` row, only the period open when the business actually
+ * started using this ledger can.
+ */
+async function materializeOpeningBalanceEntries(
+  tx: Tx,
+  businessId: string,
+  batchId: string,
+  entries: OpeningBalanceEntryRow[],
+  goLiveDate: string,
+): Promise<void> {
+  if (entries.length === 0) return;
+
+  const linkage = await resolvePeriodLinkage(tx, businessId, goLiveDate);
+  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+  const periodFields = {
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+  };
+
+  const obligationRows: NewObligation[] = [];
+  const advanceRows: NewAdvance[] = [];
+  const paymentRows: NewPayment[] = [];
+  const depositRows: NewDeposit[] = [];
+  const depositMovementRows: NewDepositMovement[] = [];
+  const postings: NewOpeningBalancePosting[] = [];
+
+  for (const entry of entries) {
+    const dueOn = entry.originalDueDate ?? goLiveDate;
+    const vehicleField = entry.vehicleId !== null ? { vehicleId: entry.vehicleId } : {};
+
+    switch (entry.kind) {
+      case "customer_due":
+      case "driver_arrears":
+      case "owed_to_driver": {
+        const id = newId();
+        const isCustomer = entry.kind === "customer_due";
+        let partyField: { partyCustomerId: string } | { partyDriverId: string };
+        if (isCustomer) {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the wire schema's discriminated union guarantees this party for this kind
+          partyField = { partyCustomerId: entry.partyCustomerId! };
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the wire schema's discriminated union guarantees this party for this kind
+          partyField = { partyDriverId: entry.partyDriverId! };
+        }
+        obligationRows.push({
+          id,
+          businessId,
+          direction: entry.kind === "owed_to_driver" ? "owed_by_us" : "owed_to_us",
+          partyType: isCustomer ? "customer" : "driver",
+          ...partyField,
+          kind: "opening_balance",
+          sourceType: "opening_balance_entry",
+          sourceId: entry.id,
+          ...vehicleField,
+          amountMinor: entry.amountMinor,
+          settledMinor: 0n,
+          waivedMinor: 0n,
+          dueOn,
+          effectiveDueOn: dueOn,
+          status: "pending",
+          ...periodFields,
+        });
+        postings.push({
+          id: newId(),
+          businessId,
+          batchId,
+          entryKind: entry.kind,
+          targetTable: "obligation",
+          targetId: id,
+        });
+        break;
+      }
+      case "deposit_held": {
+        const depositId = newId();
+        const movementId = newId();
+        depositRows.push({
+          id: depositId,
+          businessId,
+          partyType: "driver",
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the wire schema's discriminated union guarantees this party for this kind
+          partyDriverId: entry.partyDriverId!,
+        });
+        depositMovementRows.push({
+          id: movementId,
+          businessId,
+          depositId,
+          movementType: "taken",
+          amountMinor: entry.amountMinor,
+          occurredOn: dueOn,
+          reason: "Opening balance",
+          ...periodFields,
+        });
+        postings.push({
+          id: newId(),
+          businessId,
+          batchId,
+          entryKind: entry.kind,
+          targetTable: "deposit_movement",
+          targetId: movementId,
+          depositId,
+        });
+        break;
+      }
+      case "advance_outstanding": {
+        const id = newId();
+        advanceRows.push({
+          id,
+          businessId,
+          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the wire schema's discriminated union guarantees this party for this kind
+          driverId: entry.partyDriverId!,
+          amountMinor: entry.amountMinor,
+          issuedOn: dueOn,
+          ...periodFields,
+        });
+        postings.push({
+          id: newId(),
+          businessId,
+          batchId,
+          entryKind: entry.kind,
+          targetTable: "advance",
+          targetId: id,
+        });
+        break;
+      }
+      case "cash_held": {
+        const id = newId();
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- the wire schema's discriminated union guarantees this party for this kind
+        const partyUserId = entry.partyUserId!;
+        paymentRows.push({
+          id,
+          businessId,
+          direction: "received",
+          partyType: "partner",
+          partyUserId,
+          amountMinor: entry.amountMinor,
+          occurredOn: dueOn,
+          handledByUserId: partyUserId,
+          reference: "Opening balance",
+          ...periodFields,
+        });
+        postings.push({
+          id: newId(),
+          businessId,
+          batchId,
+          entryKind: entry.kind,
+          targetTable: "payment",
+          targetId: id,
+        });
+        break;
+      }
+    }
+  }
+
+  await insertObligations(tx, obligationRows);
+  await insertDeposits(tx, depositRows);
+  await insertDepositMovements(tx, depositMovementRows);
+  await insertAdvances(tx, advanceRows);
+  await insertPayments(tx, paymentRows);
+  await insertPostings(tx, postings);
+}
+
+/**
+ * F-0.2's own Alternates clause, the write side: a correction made after
+ * commit (still before the first period closes — the caller already
+ * enforces that) cannot leave the previous commit's rows standing, or a
+ * fixed typo would double the figure everywhere it was materialised.
+ * `obligation`/`advance` reverse the way every other correction in this
+ * codebase does — void by id, respected by every sum that reads them
+ * (`sumOutstandingByDirectionForDriver`, `listPartnerCashPositions`'s own
+ * `advance` half). `payment` reverses by flipping `status`, which
+ * `listPartnerCashPositions` already filters on — never routed through
+ * `payment_correction`, which unwinds real allocations this row never has.
+ * `deposit_movement` has no such filter anywhere (`sumDepositMovements`
+ * sums every row regardless of `voided_at`), so its only correct reversal
+ * is a real offsetting entry for the same amount, not a flag.
+ */
+async function reverseOpeningBalancePostings(
+  tx: Tx,
+  businessId: string,
+  batchId: string,
+  priorGoLiveDate: string,
+  actorUserId: string,
+): Promise<void> {
+  const postings = await findActivePostingsForBatch(tx, batchId);
+  if (postings.length === 0) return;
+
+  const voidValues = { voidedReason: "Opening balance corrected", voidedBy: actorUserId };
+  let depositLinkage: { postedPeriodId: string; belongsToPeriodId: string | null } | undefined;
+
+  for (const posting of postings) {
+    switch (posting.targetTable) {
+      case "obligation":
+        await voidObligationById(tx, posting.targetId, voidValues);
+        break;
+      case "advance":
+        await voidAdvanceById(tx, posting.targetId, voidValues);
+        break;
+      case "payment":
+        await markPaymentReversed(tx, posting.targetId);
+        break;
+      case "deposit_movement": {
+        const amount = await findDepositMovementAmount(tx, posting.targetId);
+        if (amount === undefined || posting.depositId === null) break;
+        depositLinkage ??= await resolvePeriodLinkage(tx, businessId, priorGoLiveDate);
+        if (!depositLinkage) {
+          throw new PeriodClosedError("No accounting period covers this business date yet");
+        }
+        await insertDepositMovement(tx, {
+          id: newId(),
+          businessId,
+          depositId: posting.depositId,
+          movementType: "refunded",
+          amountMinor: amount,
+          occurredOn: priorGoLiveDate,
+          reason: "Opening balance corrected",
+          postedPeriodId: depositLinkage.postedPeriodId,
+          ...(depositLinkage.belongsToPeriodId !== null
+            ? { belongsToPeriodId: depositLinkage.belongsToPeriodId }
+            : {}),
+        });
+        break;
+      }
+    }
+  }
+
+  await markPostingsReversed(tx, batchId);
 }
 
 /**
@@ -55,8 +328,11 @@ export interface SavedOpeningBalance {
  *
  * Status is untouched here — `commitOpeningBalance` below is the only thing
  * that flips it — so this same function also serves "correct it after
- * commit, before the first period closes" (the other Alternates clause): no
- * separate code path for a pre- vs. post-commit save.
+ * commit, before the first month closes" (the other Alternates clause): no
+ * separate code path for a pre- vs. post-commit save. When the batch was
+ * already committed, GAP-103's materialisation has to move with the
+ * entries — the prior commit's postings are reversed first, the new ones
+ * are posted after the replace, all inside this same transaction.
  *
  * P9/F-0.2's own Alternates clause: once the business's first accounting
  * period has closed, this endpoint refuses — the opening figures become an
@@ -75,38 +351,45 @@ export async function saveOpeningBalance(
 
     const existing = await findBatchForBusiness(tx, input.businessId);
     const batchId = existing?.id ?? newId();
+    const wasCommitted = existing !== undefined && existing.status === "committed";
 
-    if (existing) {
-      await updateBatchGoLiveDate(tx, batchId, input.goLiveDate);
-    } else {
-      await insertBatch(tx, {
-        id: batchId,
-        businessId: input.businessId,
-        goLiveDate: input.goLiveDate,
-      });
-    }
+    try {
+      if (existing !== undefined && wasCommitted) {
+        await reverseOpeningBalancePostings(
+          tx,
+          input.businessId,
+          batchId,
+          existing.goLiveDate,
+          input.actorUserId,
+        );
+      }
 
-    await deleteEntriesForBatch(tx, batchId);
+      if (existing) {
+        await updateBatchGoLiveDate(tx, batchId, input.goLiveDate);
+      } else {
+        await insertBatch(tx, {
+          id: batchId,
+          businessId: input.businessId,
+          goLiveDate: input.goLiveDate,
+        });
+      }
 
-    const rows: NewOpeningBalanceEntry[] = input.entries.map((entry) => ({
-      id: newId(),
-      batchId,
-      kind: entry.kind,
-      ...(entry.partyCustomerId !== undefined ? { partyCustomerId: entry.partyCustomerId } : {}),
-      ...(entry.partyDriverId !== undefined ? { partyDriverId: entry.partyDriverId } : {}),
-      ...(entry.partyUserId !== undefined ? { partyUserId: entry.partyUserId } : {}),
-      ...(entry.vehicleId !== undefined ? { vehicleId: entry.vehicleId } : {}),
-      amountMinor: entry.amountMinor,
-      ...(entry.originalDueDate !== undefined ? { originalDueDate: entry.originalDueDate } : {}),
-    }));
-    await insertEntries(tx, rows);
+      await deleteEntriesForBatch(tx, batchId);
 
-    return {
-      batchId,
-      goLiveDate: input.goLiveDate,
-      status: existing?.status ?? "draft",
-      committedAt: existing?.committedAt ?? null,
-      entries: rows.map((row) => ({
+      const rows: NewOpeningBalanceEntry[] = input.entries.map((entry) => ({
+        id: newId(),
+        batchId,
+        kind: entry.kind,
+        ...(entry.partyCustomerId !== undefined ? { partyCustomerId: entry.partyCustomerId } : {}),
+        ...(entry.partyDriverId !== undefined ? { partyDriverId: entry.partyDriverId } : {}),
+        ...(entry.partyUserId !== undefined ? { partyUserId: entry.partyUserId } : {}),
+        ...(entry.vehicleId !== undefined ? { vehicleId: entry.vehicleId } : {}),
+        amountMinor: entry.amountMinor,
+        ...(entry.originalDueDate !== undefined ? { originalDueDate: entry.originalDueDate } : {}),
+      }));
+      await insertEntries(tx, rows);
+
+      const entries: OpeningBalanceEntryRow[] = rows.map((row) => ({
         id: row.id,
         kind: row.kind,
         partyCustomerId: row.partyCustomerId ?? null,
@@ -115,17 +398,39 @@ export async function saveOpeningBalance(
         vehicleId: row.vehicleId ?? null,
         amountMinor: row.amountMinor,
         originalDueDate: row.originalDueDate ?? null,
-      })),
-    };
+      }));
+
+      if (wasCommitted) {
+        await materializeOpeningBalanceEntries(
+          tx,
+          input.businessId,
+          batchId,
+          entries,
+          input.goLiveDate,
+        );
+      }
+
+      return {
+        batchId,
+        goLiveDate: input.goLiveDate,
+        status: existing?.status ?? "draft",
+        committedAt: existing?.committedAt ?? null,
+        entries,
+      };
+    } catch (err) {
+      if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      throw err;
+    }
   });
 }
 
 /**
  * F-0.2's "Confirm" step. 404 if nothing was ever saved — there is nothing
  * to confirm yet. Idempotent: committing an already-committed batch just
- * succeeds without re-stamping `committedAt`, since a client retry of
- * "Confirm" (a flaky connection, a double tap) must be a no-op, never a
- * failure (CLAUDE.md → Writes).
+ * succeeds without re-stamping `committedAt` or re-materialising a second
+ * time, since a client retry of "Confirm" (a flaky connection, a double
+ * tap) must be a no-op, never a failure (CLAUDE.md → Writes) and never a
+ * doubled opening balance.
  */
 export async function commitOpeningBalance(
   writer: Writer,
@@ -134,11 +439,27 @@ export async function commitOpeningBalance(
   return await writer.transaction(async (tx) => {
     const existing = await findBatchForBusiness(tx, businessId);
     if (!existing) throw new NotFoundError("No opening balance batch has been saved yet");
-    if (existing.status === "draft") await markBatchCommitted(tx, existing.id);
+
+    const entries = await findEntriesForBatch(tx, existing.id);
+
+    if (existing.status === "draft") {
+      try {
+        await markBatchCommitted(tx, existing.id);
+        await materializeOpeningBalanceEntries(
+          tx,
+          businessId,
+          existing.id,
+          entries,
+          existing.goLiveDate,
+        );
+      } catch (err) {
+        if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+        throw err;
+      }
+    }
 
     const committed =
       existing.status === "committed" ? existing : await findBatchForBusiness(tx, businessId);
-    const entries = await findEntriesForBatch(tx, existing.id);
     return {
       batchId: existing.id,
       goLiveDate: existing.goLiveDate,
