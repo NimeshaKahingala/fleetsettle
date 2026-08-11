@@ -10,6 +10,11 @@ test("defaults currency and timezone to the one real market this product serves,
   expect(screen.getByLabelText("Timezone")).toHaveValue("Asia/Colombo");
 });
 
+test("GAP-55: Business name carries an autocomplete token", () => {
+  renderWithProviders(<CreateBusinessForm onCreated={vi.fn()} />);
+  expect(screen.getByLabelText("Business name")).toHaveAttribute("autocomplete", "organization");
+});
+
 test("saves with the name field alone (level 1 only, U-2) — currency/timezone already default", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({

@@ -211,6 +211,7 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
                 ? `Close ${new Intl.DateTimeFormat("en-GB", { month: "long" }).format(new Date(`${period.periodStart}T00:00:00`))} permanently`
                 : "Close permanently"
             }
+            variant="destructive"
             onConfirm={() => closeMutation.mutate()}
             onCancel={() => setConfirmOpen(false)}
           />

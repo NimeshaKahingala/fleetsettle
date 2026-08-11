@@ -129,6 +129,23 @@ test("closing opens a Dialog whose confirm label states the consequence, never t
   expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
 });
 
+test("GAP-91: the irreversible close confirm carries destructive tone, not the ordinary primary button", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  renderWithProviders(
+    <CloseMonthScreen today={today} onBack={() => {}} />,
+    { get },
+    () => Promise.resolve(),
+    OWNER_MANAGER,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Close this month" }));
+
+  expect(await screen.findByRole("button", { name: "Close August permanently" })).toHaveClass(
+    "bg-critical",
+  );
+});
+
 test("confirming surfaces the newly opened successor period", async () => {
   const user = userEvent.setup();
   const get = baseGet();

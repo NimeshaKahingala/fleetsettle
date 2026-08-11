@@ -40,6 +40,11 @@ const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 interface CellStyle {
   wash: string;
   glyph: string;
+  /** GAP-46: the same wording `LegendRow` renders below, so the occupied
+   * cell announces its state to a screen reader the way colour plus glyph
+   * already does for a sighted user (CLAUDE.md → colour never carries
+   * meaning alone). */
+  label: string;
 }
 
 /**
@@ -56,11 +61,13 @@ interface CellStyle {
  * silently, per CLAUDE.md's own "say so and make the case."
  */
 function cellStyle(day: VehicleCalendarDay): CellStyle {
-  if (day.arrangement === "A") return { wash: "bg-brand-wash text-brand-ink", glyph: "L" };
+  if (day.arrangement === "A") {
+    return { wash: "bg-brand-wash text-brand-ink", glyph: "L", label: "On a lease" };
+  }
   if (day.arrangement === "C") {
     return day.isHold
-      ? { wash: "border border-serious text-serious-ink", glyph: "T?" }
-      : { wash: "bg-serious/15 text-serious-ink", glyph: "T" };
+      ? { wash: "border border-serious text-serious-ink", glyph: "T?", label: "Hold (tentative)" }
+      : { wash: "bg-serious/15 text-serious-ink", glyph: "T", label: "On a trip" };
   }
   // arrangement B — each of the four reachable states gets its own token
   // (UI-LF-07): "ran" and "not yet confirmed" used to share the brand
@@ -69,13 +76,17 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
     case "ran_paid_full":
     case "ran_paid_short":
     case "ran_unpaid":
-      return { wash: "bg-good/15 text-good-ink", glyph: "✓" };
+      return { wash: "bg-good/15 text-good-ink", glyph: "✓", label: "Daily lease, ran" };
     case "did_not_run":
-      return { wash: "bg-critical/15 text-critical-ink", glyph: "!" };
+      return { wash: "bg-critical/15 text-critical-ink", glyph: "!", label: "Daily lease, lost" };
     case "open":
     case "paused_for_trip":
     case null:
-      return { wash: "bg-warning/15 text-warning-ink", glyph: "B" };
+      return {
+        wash: "bg-warning/15 text-warning-ink",
+        glyph: "B",
+        label: "Daily lease, not yet confirmed",
+      };
   }
 }
 
@@ -216,6 +227,7 @@ export function VehicleCalendarScreen({
                   <div
                     key={cellDate}
                     data-testid={`day-${cellDate}`}
+                    {...(style !== null ? { "aria-label": `${cellDate} — ${style.label}` } : {})}
                     className={cn(
                       "flex aspect-square items-center justify-center rounded-sm text-body-sm",
                       style?.wash,

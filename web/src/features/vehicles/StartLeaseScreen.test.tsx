@@ -182,7 +182,7 @@ test("switching from Custom back to a named package uses the package's own rate,
 
   await user.click(await screen.findByRole("button", { name: "Custom" }));
   await user.type(screen.getByLabelText("Daily km limit"), "80");
-  await enterMoneyField(user, "9999", "Enter excess rate per km");
+  await enterMoneyField(user, "9999", "Enter excess fee per km");
 
   // Switch to the named package instead — its own rate must win, not the 9999 just typed.
   await user.click(screen.getByRole("button", { name: "Standard 100" }));

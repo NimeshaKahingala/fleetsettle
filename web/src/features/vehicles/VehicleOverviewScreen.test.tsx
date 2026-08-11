@@ -42,6 +42,7 @@ test("renders the vehicle's fields once loaded", async () => {
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -61,6 +62,7 @@ test("GAP-101: a failed vehicle read shows a failure notice, never an eternal sp
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -84,6 +86,7 @@ test("GAP-101: a failed paperwork read shows a failure notice rather than a sile
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -103,6 +106,7 @@ test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", 
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -145,6 +149,7 @@ test("Report incident, via the Vehicle actions menu, opens the sheet and onSelec
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get, post },
   );
@@ -185,6 +190,7 @@ test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled t
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get, post },
   );
@@ -222,6 +228,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -239,6 +246,7 @@ test("nothing recorded in any scoped read renders no Paperwork, Costs, Incidents
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -264,6 +272,7 @@ test("paperwork lists every document type with a date set", async () => {
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -320,6 +329,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -330,6 +340,10 @@ test("a voided expense stays in the costs list, struck through, with its reason 
   expect(voidedCategory).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong vehicle")).toBeInTheDocument();
+  // GAP-96: the scoped total beside the heading excludes the voided row —
+  // 5,000 (fuel) alone, not 17,000. Appears twice: the heading's own total
+  // and the one live row that contributes to it.
+  expect(screen.getAllByText("Rs 5,000")).toHaveLength(2);
 });
 
 test("history merges lease and daily-lease periods into one chronological list", async () => {
@@ -366,6 +380,7 @@ test("history merges lease and daily-lease periods into one chronological list",
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -413,6 +428,7 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
       onSelectLease={onSelectLease}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -464,6 +480,7 @@ test("Incidents lists every one with its own status, and each row is tappable (W
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -514,6 +531,7 @@ test.each([
         onSelectLease={() => {}}
         onSelectIncident={() => {}}
         onStartDailyLease={() => undefined}
+        onBookTrip={() => undefined}
       />,
       { get },
     );
@@ -537,6 +555,7 @@ test("Start a daily lease, via the Vehicle actions menu, calls onStartDailyLease
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={onStartDailyLease}
+      onBookTrip={() => undefined}
     />,
     { get: baseGet() },
   );
@@ -545,4 +564,46 @@ test("Start a daily lease, via the Vehicle actions menu, calls onStartDailyLease
   await user.click(await screen.findByRole("button", { name: "Start a daily lease" }));
 
   expect(onStartDailyLease).toHaveBeenCalledOnce();
+});
+
+test("GAP-97: Book trip, via the Vehicle actions menu, calls onBookTrip", async () => {
+  const user = userEvent.setup();
+  const onBookTrip = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={onBookTrip}
+    />,
+    { get: baseGet() },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Book trip" }));
+
+  expect(onBookTrip).toHaveBeenCalledOnce();
+});
+
+test("GAP-97: Book trip is absent for arrangement A, whose own start flow lives on the calendar", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/vehicle/v1": { ...baseVehicle, arrangement: "A" } });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  expect(screen.queryByRole("button", { name: "Book trip" })).not.toBeInTheDocument();
 });

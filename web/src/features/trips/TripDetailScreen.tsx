@@ -31,11 +31,12 @@ export interface TripDetailScreenProps {
   onBack: () => void;
 }
 
-function formatShortDate(date: string): string {
+function formatShortDate(date: string, options: { year?: boolean } = {}): string {
+  const { year = true } = options;
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
-    year: "numeric",
+    ...(year ? { year: "numeric" as const } : {}),
   }).format(new Date(`${date}T00:00:00`));
 }
 
@@ -109,6 +110,16 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
 
   const canAct = trip?.status === "booked";
 
+  // GAP-45: the title used to show a full year on both halves of the date
+  // range unconditionally, clipping mid-digit at 360px next to the cancel
+  // icon. §8.3 asks for the year only where the date would otherwise be
+  // ambiguous — a range crossing a year boundary, or one outside the
+  // business's current year.
+  const titleShowsYear =
+    trip !== undefined &&
+    (trip.startDate.slice(0, 4) !== trip.endDate.slice(0, 4) ||
+      trip.startDate.slice(0, 4) !== today.slice(0, 4));
+
   // GAP-57: `null` for a charter with no customer, a zero agreed amount, or
   // a cancelled trip (A6 voids the obligation on cancel). Actionable while
   // genuinely outstanding — the same rule a lease's own dues use.
@@ -136,7 +147,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     <Screen
       title={
         trip !== undefined
-          ? `${formatShortDate(trip.startDate)} – ${formatShortDate(trip.endDate)}`
+          ? `${formatShortDate(trip.startDate, { year: titleShowsYear })} – ${formatShortDate(trip.endDate, { year: titleShowsYear })}`
           : "Trip"
       }
       onBack={onBack}

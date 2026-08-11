@@ -37,6 +37,16 @@ test("defaults to person, and saves with just a name plus a mobile (W-55: a pers
   await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
 });
 
+test("GAP-55: Name, Mobile and Address carry autocomplete tokens", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(<CreateCustomerForm onCreated={() => {}} />);
+
+  expect(screen.getByLabelText("Name")).toHaveAttribute("autocomplete", "name");
+  await user.click(screen.getByRole("button", { name: "More" }));
+  expect(screen.getByLabelText(/^Mobile/)).toHaveAttribute("autocomplete", "tel");
+  expect(screen.getByLabelText(/^Address/)).toHaveAttribute("autocomplete", "street-address");
+});
+
 test("switching to organisation requires a registration number and reveals its field", async () => {
   const user = userEvent.setup();
   const post = vi.fn();

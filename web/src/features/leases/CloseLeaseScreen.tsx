@@ -388,7 +388,7 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
 
         {step === 2 ? (
           <div className="flex flex-col gap-4">
-            <NotAvailable reason="return condition photos need presigned upload storage, not yet built (W-30)" />
+            <NotAvailable reason="return condition photos aren't supported yet" />
           </div>
         ) : null}
 

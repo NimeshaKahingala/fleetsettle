@@ -88,6 +88,7 @@ export function CreateCustomerForm({ onCreated }: CreateCustomerFormProps) {
       <Field label="Name" htmlFor="name" error={errors.name?.message}>
         <Input
           id="name"
+          autoComplete="name"
           aria-invalid={errors.name !== undefined}
           aria-describedby={fieldErrorId("name")}
           {...register("name")}
@@ -110,10 +111,14 @@ export function CreateCustomerForm({ onCreated }: CreateCustomerFormProps) {
       >
         <div className="flex flex-col gap-4">
           <Field label="Mobile" htmlFor="mobile" optional error={errors.mobile?.message}>
-            <Input id="mobile" {...register("mobile", blankToUndefined)} />
+            <Input id="mobile" autoComplete="tel" {...register("mobile", blankToUndefined)} />
           </Field>
           <Field label="Address" htmlFor="address" optional>
-            <Input id="address" {...register("address", blankToUndefined)} />
+            <Input
+              id="address"
+              autoComplete="street-address"
+              {...register("address", blankToUndefined)}
+            />
           </Field>
           {customerType === "person" ? (
             <Field
@@ -126,7 +131,11 @@ export function CreateCustomerForm({ onCreated }: CreateCustomerFormProps) {
             </Field>
           ) : (
             <Field label="Contact person" htmlFor="contactPerson" optional>
-              <Input id="contactPerson" {...register("contactPerson", blankToUndefined)} />
+              <Input
+                id="contactPerson"
+                autoComplete="name"
+                {...register("contactPerson", blankToUndefined)}
+              />
             </Field>
           )}
         </div>

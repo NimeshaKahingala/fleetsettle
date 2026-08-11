@@ -426,7 +426,7 @@ export function StartLeaseScreen({
                   />
                 </Field>
                 <MoneyField
-                  label="Excess rate per km"
+                  label="Excess fee per km"
                   valueMinor={customRateMinor}
                   onChange={setCustomRateMinor}
                 />
@@ -483,7 +483,7 @@ export function StartLeaseScreen({
 
         {step === 5 ? (
           <div className="flex flex-col gap-4">
-            <NotAvailable reason="condition photos need presigned upload storage, not yet built (W-30)" />
+            <NotAvailable reason="condition photos aren't supported yet" />
           </div>
         ) : null}
 
