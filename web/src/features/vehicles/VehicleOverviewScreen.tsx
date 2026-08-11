@@ -1,4 +1,4 @@
-import { businessToday, format, parse } from "@fleetsettle/shared";
+import { add, businessToday, format, parse, ZERO } from "@fleetsettle/shared";
 import type {
   ExpenseListRow,
   IncidentResponse,
@@ -14,9 +14,11 @@ import {
   ChevronRight,
   MoreVertical,
   Receipt,
+  Route,
   TriangleAlert,
 } from "lucide-react";
 import { useState } from "react";
+import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
@@ -54,6 +56,8 @@ export interface VehicleOverviewScreenProps {
   onSelectIncident: (incidentId: string) => void;
   /** F-1.7 (B10) — offered only for a vehicle that could actually take one; see `vehicleActions` below. */
   onStartDailyLease: () => void;
+  /** GAP-97 — the mirror of B10's own finding: booking works from the calendar and Quick Add, but not from the one screen where a manager is already looking at this vehicle. Offered only for arrangement B or C, matching `canBookTrip` on the calendar and `bookTrip`'s own server-side gate. */
+  onBookTrip: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -114,6 +118,7 @@ export function VehicleOverviewScreen({
   onSelectLease,
   onSelectIncident,
   onStartDailyLease,
+  onBookTrip,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
   const today = businessToday();
@@ -155,6 +160,13 @@ export function VehicleOverviewScreen({
   const documents = documentsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
   const incidents = incidentsQuery.data ?? [];
+  // GAP-96: a manager voiding a cost row had nothing on this screen to
+  // check the effect against — the row-level void itself was already
+  // correct (GAP-81). Voided rows are excluded, the same rule
+  // `TripDetailScreen`'s "Costs so far" already uses.
+  const costsTotal = expenses
+    .filter((row) => row.voidedAt === null)
+    .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
   const historyEntries = buildHistoryEntries(
     leaseHistoryQuery.data ?? [],
     dailyLeaseHistoryQuery.data ?? [],
@@ -174,6 +186,9 @@ export function VehicleOverviewScreen({
   // for A and C, whose own start flows live on the calendar (F-2.1/F-5.1);
   // `VehicleCalendarScreen`'s `canStartLease`/`canBookTrip` gate the same way.
   const canStartDailyLease = vehicle?.arrangement === undefined || vehicle.arrangement === "B";
+  // GAP-97: the same gate `bookTrip` itself enforces server-side and
+  // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
+  const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
@@ -184,6 +199,16 @@ export function VehicleOverviewScreen({
             label: "Start a daily lease",
             icon: CalendarPlus,
             onSelect: onStartDailyLease,
+          },
+        ]
+      : []),
+    ...(canBookTrip
+      ? [
+          {
+            key: "book-trip",
+            label: "Book trip",
+            icon: Route,
+            onSelect: onBookTrip,
           },
         ]
       : []),
@@ -273,6 +298,7 @@ export function VehicleOverviewScreen({
             <Section
               title="Costs"
               count={expenses.length}
+              total={<Money value={costsTotal} />}
               items={expenses.map((expense) => (
                 <ExpenseCostRow
                   key={expense.id}

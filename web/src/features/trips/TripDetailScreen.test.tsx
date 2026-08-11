@@ -134,6 +134,27 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText("wrong trip")).toBeInTheDocument();
 });
 
+test("GAP-45: the title omits the year when the range sits inside the business's current year", async () => {
+  const get = baseGet();
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByRole("heading", { name: "10 Jul – 12 Jul" })).toBeInTheDocument();
+});
+
+test("GAP-45: the title shows the year on both dates when the range sits outside the current year", async () => {
+  const lastYearTrip: TripResponse = {
+    ...bookedTrip,
+    startDate: "2025-07-10",
+    endDate: "2025-07-12",
+  };
+  const get = baseGet({ "/api/trip/t1": lastYearTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(
+    await screen.findByRole("heading", { name: "10 Jul 2025 – 12 Jul 2025" }),
+  ).toBeInTheDocument();
+});
+
 test("GAP-101: a failed trip read shows a failure notice, never an eternal spinner", async () => {
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });

@@ -26,6 +26,15 @@ test("saves with name alone — fee and mobile stay behind Disclosure, never req
   await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
 });
 
+test("GAP-55: Name and Mobile carry autocomplete tokens", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(<CreateDriverForm onCreated={() => {}} />);
+
+  expect(screen.getByLabelText("Name")).toHaveAttribute("autocomplete", "name");
+  await user.click(screen.getByRole("button", { name: "More" }));
+  expect(screen.getByLabelText(/^Mobile/)).toHaveAttribute("autocomplete", "tel");
+});
+
 test("a day fee entered via MoneyField reaches the request as a wire string, never a bigint or a number", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });

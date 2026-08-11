@@ -93,7 +93,7 @@ export function RenewLeaseSheet({
               />
             </Field>
             <MoneyField
-              label="Excess rate per km"
+              label="Excess fee per km"
               valueMinor={mileageExcessRateMinor}
               onChange={setMileageExcessRateMinor}
             />

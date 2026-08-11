@@ -77,6 +77,7 @@ export function CreateDriverForm({ onCreated }: CreateDriverFormProps) {
       <Field label="Name" htmlFor="name" error={errors.name?.message}>
         <Input
           id="name"
+          autoComplete="name"
           aria-invalid={errors.name !== undefined}
           aria-describedby={fieldErrorId("name")}
           {...register("name")}
@@ -88,6 +89,7 @@ export function CreateDriverForm({ onCreated }: CreateDriverFormProps) {
           <Field label="Mobile" htmlFor="mobile" optional error={errors.mobile?.message}>
             <Input
               id="mobile"
+              autoComplete="tel"
               aria-invalid={errors.mobile !== undefined}
               aria-describedby={fieldErrorId("mobile")}
               {...register("mobile", blankToUndefined)}

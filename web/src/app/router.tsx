@@ -100,6 +100,9 @@ function VehicleDetailRoute() {
       onStartDailyLease={() => {
         void navigate({ to: "/vehicles/$vehicleId/daily-lease/new", params: { vehicleId } });
       }}
+      onBookTrip={() => {
+        void navigate({ to: "/vehicles/$vehicleId/trip/new", params: { vehicleId } });
+      }}
       onViewCalendar={() => {
         void navigate({ to: "/vehicles/$vehicleId/calendar", params: { vehicleId } });
       }}
@@ -467,11 +470,41 @@ function MineRoute() {
   return <NotBuiltYetScreen title="Mine" />;
 }
 
-/** Maps a pathname onto the operate shell's tab bar (§3.1's five fixed tabs). `＋` (quick-add) is deliberately absent from this map — it is a sheet trigger, never a route (§3.1: "no route change"). */
+/**
+ * Maps a pathname onto the operate shell's tab bar (§3.1's five fixed
+ * tabs). `＋` (quick-add) is deliberately absent from this map — it is a
+ * sheet trigger, never a route (§3.1: "no route change").
+ *
+ * GAP-89: an `owner_manager`/`manager` reaches `/review*`, `/reports*`,
+ * `/period/close` and `/opening-balances` from Operate's own `/more` hub
+ * (they are rows under it, not a separate shell for these roles), so they
+ * highlight **More** rather than falling through to Home. `/trips/:id`,
+ * `/incidents/:id` and `/leases/:id` (including its own `/close` step)
+ * highlight **Vehicles**, the domain parent every one of them shares
+ * regardless of whether the tap came from Home, the vehicle itself, or the
+ * calendar — true origin-tracking was considered and declined (it would
+ * need state threaded through every `navigate()` call site that can reach
+ * these routes).
+ */
 function tabForPathname(pathname: string): OperateTabKey {
   if (pathname.startsWith("/vehicles")) return "vehicles";
   if (pathname.startsWith("/people")) return "people";
   if (pathname.startsWith("/more")) return "more";
+  if (
+    pathname.startsWith("/review") ||
+    pathname.startsWith("/reports") ||
+    pathname.startsWith("/period/close") ||
+    pathname.startsWith("/opening-balances")
+  ) {
+    return "more";
+  }
+  if (
+    pathname.startsWith("/trips/") ||
+    pathname.startsWith("/incidents/") ||
+    pathname.startsWith("/leases/")
+  ) {
+    return "vehicles";
+  }
   return "home";
 }
 

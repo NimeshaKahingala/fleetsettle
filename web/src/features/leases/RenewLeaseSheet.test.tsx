@@ -60,7 +60,7 @@ test("a new amount and mileage terms both reach the request", async () => {
 
   await user.click(screen.getByRole("button", { name: "More" }));
   await user.type(screen.getByLabelText("Daily km limit"), "150");
-  await user.click(screen.getByRole("button", { name: "Enter excess rate per km" }));
+  await user.click(screen.getByRole("button", { name: "Enter excess fee per km" }));
   for (const digit of "5000") {
     await user.click(screen.getByRole("button", { name: digit }));
   }
