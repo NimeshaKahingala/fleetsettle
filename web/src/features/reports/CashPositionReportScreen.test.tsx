@@ -23,7 +23,11 @@ test("GAP-70/Wave 2: real title, banked and driver-advances given their own plac
   expect(screen.getByText("Unnamed partner")).toBeInTheDocument();
   // The stat tile for u1 (15,000) must never read as 65,000 (15,000 + the 50,000 deposit).
   expect(screen.getByText("Rs 15,000")).toBeInTheDocument();
-  expect(screen.getByText(/50,000 held for customers/)).toBeInTheDocument();
+  // GAP-106: `depositsHeldMinor` is party-agnostic by design (a driver's
+  // deposit and a customer's are summed together) — the copy must never
+  // claim a specific party, since that's a fact this figure doesn't carry.
+  expect(screen.getByText(/50,000 held as deposits/)).toBeInTheDocument();
+  expect(screen.queryByText(/customer/i)).not.toBeInTheDocument();
 
   // GAP-70: banked and driverAdvances are visible, not just subtracted into heldMinor.
   expect(screen.getByText("Sampath savings")).toBeInTheDocument();

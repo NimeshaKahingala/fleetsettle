@@ -65,7 +65,7 @@ function CashStackedBar({ data }: { data: CashPositionResponse }) {
             position="center"
             fill="var(--color-surface)"
             fontSize={12}
-            formatter={() => "Held for customers"}
+            formatter={() => "Held as deposits"}
           />
         </Bar>
       </BarChart>
@@ -166,7 +166,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
           </div>
           <CashStackedBar data={data} />
           <p className="text-caption text-ink-muted">
-            Rs {format(deposits)} held for customers — a liability, not partner cash.
+            Rs {format(deposits)} held as deposits — a liability, not partner cash.
           </p>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">In each account</p>
@@ -204,7 +204,7 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
               rowKey={(row) => row.userId}
             />
             <p className="text-body-sm text-ink-secondary">
-              Held for customers (deposits): <Money value={deposits} />
+              Held as deposits: <Money value={deposits} />
             </p>
           </div>
           <div className="flex flex-col gap-1">
