@@ -164,7 +164,7 @@ export const getAttachmentHandler: RouteHandler<typeof getAttachmentRoute, Env> 
   return c.body(object.body, 200, {
     "Content-Type": row.contentType,
     "Content-Length": String(row.sizeBytes),
-    "Cache-Control": "private, no-store",
+    "Cache-Control": "private, no-store, no-transform",
     "X-Content-Type-Options": "nosniff",
   });
 };
