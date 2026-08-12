@@ -25,13 +25,15 @@ export interface PhotoCaptureProps {
 }
 
 /**
- * §6.3 `PhotoCapture` (M-18): named slots for a condition set, or a free
- * grid for receipts/odometer photos. Capture is native
- * (`<input type="file" accept="image/*" capture="environment">`); encoding
- * runs through `lib/photo-pipeline.ts` (downscale, JPEG retry ladder) as
- * soon as a file is chosen, so "the record saves first and the photos
- * follow it" — this component never blocks on the eventual upload, only
- * on the local encode.
+ * §6.3 `PhotoCapture` (M-18, M-30): named slots for a condition set, or a
+ * free grid for receipts/odometer photos. Capture is native
+ * (`<input type="file" accept="image/*">`, deliberately no `capture`
+ * attribute — M-30 found it was silently skipping the OS picker's own
+ * choice between camera and photo library on many mobile browsers);
+ * encoding runs through `lib/photo-pipeline.ts` (downscale, JPEG retry
+ * ladder) as soon as a file is chosen, so "the record saves first and the
+ * photos follow it" — this component never blocks on the eventual upload,
+ * only on the local encode.
  */
 export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<Record<string, CapturedPhoto>>({});
@@ -187,7 +189,6 @@ function PhotoSlotTile({
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         aria-label={`${label} file input`}
         className="sr-only"
         onChange={(e) => {
@@ -233,7 +234,6 @@ function AddTile({ onFile }: { onFile: (file: File) => void }) {
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         aria-label="Add a photo file input"
         className="sr-only"
         onChange={(e) => {

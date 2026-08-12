@@ -56,6 +56,18 @@ test("capturing a slot's photo runs it through the pipeline and reports it via o
   expect(screen.getByRole("button", { name: "Retake front photo" })).toBeInTheDocument();
 });
 
+// M-30: `capture="environment"` was skipping the OS picker's own choice
+// between camera and photo library on many mobile browsers — no product
+// reason requires a live-only photo, so the attribute must stay off both
+// inputs.
+test("M-30 — neither the named-slot nor the Add-tile file input forces the camera; the OS picker offers gallery too", () => {
+  render(<PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={vi.fn()} />);
+  expect(screen.getByLabelText("Front file input")).not.toHaveAttribute("capture");
+
+  render(<PhotoCapture onCapture={vi.fn()} />);
+  expect(screen.getByLabelText("Add a photo file input")).not.toHaveAttribute("capture");
+});
+
 test("free-grid mode has an Add tile, and each capture grows the grid with a new key", async () => {
   const user = userEvent.setup();
   const onCapture = vi.fn();
