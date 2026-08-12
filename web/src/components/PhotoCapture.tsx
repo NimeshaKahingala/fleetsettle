@@ -1,4 +1,4 @@
-import { AlertCircle, Image as ImageIcon, Plus, RefreshCw } from "lucide-react";
+import { AlertCircle, Image as ImageIcon, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ATTACHMENT_CONTENT_TYPES } from "@fleetsettle/shared/schemas";
 import { downscaleAndEncode, type EncodedPhoto } from "../lib/photo-pipeline.js";
@@ -181,6 +181,14 @@ function PhotoSlotTile({
         {status === "error" || captureError ? (
           <span className="absolute bottom-1 right-1 flex size-5 items-center justify-center rounded-full bg-critical text-white">
             <AlertCircle className="size-3" aria-hidden />
+          </span>
+        ) : null}
+        {photo !== undefined && photo.flagged ? (
+          <span
+            title="Larger than usual — may take longer to upload"
+            className="absolute left-1 top-1 flex size-5 items-center justify-center rounded-full bg-warning text-warning-ink"
+          >
+            <TriangleAlert className="size-3" aria-hidden />
           </span>
         ) : null}
       </button>
