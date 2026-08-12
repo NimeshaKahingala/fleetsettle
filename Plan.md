@@ -125,7 +125,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 9a | ~~B12 · opening balances~~ | L | ✅ 8 Aug — GAP-61 (see F3/row 12d: the screen works, what it writes doesn't) |
 | 9b | ~~B13 · driver money — pay/advance/deposit~~ | M | ✅ 8 Aug — GAP-63/64/66, found `POST /api/payment` had no `"paid"` direction at all |
 | 10 | ~~B3 · close the month (core)~~ | M | ✅ 8 Aug — checklist, `Dialog`-confirmed close, `CorrectPaymentSheet` |
-| 9c | **V1** · the live-test queue — [LIVE-TEST-PLAN.md](LIVE-TEST-PLAN.md) | S | **Runs in parallel, not code.** Eight browser-only checks, read-only first, B3's close last (irreversible). LT-7 is cron-timeboxed (`generate-day-cards`, 20:30 UTC). Every live pass so far has found something no source read did |
+| 9c | ~~**V1** · the live-test queue~~ — [LIVE-TEST-PLAN.md](LIVE-TEST-PLAN.md) | S | ✅ **LT-1–8 all closed** (6–11 Aug) — every one found something no source read did. **Restored 11 Aug 2026** after being swept into the 10 Aug consolidation by mistake; **no longer a one-time item** — LT-9–12 (linked-driver 403 live, F4's real-device pass, GAP-112's real-photo retest, the post-F5 opening-balance re-confirm) are open and the file stays as the standing live-test practice, added to as new surface ships rather than retired once emptied |
 | 10a | ~~B3 remainder · `WriteOffSheet`/`PostClosureChargeSheet`~~ | — | **Withdrawn 8 Aug** — F-8.3/F-8.4 and UC-90/91 are phase 2 in their own owning documents; `docs/` outranks this file |
 | 10b | ~~GAP-81 · void an expense from the client~~ | S | ✅ 8 Aug — shared `ExpenseCostRow`, `VoidExpenseSheet` |
 | 11 | ~~GAP-74 · partner's all-time balance~~ | M | ✅ 8 Aug |
@@ -159,6 +159,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 | 25 | **A9b** · the rest of soft delete | L | ~15 void endpoints (GAP-12, GAP-36) + GAP-60's `replaces_id` (shape decided 9 Aug: a nullable self-referencing column per table, not one polymorphic table) |
 | 26 | **B7** · offline and the PWA | L | Cross-cutting, sequenced last on purpose |
 | — | **In-app "invite a member" screen** | S | Unlettered, no longer blocked (B0b landed). Needed for LT-1. Size it and give it a letter |
+| — | **GAP-7** · trip `hold`/`in_progress`, end to end | ? | **Decided 11 Aug 2026: build it**, not a wording fix — `VehicleCalendarScreen`'s hold-outline cell and `T?` glyph stay, and start being reachable. **Blocked on a `doc-change` first**: ST-5 (`user-flows.md:201`) says a hold "expires or is confirmed" with no duration or mechanism specified anywhere. Cannot be sized or lettered until that lands |
 
 ### The 8 August re-sequence — what it prioritises, and what it gives up
 
@@ -175,7 +176,7 @@ If it is one person, this is the order, and the reasoning is *what breaks first 
 
 **What this re-sequence gives up, stated plainly: B5, and with it A14.** A linked driver can obtain a real account (A11) and lands in a real Mine shell (B0b) that renders `NotBuiltYetScreen` — deferring B5 means **that stays true for the whole of this pass**, and it is the same "reachable, not usable" state that was the top complaint about `owner` before B4 was scheduled. The counter-argument for the order as chosen is real and is why it stands: **B4 serves the partner who is already waiting with data on screen to read, while B5 serves a role nobody has been invited into yet** (LT-1 will be the first time a driver account is ever held), and B4 is the item that has been ranked first-and-not-started twice. If a driver is about to be given a login, B5 moves back up — that is a product call, not a build one.
 
-**Two things deliberately *not* moved.** GAP-1 stays unscheduled (it needed a design decision — which table decides "his" vehicles — before it needed a slot; **decided 9 Aug 2026** — split by role, `ownership_share` for an owner/owner-manager, `management_fee_agreement` for a manager, no new table — but still not built, so the operational guard still stands: **do not invite a `manager` to a real business**). GAP-58, the 178-case test manifest that has never been run, also stays out: it is the systematic version of what V1 does by hand, and adding it to a queue this long would be scheduling it in name only.
+**One thing deliberately not moved.** GAP-1 stays unscheduled — it needed a design decision (which table decides "his" vehicles) before it needed a slot; **decided 9 Aug 2026** — split by role, `ownership_share` for an owner/owner-manager, `management_fee_agreement` for a manager, no new table — but still not built, so the operational guard still stands: **do not invite a `manager` to a real business**. **GAP-58, the 178-case test manifest that never ran, closed 11 Aug 2026 rather than staying parked** — decided not to adopt it (TRACKER.md's closed row), so it no longer sits here as a deferred queue item; [LIVE-TEST-PLAN.md](LIVE-TEST-PLAN.md) is the standing live-test practice instead.
 
 ### Two orderings worth arguing with
 

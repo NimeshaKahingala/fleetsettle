@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.6 — F-8.3, F-8.4 and F-9.3's `*Phase:*` tags, plus F-9.2's report-catalogue Phase column for UC-73/77/78/79, move from 2 to 1, mirroring `use-cases.md` v1.2.5 §9.1 — this document owns mechanics, not the phase decision itself, and follows it here rather than restating the reasoning
+**Status:** v1.1.7 — F-3.4 step 5 reworded to match `use-cases.md` v1.2.6's W-11 correction (GAP-11): insurance is optional to fill in and always visible, never hidden behind a setting nothing in the schema backs. F-3.4's own `*Phase:* 1` tag is unchanged — it was right all along; v1.2.6 corrected `use-cases.md` §9.1 to agree with it, not the other way round
 **Date:** 11 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
@@ -534,7 +534,7 @@ The incident is a **container** that stays open for weeks and gathers everything
 2. **Off-road days and the rent** — enter the dates, then choose *for this incident only*: **rent continues** (default) / **credit the days** pro-rata / **extend the rental** by the lost days.
 3. **Repairs** — one cost or several, added as invoices arrive over following weeks, all attached.
 4. **Customer contribution** — negotiated *after* the repair cost is known: agreed amount + note; payable in one go, in instalments, or from the deposit. **⚑ Agreeing the amount opens an obligation the customer can pay against** — otherwise "payable in one go, in instalments, or from the deposit" has nothing for a payment to allocate to. An insurer's contribution (step 5) opens none; an insurer is not a payer in `POST /api/payment`, only a source `IncidentRecovery` records against.
-5. **Insurance** — hidden unless enabled (major damage only): amount claimed, excess borne, status, amount received. Until it arrives it is **pending recovery, not income**.
+5. **Insurance** — optional, always visible (major damage only, at the manager's judgement — **⚑ corrected 11 Aug 2026, GAP-11**: no setting ever backed "hidden unless enabled," so the claim action was always offered; see `use-cases.md` W-11): amount claimed, excess borne, status, amount received. Until it arrives it is **pending recovery, not income**.
 6. **Bottom line** — total repairs, total recovered, still expected, **net cost to you**.
 
 **Writes** `Incident`, `IncidentCost[]`, `IncidentRecovery[]`, `RentTreatment`, `InsuranceClaim?`, `LeaseExtension` when the treatment is *extend*, and an `Obligation` when a recovery's source is the customer (⚑ GAP-10, 9 August 2026 — see below).
