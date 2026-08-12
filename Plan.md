@@ -60,7 +60,7 @@
 
 **How the order got here, compacted from eleven dated updates spanning 8–10 August.** The queue was re-sequenced twice on explicit instruction (finish B4 first, then B9/B15/B6) and re-ranked five more times as validation passes and one live QA session found things that outrank whatever they landed next to — every re-ranking followed the same rule: **live-and-silently-wrong jumps the queue; a documents-disagreement gets the documents fixed first; everything else validates before it schedules.** In order: the flow-inventory audit (GAP-61…69) shipped B12/B13/A14/A15 · F1 (GAP-84) and B4 both waves shipped, with two `doc-change`s (12a) between them · F2's server half (GAP-90) and A17 (GAP-92/93) jumped ahead of B9 as live defects · GAP-88 got its `doc-change` (D-9) before `startDailyLease` was touched, alongside four other standing decisions asked and answered the same day (GAP-10/A10b, GAP-87, GAP-60, GAP-1) · GAP-101 (the read-error contract) turned out to be B9's largest item and was pulled out and built on its own, closing F2's client half in the process · a live browser pass then found **GAP-103** (opening balances confirm and connect to nothing — the most severe gap this project has recorded) and **GAP-104** (a mobile `Sheet` history race that disables Quick Add on any real phone), filed as **F3**/**F4** ahead of everything, plus GAP-105/106 riding with B9 · B9's own two decision-gated rows, GAP-44 and GAP-89, were then asked and answered (TRACKER.md carries the reasoning) · and `feature/image-upload` (A7) turned out to be a complete seven-commit build rather than "not started," verified and fixed this session (its own section below has the account). **Full dated prose for all of this is in git history and in TRACKER.md §0/§6**, which is where "why" belongs; this file keeps "what's next."
 
-**Current order: GAP-44 → GAP-1 → A14 → A8 → A9b → [the 18 newly-promoted phase-1 rows, mostly unsized — see TRACKER.md §4]**, with V1 (live testing) running in parallel whenever picked up. **B7 and P14 are no longer in this queue** — 11 Aug's phase model moved them to phase 2 (P14) and phase 3 (B7); this file now sequences phase 1 only. **F4, F3, the low-API B9 primitives, B15, B6, B5's core screens, GAP-100, and the B2 UI callers all closed 11 Aug** (GAP-104, GAP-103, GAP-108, GAP-47, GAP-48, GAP-82, GAP-22, GAP-102, GAP-67, GAP-100 plus the paid-by picker, initial ownership-share setup, and management-agreement create/revoke — see their rows and TRACKER.md's closed table). **F5 (GAP-109/GAP-110) then jumped straight to the head of the queue the same day**, found by an independent validation of that same branch, **and closed the same day too** — GAP-110's sticky-CTA fix first, then GAP-109's idempotency-check fix (self-healing: no backfill migration, materialises on the next ordinary `Confirm`) — TRACKER.md carries the full account and both new regression tests. **GAP-44 is now the head of Track B**, the only B9 row left, but it is wire-schema work, not part of the low-API UI batch. GAP-1's per-vehicle policy scoping remains the operational guard: do not invite a `manager` to a real business until the backend scopes reports/capital/payout access by `management_fee_agreement`. **The `use-cases.md`/`user-flows.md` `doc-change` landed 11 Aug 2026** (v1.2.5 / v1.1.6) — GAP-6/15, GAP-18, GAP-19 and GAP-73/98 are now startable, not just decided. None is sized into this queue yet. **GAP-68 was checked against the same claim and never needed one** — `F-3.5`/`UC-13` were already phase 1 in both documents.
+**Superseded 12 August 2026 — this paragraph's own ordering rule no longer has a referent.** It read "GAP-44 → GAP-1 → A14 → A8 → A9b → [the 18 newly-promoted phase-1 rows, mostly unsized]" and was built on "live-and-silently-wrong outranks unbuilt," the rule that put GAP-3, GAP-56, GAP-75, GAP-90 and F3/F4/F5 ahead of their own queues in turn. **Checked directly against production 12 Aug 2026: every table on `main`'s Neon branch holds zero rows**, confirmed 7 Aug and unchanged five days later, and the owner set the premise that nothing goes live until every phase-1 gap is fixed and tested, with no near-term plan to onboard a real business. Nothing is live, so nothing can be silently wrong — the rule that decided every ordering choice in this file so far has no case left to decide. **["The eleven-wave plan"](#the-eleven-wave-plan--12-august-2026) below replaces this section's forward-looking content.** Everything below this point in "The order, end to end" and the Track A/B tables that follow it stays as the historical record of what shipped 5–11 Aug — none of it is rewritten, since it is still exactly what it says it is.
 
 **Updated 10–11 August 2026 — A7 merged, `PENDING-REVIEW-ITEMS-2026-08-10.md` evaluated, and B9 shrank to a third of its own row.** A7/GAP-16 merged (PR #20, into `develop`, not yet `main`) — Track A's remaining queue is A8, A14, A9b. The seventeen accumulated review docs were consolidated and validated (TRACKER §6's twelfth pass); nine of B9's rows built the same sitting, and GAP-106 followed the next day: **GAP-45, GAP-46, GAP-55, GAP-89, GAP-91, GAP-96, GAP-97, GAP-99, GAP-106 all closed** (plus M-25, riding with GAP-97) — TRACKER §4's closed table has each. **What's left in B9 at that point: GAP-44, GAP-47, GAP-48, GAP-83, GAP-105** — none a same-pass extension of what just closed (GAP-44 needs the wire-schema change its own decision requires; GAP-47/48/83 each touch a shared primitive or need a new one). **F3 was untouched and still led** — this work built the smallest, least-ambiguous items ready regardless of sequence, not a re-ordering past GAP-103's own undecided fork.
 
@@ -83,6 +83,100 @@
 **11 August 2026, later — an independent validation of that same branch, and a phase-model decision that resizes this whole file.** Four parallel reviewers plus one adversarial spot-check covered the low-API branch (money/tenancy rules first); the branch itself came back clean — 113 files / 564 web tests, 0 lint errors, no money/tenancy/W-49 violation anywhere. Every claim was independently re-checked against source before being trusted (TRACKER.md §6's own standing rule), and all of it held. The one finding that changes the queue: **GAP-109/F5** — `commitOpeningBalance`'s materialisation (F3, closed the same day) only fires on a `draft → committed` transition, so an opening balance confirmed *before* F3 shipped is stranded, live-confirmed on QA and against source (full account: TRACKER.md's F5 rows and its 11 Aug build-log entry). Filed with **GAP-110** (its own remedy, a re-save, is blocked by a confirm sheet unusable at 360×640) as **F5**, now the head of the queue — the same "live-and-silently-wrong outranks unbuilt" rule that put F3/F4 there before it. Five smaller findings (GAP-111–116: a report empty-state gap, a colour-alone M-15 violation, an unverified receipt-thumbnail claim, a schema-change with no test, six under-tested screens, and a stale doc version table) are recorded in TRACKER.md but don't reorder anything — none is money- or tenancy-shaped.
 
 **The same sitting, the owner set a phase model that resizes everything below.** Full text in TRACKER.md ("The phase model — set 11 August 2026"). **Phase 1 now covers every open gap TRACKER.md §4 carries** — including the eighteen rows this file's own queue never scheduled because TRACKER had them parked as "correct to leave." Two changes fall out of it directly: **P14 (WhatsApp messaging) moves to phase 2**, and **B7 (offline/PWA) moves to phase 3** — both drop out of this file's phase-1 queue below, not because either shrank, but because the owner re-scoped what phase 1 means. **Five of the eighteen newly-promoted rows (GAP-6/15 paired, GAP-18, GAP-19, GAP-73/98 paired) conflicted with `use-cases.md`'s own phase table — resolved the same day.** `use-cases.md` → v1.2.5 and `user-flows.md` → v1.1.6 landed 11 Aug 2026, one edit covering all five, before any of them were treated as buildable. All five are startable now; none is sized into a queue slot yet. **GAP-68 looked like a sixth and isn't** — checked 11 Aug and found `F-3.5`/`UC-13` already phase 1 in both `use-cases.md` and `user-flows.md`, corrected before it could sit wrong in this file too.
+
+---
+
+## The eleven-wave plan — 12 August 2026
+
+**Replaces this file's forward-looking queue.** Everything from here to ["The order, end to end"](#the-order-end-to-end) is the current plan; that section and everything after it is the historical record of what shipped 5–11 Aug and stays unedited. Full reasoning for every decision below is in TRACKER.md's 12 Aug build-log entry; this section carries "what's next," the same division of labour this file has always kept with TRACKER.md.
+
+### Why the order changed
+
+Plan.md has run on one rule since GAP-3: **live-and-silently-wrong outranks unbuilt.** It has no referent now. **Checked directly against production, 12 Aug 2026: every table on `main`'s Neon branch holds zero rows** — no business, no user, no money record, confirmed 7 Aug and unchanged five days later. The owner set the premise the same day: **nothing goes live until every phase-1 gap is fixed and tested, and there is no near-term plan to onboard a real business.** Nothing is live, so nothing can be silently wrong.
+
+Three rules replace it, in order of leverage:
+
+1. **Decisions before code.** Twenty-one open questions across the phase-1 queue were put to the owner in one sitting and all twenty-one are now answered — nothing below is blocked on a fork.
+2. **Schema while the database is empty.** Migrations here are forward-only, and every one carrying a backfill question — `adjustment.occurred_on`, `replaces_id` on twelve tables, soft-delete columns everywhere — is free against zero rows and gains an argument the moment a business signs up. This saving expires exactly once.
+3. **What makes later work bigger if deferred.** GAP-60 before A9b, or fifteen void endpoints get built without linkage and revisited later. GAP-59 before A8, or A8 ships the cost-misattribution path GAP-59 describes.
+
+### Two live defects, found validating the decisions against source
+
+Neither was in either tracker before this sitting. Both are pending reproduction — Wave 0, below — before either is fixed.
+
+- **GAP-119** — a charter cannot be booked on a vehicle already on daily lease, the mixed-use case this product opens with. `startDailyLease`'s own rolling horizon (D-9) materialises `vehicle_day_allocation` rows synchronously; `bookTrip` inserts its own with no release first, and the unique index refuses it as `VEHICLE_DOUBLE_BOOKED`. **`data-model.md` §4.1 already specified the correct behaviour** — this is an implementation gap against a correct spec, not a design question, and the fix is now written into `data-model.md` v1.1.6 (§4.1, D-12) and `user-flows.md` v1.1.8 (F-5.1, F-5.5).
+- **GAP-118** — the mirror case: closing a daily-lease assignment (a driver change, F-4.7, or an arrangement change off B, F-1.2) never frees its own future occupancy, because arrangements A and C both have the cleanup primitive and B never got one. A driver change inside the horizon leaves tomorrow's card carrying yesterday's driver.
+
+### The twenty-one decisions
+
+Full reasoning in TRACKER.md's 12 Aug entry; the shape each landed on:
+
+| Gap | Landed on |
+|---|---|
+| GAP-73 | `adjustment.occurred_on date`, driving `belongs_to_period_id` |
+| GAP-59 | Composite FK `expense → (trip.id, vehicle_id)` / `(incident.id, vehicle_id)`, `MATCH SIMPLE`, backstopped by two `CHECK`s |
+| GAP-20 | `lease_day_exception` — an excepted date never becomes a `day_record`, so it can't reach the lost-day denominator |
+| GAP-26 | `vehicle_unavailability` — reason-mapped, so a breakdown still reaches the denominator and a routine outage doesn't; does not duplicate `incident.off_road_from/to` |
+| GAP-7 | `trip.hold_expires_on`, 7-day business default, released synchronously by the next booking attempt, never only by cron; `in_progress` derived from the business date, never written |
+| GAP-60 | `replaces_id uuid` on the twelve money tables (shape reconfirmed; now actually recorded in `data-model.md` §17 D-16) |
+| GAP-36 | Soft-delete columns on `driver` and `customer` |
+| GAP-5 | Forward allocation as a fresh `payment_allocation` — **found already fully specified**; only `SELECT … FOR UPDATE` was missing |
+| GAP-2 | Rate change closes and reopens the `daily_lease` row, reusing `changeDailyLeaseDriver`'s own mechanism — roughly halves the item |
+| GAP-8 | Postgres advisory lock on the period id, matching the migration runner's own mechanism |
+| GAP-14 | Stacked partial corrections stay allowed, and get tested |
+| GAP-65 | 30-day signed link |
+| — | `post_closure_charge` gets a handler-level cross-check — it writes an `obligation`, not a table, so it can't take a composite FK |
+| **Soft-delete policy** | **No hard deletes anywhere in `api/src`**, wider than W-50's money-tables-only scope — `use-cases.md` **W-58**. Full trio on every table, not a timestamp only. `day_record` joins them; stale cards are voided, never mutated in place. A soft-deleted parent keeps all its history rendering exactly as before. GAP-28 (error monitoring) reclassified to capture-and-query, no paging — the same forensic motivation, satisfiable on Workers Logs alone |
+
+### Wave 0 · Prove the two live defects (S)
+
+No fixes in this wave. Reproduce `GAP-118` and `GAP-119` against the real endpoints — not the test factories, which write a state the API can no longer produce post-D-9 — per this project's own standing discipline: a regression test must fail against the pre-fix code before anyone trusts it.
+
+### Wave 1 · The schema series, while it's free (L)
+
+The `doc-change` has already landed (`use-cases.md` v1.2.7, `user-flows.md` v1.1.8, `data-model.md` v1.1.6). The migration series against it: plain FK `expense.incident_id → incident(id)` · `UNIQUE (id, vehicle_id)` on `trip` and `incident`, composite FKs from `expense` (GAP-59) · `adjustment.occurred_on` (GAP-73) · `lease_day_exception` (GAP-20) and `vehicle_unavailability` (GAP-26), both soft-deletable · `trip.hold_expires_on` + the business default (GAP-7) · `replaces_id` on the twelve money tables (GAP-60) · soft-delete columns on `driver`/`customer` (GAP-36) · the voided trio on `vehicle_day_allocation`, `payment_allocation`, `day_record`, `opening_balance_entry` · `one_arrangement_per_vehicle_day` and `UNIQUE (payment_id, obligation_id)` both go partial on `voided_at IS NULL` · the four hard-delete ESLint exemptions revoked · error capture, no paging (GAP-28).
+
+**Two checks that must not be skipped:** neither new table carries `posted_period_id`, so neither belongs in `assert_period_open()`'s array — verify against DM §13's own drift assertion rather than assume. Every read of `vehicle_day_allocation` needs a `voided_at IS NULL` filter; missing `listAllocatedDatesForVehicle` reproduces GAP-118 in a new form.
+
+### Wave 2 · The two live defects (M)
+
+Share one primitive — releasing a daily lease's occupancy for a date range. `GAP-118`: the release primitive plus both callers (driver change, arrangement change); stale future cards voided, then regenerated. `GAP-119`: `bookTrip` releases the daily lease's allocations for the trip's range before inserting its own; cancelling re-materialises them in the same transaction, never left for the cron. **GAP-44 sequences after this wave** — until it lands, that Dialog would be explaining a conflict that should never have occurred.
+
+### Wave 3 · Tenancy (M–L)
+
+The only open item that is a security requirement rather than a feature. Reject `manager` server-side, plus the `MembersScreen` assertion GAP-115 found missing (S — makes the "do not invite a manager" guard real rather than an honour system). Then **GAP-1**: `auth/policy.ts` scoped by role, `ownership_share` for an owner, `management_fee_agreement` for a manager, then every `viewReports`/`viewOwnerOnlyReports`/`managePartnerCapital` call site. Extend W-49's linked-driver isolation test class to cover manager scoping.
+
+### Wave 4 · Money correctness (M–L)
+
+GAP-94 (the close checklist counts rows that exist, so anything never generated is invisible at the one irreversible step) · GAP-73 (window on the new column, group by `adjustment_type`, honour `sign`) · GAP-5 (forward allocation under the row lock) · GAP-8 (the advisory lock) · GAP-14 (coverage) · GAP-59 (the `post_closure_charge` handler check).
+
+### Wave 5 · Finish the half-built flows (XL)
+
+The largest wave, and the one with the most independent items. **A8** — fuel-fill odometer writes its own reading in the same transaction, borne-by preview, prefill (GAP-30, GAP-32, GAP-34). **A9b** — roughly fifteen void endpoints, now over a schema where every table supports it (GAP-12, GAP-36, GAP-60). **A14** — the printed slip's signed 30-day link (GAP-65). **GAP-25** — end a daily lease; smaller than its own row: `endDailyLeaseRow` already exists with two callers, so this is an endpoint and a screen, not a mechanism. **GAP-2** — rate change on the built mechanism, plus F-4.6's bulk week-confirm. **GAP-7** — hold and in-progress end to end. **GAP-20**, **GAP-26** — skippable days and off the road, over Wave 1's tables. **GAP-68** — the predictive maintenance prompt; recording already ships. **GAP-6**, **GAP-15** — deposit-apply and deduct-from-fee, with F-8.3/F-8.4's sheets.
+
+### Wave 6 · Reports (M)
+
+GAP-18 (UC-73's yearly view, UC-99's export) · GAP-19 (UC-79's revenue per available day) · GAP-98 — three phase-2 routes are mounted and incomplete; now that they're phase 1, finish them rather than annotate them as unfinished.
+
+### Wave 7 · Client remainder (M)
+
+GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schema, the Dialog — after Wave 2) · GAP-111 (the table view's missing empty state) · GAP-113 (M-15 colour-alone violation) · GAP-27 (arrangement C's orange gets a real token) · GAP-17 (photo pipeline off the main thread) · B16 Phase 2/3 (component variants, catalogue grouping, money-direction consistency).
+
+### Wave 8 · Verification debt (S–M)
+
+GAP-114 (the assertion that passes either way) · GAP-115 (five thinner-tested screens) · GAP-86 (suite noise) · LT-9 (needs a linked driver created first — QA has none) · LT-10 (real iOS Safari / Android Chrome) · LT-11 (real photo, then decides GAP-112) · LT-12 (watch a stranded batch's re-confirm render in the reports — the data path itself already checked live: three postings seconds apart, first two reversed, third live, real offsetting movements).
+
+### Wave 9 · Release (S)
+
+Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `main`, post-deploy verification before anyone onboards.
+
+### Corrections this pass found
+
+- **GAP-25 is smaller than filed** — `endDailyLeaseRow` exists with two callers; missing is an endpoint and a screen.
+- **GAP-2 roughly halves** — the rate-change mechanism already exists.
+- **GAP-5 needs no new table** — sized as a credit ledger before `payment_allocation` existed to draw on.
+- **GAP-12's "expense only" is stale** — A7 added a void route for attachments, mirroring the expense one.
+- **The unlettered "in-app invite a member screen"** (§ below) is done — `MembersScreen.tsx` ships it, role picker and one-time code included.
 
 ---
 

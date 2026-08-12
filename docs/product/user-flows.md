@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.7 — F-3.4 step 5 reworded to match `use-cases.md` v1.2.6's W-11 correction (GAP-11): insurance is optional to fill in and always visible, never hidden behind a setting nothing in the schema backs. F-3.4's own `*Phase:* 1` tag is unchanged — it was right all along; v1.2.6 corrected `use-cases.md` §9.1 to agree with it, not the other way round
-**Date:** 11 August 2026
+**Status:** v1.1.8 — six mechanisms this document had left silent, each behind an open gap, now specified: ST-5's hold expiry (GAP-7), F-1.7's skippable individual days (GAP-20), F-1.10's off-road marking (GAP-26, new flow), F-4.7/F-1.2's freed future occupancy on a driver or arrangement change (GAP-118), F-5.1's booking-time release of a daily lease's own allocation (GAP-119), and F-8.5's void coverage widened to every table under `use-cases.md` v1.2.7's **W-58**. INV-32 and INV-33 added. Decided by the owner, 12 Aug 2026 — full reasoning in TRACKER.md's 12 Aug entry
+**Date:** 12 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -200,6 +200,13 @@ hold ──► booked ──► in_progress ──► closed
 
 `hold` is an addition. UC-40 creates a trip on enquiry, and creating it immediately suppresses lease income for those days. A `hold` reserves the calendar **without** suppressing the daily cards, so a tentative enquiry cannot quietly erase a week of expected income. It expires or is confirmed.
 
+**GAP-7, resolved 12 Aug 2026 — "it expires" had no duration or mechanism anywhere.** Two facts, decided together:
+
+- **The expiry date is explicit, not computed at read time.** `hold` gains a business-date column, pre-filled from a business-wide default of **seven days** and editable per hold — the same shape as the deposit's own `hold_window` (F-2.7), not a fresh pattern. A wedding enquiry that needs longer is one field, not a workaround.
+- **Release never depends on the cron running.** CLAUDE.md is explicit that no scheduled job is ever a prerequisite for a user action, and a hold that only releases overnight leaves a vehicle blocked on days it is actually free if that job fails. So: booking a trip or a lease first releases any of that vehicle's own expired holds, synchronously, in the same transaction, before it checks for a conflict — the identical relationship D-9 already gives the daily-lease horizon and the cron. The nightly job then only tidies up holds nobody happened to book around, which is an optimisation, not the mechanism.
+
+**`in_progress` is derived, not written.** Nothing transitions a `booked` trip to `in_progress` — no user action, no job, no column. A `booked` trip whose `start_date` has arrived **reads** as `in_progress` wherever the state is shown; `closed` and `cancelled` still take priority once written. Needs no migration and matches the shape already implied by this document's own test-plan note ("`booked` (or `in_progress` if dates have started)").
+
 ### ST-6 Incident
 
 ```
@@ -299,6 +306,8 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-29** | A lease ends the day before the next begins; a vehicle-day is never claimed by two leases | W-46 |
 | **INV-30** | Trip income recognises on the trip's closing date, in exactly one accounting period | W-41 |
 | **INV-31** | A business always retains at least one active `owner` or `owner_manager`. Revoking or demoting the last one is refused, never merely warned | §2.3, W-49, W-57 |
+| **INV-32** | No record is ever hard-deleted at the database level. Every table is voided, never removed — not only the money-bearing ones W-50 already named | W-58 |
+| **INV-33** | A cost naming more than one of vehicle, trip and incident must name a mutually consistent set — a trip's own vehicle, an incident's own vehicle — never independently-valid but unrelated ids | §6.1, GAP-59 |
 
 ---
 
@@ -358,7 +367,7 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Pre** no open lease/trip conflicting with the effective date.
 **Steps** 1. Pick the new arrangement and an **effective date**. 2. System lists what ends on that date (daily cards stop / lease must be closed first). 3. Confirm.
 **Writes** `VehicleArrangement` (effective-dated, never overwritten).
-**Accept** · History before the effective date keeps its old arrangement, including its borne-by defaults (§6.7) · a report for a past month uses the arrangement that was in force then, not the current one.
+**Accept** · History before the effective date keeps its old arrangement, including its borne-by defaults (§6.7) · a report for a past month uses the arrangement that was in force then, not the current one · **moving off arrangement B frees every future day the closed daily lease had already claimed**, in the same transaction — see F-4.7's own Accept clause, GAP-118, for why this is stated explicitly rather than assumed.
 
 #### F-1.3 Record ownership and contributions
 *Actor:* Owner · *Source:* UC-02 · *Phase:* 1
@@ -376,7 +385,7 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 #### F-1.5 See a vehicle's calendar
 *Actor:* Manager · *Source:* UC-95 · *Phase:* 1
 **Steps** Open a vehicle → month view, each day coloured by its derived state (ST-1). Booking any new allocation starts here.
-**Accept** · Every day shows exactly one state · a `hold` (ST-5) is visually distinct from a `booked` trip · the calendar is the screen that answers "is the bus free on the 12th" without opening the trip form · **tapping a free day opens F-5.1 or F-2.1 with that date filled in** — otherwise the calendar answers the question and then makes you go somewhere else to act on it.
+**Accept** · Every day shows exactly one state · a `hold` (ST-5) is visually distinct from a `booked` trip · **an off-road outage (F-1.10) is its own visible state, distinct from a free day** — the calendar's whole promise is answering "is the bus free" honestly, and a vehicle in for repair is not free even though nothing has claimed it · the calendar is the screen that answers "is the bus free on the 12th" without opening the trip form · **tapping a free day opens F-5.1 or F-2.1 with that date filled in, and tapping to mark a vehicle off the road opens F-1.10** — otherwise the calendar answers the question and then makes you go somewhere else to act on it.
 
 #### F-1.6 Add a driver
 *Actor:* Manager · *Source:* UC-04 · *Phase:* 1
@@ -386,8 +395,10 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 #### F-1.7 Set up the daily lease
 *Actor:* Manager · *Source:* UC-05, W-7 · *Phase:* 1
 **Steps** 1. Driver. 2. Pattern (every day / alternate / chosen weekdays), with individual days skippable. 3. Amount owed per operating day. 4. Effective date, optional end date.
-**Writes** `DailyLeaseArrangement`, `DailyRate` (effective-dated).
+**Writes** `DailyLeaseArrangement`, `DailyRate` (effective-dated), a **skip exception** per individually-skipped date.
 **Accept** · Cards generate from the effective date forward, on pattern days only (§4.2) · borne-by defaults come from W-7 with no per-vehicle configuration · setting an end date stops generation without deleting past cards.
+
+**GAP-20, resolved 12 Aug 2026 — "individual days skippable" had no mechanism.** UC-08's own promise (§8) and this flow's own step 2 both named it; nothing said where a skip lives. **A skip is an exception the card generator checks before it writes anything, never a state on a generated card.** This is the same principle §4.2 already applies to off-pattern days: `not_scheduled` is not written down, its absence is the record (data-model.md §7). An individually-skipped date behaves identically — it never becomes a `day_record` — so it cannot reach `lease_eligible_days = ran + lost` (§4.1) by any route, exactly as CLAUDE.md's "the lost-day denominator is `ran + lost`" requires. Un-skipping a date voids the exception (W-58) rather than deleting it, the same as every other correction in this document.
 
 #### F-1.8 Link a driver's own account
 *Actor:* Manager · *Source:* UC-07, W-13, W-42 · *Phase:* 1 *(moved from 2 in v1.1.3 — §11.2)*
@@ -403,6 +414,16 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Steps** Name a package, set kilometres per day and excess rate per km. Selected at F-2.1 step 4.
 **Writes** `MileagePackage`; `Lease.mileage_terms` as an **independent copy**.
 **Accept** · Editing a package never reprices an existing lease — the terms belong to the rental from the moment it starts, which is also what the customer was told in writing (UC-80) · a rental matching no package is normal, not an exception · deleting a package leaves every lease using it untouched.
+
+#### F-1.10 Mark a vehicle off the road
+*Actor:* Manager · *Source:* UC-79 · *Phase:* 1 *(new, GAP-26, resolved 12 Aug 2026)*
+UC-79's own utilisation report already named an "off-road" bucket beside earning and idle (§9.2); nothing wrote the fact it reports. **A separate mechanism from an incident's own `off_road_from`/`off_road_to` dates** (data-model.md §9.1), which already cover downtime an incident caused — this flow is for every other reason a vehicle sits still: routine service, being prepared for sale, an owner's own use.
+**Steps** From the vehicle's calendar (F-1.5), pick a date range and a reason (service, sale preparation, other). Works regardless of the vehicle's current arrangement — a monthly-rental car between rentals, a bus between charters, and a daily-lease vehicle (where it sits alongside an existing driver assignment, which is the manager's to pause separately if there is one) are all the same write.
+**Writes** an outage record, effective-dated like every other occupancy fact in this document, voided rather than deleted when it ends early (INV-32/W-58).
+**Accept**
+· The range shows on the calendar (F-1.5) as its own state, never as merely "free"
+· **Feeds UC-79's off-road bucket only** — it does not re-partition §4.1's `days_in_month` formula and does not touch UC-76's `lease_eligible_days`, both of which stay exhaustively defined by `day_record`'s own states for arrangement B. A vehicle marked off the road *while* it also carries an active daily lease still needs each affected day confirmed through F-4.4 in the ordinary way, picking `breakdown` there if that is the reason — this flow records the vehicle-level fact for reporting and the calendar; it is additive, not a replacement for the driver-facing one
+· An incident's own `off_road_from`/`off_road_to` already covers incident-caused downtime and is not duplicated here — UC-79's bucket reads both sources.
 
 ---
 
@@ -622,7 +643,9 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 #### F-4.7 Change the driver
 *Actor:* Manager · *Source:* UC-36 · *Phase:* 1
 **Steps** New driver from a date; previous assignment ends.
-**Accept** · History stays attached to whoever was actually driving · **long downtime** needs no new machinery: assign him to a spare vehicle for a date range (a second arrangement while the first idles), or pay a retainer with no trip attached (F-6.1).
+**Accept** · History stays attached to whoever was actually driving · **long downtime** needs no new machinery: assign him to a spare vehicle for a date range (a second arrangement while the first idles), or pay a retainer with no trip attached (F-6.1) · **the previous assignment's own future occupancy is freed in the same transaction the new one is opened, then re-materialised for the new driver** — the same rolling-horizon write D-9 already gives `startDailyLease`, applied to a close-and-reopen rather than a fresh start.
+
+**GAP-118, resolved 12 Aug 2026 — this Accept clause was previously silent on what happens to days already generated for the previous assignment.** F-2.6/UC-16 frees a closed lease's (arrangement A) future occupancy explicitly; F-5.5/UC-45 frees a cancelled trip's (arrangement C) explicitly; this flow never said the daily-lease (arrangement B) equivalent, and the omission meant a driver change inside the horizon left tomorrow's card carrying **yesterday's driver** — confirming it would have credited the wrong person. **Ending an assignment must free its own future allocation before the replacement opens**, symmetrically with the other two arrangements, and the freed rows are voided (W-58), not deleted, since a future day already generated once is itself worth a record of having been reassigned.
 
 ---
 
@@ -639,16 +662,20 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 
 | Trip dates | What booking does |
 |---|---|
-| Inside the horizon | Takes the allocation from the daily lease and sets the existing day records to `paused_for_trip` |
+| Inside the horizon | **Takes the allocation from the daily lease** and sets the existing day records to `paused_for_trip` |
 | Beyond the horizon | Writes only its allocation. Card generation later reaches that date, finds it already taken, and creates no card at all |
 
 A developer who assumes booking always updates day records will write code that silently does nothing for future trips — and the daily cards will surface weeks later as though the charter had never been booked, quietly re-claiming income that belongs to the trip.
+
+**GAP-119, resolved 12 Aug 2026 — "takes the allocation from the daily lease" was always the specification; the code never did it.** The row above already says a trip inside the horizon takes the daily lease's own allocation — this was not new scope, it was a description the implementation had not caught up to, found because the daily lease's rolling 90-day horizon (D-9) materialises its allocations synchronously, so by the time a charter is booked against a leased vehicle, the days it wants are **already** occupied by rows the lease itself wrote. Booking must therefore **release the daily lease's own allocation for the trip's date range before writing its own** — voided under W-58, never deleted, since "this day moved from the lease to a trip" is exactly the kind of structural cause a later investigation needs to find. Cancelling the trip must restore both halves in the same transaction it always restored day records in: the daily lease's allocation re-materialises, not only its `day_record`, per F-5.5's Accept clause below — leaving it to the nightly cron would repeat the exact defect D-9 was written to close.
+
 **Accept**
 · **INV-1** — a car on a monthly rental for those dates is refused, stated before the conflict can be created
 · A `hold` reserves the calendar but does **not** suppress daily cards
 · Lease days covered are **excused** for the regular driver — his statement shows them as excused, not as debt (UC-41)
 · If someone else drives, the regular driver simply loses those earning days
-· The fee is recorded as money owed to the driver whether or not it is paid now.
+· The fee is recorded as money owed to the driver whether or not it is paid now
+· **Booking a charter against a vehicle already on daily lease succeeds** — it is the core mixed-use case this document is built around, not a conflict. INV-1 refuses two *simultaneous* claims on the same day; it was never meant to refuse a trip taking over a day the lease's own rolling materialisation had already, and separately, claimed.
 
 #### F-5.2 Costs and advances during the trip
 *Actor:* Manager · *Source:* UC-42, UC-21 · *Phase:* 1
@@ -666,7 +693,7 @@ Advance at booking, balance at the end, or the whole thing afterwards. Partial p
 
 #### F-5.5 Cancel a trip
 *Actor:* Manager · *Source:* UC-45 · *Phase:* 1
-**Accept** · Daily cards for those dates **come back automatically** · any advance is refunded or retained as income (a choice, recorded) · a cancelled trip's costs already incurred remain as vehicle costs.
+**Accept** · Daily cards for those dates **come back automatically** · **if the vehicle was on daily lease before the trip, its allocation for those dates is re-materialised in the same transaction, not only the day records** (GAP-119) — the lease resumes owning the days, not merely showing them as no longer paused · any advance is refunded or retained as income (a choice, recorded) · a cancelled trip's costs already incurred remain as vehicle costs.
 
 > **OQ-4** — a trip spanning a month end (28 Jul – 3 Aug): does its income and profit belong to July, August, or split by days? §6.12 sets a recognition rule for rent and is silent on trips. **Blocks monthly reporting.** Recommendation: recognise on the **closing date**, with the trip's own P&L unaffected — simplest, and matches "the trip shows its own profit".
 
@@ -814,8 +841,8 @@ Wrong vehicle, duplicate day confirm, fuel logged against the wrong trip, a day 
 **Steps** Open the record → edit or void → reason (optional for non-money fields, required for money).
 **Accept**
 · **INV-21** — money records are voided-and-replaced, not overwritten. Every money-fact table carries `voided_at` / `voided_reason` / `voided_by`; payments use their status field for the same purpose
-· **Two tables correct differently, deliberately.** A day record is not voided — it moves state, because a day that was confirmed and did not run is still a day, and `did_not_run` is the honest record of it. A duplicate day cannot arise at all: one record per lease per date is a uniqueness constraint
-· Allocation rows are voided with their parent, never on their own
+· **A day record correcting its own state (`did_not_run`) is not voided** — it moves state, because a day that was confirmed and did not run is still a day, and `did_not_run` is the honest record of it. A duplicate day cannot arise at all: one record per lease per date is a uniqueness constraint. A day record superseded wholesale by a driver or arrangement change (F-4.7, F-1.2, GAP-118) **is** voided — a different situation from correcting its own outcome
+· **INV-32/W-58** — void coverage is no longer money-tables-only. `vehicle_day_allocation` (freed by a closed lease, a cancelled trip, or a trip taking over a leased day — GAP-118/GAP-119) and `payment_allocation` (undone during a correction) are voided rather than deleted, the same as every money table, because a deleted row leaves no trace for a later investigation to find — migration `0002`'s audit trigger only ever fired on insert and update
 · Non-money fields may be edited with the change captured in the audit trail (F-8.6)
 · A voided record never disappears from the audit trail.
 
@@ -862,7 +889,8 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 
 **Accept**
 · **INV-19/W-56** — every report degrades to "not available", never to zero. A testable rule, not a sentiment: assert it per report with empty and partial fixtures
-· **UC-76's denominator excludes not-scheduled and charter days** (§4). This is the single assertion that keeps the lost-days report honest
+· **UC-76's denominator excludes not-scheduled and charter days** (§4), and now also individually-skipped days (F-1.7, GAP-20) — none of the three ever become a `day_record`, so none can reach `ran + lost` by any route
+· **UC-79's off-road bucket is written by F-1.10** (GAP-26, resolved 12 Aug 2026) and by an incident's own dates — previously named in this table with no write path behind it
 · **UC-78 ages from the agreed rhythm** — a weekly settler is not late on Thursday (F-4.5)
 · Below-the-line costs never enter profit but are always reachable (INV-5).
 
