@@ -59,7 +59,11 @@ export function ReceiptSheet({ open, onOpenChange, subjectType, subjectId }: Rec
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {(attachmentsQuery.data ?? []).map((attachment) => (
-              <ReceiptThumbnail key={attachment.id} attachmentId={attachment.id} />
+              <ReceiptThumbnail
+                key={attachment.id}
+                attachmentId={attachment.id}
+                sizeBytes={attachment.sizeBytes}
+              />
             ))}
             {unconfirmedLocalUploads.map((upload) => (
               <PendingReceiptTile
@@ -78,18 +82,33 @@ export function ReceiptSheet({ open, onOpenChange, subjectType, subjectId }: Rec
   );
 }
 
-function ReceiptThumbnail({ attachmentId }: { attachmentId: string }) {
+function ReceiptThumbnail({
+  attachmentId,
+  sizeBytes,
+}: {
+  attachmentId: string;
+  sizeBytes: number;
+}) {
   const api = useApi();
   const [url, setUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let objectUrl: string | null = null;
     let cancelled = false;
+    setFailed(false);
     api
       .getBlob(`/api/attachment/${attachmentId}`)
       .then(({ blob }) => {
         if (cancelled) return;
+        if (blob.size !== sizeBytes) {
+          // A network-truncated response resolves without fetch ever
+          // throwing (GAP-112) — the only way to catch it is to check what
+          // actually arrived against the size the server already told us.
+          setFailed(true);
+          return;
+        }
         objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
       })
@@ -100,12 +119,21 @@ function ReceiptThumbnail({ attachmentId }: { attachmentId: string }) {
       cancelled = true;
       if (objectUrl !== null) URL.revokeObjectURL(objectUrl);
     };
-  }, [api, attachmentId]);
+  }, [api, attachmentId, sizeBytes, attempt]);
 
   if (failed) {
     return (
-      <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface text-critical">
-        <AlertCircle className="size-5" aria-hidden />
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface text-critical">
+          <AlertCircle className="size-5" aria-hidden />
+        </div>
+        <button
+          type="button"
+          onClick={() => setAttempt((a) => a + 1)}
+          className="flex min-h-11 min-w-11 items-center justify-center text-caption text-brand-ink"
+        >
+          Retry
+        </button>
       </div>
     );
   }

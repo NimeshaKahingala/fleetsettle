@@ -54,7 +54,7 @@ Ordered so that no test contaminates the state a later one needs. **Read-only fi
 | **LT-8** | B3 — close the month | ✅ Closed 8 Aug |
 | **LT-9** | Linked-driver 403 boundary, live | 🔴 Open — no linked-driver credentials created yet |
 | **LT-10** | F4's real-device pass (iOS Safari / Android Chrome) | 🔴 Open — TRACKER.md GAP-104's own acceptance checklist still names this; nothing in this environment can substitute for it |
-| **LT-11** | GAP-112 — receipt thumbnail, real camera photo | 🔴 Open — 11 Aug pass used a generated PNG; broken preview could be the fixture, not the app |
+| **LT-11** | GAP-112 — receipt thumbnail, real camera photo | ✅ Closed 12 Aug — reported again with a real photo on QA, ruling out the fixture theory; root cause confirmed by pulling the actual R2 objects, fixed |
 | **LT-12** | Opening-balance re-confirm, post-F5, at 360×640 | 🔴 Open — the 11 Aug pass hit GAP-109/GAP-110 mid-attempt; both are now fixed, but the actual re-confirm (QA2 Customer Rs 2,000 / QA2 Driver Rs 5,000 materialising into the reports) has never been watched succeed |
 
 ---
@@ -112,13 +112,13 @@ Verified 8 Aug: checklist counts render, the close button stays enabled regardle
 
 Open a nested sheet (e.g. `QuickAddSheet` → `AmountPad`) on a real iOS Safari and a real Android Chrome device, save, and confirm only the intended sheet closes — the parent must not close along with it.
 
-## LT-11 · GAP-112's receipt thumbnail, with a real photo
+## LT-11 · GAP-112's receipt thumbnail, with a real photo — closed 12 Aug
 
-**Open since 11 Aug, deliberately filed unverified.** The 11 Aug pass uploaded a generated PNG; the thumbnail rendered as a broken image (`naturalWidth: 0`). A7's own 26-case suite is green, which argues for a bad fixture over a real defect — **reproduce with a real camera photo before spending anything on a fix.**
+**Reproduced with a real phone photo on QA, not a generated fixture** — the exact retest this row asked for, except it arrived as a fresh user report rather than a scheduled retest. That alone already ruled out the "bad PNG fixture" theory the 11 Aug filing led with.
 
-1. Attach a real phone-camera JPEG (not a generated fixture) to a fuel fill or expense.
-2. Open Receipts and confirm the thumbnail renders — a real image, not a broken icon.
-3. If it still breaks, this is a real defect in upload/retrieval/content-type handling, not a fixture problem, and gets a proper gap id of its own (GAP-112 stays filed as the unverified predecessor).
+Root cause confirmed by pulling the two actual R2 objects behind the report directly (`wrangler r2 object get fleetsettle-attachments-qa/<key>`, bypassing the app entirely): both were byte-for-byte valid, complete JPEGs (`file` confirms full baseline JPEG structure, correct SOI/EOI markers). Storage and the upload path were never at fault — the gap was on read. `ReceiptThumbnail` trusted whatever `res.blob()` resolved with; a network-truncated download (two ~350KB receipts fetching concurrently the instant the sheet opens is exactly the exposure) resolves with no thrown error and silently becomes a broken `<img>`.
+
+Per this row's own step 3, that makes it a real defect rather than a fixture problem — filed and closed as **GAP-112** directly (the same id, not a new one: the 11 Aug filing and this report are the same symptom with the same root cause, confirmed end to end rather than left as a re-opened question). Fixed and merged, PR #28 — full account in TRACKER.md's closed row.
 
 ## LT-12 · Opening-balance re-confirm, post-F5, at 360×640
 
