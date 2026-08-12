@@ -102,7 +102,7 @@ Three rules replace it, in order of leverage:
 
 ### Two live defects, found validating the decisions against source
 
-Neither was in either tracker before this sitting. Both are pending reproduction — Wave 0, below — before either is fixed.
+Neither was in either tracker before this sitting. **Both confirmed by reproduction against real endpoints, Wave 0, 12 Aug 2026** — see that wave's own note below for the transcript.
 
 - **GAP-119** — a charter cannot be booked on a vehicle already on daily lease, the mixed-use case this product opens with. `startDailyLease`'s own rolling horizon (D-9) materialises `vehicle_day_allocation` rows synchronously; `bookTrip` inserts its own with no release first, and the unique index refuses it as `VEHICLE_DOUBLE_BOOKED`. **`data-model.md` §4.1 already specified the correct behaviour** — this is an implementation gap against a correct spec, not a design question, and the fix is now written into `data-model.md` v1.1.6 (§4.1, D-12) and `user-flows.md` v1.1.8 (F-5.1, F-5.5).
 - **GAP-118** — the mirror case: closing a daily-lease assignment (a driver change, F-4.7, or an arrangement change off B, F-1.2) never frees its own future occupancy, because arrangements A and C both have the cleanup primitive and B never got one. A driver change inside the horizon leaves tomorrow's card carrying yesterday's driver.
@@ -128,9 +128,9 @@ Full reasoning in TRACKER.md's 12 Aug entry; the shape each landed on:
 | — | `post_closure_charge` gets a handler-level cross-check — it writes an `obligation`, not a table, so it can't take a composite FK |
 | **Soft-delete policy** | **No hard deletes anywhere in `api/src`**, wider than W-50's money-tables-only scope — `use-cases.md` **W-58**. Full trio on every table, not a timestamp only. `day_record` joins them; stale cards are voided, never mutated in place. A soft-deleted parent keeps all its history rendering exactly as before. GAP-28 (error monitoring) reclassified to capture-and-query, no paging — the same forensic motivation, satisfiable on Workers Logs alone |
 
-### Wave 0 · Prove the two live defects (S)
+### ~~Wave 0 · Prove the two live defects~~ (S) — ✅ done, 12 Aug 2026
 
-No fixes in this wave. Reproduce `GAP-118` and `GAP-119` against the real endpoints — not the test factories, which write a state the API can no longer produce post-D-9 — per this project's own standing discipline: a regression test must fail against the pre-fix code before anyone trusts it.
+No fixes in this wave — reproduction only, against a dedicated Neon test branch (`test`, brought current to migration `0014`), never `qa` or `main`. Both confirmed exactly as filed: `GAP-119` — booking a trip inside a daily lease's own materialised horizon returns `409 VEHICLE_DOUBLE_BOOKED`. `GAP-118` — after `POST /api/daily-lease/{id}/change-driver` returns `201` and opens a genuine new `daily_lease` row, the future date's `day_record` is unchanged: still the old driver, still the closed `dailyLeaseId`, still `open`; no row for the new driver exists at all. Both reproductions were throwaway integration tests, run once and deleted rather than committed red — TRACKER.md's 12 Aug addendum carries the full transcript.
 
 ### Wave 1 · The schema series, while it's free (L)
 
