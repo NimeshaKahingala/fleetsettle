@@ -426,11 +426,26 @@ export async function saveOpeningBalance(
 
 /**
  * F-0.2's "Confirm" step. 404 if nothing was ever saved — there is nothing
- * to confirm yet. Idempotent: committing an already-committed batch just
- * succeeds without re-stamping `committedAt` or re-materialising a second
- * time, since a client retry of "Confirm" (a flaky connection, a double
- * tap) must be a no-op, never a failure (CLAUDE.md → Writes) and never a
- * doubled opening balance.
+ * to confirm yet. Idempotent on the fact that matters: a batch already
+ * carrying active postings never materialises twice, so a client retry of
+ * "Confirm" (a flaky connection, a double tap) stays a no-op, never a
+ * failure (CLAUDE.md → Writes) and never a doubled opening balance.
+ *
+ * **GAP-109**: that idempotency check used to be `status === 'draft'`
+ * alone, which is a different fact — `commitOpeningBalance` shipped
+ * (GAP-103/F3, 11 Aug 2026) with a data model where "committed" and
+ * "materialised" were assumed to always agree, and for every batch
+ * committed *after* that date they do. Every batch committed *before* it
+ * has `status: 'committed'` with zero rows in `opening_balance_posting` —
+ * the write half F3 added never ran for them — and the old check treated
+ * that as "nothing to do" forever. **The real idempotency signal is
+ * whether this batch has any active posting, not what its status column
+ * says**: zero postings on a non-empty batch means the one write this
+ * function exists to make has never actually happened, committed or not,
+ * and a client re-confirming (GAP-110 is what makes that reachable at
+ * 360×640) is the one path that fixes it — no backfill migration, no
+ * write outside a normal user action, and it can never double-materialise
+ * a batch that already has postings.
  */
 export async function commitOpeningBalance(
   writer: Writer,
@@ -441,10 +456,11 @@ export async function commitOpeningBalance(
     if (!existing) throw new NotFoundError("No opening balance batch has been saved yet");
 
     const entries = await findEntriesForBatch(tx, existing.id);
+    const activePostings = await findActivePostingsForBatch(tx, existing.id);
 
-    if (existing.status === "draft") {
+    if (existing.status === "draft" || activePostings.length === 0) {
       try {
-        await markBatchCommitted(tx, existing.id);
+        if (existing.status === "draft") await markBatchCommitted(tx, existing.id);
         await materializeOpeningBalanceEntries(
           tx,
           businessId,

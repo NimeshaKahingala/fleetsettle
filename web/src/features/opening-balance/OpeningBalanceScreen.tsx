@@ -285,9 +285,9 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
       title="Opening balances"
       onBack={onBack}
       primaryAction={{
-        label: "Save as draft",
-        onClick: () => saveMutation.mutate(),
-        disabled: saveMutation.isPending || writeBlocked,
+        label: "Confirm and go live",
+        onClick: () => setConfirmOpen(true),
+        disabled: commitMutation.isPending || writeBlocked,
       }}
     >
       <div className="flex flex-col gap-4">
@@ -359,14 +359,17 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
           </AlertStrip>
         ) : saveMutation.isError ? (
           <p className="text-body-sm text-critical-ink">{saveMutation.error.message}</p>
+        ) : commitMutation.isError ? (
+          <p className="text-body-sm text-critical-ink">{commitMutation.error.message}</p>
         ) : null}
 
         <Button
           type="button"
-          onClick={() => setConfirmOpen(true)}
-          disabled={commitMutation.isPending || writeBlocked}
+          variant="outline"
+          onClick={() => saveMutation.mutate()}
+          disabled={saveMutation.isPending || writeBlocked}
         >
-          Confirm and go live
+          Save as draft
         </Button>
 
         <AddOpeningBalanceEntrySheet

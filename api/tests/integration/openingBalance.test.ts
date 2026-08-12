@@ -1,5 +1,11 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import {
+  insertBatch,
+  insertEntries,
+  markBatchCommitted,
+} from "../../src/queries/opening-balance.js";
+import { newId } from "@fleetsettle/shared";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -210,6 +216,77 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     expect(cashPosition.partners).toContainEqual(
       expect.objectContaining({ userId: owner.userId, heldMinor: "5000000" }),
     );
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-109: re-confirming a batch committed before F3 shipped materialises it, and a normal retry after that stays a no-op", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // Reproduces the exact pre-F3 state directly, bypassing the domain
+    // function entirely — the whole point of GAP-109 is that this state
+    // can no longer be *produced* through the API once the fix lands, only
+    // *found*, the same way a real batch confirmed before 11 Aug 2026 sits
+    // today: `status: 'committed'`, zero rows in `opening_balance_posting`.
+    const batchId = newId();
+    await insertBatch(db, { id: batchId, businessId, goLiveDate: "2026-01-01" });
+    await insertEntries(db, [
+      {
+        id: newId(),
+        batchId,
+        kind: "customer_due",
+        partyCustomerId: customerId,
+        amountMinor: 750000n,
+      },
+    ]);
+    await markBatchCommitted(db, batchId);
+    ctx.trackCreatedOpeningBalance(batchId);
+
+    // The stranded precondition, confirmed rather than assumed (this
+    // project's own "make it fail on purpose" discipline) — QA-2026-08-11-01
+    // live, reproduced here: a committed customer due that "Who owes us"
+    // cannot see.
+    const before: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(before.find((r) => r.partyId === customerId)).toBeUndefined();
+
+    const getRes = await getOpeningBalance(token);
+    expect(await getRes.json()).toMatchObject({ id: batchId, status: "committed" });
+
+    // GAP-110's own fix is what makes this reachable on a phone — the
+    // backend half is this call succeeding, not silently no-op'ing because
+    // `status` already said "committed".
+    const commitRes = await commitOpeningBalance(token);
+    expect(commitRes.status).toBe(200);
+    const committed: { status: string } = await commitRes.json();
+    expect(committed.status).toBe("committed");
+
+    const after: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(after).toContainEqual(
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "750000" }),
+    );
+
+    // Now that this batch has real postings, a further retry must go back
+    // to being a pure no-op — the exact idempotency the happy-path test
+    // already covers for the ordinary case, checked again here because
+    // this batch took the GAP-109 recovery path to get there rather than
+    // the ordinary one.
+    const secondCommitRes = await commitOpeningBalance(token);
+    expect(secondCommitRes.status).toBe(200);
+    const afterRetry: { partyId: string; outstandingMinor: string }[] = await (
+      await getReceivables(token)
+    ).json();
+    expect(afterRetry.filter((r) => r.partyId === customerId)).toEqual([
+      expect.objectContaining({ partyId: customerId, outstandingMinor: "750000" }),
+    ]);
 
     await ctx.cleanup();
   });

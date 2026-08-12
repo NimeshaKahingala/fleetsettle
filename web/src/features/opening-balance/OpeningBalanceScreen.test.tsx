@@ -71,6 +71,25 @@ async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: str
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
+test("GAP-110: Confirm and go live is the sticky primary action, Save as draft is not", async () => {
+  const get = baseGet();
+  const { container } = renderWithProviders(
+    <OpeningBalanceScreen today={today} onBack={() => {}} />,
+    { get },
+  );
+
+  const confirmButton = await screen.findByRole("button", { name: "Confirm and go live" });
+  const saveButton = screen.getByRole("button", { name: "Save as draft" });
+
+  // Screen's own sticky-CTA wrapper (Screen.test.tsx pins the class): only
+  // the terminal action (F-0.2 step 6) gets it. Two competing sticky/
+  // in-content actions is what put "Confirm and go live" below the
+  // viewport at 360x640 (GAP-110) — this pins there being exactly one.
+  expect(confirmButton.closest(".sticky")).not.toBeNull();
+  expect(saveButton.closest(".sticky")).toBeNull();
+  expect(container.querySelectorAll(".sticky.bottom-0")).toHaveLength(1);
+});
+
 test("saves with just a go-live date and no entries at all (U-2)", async () => {
   const user = userEvent.setup();
   const put = vi.fn().mockResolvedValue({
