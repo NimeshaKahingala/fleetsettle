@@ -111,7 +111,7 @@
    VERIFY: Recovery recorded
 
 **Assertions (post-test):**
-- [ ] Insurance claim section hidden by default, enabled when needed
+- [ ] Insurance claim section optional to fill in, always visible (not hidden behind a setting — W-11, corrected 11 Aug 2026, GAP-11)
 - [ ] While pending: shows as "money expected, not money earned"
 - [ ] Pending recovery NEVER enters profit (INV-4 adjacent)
 - [ ] Recovery carries TWO dates: agreed and received

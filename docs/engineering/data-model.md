@@ -1,8 +1,8 @@
 # Data Model
 
-**Status:** v1.1.4 — §12: migration `0013` gives `attachment` its void trio, a content-type and kind/subject-type pair `CHECK`, and a tenant-scoped subject index — A7/GAP-16, the table's first real writer. No fixture-figure change
-**Date:** 9 August 2026
-**Derived from:** `use-cases.md` v1.2.4 · `user-flows.md` v1.1.5
+**Status:** v1.1.5 — §17 gains **D-10**: `attachment` retention, decided (keep indefinitely, no archival column, no purge job) — GAP-107, genuinely undecided until now rather than assumed. §12's insurance_claim comment corrected to match `use-cases.md` v1.2.6's W-11 wording. No schema change, no fixture-figure change
+**Date:** 11 August 2026
+**Derived from:** `use-cases.md` v1.2.6 · `user-flows.md` v1.1.7
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
 **Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
@@ -719,7 +719,7 @@ CREATE TABLE lease_extension (
   created_by   uuid REFERENCES app_user(id)
 );
 
-CREATE TABLE insurance_claim (                    -- W-11: optional, off by default
+CREATE TABLE insurance_claim (                    -- W-11: optional, always visible (major damage only, manager's judgement)
   id                    uuid PRIMARY KEY,
   incident_id           uuid NOT NULL REFERENCES incident(id),
   claimed_amount_minor  bigint NOT NULL CHECK (claimed_amount_minor >= 0),
@@ -1271,6 +1271,8 @@ CREATE INDEX attachment_subject_live
 ```
 
 `attachment` stays outside `assert_period_open()`'s array and `write_audit_log()`'s discovery loop — it carries no `posted_period_id`, so it is not a money table by this document's own definition (§13). The consequence is deliberate, not a gap: **attachment writes are neither period-gated nor audit-logged.**
+
+**Retention decided 11 Aug 2026 — GAP-107, D-10.** Nothing stated how long an `attachment` row or its R2 object should live, and the table had no archival column — an omission recorded as one, not an assumption the first purge job would have encoded by accident. Decided: **kept indefinitely.** Condition photos and expense receipts are dispute evidence, and a dispute can surface months or years after the record it concerns; no archival column is added, no purge job is planned, and `attachment` keeps the shape above unchanged. Storage volume at this business's scale is negligible against the cost of losing evidence for a closed disagreement. Revisit only if evidence of real storage cost, or a legal retention limit, ever makes "forever" wrong — neither is true today.
 
 **`write_audit_log()` (migration `0002`) attaches itself by discovery, not by a hand-maintained list**: it walks every table carrying `posted_period_id` and attaches to each. `business_member` carries no such column — it is not a money table — so the discovery loop has never covered it, and **who granted or revoked a role has been recorded nowhere** (GAP-53). The fix is one explicit attachment, since `write_audit_log()` reads only `NEW.business_id` and `NEW.id`, both present on this table already:
 
@@ -1830,6 +1832,7 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-8** | `audit_log` has no writer (INV-28) | The table and its index exist; nothing populates them. Either a generic `AFTER INSERT OR UPDATE` trigger over the money tables writing `to_jsonb(NEW)`, or the application writes the row inside the same transaction. **The trigger is the safer choice** — it cannot be forgotten in a new code path, which is the whole argument of §1.1. **Build it as the first implementation task**, before any money table holds live data: §11.2 moved audit into phase one precisely because retrofitting it later means backfilling history that was never captured, and an audit trail with a gap at the beginning is the one stretch someone will eventually need |
 | **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
 | **D-9** | GAP-88: daily-lease (B) materialisation moved off the cron (§4.1) | **Synchronous, inside `startDailyLease`'s own transaction** — one bulk `INSERT … SELECT`, the same query shape `generate-day-cards` already runs, so the cron keeps extending the horizon rather than originating it. Two alternatives declined: *derive occupancy at read time* in `findVehicleCalendar` — rejected because the trip-conflict check and the lost-days report would each need their own separate fallback, and the close-checklist (GAP-94) a fourth, instead of fixing the one write path once; *keep the cron and patch only the calendar/report symptoms* — rejected because it leaves the ~24h blind window in place, which is exactly what CLAUDE.md's "no cron is a prerequisite for a user action" forbids, not a smaller version of it |
+| **D-10** | GAP-107: `attachment` retention — undecided since the table's own creation | **Resolved 11 Aug 2026 — kept indefinitely.** No archival column, no purge job. §12 carries the full reasoning; distinct from **D-4**, which is about `audit_log`/`message_event` growing without bound and still wants a partitioning answer this row does not supply |
 
 ---
 
@@ -1842,6 +1845,10 @@ When a decision changes: update the use cases, update the flows, update §14 and
 ---
 
 ## 19. What changed
+
+### v1.1.5 — 11 August 2026
+
+Two decisions, no schema change, no fixture-figure change. **§17 D-10**: `attachment` retention (GAP-107) resolved as kept indefinitely — no archival column, no purge job; §12 carries the reasoning. **§12's `insurance_claim` comment** corrected from "optional, off by default" to "optional, always visible" — GAP-11, matching `use-cases.md` v1.2.6's W-11 correction; the table's own DDL never had an `enabled` column, so this was always a comment describing a switch that did not exist, not a behaviour change.
 
 ### v1.1.2 — 9 August 2026
 

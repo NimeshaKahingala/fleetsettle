@@ -1,7 +1,14 @@
 # FleetSettle Test Manifest — Machine-Readable Registry & Progress Tracker
 # ========================================================================
-# This file is the single source of truth for test execution progress.
-# The AI agent reads it before each run and updates it after each test case.
+# RETIRED 11 Aug 2026 (GAP-58, TRACKER.md). last_full_run/last_updated below
+# have been null since this file was written and no case has ever run --
+# decided not to adopt it. Kept as aspirational test design, not a progress
+# tracker; ../README.md carries the full reasoning. The repository's real
+# acceptance evidence is `npm test` plus ../../LIVE-TEST-PLAN.md.
+#
+# Original framing, left as written below for anyone who does pick this up:
+# "This file is the single source of truth for test execution progress.
+#  The AI agent reads it before each run and updates it after each test case."
 #
 # Status values (suite-level): not_started | in_progress | passed | failed | blocked
 # Result values (case-level):  pass | fail | skip | blocked | null
