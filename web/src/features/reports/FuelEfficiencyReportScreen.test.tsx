@@ -3,6 +3,7 @@ import type { FuelEfficiencyResponse, VehicleResponse } from "@fleetsettle/share
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { FuelEfficiencyReportScreen, toChartData } from "./FuelEfficiencyReportScreen.js";
 
@@ -39,6 +40,48 @@ test("no vehicle chosen yet shows the parameter form, not a fetch against nothin
   );
 
   expect(screen.getByRole("button", { name: "Choose vehicle" })).toBeInTheDocument();
+});
+
+test("GAP-101: a failed report read shows a failure notice, params form still usable, and back is still reachable", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle") return Promise.resolve(vehicles);
+    return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  });
+  renderWithProviders(
+    <FuelEfficiencyReportScreen
+      vehicleId="v1"
+      from={asBusinessDate("2026-04-16")}
+      to={today}
+      today={today}
+      onParamsChange={() => {}}
+      onBack={() => {}}
+    />,
+    { get },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading this vehicle's fuel efficiency."),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Vehicle: NB-1234" })).toBeInTheDocument();
+  await screen.findByRole("button", { name: "Back" });
+});
+
+test("GAP-101: a failed vehicle-list read shows a notice above the picker", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <FuelEfficiencyReportScreen
+      from={asBusinessDate("2026-04-16")}
+      to={today}
+      today={today}
+      onParamsChange={() => {}}
+      onBack={() => {}}
+    />,
+    { get },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the vehicle list."),
+  ).toBeInTheDocument();
 });
 
 test("a window with zero complete fill-to-fill pairs shows NotAvailable for the whole chart", async () => {

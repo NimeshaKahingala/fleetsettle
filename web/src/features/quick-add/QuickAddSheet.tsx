@@ -1,13 +1,20 @@
 import { type BusinessDate } from "@fleetsettle/shared";
-import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  CustomerResponse,
+  DriverResponse,
+  ExpenseResponse,
+  VehicleResponse,
+} from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Fuel, Receipt, Route } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Fuel, Receipt, Route } from "lucide-react";
 import { useState } from "react";
 import { ReasonPicker, type ReasonOption } from "../../components/ReasonPicker.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { FuelFillSheet } from "../costs/FuelFillSheet.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
+import { QuickPaymentSheet, type QuickPaymentParty } from "./QuickPaymentSheet.js";
 
 export interface QuickAddSheetProps {
   open: boolean;
@@ -20,38 +27,57 @@ export interface QuickAddSheetProps {
  * §3.1's `＋` tab (M-4): "not a destination, no route change." M-4's own
  * fixed list names five actions — fuel, expense, payment received, payment
  * made, new trip — in that order, "because muscle memory... is the point."
- * This ships **three of the five**: Fuel and Expense are this phase's own
- * F-numbers (F-3.3/F-3.1); New trip needed only a vehicle picker in front
- * of the route that already exists (`/vehicles/:id/trip/new`, Web-P7).
- * Payment received (F-2.2) already has a real flow, but a lease-scoped one
- * (`CollectPaymentSheet`, reached from a lease's own hub) — this sheet has
- * no lease in scope to open it against, and building a business-wide
- * party/lease picker is real, separate work. **Payment made (F-6.1, "pay
- * the driver") now has a real frontend too (B13, `PayDriverSheet`) — from
- * a driver's own page, `DriverDetailScreen`'s "Driver money" action, not
- * from here.** The same reason keeps it off this sheet's own list: no
- * driver is in scope at this tap, and a business-wide driver picker is the
- * identical "real, separate work" the payment-received case already
- * declined. Both deliberately left off the rendered list rather than wired
- * to a dead tap: `ActionSheet` renders exactly the list it is given and
- * never filters on its own, so growing this list later (a driver picker,
- * if one is ever built) is a one-line addition here, not a rework.
+ * B15/GAP-82 finishes the two payment entries M-4 had named since the
+ * beginning: a payment received first chooses a customer or driver, and a
+ * payment made chooses a driver. Partner payout/settlement remains B2/F-7.2,
+ * not a generic Quick Add payment, because that flow records movement
+ * between partners rather than settling a customer/driver balance.
  */
 export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAddSheetProps) {
   const api = useApi();
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expenseOpen, setExpenseOpen] = useState(false);
+  const [receivedPartyPickerOpen, setReceivedPartyPickerOpen] = useState(false);
+  const [paidPartyPickerOpen, setPaidPartyPickerOpen] = useState(false);
+  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
+  const [paymentDirection, setPaymentDirection] = useState<"received" | "paid">("received");
+  const [paymentParty, setPaymentParty] = useState<QuickPaymentParty | null>(null);
   const [tripVehiclePickerOpen, setTripVehiclePickerOpen] = useState(false);
 
+  const customersQuery = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => api.get<CustomerResponse[]>("/api/customer"),
+    enabled: receivedPartyPickerOpen,
+  });
+  const driversQuery = useQuery({
+    queryKey: ["drivers"],
+    queryFn: () => api.get<DriverResponse[]>("/api/driver"),
+    enabled: receivedPartyPickerOpen || paidPartyPickerOpen,
+  });
   const vehiclesQuery = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
     enabled: tripVehiclePickerOpen,
   });
+  const customersState = useQueryState(customersQuery);
+  const driversState = useQueryState(driversQuery);
+  const vehiclesState = useQueryState(vehiclesQuery);
 
   const actions: ActionSheetAction[] = [
     { key: "fuel", label: "Fuel", icon: Fuel, onSelect: () => setFuelOpen(true) },
     { key: "expense", label: "Expense", icon: Receipt, onSelect: () => setExpenseOpen(true) },
+    {
+      key: "payment-received",
+      label: "Payment received",
+      icon: ArrowDownLeft,
+      onSelect: () => setReceivedPartyPickerOpen(true),
+    },
+    {
+      key: "payment-made",
+      label: "Payment made",
+      icon: ArrowUpRight,
+      onSelect: () => setPaidPartyPickerOpen(true),
+    },
     {
       key: "trip",
       label: "New trip",
@@ -59,6 +85,29 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
       onSelect: () => setTripVehiclePickerOpen(true),
     },
   ];
+
+  const receivedPartyReasons: ReasonOption[] = [
+    ...(customersQuery.data ?? []).map((customer) => ({
+      key: `customer:${customer.id}`,
+      label: `Customer - ${customer.name}`,
+    })),
+    ...(driversQuery.data ?? []).map((driver) => ({
+      key: `driver:${driver.id}`,
+      label: `Driver - ${driver.name}`,
+    })),
+  ];
+  const paidPartyReasons: ReasonOption[] = (driversQuery.data ?? []).map((driver) => ({
+    key: `driver:${driver.id}`,
+    label: `Driver - ${driver.name}`,
+  }));
+
+  function selectPaymentParty(option: ReasonOption, direction: "received" | "paid") {
+    const [partyType, partyId] = option.key.split(":");
+    if ((partyType !== "customer" && partyType !== "driver") || partyId === undefined) return;
+    setPaymentDirection(direction);
+    setPaymentParty({ partyType, partyId, label: option.label });
+    setPaymentSheetOpen(true);
+  }
 
   function selectTripVehicle(option: ReasonOption) {
     onBookTrip(option.key);
@@ -80,6 +129,57 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         today={today}
         onRecorded={(_expense: ExpenseResponse) => setExpenseOpen(false)}
       />
+      <ReasonPicker
+        open={receivedPartyPickerOpen}
+        onOpenChange={setReceivedPartyPickerOpen}
+        title="Payment received — choose who paid"
+        reasons={receivedPartyReasons}
+        onSelect={(option) => selectPaymentParty(option, "received")}
+        {...(customersState.kind === "error"
+          ? {
+              error: {
+                error: customersState.error,
+                retry: customersState.retry,
+                of: "the customer list",
+              },
+            }
+          : driversState.kind === "error"
+            ? {
+                error: {
+                  error: driversState.error,
+                  retry: driversState.retry,
+                  of: "the driver list",
+                },
+              }
+            : {})}
+      />
+      <ReasonPicker
+        open={paidPartyPickerOpen}
+        onOpenChange={setPaidPartyPickerOpen}
+        title="Payment made — choose a driver"
+        reasons={paidPartyReasons}
+        onSelect={(option) => selectPaymentParty(option, "paid")}
+        {...(driversState.kind === "error"
+          ? {
+              error: {
+                error: driversState.error,
+                retry: driversState.retry,
+                of: "the driver list",
+              },
+            }
+          : {})}
+      />
+      <QuickPaymentSheet
+        open={paymentSheetOpen}
+        onOpenChange={setPaymentSheetOpen}
+        direction={paymentDirection}
+        party={paymentParty}
+        today={today}
+        onRecorded={() => {
+          setPaymentParty(null);
+          setPaymentSheetOpen(false);
+        }}
+      />
 
       {/* "Pick a vehicle, then go" — reuses `ReasonPicker`'s plain
           single-select list rather than `EntityPicker`, which is a
@@ -91,6 +191,15 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         title="New trip — choose a vehicle"
         reasons={(vehiclesQuery.data ?? []).map((v) => ({ key: v.id, label: v.registration }))}
         onSelect={selectTripVehicle}
+        {...(vehiclesState.kind === "error"
+          ? {
+              error: {
+                error: vehiclesState.error,
+                retry: vehiclesState.retry,
+                of: "the vehicle list",
+              },
+            }
+          : {})}
       />
     </>
   );

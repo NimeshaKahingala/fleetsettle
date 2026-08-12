@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 function Row({ label, value }: { label: string; value: Minor }) {
   return (
@@ -35,7 +37,20 @@ export function ReviewMoneyScreen() {
     queryFn: () => api.get<PartnerSummaryResponse>(`/api/partner/${me.userId}`),
   });
 
-  if (query.data === undefined) {
+  const state = useQueryState(query);
+
+  // GAP-101/GAP-90/F2: this is the screen the client half of F2 closes —
+  // a revoked member's 404 (the server half's own fix) now renders as an
+  // honest failure here, not an eternal spinner.
+  if (state.kind === "error") {
+    return (
+      <Screen title="My money">
+        <QueryStateFailure error={state.error} retry={state.retry} of="your money" />
+      </Screen>
+    );
+  }
+
+  if (state.kind !== "ready") {
     return (
       <Screen title="My money">
         <p className="text-body text-ink-muted">Loading…</p>
@@ -43,7 +58,7 @@ export function ReviewMoneyScreen() {
     );
   }
 
-  const data = query.data;
+  const data = state.data;
 
   return (
     <Screen title="My money">

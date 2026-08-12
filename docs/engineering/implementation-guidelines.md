@@ -1,7 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.5 — §9 rewritten against the shipped pipeline: QA/production environments, deploy safety, the non-inheritable-binding and rate-limit-namespace traps
-**Date:** 5 August 2026
+**Status:** v1.6.1 — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
+**Date:** 10 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -444,7 +444,7 @@ Secrets via `wrangler secret put --env <name>`, never in `vars` — those are pl
 7. `/api/docs` 404s in production, verified in CI.
 8. Composite FKs make cross-business writes structurally impossible (§5).
 9. Security headers on the assets Worker — CSP, HSTS, `X-Content-Type-Options`, `Referrer-Policy`. The highest value-to-effort item on this list.
-10. R2 objects are served through **presigned, expiring URLs**, never a public bucket. Condition photos are evidence in disputes and often show number plates.
+10. R2 objects are served **through the Worker, re-authorised on every request**, never a public bucket and never a presigned URL — reversed from a prior draft of this line by A7/GAP-16 (UI §6.3's M-29): a presigned GET can outlive the check that issued it, where a Worker read re-runs `business_id` and the capability check every single time. Condition photos are evidence in disputes and often show number plates.
 
 ---
 
@@ -549,6 +549,7 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | Level-2 field required to save | Component test | UI §4, every create form |
 | Linked driver reaches another driver's data | Integration tests | §8.3, its own test class |
 | 44px targets, axe | Component test | UI §9 |
+| A read with no error state (UI §6.4/M-28) | Guard script | `useQuery(` in `web/src` without `useQueryState`/`QueryState` |
 
 The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
 

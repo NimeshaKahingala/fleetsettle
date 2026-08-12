@@ -8,6 +8,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { TripDetailScreen } from "./TripDetailScreen.js";
 
@@ -110,6 +111,18 @@ function baseGet(overrides: Record<string, unknown> = {}) {
   return get;
 }
 
+async function enterMoney(
+  user: ReturnType<typeof userEvent.setup>,
+  buttonName: string,
+  digits: string,
+) {
+  await user.click(screen.getByRole("button", { name: buttonName }));
+  for (const digit of digits) {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+}
+
 test("renders the trip's agreed amount, costs so far (voided excluded), and driver fee", async () => {
   const get = baseGet({ "/api/trip/t1/expense": expenses });
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
@@ -133,7 +146,52 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText("wrong trip")).toBeInTheDocument();
 });
 
-test("GAP-57 — Received shows the real trip_fare receivable, and Advance to him stays an honest gap (W-56)", async () => {
+test("GAP-45: the title omits the year when the range sits inside the business's current year", async () => {
+  const get = baseGet();
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByRole("heading", { name: "10 Jul – 12 Jul" })).toBeInTheDocument();
+});
+
+test("GAP-45: the title shows the year on both dates when the range sits outside the current year", async () => {
+  const lastYearTrip: TripResponse = {
+    ...bookedTrip,
+    startDate: "2025-07-10",
+    endDate: "2025-07-12",
+  };
+  const get = baseGet({ "/api/trip/t1": lastYearTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(
+    await screen.findByRole("heading", { name: "10 Jul 2025 – 12 Jul 2025" }),
+  ).toBeInTheDocument();
+});
+
+test("GAP-101: a failed trip read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByText("Something went wrong loading this trip.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed costs read shows a failure notice rather than a silently empty costs list", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/trip/t1/expense") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/trip/t1") return Promise.resolve(bookedTrip);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/driver/d1") return Promise.resolve(driver);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading this trip's costs."),
+  ).toBeInTheDocument();
+});
+
+test("GAP-57/GAP-100 — Received shows the real trip_fare receivable, and a booked trip can record a trip advance", async () => {
   const get = baseGet();
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
 
@@ -143,7 +201,41 @@ test("GAP-57 — Received shows the real trip_fare receivable, and Advance to hi
   // must read as 60,000 due, not as nothing owed.
   expect(screen.getByRole("button", { name: /Due.*Rs 60,000/ })).toBeInTheDocument();
   expect(screen.getByText("Advance to him")).toBeInTheDocument();
-  expect(screen.getByText("advances aren't shown here yet")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Record advance" })).toBeInTheDocument();
+});
+
+test("GAP-100 — recording an advance from Trip detail posts the trip id", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "a1",
+    driverId: "d1",
+    tripId: "t1",
+    amountMinor: "40000",
+    issuedOn: today,
+    status: "open",
+    settledMinor: "0",
+  });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Record advance" }));
+  await enterMoney(user, "Enter amount", "40000");
+  const buttons = screen.getAllByRole("button", { name: "Record advance" });
+  const submitButton = buttons.at(-1);
+  if (submitButton === undefined) throw new Error("expected a sheet submit button");
+  await user.click(submitButton);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/advance", {
+      driverId: "d1",
+      tripId: "t1",
+      amountMinor: "40000",
+      issuedOn: today,
+    }),
+  );
 });
 
 test("GAP-57 — tapping the outstanding Received row opens the collect-payment sheet", async () => {

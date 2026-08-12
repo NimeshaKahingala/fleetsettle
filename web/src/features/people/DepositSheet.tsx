@@ -50,6 +50,7 @@ export function DepositSheet({ open, onOpenChange, driverId, today }: DepositShe
       } satisfies TakeDriverDepositWireRequest),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "balances"] });
+      void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "view"] });
       reset({ occurredOn: today });
       onOpenChange(false);
     },

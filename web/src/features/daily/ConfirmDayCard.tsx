@@ -11,11 +11,14 @@ import { useState } from "react";
 import type { z } from "zod";
 import { DayCard } from "../../components/DayCard.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { SyncChip } from "../../components/SyncChip.js";
 import { Card } from "../../design/primitives/Card.js";
 import { ReasonPicker, type ReasonOption } from "../../components/ReasonPicker.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { LOST_REASON_OPTIONS } from "../../lib/lostReasonLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { SomethingElseSheet } from "./SomethingElseSheet.js";
 
 export interface ConfirmDayCardProps {
@@ -28,16 +31,6 @@ export interface ConfirmDayCardProps {
   /** Threaded straight to `DayCard`/the settled summary's own `Card` — see `DayCard`'s doc comment (§3.2's 2–3-vehicle case). */
   elevated?: boolean;
 }
-
-/** F-4.4's reason list — `on_charter` is deliberately absent (FL §4.1). */
-const LOST_REASONS: { key: LostReason; label: string }[] = [
-  { key: "breakdown", label: "Breakdown" },
-  { key: "driver_day_off", label: "Driver's day off" },
-  { key: "driver_ill", label: "Driver ill" },
-  { key: "public_holiday", label: "Public holiday" },
-  { key: "no_passengers", label: "No passengers" },
-  { key: "other", label: "Other" },
-];
 
 /** The wire shape `confirmDayRequestSchema` actually validates on arrival — money and dates as strings, the schema's `z.input` side rather than its `z.output` (domain types) side. */
 type ConfirmDayWireRequest = z.input<typeof confirmDayRequestSchema>;
@@ -106,6 +99,26 @@ export function ConfirmDayCard({
       queryClient.setQueryData(dayQueryKey, data);
     },
   });
+
+  // GAP-101: this is the flow UI §7.1 optimises for — a failed read must
+  // not silently `return null` the same way pending does, or a day that
+  // needs confirming vanishes from Home indistinguishably from "nothing
+  // scheduled here."
+  const dayState = useQueryState(dayQuery);
+  const leaseState = useQueryState(leaseQuery);
+  const failedState =
+    dayState.kind === "error" ? dayState : leaseState.kind === "error" ? leaseState : null;
+  if (failedState !== null) {
+    return (
+      <Card elevated={elevated}>
+        <QueryStateFailure
+          error={failedState.error}
+          retry={failedState.retry}
+          of={`${vehicleLabel}'s day`}
+        />
+      </Card>
+    );
+  }
 
   if (dayQuery.data === undefined || leaseQuery.data === undefined) return null;
 
@@ -188,7 +201,7 @@ export function ConfirmDayCard({
         open={reasonOpen}
         onOpenChange={setReasonOpen}
         title="Didn't run"
-        reasons={LOST_REASONS}
+        reasons={LOST_REASON_OPTIONS}
         onSelect={(reason: ReasonOption) => {
           confirmMutation.mutate({
             dailyLeaseId,

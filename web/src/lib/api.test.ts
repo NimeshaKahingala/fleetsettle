@@ -69,6 +69,62 @@ test("a non-ok response throws an ApiError carrying the Worker's error shape", a
   });
 });
 
+test("postBinary sends the caller's own Content-Type, not the JSON default", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(new Response(JSON.stringify({ id: "att-1" }), { status: 201 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const client = createApiClient("https://api.example", () => Promise.resolve("t"));
+  const blob = new Blob(["fake-jpeg-bytes"], { type: "image/jpeg" });
+  await client.postBinary("/api/attachment?id=1", blob, "image/jpeg");
+
+  const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect(url).toBe("https://api.example/api/attachment?id=1");
+  expect(init.method).toBe("POST");
+  expect(init.body).toBe(blob);
+  expect((init.headers as Record<string, string>)["Content-Type"]).toBe("image/jpeg");
+  expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer t");
+});
+
+test("getBlob returns the bytes and content type, carrying the bearer token", async () => {
+  const fetchMock = vi.fn().mockResolvedValue(
+    new Response("fake-jpeg-bytes", {
+      status: 200,
+      headers: { "content-type": "image/jpeg" },
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  const client = createApiClient("https://api.example", () => Promise.resolve("token-1"));
+  const result = await client.getBlob("/api/attachment/1");
+
+  expect(result.contentType).toBe("image/jpeg");
+  expect(result.blob.size).toBeGreaterThan(0);
+  const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+  expect((init.headers as Record<string, string>)["Authorization"]).toBe("Bearer token-1");
+});
+
+test("getBlob throws an ApiError from the JSON error body on a non-ok response", async () => {
+  const errorBody = {
+    error: "No such attachment in this business",
+    code: "NOT_FOUND",
+    requestId: "r-2",
+  };
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(new Response(JSON.stringify(errorBody), { status: 404 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const client = createApiClient("https://api.example", () => Promise.resolve("t"));
+
+  await expect(client.getBlob("/api/attachment/x")).rejects.toMatchObject({
+    status: 404,
+    code: "NOT_FOUND",
+    message: "No such attachment in this business",
+  });
+});
+
 test("ApiError is a real Error subclass", async () => {
   const fetchMock = vi
     .fn()

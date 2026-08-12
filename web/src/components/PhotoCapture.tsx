@@ -1,5 +1,6 @@
 import { AlertCircle, Image as ImageIcon, Plus, RefreshCw } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { ATTACHMENT_CONTENT_TYPES } from "@fleetsettle/shared/schemas";
 import { downscaleAndEncode, type EncodedPhoto } from "../lib/photo-pipeline.js";
 
 export interface PhotoSlotDef {
@@ -35,16 +36,57 @@ export interface PhotoCaptureProps {
 export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<Record<string, CapturedPhoto>>({});
   const [encoding, setEncoding] = useState<Record<string, boolean>>({});
+  const [captureError, setCaptureError] = useState<Record<string, boolean>>({});
   const [freeKeys, setFreeKeys] = useState<string[]>([]);
+
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  // Every object URL this component has ever created and never released
+  // (finding C) — revokes whatever is still live when the sheet closes.
+  // Deliberately does not touch an in-flight `handleFile`: encoding is a
+  // plain async function, not tied to this component's lifetime, so a
+  // photo picked just before Save still reaches `onCapture` and the
+  // caller's upload queue even if this component has since unmounted (A7's
+  // plan, finding C item 5 — "the record saves first and the photos follow
+  // it" holds only if a photo mid-encode is never silently dropped).
+  useEffect(() => {
+    return () => {
+      for (const photo of Object.values(photosRef.current)) URL.revokeObjectURL(photo.url);
+    };
+  }, []);
 
   async function handleFile(key: string, file: File): Promise<void> {
     setEncoding((e) => ({ ...e, [key]: true }));
-    const encoded: EncodedPhoto = await downscaleAndEncode(file);
-    const url = URL.createObjectURL(encoded.blob);
-    const photo: CapturedPhoto = { blob: encoded.blob, url, flagged: encoded.flagged };
-    setPhotos((p) => ({ ...p, [key]: photo }));
-    setEncoding((e) => ({ ...e, [key]: false }));
-    onCapture(key, photo);
+    setCaptureError((e) => ({ ...e, [key]: false }));
+    try {
+      const encoded: EncodedPhoto = await downscaleAndEncode(file);
+      // photo-pipeline always re-encodes to image/jpeg, except its own
+      // no-2D-context fallback, which returns the original file untouched —
+      // still possibly a format the server allowlist rejects (HEIC, for
+      // one). Catching that here, before `onCapture` ever fires, beats a
+      // background upload failing with no sheet left to show it in.
+      if (!(ATTACHMENT_CONTENT_TYPES as readonly string[]).includes(encoded.blob.type)) {
+        setCaptureError((e) => ({ ...e, [key]: true }));
+        return;
+      }
+      const url = URL.createObjectURL(encoded.blob);
+      const photo: CapturedPhoto = { blob: encoded.blob, url, flagged: encoded.flagged };
+      setPhotos((p) => {
+        // A retake replaces this slot's photo — its old object URL is never
+        // referenced again, so it must be revoked here, not only at unmount.
+        const previous = p[key];
+        if (previous !== undefined) URL.revokeObjectURL(previous.url);
+        return { ...p, [key]: photo };
+      });
+      onCapture(key, photo);
+    } catch {
+      // createImageBitmap rejects on a corrupt file, an unsupported format
+      // on this browser, or memory pressure — previously unhandled, so the
+      // tile spun forever and `onCapture` never fired (finding C).
+      setCaptureError((e) => ({ ...e, [key]: true }));
+    } finally {
+      setEncoding((e) => ({ ...e, [key]: false }));
+    }
   }
 
   const tiles =
@@ -55,6 +97,7 @@ export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: 
         label={slot.label}
         photo={photos[slot.key]}
         encoding={encoding[slot.key] === true}
+        captureError={captureError[slot.key] === true}
         status={uploadStatus?.[slot.key]}
         onFile={(key, file) => void handleFile(key, file)}
         {...(onRetryUpload !== undefined ? { onRetryUpload } : {})}
@@ -67,6 +110,7 @@ export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: 
         label="Photo"
         photo={photos[key]}
         encoding={encoding[key] === true}
+        captureError={captureError[key] === true}
         status={uploadStatus?.[key]}
         onFile={(slotKey, file) => void handleFile(slotKey, file)}
         {...(onRetryUpload !== undefined ? { onRetryUpload } : {})}
@@ -94,6 +138,7 @@ function PhotoSlotTile({
   label,
   photo,
   encoding,
+  captureError,
   status,
   onFile,
   onRetryUpload,
@@ -102,6 +147,8 @@ function PhotoSlotTile({
   label: string;
   photo: CapturedPhoto | undefined;
   encoding: boolean;
+  /** A local capture failure (bad decode, or a format the server won't take) — distinct from `status === "error"`, which is the caller's own upload failure. Same visual state, a different affordance: there is no blob to retry uploading, only a new photo to pick. */
+  captureError: boolean;
   status: "uploading" | "uploaded" | "error" | undefined;
   onFile: (key: string, file: File) => void;
   onRetryUpload?: (key: string) => void;
@@ -129,7 +176,7 @@ function PhotoSlotTile({
             <RefreshCw className="size-5 animate-spin text-ink-secondary" aria-hidden />
           </span>
         ) : null}
-        {status === "error" ? (
+        {status === "error" || captureError ? (
           <span className="absolute bottom-1 right-1 flex size-5 items-center justify-center rounded-full bg-critical text-white">
             <AlertCircle className="size-3" aria-hidden />
           </span>
@@ -149,7 +196,15 @@ function PhotoSlotTile({
           e.target.value = "";
         }}
       />
-      {status === "error" && onRetryUpload !== undefined ? (
+      {captureError ? (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="text-caption text-brand-ink"
+        >
+          Try again
+        </button>
+      ) : status === "error" && onRetryUpload !== undefined ? (
         <button
           type="button"
           onClick={() => onRetryUpload(photoKey)}

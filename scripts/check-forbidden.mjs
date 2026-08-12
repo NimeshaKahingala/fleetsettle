@@ -274,6 +274,41 @@ function checkMigrationSet() {
   return findings;
 }
 
+/**
+ * GAP-101/UI §6.4/M-28: a `useQuery(` with no error state renders a failed
+ * fetch as loading forever — and passes every test that only mocks success,
+ * which is exactly how this shipped the first time. File-level, not
+ * call-site-level: cheap to check, and a screen with several reads usually
+ * wraps them together (`combineQueryStates`) rather than once each.
+ */
+function checkQueryErrorHandling(paths) {
+  const findings = [];
+  for (const path of paths) {
+    if (!/^web\/src\/.*\.tsx?$/.test(path) || /\.test\.tsx?$/.test(path)) continue;
+    const abs = resolve(ROOT, path);
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch {
+      continue; // binary, unreadable — not our business
+    }
+    if (!/\buseQuery\s*\(\s*\{/.test(text)) continue;
+    if (/\buseQueryState\b|\bQueryState\b/.test(text)) continue;
+    if (OPT_OUT.test(text)) continue;
+    findings.push({
+      file: path,
+      line: 1,
+      column: 1,
+      id: "query/no-error-state",
+      match: "useQuery(",
+      message:
+        "A read with no error state renders a failed fetch as loading forever (UI §6.4/M-28, GAP-101). Wrap it with QueryState/useQueryState, or add `// allow: <reason>` if this read genuinely never needs one.",
+    });
+  }
+  return findings;
+}
+
 /** Positive assertions — things that must be present, not absent. */
 function checkRequired() {
   const findings = [];
@@ -315,8 +350,10 @@ function checkRequired() {
 
 // ── Report ───────────────────────────────────────────────────────────────────
 
+const scanTargets = filesToScan();
 const findings = [
-  ...filesToScan().flatMap(scan),
+  ...scanTargets.flatMap(scan),
+  ...checkQueryErrorHandling(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
 

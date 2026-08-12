@@ -3,6 +3,7 @@ import type { VehicleCalendarDay, VehicleResponse } from "@fleetsettle/shared/sc
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleCalendarScreen } from "./VehicleCalendarScreen.js";
 
@@ -35,6 +36,24 @@ test("renders the current month's label and grid", async () => {
   });
 
   expect(await screen.findByText("July 2026")).toBeInTheDocument();
+});
+
+test("GAP-101/INV-1: a failed calendar read shows a failure notice, never every day rendered as free", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path.startsWith("/api/vehicle/v1/calendar")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading this month's calendar."),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
 });
 
 test("each of the seven day-states renders its own colour and glyph (UI §7.6)", async () => {
@@ -104,6 +123,93 @@ test("each of the seven day-states renders its own colour and glyph (UI §7.6)",
   // Not scheduled — a real, un-styled day, never a guessed state.
   const unscheduled = screen.getByTestId("day-2026-07-15");
   expect(unscheduled.className).not.toContain("wash");
+});
+
+test("GAP-46: every occupied cell names its own state to a screen reader, the same wording the legend uses", async () => {
+  const days: VehicleCalendarDay[] = [
+    {
+      businessDate: "2026-07-05",
+      arrangement: "A",
+      sourceType: "lease",
+      sourceId: "l1",
+      isHold: false,
+      dayRecordState: null,
+    },
+    {
+      businessDate: "2026-07-10",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "ran_paid_full",
+    },
+    {
+      businessDate: "2026-07-11",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "did_not_run",
+    },
+    {
+      businessDate: "2026-07-12",
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: "dl1",
+      isHold: false,
+      dayRecordState: "open",
+    },
+    {
+      businessDate: "2026-07-20",
+      arrangement: "C",
+      sourceType: "trip",
+      sourceId: "t1",
+      isHold: false,
+      dayRecordState: null,
+    },
+    {
+      businessDate: "2026-07-21",
+      arrangement: "C",
+      sourceType: "trip",
+      sourceId: "t2",
+      isHold: true,
+      dayRecordState: null,
+    },
+  ];
+  const get = baseGet(days);
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  await screen.findByText("July 2026");
+  // The month label renders synchronously; the grid's real content waits on
+  // the calendar query. Warm up on the first cell's glyph, the same way the
+  // neighbouring "seven day-states" test does, before asserting synchronously.
+  await within(screen.getByTestId("day-2026-07-05")).findByText("L");
+  expect(screen.getByTestId("day-2026-07-05")).toHaveAttribute(
+    "aria-label",
+    "2026-07-05 — On a lease",
+  );
+  expect(screen.getByTestId("day-2026-07-10")).toHaveAttribute(
+    "aria-label",
+    "2026-07-10 — Daily lease, ran",
+  );
+  expect(screen.getByTestId("day-2026-07-11")).toHaveAttribute(
+    "aria-label",
+    "2026-07-11 — Daily lease, lost",
+  );
+  expect(screen.getByTestId("day-2026-07-12")).toHaveAttribute(
+    "aria-label",
+    "2026-07-12 — Daily lease, not yet confirmed",
+  );
+  expect(screen.getByTestId("day-2026-07-20")).toHaveAttribute(
+    "aria-label",
+    "2026-07-20 — On a trip",
+  );
+  expect(screen.getByTestId("day-2026-07-21")).toHaveAttribute(
+    "aria-label",
+    "2026-07-21 — Hold (tentative)",
+  );
 });
 
 test("daily-lease ran and not-yet-confirmed no longer share a colour (UI-LF-07)", async () => {

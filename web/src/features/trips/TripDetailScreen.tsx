@@ -10,16 +10,20 @@ import { Ban } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import {
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
+import { AdvanceSheet } from "../people/AdvanceSheet.js";
 import { CancelTripSheet } from "./CancelTripSheet.js";
 import { CloseTripSheet } from "./CloseTripSheet.js";
 
@@ -29,11 +33,12 @@ export interface TripDetailScreenProps {
   onBack: () => void;
 }
 
-function formatShortDate(date: string): string {
+function formatShortDate(date: string, options: { year?: boolean } = {}): string {
+  const { year = true } = options;
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
-    year: "numeric",
+    ...(year ? { year: "numeric" as const } : {}),
   }).format(new Date(`${date}T00:00:00`));
 }
 
@@ -49,9 +54,10 @@ function formatShortDate(date: string): string {
  * Tappable to collect, via the same `CollectPaymentSheet` a lease's dues
  * use — party-level (§6.5), never a trip-specific write.
  *
- * **Advance to him** stays `NotAvailable`: `GET /api/advance` doesn't exist
- * yet (Web-P8b's own gap, the plan already named it before this screen
- * needed it).
+ * **Advance to him** can be recorded for a booked trip with a driver. Existing
+ * trip advances still are not listed here because there is no trip-scoped
+ * advance read; settlement happens from the driver's history, where the
+ * composed read already exists.
  *
  * A closed trip's own profit/costs/distance breakdown is likewise not
  * re-derived here — `POST /{id}/close`'s response is the only place that
@@ -66,6 +72,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   const [closeOpen, setCloseOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
+  const [advanceOpen, setAdvanceOpen] = useState(false);
 
   const tripQuery = useQuery({
     queryKey: ["trip", tripId],
@@ -97,6 +104,8 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     queryKey: ["trip", tripId, "expense"],
     queryFn: () => api.get<ExpenseListRow[]>(`/api/trip/${tripId}/expense`),
   });
+  const tripState = useQueryState(tripQuery);
+  const expensesState = useQueryState(expensesQuery);
 
   const expenses = expensesQuery.data ?? [];
   const costsSoFar = expenses
@@ -104,6 +113,17 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
 
   const canAct = trip?.status === "booked";
+  const canRecordAdvance = canAct && trip?.driverId !== null && trip?.driverId !== undefined;
+
+  // GAP-45: the title used to show a full year on both halves of the date
+  // range unconditionally, clipping mid-digit at 360px next to the cancel
+  // icon. §8.3 asks for the year only where the date would otherwise be
+  // ambiguous — a range crossing a year boundary, or one outside the
+  // business's current year.
+  const titleShowsYear =
+    trip !== undefined &&
+    (trip.startDate.slice(0, 4) !== trip.endDate.slice(0, 4) ||
+      trip.startDate.slice(0, 4) !== today.slice(0, 4));
 
   // GAP-57: `null` for a charter with no customer, a zero agreed amount, or
   // a cancelled trip (A6 voids the obligation on cancel). Actionable while
@@ -132,7 +152,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     <Screen
       title={
         trip !== undefined
-          ? `${formatShortDate(trip.startDate)} – ${formatShortDate(trip.endDate)}`
+          ? `${formatShortDate(trip.startDate, { year: titleShowsYear })} – ${formatShortDate(trip.endDate, { year: titleShowsYear })}`
           : "Trip"
       }
       onBack={onBack}
@@ -143,7 +163,9 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
         ? { primaryAction: { label: "Close trip", onClick: () => setCloseOpen(true) } }
         : {})}
     >
-      {trip === undefined ? (
+      {tripState.kind === "error" ? (
+        <QueryStateFailure error={tripState.error} retry={tripState.retry} of="this trip" />
+      ) : trip === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -187,7 +209,13 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             {trip.driverId !== null ? (
               <div className="flex flex-col gap-1">
                 <p className="text-body text-ink-primary">Advance to him</p>
-                <NotAvailable reason="advances aren't shown here yet" />
+                {canRecordAdvance ? (
+                  <Button variant="outline" onClick={() => setAdvanceOpen(true)}>
+                    Record advance
+                  </Button>
+                ) : (
+                  <NotAvailable reason="shown on driver history" />
+                )}
               </div>
             ) : null}
             {trip.status === "closed" ? (
@@ -205,6 +233,13 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             ) : null}
           </Card>
 
+          {expensesState.kind === "error" ? (
+            <QueryStateFailure
+              error={expensesState.error}
+              retry={expensesState.retry}
+              of="this trip's costs"
+            />
+          ) : null}
           {expenses.length > 0 ? (
             <Section
               title="Costs"
@@ -242,6 +277,16 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               dues={receivable !== null ? [receivable] : []}
               today={today}
               onCollected={() => void queryClient.invalidateQueries({ queryKey: ["trip", tripId] })}
+            />
+          ) : null}
+          {trip.driverId !== null ? (
+            <AdvanceSheet
+              open={advanceOpen}
+              onOpenChange={setAdvanceOpen}
+              driverId={trip.driverId}
+              tripId={tripId}
+              today={today}
+              title="Record trip advance"
             />
           ) : null}
         </div>

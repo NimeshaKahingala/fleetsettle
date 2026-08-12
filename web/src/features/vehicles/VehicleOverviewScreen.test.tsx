@@ -6,9 +6,10 @@ import type {
   VehicleLeaseHistoryRow,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleOverviewScreen } from "./VehicleOverviewScreen.js";
 
@@ -41,6 +42,7 @@ test("renders the vehicle's fields once loaded", async () => {
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -48,6 +50,48 @@ test("renders the vehicle's fields once loaded", async () => {
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.getByText("Daily lease")).toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1");
+});
+
+test("GAP-101: a failed vehicle read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Something went wrong loading this vehicle.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed paperwork read shows a failure notice rather than a silently missing Paperwork section", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1/document") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(baseVehicle);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Something went wrong loading paperwork.")).toBeInTheDocument();
 });
 
 test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", async () => {
@@ -62,6 +106,7 @@ test("the calendar action, via the Vehicle actions menu, calls onViewCalendar", 
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -104,6 +149,7 @@ test("Report incident, via the Vehicle actions menu, opens the sheet and onSelec
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get, post },
   );
@@ -144,6 +190,7 @@ test("Record expense, via the Vehicle actions menu, opens the sheet pre-filled t
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get, post },
   );
@@ -181,6 +228,7 @@ test("no active arrangement renders NotAvailable, never a blank or a zero", asyn
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -198,6 +246,7 @@ test("nothing recorded in any scoped read renders no Paperwork, Costs, Incidents
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -223,6 +272,7 @@ test("paperwork lists every document type with a date set", async () => {
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -231,6 +281,84 @@ test("paperwork lists every document type with a date set", async () => {
   expect(screen.getByText("Insurance")).toBeInTheDocument();
   expect(screen.getByText("Revenue licence")).toBeInTheDocument();
   expect(screen.getByText("Expires 30 Sept 2026")).toBeInTheDocument();
+});
+
+test("GAP-102: Renew paperwork from the vehicle actions menu upserts the selected document", async () => {
+  const user = userEvent.setup();
+  const put = vi.fn().mockResolvedValue({
+    docType: "permit",
+    expiryDate: "2027-01-15",
+    reference: "permit-42",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get: baseGet(), put },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Renew paperwork" }));
+  await user.click(await screen.findByRole("button", { name: "Permit" }));
+  fireEvent.change(screen.getByLabelText(/Permit expiry/), {
+    target: { value: "2027-01-15" },
+  });
+  await user.type(screen.getByLabelText("Reference (optional)"), "permit-42");
+  await user.click(screen.getByRole("button", { name: "Save paperwork" }));
+
+  await vi.waitFor(() =>
+    expect(put).toHaveBeenCalledWith("/api/vehicle/v1/document", {
+      docType: "permit",
+      expiryDate: "2027-01-15",
+      reference: "permit-42",
+    }),
+  );
+});
+
+test("GAP-102: tapping an existing paperwork row opens it prefilled for renewal", async () => {
+  const user = userEvent.setup();
+  const documents: VehicleDocumentResponse[] = [
+    { docType: "revenue_licence", expiryDate: "2027-01-15", reference: "RL-1" },
+  ];
+  const put = vi.fn().mockResolvedValue({
+    docType: "revenue_licence",
+    expiryDate: "2027-02-20",
+    reference: "RL-1",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get: baseGet({ "/api/vehicle/v1/document": documents }), put },
+  );
+
+  await user.click(await screen.findByRole("button", { name: /Revenue licence/ }));
+  const expiryInput = screen.getByLabelText(/Revenue licence expiry/);
+  expect(expiryInput).toHaveValue("2027-01-15");
+  expect(screen.getByLabelText("Reference (optional)")).toHaveValue("RL-1");
+
+  fireEvent.change(expiryInput, { target: { value: "2027-02-20" } });
+  await user.click(screen.getByRole("button", { name: "Save paperwork" }));
+
+  await vi.waitFor(() =>
+    expect(put).toHaveBeenCalledWith("/api/vehicle/v1/document", {
+      docType: "revenue_licence",
+      expiryDate: "2027-02-20",
+      reference: "RL-1",
+    }),
+  );
 });
 
 test("a voided expense stays in the costs list, struck through, with its reason (W-50)", async () => {
@@ -279,6 +407,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -289,6 +418,10 @@ test("a voided expense stays in the costs list, struck through, with its reason 
   expect(voidedCategory).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong vehicle")).toBeInTheDocument();
+  // GAP-96: the scoped total beside the heading excludes the voided row —
+  // 5,000 (fuel) alone, not 17,000. Appears twice: the heading's own total
+  // and the one live row that contributes to it.
+  expect(screen.getAllByText("Rs 5,000")).toHaveLength(2);
 });
 
 test("history merges lease and daily-lease periods into one chronological list", async () => {
@@ -325,6 +458,7 @@ test("history merges lease and daily-lease periods into one chronological list",
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -372,6 +506,7 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
       onSelectLease={onSelectLease}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -423,6 +558,7 @@ test("Incidents lists every one with its own status, and each row is tappable (W
       onSelectLease={() => {}}
       onSelectIncident={onSelectIncident}
       onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
     />,
     { get },
   );
@@ -473,6 +609,7 @@ test.each([
         onSelectLease={() => {}}
         onSelectIncident={() => {}}
         onStartDailyLease={() => undefined}
+        onBookTrip={() => undefined}
       />,
       { get },
     );
@@ -496,6 +633,7 @@ test("Start a daily lease, via the Vehicle actions menu, calls onStartDailyLease
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={onStartDailyLease}
+      onBookTrip={() => undefined}
     />,
     { get: baseGet() },
   );
@@ -504,4 +642,46 @@ test("Start a daily lease, via the Vehicle actions menu, calls onStartDailyLease
   await user.click(await screen.findByRole("button", { name: "Start a daily lease" }));
 
   expect(onStartDailyLease).toHaveBeenCalledOnce();
+});
+
+test("GAP-97: Book trip, via the Vehicle actions menu, calls onBookTrip", async () => {
+  const user = userEvent.setup();
+  const onBookTrip = vi.fn();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={onBookTrip}
+    />,
+    { get: baseGet() },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Book trip" }));
+
+  expect(onBookTrip).toHaveBeenCalledOnce();
+});
+
+test("GAP-97: Book trip is absent for arrangement A, whose own start flow lives on the calendar", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/vehicle/v1": { ...baseVehicle, arrangement: "A" } });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  expect(screen.queryByRole("button", { name: "Book trip" })).not.toBeInTheDocument();
 });

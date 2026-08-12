@@ -83,6 +83,60 @@ function permissiveRateLimiter(): RateLimit {
   return { limit: () => Promise.resolve({ success: true }) };
 }
 
+export interface FakeR2Bucket extends R2Bucket {
+  /** Lets a test assert directly that a compensating delete really happened, or that a duplicate upload never wrote a second object (A7's plan, "Idempotency"). */
+  readonly objectCount: number;
+  has(key: string): boolean;
+}
+
+/**
+ * A7/GAP-16: `attachment.ts` is the first real reader/writer of the `R2`
+ * binding. Only `put`/`get`/`delete` — enough for the domain layer's
+ * idempotency sequence and the read handler; no `head`/`list`/multipart,
+ * since nothing here exercises them yet, the same "add a fake when a test
+ * first needs it" rule `fakeKV` above already follows.
+ */
+function fakeR2(): FakeR2Bucket {
+  const store = new Map<string, ArrayBuffer>();
+
+  const put = ((key: string, value: unknown) => {
+    const bytes = value instanceof ArrayBuffer ? value : new ArrayBuffer(0);
+    store.set(key, bytes);
+    return Promise.resolve({ key } as unknown as R2Object);
+  }) as R2Bucket["put"];
+
+  const get = ((key: string) => {
+    const bytes = store.get(key);
+    if (bytes === undefined) return Promise.resolve(null);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(bytes));
+        controller.close();
+      },
+    });
+    return Promise.resolve({
+      body,
+      arrayBuffer: () => Promise.resolve(bytes),
+    } as unknown as R2ObjectBody);
+  }) as R2Bucket["get"];
+
+  const del = ((keys: string | string[]) => {
+    for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key);
+    return Promise.resolve();
+  }) as R2Bucket["delete"];
+
+  return {
+    put,
+    get,
+    delete: del,
+    has: (key: string) => store.has(key),
+    get objectCount() {
+      return store.size;
+    },
+  } as unknown as FakeR2Bucket;
+}
+
+export const testR2 = fakeR2();
 const testKV = fakeKV();
 // Pre-seeded so auth/verify.ts's cache-hit path runs for real without a
 // network call — the cache-miss/refetch-on-kid-miss paths are exercised
@@ -93,9 +147,11 @@ await testKV.put(KV_KEY, JSON.stringify(TEST_JWKS));
  * Passed as the third argument to `app.request(path, init, TEST_ENV)`
  * (support/client.ts) — the full middleware chain, no server (IG §8.3).
  *
- * R2/MESSAGE_QUEUE are still unavailable-by-default stubs: nothing exercises
- * them yet (attachments and the message queue are much later), and a stub
- * that throws on first use is more honest than one that silently no-ops.
+ * MESSAGE_QUEUE is still an unavailable-by-default stub: nothing exercises
+ * it yet, and a stub that throws on first use is more honest than one that
+ * silently no-ops. R2 is real (in-memory) as of A7/GAP-16 — exported
+ * separately as `testR2` too, so a test can inspect `objectCount`/`has`
+ * directly rather than reaching through `TEST_ENV.R2`.
  */
 export const TEST_ENV: Bindings = {
   DATABASE_URL: TEST_DATABASE_URL,
@@ -105,7 +161,7 @@ export const TEST_ENV: Bindings = {
     read("ASGARDEO_JWKS_URL") ?? "https://api.asgardeo.io/t/fleetsettle/oauth2/jwks",
   ASGARDEO_AUDIENCE: read("ASGARDEO_AUDIENCE") ?? "OEWdJbFmoc65GbQkr4WwuBlEfnUa",
   KV: testKV,
-  R2: unavailableBinding<R2Bucket>("R2"),
+  R2: testR2,
   MESSAGE_QUEUE: unavailableBinding<Queue>("MESSAGE_QUEUE"),
   RATE_LIMITER: permissiveRateLimiter(),
 };

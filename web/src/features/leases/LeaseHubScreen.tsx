@@ -9,12 +9,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gauge, MoreVertical, RefreshCw, SlidersHorizontal, SquareX, Wallet } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import {
+  OBLIGATION_KIND_LABEL,
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
@@ -35,12 +38,6 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   closing: "Closing",
   closed: "Closed",
-};
-
-const DUE_KIND_LABEL: Record<string, string> = {
-  rent: "Rent",
-  mileage_excess: "Mileage excess",
-  post_closure_charge: "Late charge",
 };
 
 function formatShortDate(date: string): string {
@@ -101,6 +98,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
     queryKey: ["lease", leaseId, "obligation"],
     queryFn: () => api.get<LeaseObligationRow[]>(`/api/lease/${leaseId}/obligation`),
   });
+  const leaseState = useQueryState(leaseQuery);
+  const billingPeriodsState = useQueryState(billingPeriodsQuery);
+  const duesState = useQueryState(duesQuery);
 
   const lease = leaseQuery.data;
   const billingPeriods = billingPeriodsQuery.data ?? [];
@@ -168,7 +168,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
           }
         : {})}
     >
-      {lease === undefined ? (
+      {leaseState.kind === "error" ? (
+        <QueryStateFailure error={leaseState.error} retry={leaseState.retry} of="this lease" />
+      ) : lease === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -212,6 +214,13 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             ) : null}
           </Card>
 
+          {billingPeriodsState.kind === "error" ? (
+            <QueryStateFailure
+              error={billingPeriodsState.error}
+              retry={billingPeriodsState.retry}
+              of="billing periods"
+            />
+          ) : null}
           {billingPeriods.length > 0 ? (
             <Section
               title="Billing periods"
@@ -227,6 +236,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             />
           ) : null}
 
+          {duesState.kind === "error" ? (
+            <QueryStateFailure error={duesState.error} retry={duesState.retry} of="dues" />
+          ) : null}
           {dues.length > 0 ? (
             <Section
               title="Dues"
@@ -237,7 +249,7 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
                   <Card className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-body text-ink-primary">
-                        {DUE_KIND_LABEL[due.kind] ?? due.kind}
+                        {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
                       </p>
                       <p className="text-caption text-ink-muted">
                         {formatShortDate(due.dueOn)} ·{" "}

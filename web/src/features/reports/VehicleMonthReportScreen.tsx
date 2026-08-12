@@ -5,10 +5,12 @@ import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
 import { Card } from "../../design/primitives/Card.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { HorizontalBarChart, type HorizontalBarDatum } from "./charts/HorizontalBarChart.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -193,8 +195,43 @@ export function VehicleMonthReportScreen({
     },
     enabled: resolvedPeriodId !== undefined,
   });
+  const periodsState = useQueryState(periodsQuery);
+  const reportState = useQueryState(reportQuery);
 
-  if (reportQuery.data === undefined || periodsQuery.data === undefined) {
+  // GAP-101: `periodsQuery` failing is the primary cause — without it
+  // `resolvedPeriodId` never resolves, so `reportQuery` stays `idle`
+  // forever, not `pending`. Checked first so the real cause is what's shown.
+  if (periodsState.kind === "error") {
+    return (
+      <ReportScreen
+        title="How was this month"
+        onBack={onBack}
+        table={
+          <QueryStateFailure
+            error={periodsState.error}
+            retry={periodsState.retry}
+            of="the accounting periods"
+          />
+        }
+      />
+    );
+  }
+  if (reportState.kind === "error") {
+    return (
+      <ReportScreen
+        title="How was this month"
+        onBack={onBack}
+        table={
+          <QueryStateFailure
+            error={reportState.error}
+            retry={reportState.retry}
+            of="how this month went"
+          />
+        }
+      />
+    );
+  }
+  if (reportState.kind !== "ready" || periodsState.kind !== "ready") {
     return (
       <ReportScreen
         title="How was this month"
@@ -204,13 +241,15 @@ export function VehicleMonthReportScreen({
     );
   }
 
-  const totals = toKpiTotals(reportQuery.data.vehicles);
+  const report = reportState.data;
+  const periods = periodsState.data;
+  const totals = toKpiTotals(report.vehicles);
 
   return (
     <>
       <ReportScreen
         title="How was this month"
-        subtitle={`${reportQuery.data.period.periodStart} – ${reportQuery.data.period.periodEnd}`}
+        subtitle={`${report.period.periodStart} – ${report.period.periodEnd}`}
         onBack={onBack}
         chart={
           <div className="flex flex-col gap-3">
@@ -219,7 +258,7 @@ export function VehicleMonthReportScreen({
               onClick={() => setPickerOpen(true)}
               className="min-h-tap self-start rounded-sm border border-line-strong px-3 text-body text-ink-primary"
             >
-              {reportQuery.data.period.periodStart} – {reportQuery.data.period.periodEnd} ▾
+              {report.period.periodStart} – {report.period.periodEnd} ▾
             </button>
             <div className="grid grid-cols-3 gap-2">
               <Card className="flex flex-col gap-1">
@@ -235,19 +274,19 @@ export function VehicleMonthReportScreen({
                 <Money value={totals.profitMinor} className="text-body font-medium" />
               </Card>
             </div>
-            <HorizontalBarChart data={toChartData(reportQuery.data.vehicles)} />
+            <HorizontalBarChart data={toChartData(report.vehicles)} />
           </div>
         }
         table={
           <div className="flex flex-col gap-2">
-            {reportQuery.data.vehicles.map((v) => (
+            {report.vehicles.map((v) => (
               <VehicleRow key={v.vehicleId} vehicle={v} />
             ))}
           </div>
         }
       />
       <PeriodPickerSheet
-        periods={periodsQuery.data}
+        periods={periods}
         currentPeriodId={resolvedPeriodId}
         open={pickerOpen}
         onOpenChange={setPickerOpen}

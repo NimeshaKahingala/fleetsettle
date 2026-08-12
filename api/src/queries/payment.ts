@@ -16,6 +16,7 @@ export interface NewPayment {
   amountMinor: bigint;
   occurredOn: string;
   handledByUserId?: string;
+  reference?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
@@ -24,6 +25,20 @@ export interface NewPayment {
 /** DM §10.2. `amountMinor` has a `CHECK (> 0)` — the caller only reaches this when something was actually received. */
 export async function insertPayment(db: WriteDb, values: NewPayment): Promise<void> {
   await db.insert(payment).values(values);
+}
+
+/** GAP-103: one `INSERT` for a whole opening-balance batch's `cash_held` entries (IG §3.1). */
+export async function insertPayments(db: WriteDb, values: NewPayment[]): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(payment).values(values);
+}
+
+/** GAP-103: an opening-balance correction reverses a prior commit's synthetic `cash_held` payment by flipping `status` — `listPartnerCashPositions` (queries/reports.ts) already filters `status = 'active'`, so this alone removes it from every partner's cash figure. `WHERE … status = 'active'` keeps a second call a no-op, the same idempotency shape every other void in this file carries. Never routed through `payment_correction` — that machinery unwinds real allocations, and this row, by construction, never has any. */
+export async function markPaymentReversed(db: WriteDb, paymentId: string): Promise<void> {
+  await db
+    .update(payment)
+    .set({ status: "reversed" })
+    .where(and(eq(payment.id, paymentId), eq(payment.status, "active")));
 }
 
 export interface NewPaymentAllocation {

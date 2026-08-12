@@ -1,5 +1,6 @@
 import { Home, MoreHorizontal, Plus, Truck, Users, Wallet, type LucideIcon } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { ToastViewport } from "./Toast.js";
 
 export type OperateTabKey = "home" | "vehicles" | "people" | "more";
 export type ReviewTabKey = "month" | "vehicles" | "money" | "reports";
@@ -51,7 +52,7 @@ export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }
       <div className="min-h-0 flex-1">{children}</div>
       {tabs !== null ? (
         <nav
-          className="flex h-14 shrink-0 border-t border-line-hairline bg-surface pb-[env(safe-area-inset-bottom)]"
+          className="flex h-14 shrink-0 border-t border-line-hairline bg-surface pb-[env(safe-area-inset-bottom)] max-md:landscape:h-11"
           aria-label={shell === "operate" ? "Operate" : "Review"}
         >
           {tabs.map(({ key, label, icon: Icon }) => {
@@ -70,23 +71,20 @@ export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }
                   }
                 }}
                 className={cn(
-                  "relative flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5",
+                  "relative flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5 max-md:landscape:gap-0",
                   isActive
                     ? "text-brand-ink before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-full before:bg-brand"
                     : "text-ink-secondary",
                 )}
               >
                 <Icon className="size-5" aria-hidden />
-                <span className="text-caption">{label}</span>
+                <span className="text-caption max-md:landscape:sr-only">{label}</span>
               </button>
             );
           })}
         </nav>
       ) : null}
-      {/* Toast host: no component renders into it yet (§6.5 — no toast for
-          a money write's success). Reserved for the 5-second Undo toast the
-          add-screen skill's Writes section describes, once a flow needs it. */}
-      <div id="toast-root" />
+      <ToastViewport />
     </div>
   );
 }

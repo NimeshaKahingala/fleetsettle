@@ -1,6 +1,6 @@
 import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { commitOpeningBalance, saveOpeningBalance } from "../domain/opening-balance.js";
 import { NotFoundError } from "../errors/app-error.js";
 import type { Reader } from "../db/client.js";
@@ -132,6 +132,7 @@ export const saveOpeningBalanceHandler: RouteHandler<typeof saveOpeningBalanceRo
   const saved = await saveOpeningBalance(c.get("writer"), {
     businessId,
     goLiveDate: body.goLiveDate,
+    actorUserId: requireUserId(c),
     entries: body.entries.map((entry) => ({
       kind: entry.kind,
       ...("partyCustomerId" in entry ? { partyCustomerId: entry.partyCustomerId } : {}),

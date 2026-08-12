@@ -98,6 +98,7 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
     const driverId = await ctx.createDriver(businessId);
     const customerId = await ctx.createCustomer(businessId);
     await ctx.createObligation(businessId, periodId, {

@@ -12,6 +12,7 @@ export const businessMemberRoleSchema = z.enum(["owner", "owner_manager", "manag
 export type BusinessMemberRole = z.infer<typeof businessMemberRoleSchema>;
 
 export const businessMemberResponseSchema = z.object({
+  id: uuidSchema,
   userId: uuidSchema,
   displayName: z.string().nullable(),
   role: businessMemberRoleSchema,

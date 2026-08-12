@@ -36,8 +36,14 @@ import {
   type InsuranceClaimRow,
 } from "../queries/incident.js";
 import { findLeaseForBusiness, updateLeaseEndDate } from "../queries/lease.js";
-import { findObligationBySource } from "../queries/obligation.js";
+import {
+  findObligationBySource,
+  insertObligation,
+  updateObligationSettled,
+} from "../queries/obligation.js";
+import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
 import { applyAdjustmentTx } from "./adjustment.js";
+import { computeObligationStatus } from "./obligation-status.js";
 
 export interface OpenIncidentInput {
   businessId: string;
@@ -203,13 +209,15 @@ export interface RecordedCustomerContribution {
 }
 
 /**
- * F-3.4 step 4/W-10: negotiated after the repair cost is known, so this is a
- * separate edit against an already-open incident, entered whenever the
- * agreement happens — not part of opening the incident. `obligation_id`
- * stays NULL here (a deliberate simplification, recorded rather than
- * guessed at): F-3.4's own "Writes" line does not list `Obligation`, and
- * turning "payable in instalments or from the deposit" into a real
- * receivable is real design work this pass does not do.
+ * F-3.4 step 4/W-10, one transaction: negotiated after the repair cost is
+ * known, so this is a separate edit against an already-open incident,
+ * entered whenever the agreement happens — not part of opening the
+ * incident. Since D-9/GAP-10 (user-flows.md F-3.4, 9 August 2026), agreeing
+ * the amount also opens an `Obligation` against the incident's own
+ * customer — without it, "payable in one go, in instalments, or from the
+ * deposit" has nothing for `POST /api/payment` to allocate against. This
+ * requires the incident to carry a `leaseId`: no lease means no customer,
+ * and a contribution nobody can be billed to is not a receivable.
  */
 export async function recordCustomerContribution(
   writer: Writer,
@@ -217,29 +225,60 @@ export async function recordCustomerContribution(
 ): Promise<RecordedCustomerContribution> {
   const existing = await findIncidentForBusiness(writer, input.businessId, input.incidentId);
   if (!existing) throw new NotFoundError("No such incident in this business");
+  if (!existing.leaseId) {
+    throw new ValidationError(
+      "This incident has no lease, so there is no customer to bill a contribution to",
+    );
+  }
+
+  const lease = await findLeaseForBusiness(writer, input.businessId, existing.leaseId);
+  if (!lease) throw new NotFoundError("No such lease in this business");
 
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.agreedOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
   const recoveryId = newId();
+  const obligationId = newId();
   try {
     // withActor (db/client.ts) only attributes writes inside a real
-    // transaction — wrapped here for that reason (F-8.6): incident_recovery
-    // carries posted_period_id and is audited.
-    await writer.transaction((tx) =>
-      insertIncidentRecovery(tx, {
+    // transaction — wrapped here for that reason (F-8.6): both rows carry
+    // posted_period_id and are audited.
+    await writer.transaction(async (tx) => {
+      await insertObligation(tx, {
+        id: obligationId,
+        businessId: input.businessId,
+        direction: "owed_to_us",
+        partyType: "customer",
+        partyCustomerId: lease.customerId,
+        kind: "customer_contribution",
+        sourceType: "incident_recovery",
+        sourceId: recoveryId,
+        vehicleId: existing.vehicleId,
+        amountMinor: input.agreedAmountMinor,
+        settledMinor: 0n,
+        waivedMinor: 0n,
+        dueOn: input.agreedOn,
+        effectiveDueOn: input.agreedOn,
+        status: "pending",
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+      });
+      await insertIncidentRecovery(tx, {
         id: recoveryId,
         businessId: input.businessId,
         incidentId: input.incidentId,
         source: "customer",
         agreedAmountMinor: input.agreedAmountMinor,
+        obligationId,
         postedPeriodId: linkage.postedPeriodId,
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
-      }),
-    );
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -253,6 +292,7 @@ export interface RecordRecoveryReceivedInput {
   recoveryId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
+  userId: string;
 }
 
 export interface RecordedRecoveryReceived {
@@ -267,6 +307,18 @@ export interface RecordedRecoveryReceived {
  * `assert_period_open()`, only `posted_period_id` is. Migration 0006 is
  * what makes this UPDATE legal once the original `posted_period_id` month
  * (often much earlier) has itself closed.
+ *
+ * GAP-10/A10b: a customer-sourced recovery now carries an `obligationId`
+ * (an insurer's never does — insurers are never `POST /api/payment`
+ * parties). Left alone, this endpoint would update `incident_recovery`
+ * while the obligation it opened stayed "pending" forever — the exact
+ * split-brain CLAUDE.md's "earned and received never collapse" rule warns
+ * against, just between two tables instead of two columns. So for a
+ * customer recovery this also settles the obligation and writes the real
+ * `payment`/`payment_allocation` pair that makes it so — the same shape
+ * `confirmDay`'s one-tap path already writes for a driver's day, and the
+ * reason this can now fail `PERIOD_CLOSED`, which it never could before:
+ * a real money-table write only enters the picture here for that case.
  */
 export async function recordRecoveryReceived(
   writer: Writer,
@@ -281,15 +333,75 @@ export async function recordRecoveryReceived(
     throw new NotFoundError("No such recovery in this business");
   }
 
+  let customerId: string | undefined;
+  if (recovery.source === "customer" && recovery.obligationId !== null) {
+    const incidentRow = await findIncidentForBusiness(
+      writer,
+      input.businessId,
+      recovery.incidentId,
+    );
+    if (incidentRow?.leaseId) {
+      const lease = await findLeaseForBusiness(writer, input.businessId, incidentRow.leaseId);
+      customerId = lease?.customerId;
+    }
+  }
+
   const receivedPeriod = await findPeriodForDate(writer, input.businessId, input.receivedOn);
 
-  // See recordCustomerContribution's own comment.
-  await writer.transaction((tx) =>
-    recordIncidentRecoveryReceived(tx, input.recoveryId, {
-      receivedAmountMinor: input.receivedAmountMinor,
-      ...(receivedPeriod ? { receivedPeriodId: receivedPeriod.id } : {}),
-    }),
-  );
+  try {
+    await writer.transaction(async (tx) => {
+      await recordIncidentRecoveryReceived(tx, input.recoveryId, {
+        receivedAmountMinor: input.receivedAmountMinor,
+        ...(receivedPeriod ? { receivedPeriodId: receivedPeriod.id } : {}),
+      });
+
+      if (recovery.source === "customer" && recovery.obligationId !== null && customerId) {
+        const status = computeObligationStatus(
+          recovery.agreedAmountMinor,
+          input.receivedAmountMinor,
+          0n,
+        );
+        await updateObligationSettled(tx, recovery.obligationId, {
+          settledMinor: input.receivedAmountMinor,
+          status,
+        });
+
+        if (input.receivedAmountMinor > 0n) {
+          const linkage = await resolvePeriodLinkage(tx, input.businessId, input.receivedOn);
+          if (!linkage) {
+            throw new PeriodClosedError("No accounting period covers this business date yet");
+          }
+
+          const paymentId = newId();
+          await insertPayment(tx, {
+            id: paymentId,
+            businessId: input.businessId,
+            direction: "received",
+            partyType: "customer",
+            partyCustomerId: customerId,
+            amountMinor: input.receivedAmountMinor,
+            occurredOn: input.receivedOn,
+            handledByUserId: input.userId,
+            createdBy: input.userId,
+            postedPeriodId: linkage.postedPeriodId,
+            ...(linkage.belongsToPeriodId !== null
+              ? { belongsToPeriodId: linkage.belongsToPeriodId }
+              : {}),
+          });
+          await insertPaymentAllocation(tx, {
+            id: newId(),
+            paymentId,
+            obligationId: recovery.obligationId,
+            amountMinor: input.receivedAmountMinor,
+            allocatedOn: input.receivedOn,
+          });
+        }
+      }
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 
   return {
     recovery: {

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, ne } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   advance,
@@ -27,6 +27,12 @@ export interface NewAdvance {
 /** UC-53. Not a cost — reconciled to zero, and INV-17 blocks trip closure until it is. */
 export async function insertAdvance(db: WriteDb, values: NewAdvance): Promise<void> {
   await db.insert(advance).values({ ...values, status: "open" });
+}
+
+/** GAP-103: one `INSERT` for a whole opening-balance batch's `advance_outstanding` entries (IG §3.1). */
+export async function insertAdvances(db: WriteDb, values: NewAdvance[]): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(advance).values(values.map((v) => ({ ...v, status: "open" as const })));
 }
 
 export interface AdvanceRow {
@@ -153,6 +159,18 @@ export async function updateAdvanceStatus(
   await db.update(advance).set({ status }).where(eq(advance.id, advanceId));
 }
 
+/** GAP-103: an opening-balance correction voids the advance a prior commit posted, by id — `WHERE … voided_at IS NULL` keeps a second call a no-op. */
+export async function voidAdvanceById(
+  db: WriteDb,
+  advanceId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<void> {
+  await db
+    .update(advance)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(advance.id, advanceId), isNull(advance.voidedAt)));
+}
+
 export interface NewDeposit {
   id: string;
   businessId: string;
@@ -166,6 +184,12 @@ export interface NewDeposit {
 /** F-6.7/UC-58/W-8, F-2.1/UC-16: one `deposit` row per driver arrangement or lease — the balance is the SUM of its movements (DM §10.4), never a stored figure to drift. */
 export async function insertDeposit(db: WriteDb, values: NewDeposit): Promise<void> {
   await db.insert(deposit).values({ ...values, status: "held" });
+}
+
+/** GAP-103: one `INSERT` for a whole opening-balance batch's `deposit_held` entries (IG §3.1). */
+export async function insertDeposits(db: WriteDb, values: NewDeposit[]): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(deposit).values(values.map((v) => ({ ...v, status: "held" as const })));
 }
 
 export interface DepositRow {
@@ -260,6 +284,15 @@ export async function insertDepositMovement(
   await db.insert(depositMovement).values(values);
 }
 
+/** GAP-103: one `INSERT` for a whole opening-balance batch's `deposit_held` entries (IG §3.1) — each row's `depositId` already resolved by the caller before this runs, so the two bulk inserts (`insertDeposits`, this one) need no round trip between them. */
+export async function insertDepositMovements(
+  db: WriteDb,
+  values: NewDepositMovement[],
+): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(depositMovement).values(values);
+}
+
 /** INV-4: money you hold, never income — the SUM of movements is the held balance, so a taken/topped_up adds and a refunded/retained/applied draws down. */
 export async function sumDepositMovements(db: ReadDb, depositId: string): Promise<bigint> {
   const rows = await db
@@ -275,6 +308,19 @@ export async function sumDepositMovements(db: ReadDb, depositId: string): Promis
     (sum, row) => (ADDS.has(row.movementType) ? sum + row.amountMinor : sum - row.amountMinor),
     0n,
   );
+}
+
+/** GAP-103: a correction needs the original opening-balance movement's own amount to post an equal, opposite one — `sumDepositMovements` above never consults `voided_*`, so reversing a movement is always a real offsetting entry, never a flag. */
+export async function findDepositMovementAmount(
+  db: ReadDb,
+  movementId: string,
+): Promise<bigint | undefined> {
+  const rows = await db
+    .select({ amountMinor: depositMovement.amountMinor })
+    .from(depositMovement)
+    .where(eq(depositMovement.id, movementId))
+    .limit(1);
+  return rows[0]?.amountMinor;
 }
 
 export async function updateDepositStatus(

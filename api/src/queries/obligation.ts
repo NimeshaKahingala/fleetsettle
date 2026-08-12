@@ -22,6 +22,7 @@ export interface NewObligation {
     | "customer_contribution"
     | "management_fee"
     | "trip_fare"
+    | "opening_balance"
     | "other";
   sourceType: string;
   sourceId?: string;
@@ -39,6 +40,34 @@ export interface NewObligation {
 /** DM §10.1: everything anyone owes anyone. `settledMinor`/`status` are supplied already-correct by the caller — this endpoint's writes never need a follow-up UPDATE (CLAUDE.md → Writes: one transaction). */
 export async function insertObligation(db: WriteDb, values: NewObligation): Promise<void> {
   await db.insert(obligation).values(values);
+}
+
+/** GAP-103: one `INSERT` for a whole opening-balance batch's obligation-backed entries (IG §3.1 — never a query per row), unconditional unlike `insertObligationsIdempotent`, since every id here is freshly generated. */
+export async function insertObligations(db: WriteDb, values: NewObligation[]): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(obligation).values(values);
+}
+
+/**
+ * A10a/GAP-39: `generate-management-fee`'s own idempotent insert path,
+ * backed by `obligation_management_fee_once` (migration 0011) — a second
+ * run for the same period is a no-op, the same shape P13's
+ * `insertAllocationDaysIdempotent` already uses for its own conflict.
+ * `.returning()` after `onConflictDoNothing()` yields only the rows that
+ * actually landed, so the caller can report a real count rather than
+ * `values.length`.
+ */
+export async function insertObligationsIdempotent(
+  db: WriteDb,
+  values: NewObligation[],
+): Promise<number> {
+  if (values.length === 0) return 0;
+  const inserted = await db
+    .insert(obligation)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ id: obligation.id });
+  return inserted.length;
 }
 
 export interface ObligationRow {
@@ -259,6 +288,24 @@ export async function voidObligationBySource(
         isNull(obligation.voidedAt),
       ),
     );
+}
+
+/**
+ * GAP-103: a correction voids by id directly, not by source — the caller
+ * already knows exactly which row a prior commit posted (via
+ * `opening_balance_posting`), so there is no source pair to match against.
+ * `WHERE … voided_at IS NULL` is the same idempotency guard
+ * `voidObligationBySource` carries, for the same reason.
+ */
+export async function voidObligationById(
+  db: WriteDb,
+  obligationId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<void> {
+  await db
+    .update(obligation)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(obligation.id, obligationId), isNull(obligation.voidedAt)));
 }
 
 /** W-2: two sums, one per direction, never netted here or anywhere else in the schema — only an `offset_record` moves both. */

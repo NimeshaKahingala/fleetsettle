@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   businessMember,
@@ -6,6 +6,7 @@ import {
   driver,
   openingBalanceBatch,
   openingBalanceEntry,
+  openingBalancePosting,
   vehicle,
 } from "../db/schema.js";
 
@@ -191,4 +192,59 @@ export async function findOwnMemberUserIds(
     .from(businessMember)
     .where(and(eq(businessMember.businessId, businessId), inArray(businessMember.userId, ids)));
   return new Set(rows.map((r) => r.id));
+}
+
+export interface NewOpeningBalancePosting {
+  id: string;
+  businessId: string;
+  batchId: string;
+  entryKind: OpeningBalanceEntryRow["kind"];
+  targetTable: "obligation" | "deposit_movement" | "advance" | "payment";
+  targetId: string;
+  depositId?: string;
+}
+
+/** GAP-103/migration 0014: one row per materialised fact, IG §3.1's one multi-row insert rather than a loop per entry. */
+export async function insertPostings(
+  db: WriteDb,
+  values: NewOpeningBalancePosting[],
+): Promise<void> {
+  if (values.length === 0) return;
+  await db.insert(openingBalancePosting).values(values);
+}
+
+export interface OpeningBalancePostingRow {
+  entryKind: OpeningBalanceEntryRow["kind"];
+  targetTable: "obligation" | "deposit_movement" | "advance" | "payment";
+  targetId: string;
+  depositId: string | null;
+}
+
+/** F-0.2's own Alternates clause reached from the write side: everything this batch has posted that a later correction hasn't already reversed. */
+export async function findActivePostingsForBatch(
+  db: ReadDb,
+  batchId: string,
+): Promise<OpeningBalancePostingRow[]> {
+  const rows = await db
+    .select({
+      entryKind: openingBalancePosting.entryKind,
+      targetTable: openingBalancePosting.targetTable,
+      targetId: openingBalancePosting.targetId,
+      depositId: openingBalancePosting.depositId,
+    })
+    .from(openingBalancePosting)
+    .where(
+      and(eq(openingBalancePosting.batchId, batchId), isNull(openingBalancePosting.reversedAt)),
+    );
+  return rows as OpeningBalancePostingRow[];
+}
+
+/** Marks a posting's own bookkeeping row done — the money fact itself is reversed separately (void, for obligation/advance; an offsetting entry, for deposit_movement/payment), this only stops the same posting being reversed twice. */
+export async function markPostingsReversed(db: WriteDb, batchId: string): Promise<void> {
+  await db
+    .update(openingBalancePosting)
+    .set({ reversedAt: sql`now()` })
+    .where(
+      and(eq(openingBalancePosting.batchId, batchId), isNull(openingBalancePosting.reversedAt)),
+    );
 }

@@ -1,19 +1,27 @@
 import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  BusinessMemberResponse,
+  ExpenseResponse,
+  VehicleResponse,
+} from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { BorneByPaidBy } from "../../components/BorneByPaidBy.js";
+import { PhotoCapture } from "../../components/PhotoCapture.js";
 import { ReasonPicker } from "../../components/ReasonPicker.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
-import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
+import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
 
@@ -42,10 +50,10 @@ export interface RecordExpenseSheetProps {
  * unless the manager opens Disclosure and picks "Us" — the one override
  * this form offers — and the backend's own `resolveBorneByDefault`
  * silently supplies the real default exactly as it already does for every
- * other caller. "Paid by" has exactly one real option (the caller): there
- * is no endpoint yet to list other business members to attribute a payment
- * to, so `BorneByPaidBy` renders it as a single, honest, non-fabricated
- * choice rather than a picker with nothing real to pick.
+ * other caller. "Paid by" now uses GAP-31's `GET /api/business-member`
+ * read: choosing "You" omits `paidByUserId` so the server keeps its
+ * original "whoever is entering" default, while choosing another member
+ * sends that member's `userId` explicitly.
  */
 export function RecordExpenseSheet({
   open,
@@ -63,6 +71,9 @@ export function RecordExpenseSheet({
   const [spentOn, setSpentOn] = useState<BusinessDate>(today);
   const [note, setNote] = useState("");
   const [borneByUs, setBorneByUs] = useState(false);
+  const [paidBy, setPaidBy] = useState<EntityOption>({ id: "you", label: "You" });
+  const [moreOpen, setMoreOpen] = useState(false);
+  const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const effectiveVehicleId = vehicleId ?? selectedVehicle?.id;
 
@@ -71,6 +82,16 @@ export function RecordExpenseSheet({
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
     enabled: open && vehicleId === undefined,
   });
+  const membersQuery = useQuery({
+    queryKey: ["business-member"],
+    queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),
+    enabled: open && moreOpen,
+  });
+  // GAP-101: a failed vehicle-list read must fail the picker in place, not
+  // silently render as "you have no vehicles" (`?? []`) — the rest of the
+  // sheet (amount, category, date) stays usable regardless.
+  const vehiclesState = useQueryState(vehiclesQuery);
+  const membersState = useQueryState(membersQuery);
 
   useEffect(() => {
     if (open) {
@@ -80,6 +101,9 @@ export function RecordExpenseSheet({
       setSpentOn(today);
       setNote("");
       setBorneByUs(false);
+      setPaidBy({ id: "you", label: "You" });
+      setMoreOpen(false);
+      photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync-on-open only
@@ -96,6 +120,7 @@ export function RecordExpenseSheet({
         amountMinor: toWire(amountMinor),
         spentOn,
         ...(borneByUs ? { borneBy: "us" as const } : {}),
+        ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
       });
     },
@@ -106,6 +131,9 @@ export function RecordExpenseSheet({
           queryKey: ["vehicle", effectiveVehicleId, "expense"],
         });
       }
+      // The record saves first and the photos follow it (UI §6.3) — any
+      // photo captured before Save was only ever held locally until now.
+      photoUpload.flush(expense.id);
       onRecorded(expense);
     },
   });
@@ -114,6 +142,14 @@ export function RecordExpenseSheet({
     id: v.id,
     label: v.registration,
   }));
+  const paidByOptions: EntityOption[] = [
+    { id: "you", label: "You" },
+    ...(membersQuery.data ?? []).map((member) => ({
+      id: member.userId,
+      label: member.displayName ?? "Unnamed member",
+      sublabel: BUSINESS_MEMBER_ROLE_LABEL[member.role],
+    })),
+  ];
 
   const canSave = amountMinor !== null && amountMinor > 0n && category !== null;
 
@@ -144,6 +180,13 @@ export function RecordExpenseSheet({
 
         {vehicleId === undefined ? (
           <div className="flex flex-col gap-1">
+            {vehiclesState.kind === "error" ? (
+              <QueryStateFailure
+                error={vehiclesState.error}
+                retry={vehiclesState.retry}
+                of="the vehicle list"
+              />
+            ) : null}
             <EntityPicker
               label="Vehicle"
               options={vehicleOptions}
@@ -158,15 +201,17 @@ export function RecordExpenseSheet({
 
         <DateField label="Date" value={spentOn} today={today} onChange={setSpentOn} />
 
-        <Disclosure sectionName="Paid by, borne by and note">
+        <Disclosure sectionName="Paid by, borne by and note" onOpenChange={setMoreOpen}>
           <div className="flex flex-col gap-4">
             <BorneByPaidBy
-              paidBy={{ id: "you", label: "You" }}
-              paidByOptions={[{ id: "you", label: "You" }]}
-              onPaidByChange={() => {
-                /* the only real option today — no endpoint yet lists other business members */
-              }}
-              paidByDerivation="Defaulted to you — you're recording this expense"
+              paidBy={paidBy}
+              paidByOptions={paidByOptions}
+              onPaidByChange={setPaidBy}
+              paidByDerivation={
+                paidBy.id === "you"
+                  ? "Defaulted to you — you're recording this expense"
+                  : "Overridden to another active business member"
+              }
               borneBy={borneByUs ? US : { id: "default", label: "Resolved automatically" }}
               borneByOptions={
                 borneByUs ? [US] : [{ id: "default", label: "Resolved automatically" }, US]
@@ -178,10 +223,21 @@ export function RecordExpenseSheet({
                   : "Defaults to the usual party for this vehicle and category — override to Us if needed"
               }
             />
+            {membersState.kind === "error" ? (
+              <QueryStateFailure
+                error={membersState.error}
+                retry={membersState.retry}
+                of="the member list"
+              />
+            ) : null}
             <NoteField label="Note" value={note} onChange={setNote} />
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Photo</span>
-              <NotAvailable reason="photo capture isn't available yet" />
+              <PhotoCapture
+                onCapture={photoUpload.onCapture}
+                uploadStatus={photoUpload.uploadStatus}
+                onRetryUpload={photoUpload.onRetryUpload}
+              />
             </div>
           </div>
         </Disclosure>

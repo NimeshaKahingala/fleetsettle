@@ -7,6 +7,7 @@ export interface DisclosureProps {
   sectionName: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /**
    * Forces the section open — for a validation error on a field this
    * section hides. Without this, a collapsed level-2 section can swallow
@@ -31,6 +32,7 @@ export function Disclosure({
   children,
   defaultOpen = false,
   forceOpen = false,
+  onOpenChange,
 }: DisclosureProps) {
   const [open, setOpen] = useState(defaultOpen || forceOpen);
 
@@ -42,7 +44,13 @@ export function Disclosure({
     <div>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() =>
+          setOpen((o) => {
+            const next = !o;
+            onOpenChange?.(next);
+            return next;
+          })
+        }
         aria-expanded={open}
         className="flex min-h-tap items-center gap-1 text-body text-brand-ink"
       >

@@ -9,6 +9,7 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { StartLeaseScreen } from "./StartLeaseScreen.js";
 
@@ -181,7 +182,7 @@ test("switching from Custom back to a named package uses the package's own rate,
 
   await user.click(await screen.findByRole("button", { name: "Custom" }));
   await user.type(screen.getByLabelText("Daily km limit"), "80");
-  await enterMoneyField(user, "9999", "Enter excess rate per km");
+  await enterMoneyField(user, "9999", "Enter excess fee per km");
 
   // Switch to the named package instead — its own rate must win, not the 9999 just typed.
   await user.click(screen.getByRole("button", { name: "Standard 100" }));
@@ -258,6 +259,65 @@ test("a paperwork warning for this vehicle shows on the confirm step (F-10.1)", 
   }
 
   expect(await screen.findByText(/insurance/)).toHaveTextContent("insurance expired 2026-06-01");
+});
+
+test("GAP-101 (Mode 3): a failed paperwork read shows a warning, never silently nothing, on the confirm step", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/home/paperwork-warnings") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path === "/api/customer") return Promise.resolve([existingCustomer]);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  await pickExistingCustomer(user);
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await enterMoneyField(user, "500000");
+  for (let i = 0; i < 5; i++) {
+    await user.click(await screen.findByRole("button", { name: "Next" }));
+  }
+
+  expect(await screen.findByText("Couldn't check this vehicle's paperwork.")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed vehicle read blocks the form rather than silently skipping the GAP-84 arrangement check", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(await screen.findByText("Something went wrong loading this vehicle.")).toBeInTheDocument();
+  expect(screen.queryByText("Step 1 of 7 · Customer")).not.toBeInTheDocument();
+});
+
+test("GAP-101: a failed customer-list read shows a notice at the customer step rather than an emptied picker", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/customer") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <StartLeaseScreen vehicleId="v1" today={today} onBack={() => {}} onCreated={() => {}} />,
+    { get, post: vi.fn() },
+  );
+
+  expect(
+    await screen.findByText("Something went wrong loading the customer list."),
+  ).toBeInTheDocument();
 });
 
 test("Back always means back — the app-bar chevron steps back one page at a time, never discarding the whole form", async () => {

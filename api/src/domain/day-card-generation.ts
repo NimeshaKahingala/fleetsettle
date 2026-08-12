@@ -1,5 +1,5 @@
 import { addDays, inclusiveDays, newId, weekdayOf, type BusinessDate } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
+import type { Tx, Writer } from "../db/client.js";
 import { findOpenPeriodRow } from "../queries/accounting-period.js";
 import { listDailyLeaseRatesForLease, type DailyLeaseRateRow } from "../queries/dailyLease.js";
 import {
@@ -53,6 +53,94 @@ export interface GenerateDayCardsResult {
   dayRecordsCreated: number;
   /** One unit (a lease or a daily lease) failing must not take the whole run down — collected rather than thrown. */
   errors: { sourceType: "lease" | "daily_lease"; sourceId: string; message: string }[];
+}
+
+export interface MaterializeDailyLeaseHorizonResult {
+  allocationsCreated: number;
+  dayRecordsCreated: number;
+}
+
+/**
+ * D-9/GAP-88: the write shared by `generate-day-cards`'s own daily-lease pass
+ * (below) and `startDailyLease`/`changeDailyLeaseDriver`'s synchronous call —
+ * every pattern day from `today` to the lesser of `effectiveTo` and the
+ * rolling horizon, an allocation always, a `day_record` only for the portion
+ * inside the currently open period. One bulk insert per table, not a
+ * per-day query (Worker CPU is bounded per invocation).
+ */
+export async function materializeDailyLeaseHorizon(
+  writer: Writer | Tx,
+  dailyLease: Pick<
+    ActiveDailyLeaseForCalendar,
+    | "id"
+    | "businessId"
+    | "vehicleId"
+    | "driverId"
+    | "patternType"
+    | "patternWeekdays"
+    | "effectiveFrom"
+    | "effectiveTo"
+  >,
+  rates: DailyLeaseRateRow[],
+  openPeriod: { id: string; periodEnd: string } | null,
+  today: BusinessDate,
+  horizonDays: number = HORIZON_DAYS,
+): Promise<MaterializeDailyLeaseHorizonResult> {
+  const horizonEnd = addDays(today, horizonDays - 1);
+  const rangeEnd =
+    dailyLease.effectiveTo !== null && dailyLease.effectiveTo < horizonEnd
+      ? (dailyLease.effectiveTo as BusinessDate)
+      : horizonEnd;
+  if (rangeEnd < today) return { allocationsCreated: 0, dayRecordsCreated: 0 };
+
+  const existing = await listAllocatedDatesForVehicle(
+    writer,
+    dailyLease.vehicleId,
+    today,
+    rangeEnd,
+  );
+
+  const allocations: NewAllocationDay[] = [];
+  const dayRecords: NewDayRecordForCron[] = [];
+
+  for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
+    if (existing.has(d) || !isPatternDay(d, dailyLease)) continue;
+
+    allocations.push({
+      id: newId(),
+      businessId: dailyLease.businessId,
+      vehicleId: dailyLease.vehicleId,
+      businessDate: d,
+      arrangement: "B",
+      sourceType: "daily_lease",
+      sourceId: dailyLease.id,
+    });
+
+    if (openPeriod !== null && d <= openPeriod.periodEnd) {
+      const rateMinor = resolveRateForDate(rates, d);
+      if (rateMinor !== undefined) {
+        dayRecords.push({
+          id: newId(),
+          businessId: dailyLease.businessId,
+          dailyLeaseId: dailyLease.id,
+          vehicleId: dailyLease.vehicleId,
+          driverId: dailyLease.driverId,
+          businessDate: d,
+          expectedMinor: rateMinor,
+          postedPeriodId: openPeriod.id,
+        });
+      }
+    }
+  }
+
+  if (allocations.length > 0) {
+    await insertAllocationDaysIdempotent(writer, allocations);
+  }
+  if (dayRecords.length > 0) {
+    await insertDayRecordsIdempotent(writer, dayRecords);
+  }
+
+  return { allocationsCreated: allocations.length, dayRecordsCreated: dayRecords.length };
 }
 
 /**
@@ -131,55 +219,18 @@ export async function generateDayCards(
   const activeDailyLeases = await listActiveDailyLeasesForCalendar(writer, today);
   for (const dl of activeDailyLeases) {
     try {
-      const rangeEnd =
-        dl.effectiveTo !== null && dl.effectiveTo < horizonEnd ? dl.effectiveTo : horizonEnd;
-      if (rangeEnd < today) continue;
-
-      const existing = await listAllocatedDatesForVehicle(writer, dl.vehicleId, today, rangeEnd);
       const rates = await listDailyLeaseRatesForLease(writer, dl.id);
       const openPeriod = await openPeriodFor(dl.businessId);
-
-      const allocations: NewAllocationDay[] = [];
-      const dayRecords: NewDayRecordForCron[] = [];
-
-      for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
-        if (existing.has(d) || !isPatternDay(d, dl)) continue;
-
-        allocations.push({
-          id: newId(),
-          businessId: dl.businessId,
-          vehicleId: dl.vehicleId,
-          businessDate: d,
-          arrangement: "B",
-          sourceType: "daily_lease",
-          sourceId: dl.id,
-        });
-
-        if (openPeriod !== null && d <= openPeriod.periodEnd) {
-          const rateMinor = resolveRateForDate(rates, d);
-          if (rateMinor !== undefined) {
-            dayRecords.push({
-              id: newId(),
-              businessId: dl.businessId,
-              dailyLeaseId: dl.id,
-              vehicleId: dl.vehicleId,
-              driverId: dl.driverId,
-              businessDate: d,
-              expectedMinor: rateMinor,
-              postedPeriodId: openPeriod.id,
-            });
-          }
-        }
-      }
-
-      if (allocations.length > 0) {
-        await insertAllocationDaysIdempotent(writer, allocations);
-        allocationsCreated += allocations.length;
-      }
-      if (dayRecords.length > 0) {
-        await insertDayRecordsIdempotent(writer, dayRecords);
-        dayRecordsCreated += dayRecords.length;
-      }
+      const result = await materializeDailyLeaseHorizon(
+        writer,
+        dl,
+        rates,
+        openPeriod,
+        today,
+        horizonDays,
+      );
+      allocationsCreated += result.allocationsCreated;
+      dayRecordsCreated += result.dayRecordsCreated;
     } catch (err) {
       errors.push({
         sourceType: "daily_lease",

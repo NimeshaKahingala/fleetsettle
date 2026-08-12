@@ -6,8 +6,10 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ReportTable, type ReportTableColumn } from "../reports/ReportTable.js";
 
 export interface ReviewVehicleDetailScreenProps {
@@ -65,7 +67,13 @@ export function ReviewVehicleDetailScreen({
       ),
   });
 
-  const vehicle = reportQuery.data?.vehicles[0];
+  // GAP-101: the old guard was `vehicle === undefined ? (isPending ? "Loading…"
+  // : "No figures…") : …` — a failed read has `isPending === false` too, so
+  // it fell into "No figures for this vehicle in this period.", a false
+  // claim about a read that never came back.
+  const reportState = useQueryState(reportQuery);
+  const periodsState = useQueryState(periodsQuery);
+  const vehicle = reportState.kind === "ready" ? reportState.data.vehicles[0] : undefined;
 
   return (
     <Screen title={vehicle?.registration ?? "Vehicle"} onBack={onBack}>
@@ -75,13 +83,21 @@ export function ReviewVehicleDetailScreen({
           onClick={() => setPickerOpen(true)}
           className="min-h-tap self-start rounded-sm border border-line-strong px-3 text-body text-ink-primary"
         >
-          {reportQuery.data?.period.periodStart ?? "…"} –{" "}
-          {reportQuery.data?.period.periodEnd ?? "…"} ▾
+          {reportState.kind === "ready" ? reportState.data.period.periodStart : "…"} –{" "}
+          {reportState.kind === "ready" ? reportState.data.period.periodEnd : "…"} ▾
         </button>
 
-        {vehicle === undefined ? (
+        {reportState.kind === "error" ? (
+          <QueryStateFailure
+            error={reportState.error}
+            retry={reportState.retry}
+            of="this vehicle's figures"
+          />
+        ) : vehicle === undefined ? (
           <p className="text-body text-ink-muted">
-            {reportQuery.isPending ? "Loading…" : "No figures for this vehicle in this period."}
+            {reportState.kind !== "ready"
+              ? "Loading…"
+              : "No figures for this vehicle in this period."}
           </p>
         ) : (
           <>
@@ -112,6 +128,13 @@ export function ReviewVehicleDetailScreen({
 
       <Sheet open={pickerOpen} onOpenChange={setPickerOpen} title="Choose a month">
         <div className="flex flex-col gap-1 pb-2">
+          {periodsState.kind === "error" ? (
+            <QueryStateFailure
+              error={periodsState.error}
+              retry={periodsState.retry}
+              of="the accounting periods"
+            />
+          ) : null}
           {(periodsQuery.data ?? []).map((p) => (
             <button
               key={p.id}

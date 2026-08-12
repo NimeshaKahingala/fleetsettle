@@ -2,6 +2,7 @@ import type { AccountingPeriodListRow, VehicleMonthResponse } from "@fleetsettle
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { VehicleMonthReportScreen, toChartData, toKpiTotals } from "./VehicleMonthReportScreen.js";
 
@@ -114,4 +115,29 @@ test("defaults to the open period when none is given", async () => {
   });
 
   expect(await screen.findByText("2026-07-01 – 2026-07-31")).toBeInTheDocument();
+});
+
+test("GAP-101: a failed period-list read shows a failure notice — without it resolvedPeriodId can never resolve", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<VehicleMonthReportScreen onPeriodChange={() => {}} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading the accounting periods."),
+  ).toBeInTheDocument();
+});
+
+test("GAP-101: a failed vehicle-month read (period list itself fine) shows its own failure notice", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period") return Promise.resolve(periods);
+    return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  });
+  renderWithProviders(<VehicleMonthReportScreen onPeriodChange={() => {}} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading how this month went."),
+  ).toBeInTheDocument();
 });

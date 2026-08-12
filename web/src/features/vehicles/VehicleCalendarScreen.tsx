@@ -10,10 +10,12 @@ import type { VehicleCalendarDay, VehicleResponse } from "@fleetsettle/shared/sc
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface VehicleCalendarScreenProps {
   vehicleId: string;
@@ -38,6 +40,11 @@ const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
 interface CellStyle {
   wash: string;
   glyph: string;
+  /** GAP-46: the same wording `LegendRow` renders below, so the occupied
+   * cell announces its state to a screen reader the way colour plus glyph
+   * already does for a sighted user (CLAUDE.md → colour never carries
+   * meaning alone). */
+  label: string;
 }
 
 /**
@@ -54,11 +61,13 @@ interface CellStyle {
  * silently, per CLAUDE.md's own "say so and make the case."
  */
 function cellStyle(day: VehicleCalendarDay): CellStyle {
-  if (day.arrangement === "A") return { wash: "bg-brand-wash text-brand-ink", glyph: "L" };
+  if (day.arrangement === "A") {
+    return { wash: "bg-brand-wash text-brand-ink", glyph: "L", label: "On a lease" };
+  }
   if (day.arrangement === "C") {
     return day.isHold
-      ? { wash: "border border-serious text-serious-ink", glyph: "T?" }
-      : { wash: "bg-serious/15 text-serious-ink", glyph: "T" };
+      ? { wash: "border border-serious text-serious-ink", glyph: "T?", label: "Hold (tentative)" }
+      : { wash: "bg-serious/15 text-serious-ink", glyph: "T", label: "On a trip" };
   }
   // arrangement B — each of the four reachable states gets its own token
   // (UI-LF-07): "ran" and "not yet confirmed" used to share the brand
@@ -67,13 +76,17 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
     case "ran_paid_full":
     case "ran_paid_short":
     case "ran_unpaid":
-      return { wash: "bg-good/15 text-good-ink", glyph: "✓" };
+      return { wash: "bg-good/15 text-good-ink", glyph: "✓", label: "Daily lease, ran" };
     case "did_not_run":
-      return { wash: "bg-critical/15 text-critical-ink", glyph: "!" };
+      return { wash: "bg-critical/15 text-critical-ink", glyph: "!", label: "Daily lease, lost" };
     case "open":
     case "paused_for_trip":
     case null:
-      return { wash: "bg-warning/15 text-warning-ink", glyph: "B" };
+      return {
+        wash: "bg-warning/15 text-warning-ink",
+        glyph: "B",
+        label: "Daily lease, not yet confirmed",
+      };
   }
 }
 
@@ -110,11 +123,16 @@ export function VehicleCalendarScreen({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
   });
-  const { data: days } = useQuery({
+  const daysQuery = useQuery({
     queryKey: ["vehicle", vehicleId, "calendar", from, to],
     queryFn: () =>
       api.get<VehicleCalendarDay[]>(`/api/vehicle/${vehicleId}/calendar?from=${from}&to=${to}`),
   });
+  // GAP-101/INV-1: a failed calendar read must not render as every day
+  // free — `?? []` used to do exactly that, on the one screen whose job is
+  // stopping a double-booking.
+  const daysState = useQueryState(daysQuery);
+  const days = daysQuery.data;
 
   const byDate = new Map((days ?? []).map((day) => [day.businessDate, day]));
   const leadingBlanks = weekdayOf(from);
@@ -149,83 +167,100 @@ export function VehicleCalendarScreen({
           </Button>
         </div>
 
-        <div className="grid grid-cols-7 gap-1">
-          {WEEKDAY_LABELS.map((label, index) => (
-            <p key={index} className="text-center text-caption text-ink-muted">
-              {label}
-            </p>
-          ))}
-          {cells.map((cell, index) => {
-            if (cell.date === null) {
-              return <div key={index} />;
-            }
-            const day = byDate.get(cell.date);
-            const style = day !== undefined ? cellStyle(day) : null;
-            // eslint-disable-next-line no-restricted-syntax -- a day-of-month for display, not money
-            const dayOfMonth = Number(cell.date.slice(8, 10));
-            const cellDate = cell.date;
-            const isFree = day === undefined;
-            const canStartLease =
-              isFree && vehicle?.arrangement === "A" && onSelectFreeDay !== undefined;
-            const canBookTrip =
-              isFree &&
-              (vehicle?.arrangement === "B" || vehicle?.arrangement === "C") &&
-              onSelectFreeDayForTrip !== undefined;
-            const content = (
-              <span className="flex flex-col items-center leading-none">
-                <span>{dayOfMonth}</span>
-                {style !== null ? <span aria-hidden>{style.glyph}</span> : null}
-              </span>
-            );
-            return canStartLease || canBookTrip ? (
-              <button
-                key={cellDate}
-                type="button"
-                data-testid={`day-${cellDate}`}
-                onClick={() =>
-                  canStartLease ? onSelectFreeDay(cellDate) : onSelectFreeDayForTrip?.(cellDate)
+        {daysState.kind === "error" ? (
+          <QueryStateFailure
+            error={daysState.error}
+            retry={daysState.retry}
+            of="this month's calendar"
+          />
+        ) : (
+          <>
+            <div className="grid grid-cols-7 gap-1">
+              {WEEKDAY_LABELS.map((label, index) => (
+                <p key={index} className="text-center text-caption text-ink-muted">
+                  {label}
+                </p>
+              ))}
+              {cells.map((cell, index) => {
+                if (cell.date === null) {
+                  return <div key={index} />;
                 }
-                aria-label={
-                  canStartLease ? `Start a rental from ${cellDate}` : `Book a trip from ${cellDate}`
-                }
-                className={cn(
-                  "flex aspect-square items-center justify-center rounded-sm text-body-sm",
-                  style?.wash,
-                )}
-              >
-                {content}
-              </button>
-            ) : (
-              <div
-                key={cellDate}
-                data-testid={`day-${cellDate}`}
-                className={cn(
-                  "flex aspect-square items-center justify-center rounded-sm text-body-sm",
-                  style?.wash,
-                )}
-              >
-                {content}
-              </div>
-            );
-          })}
-        </div>
+                const day = byDate.get(cell.date);
+                const style = day !== undefined ? cellStyle(day) : null;
+                // eslint-disable-next-line no-restricted-syntax -- a day-of-month for display, not money
+                const dayOfMonth = Number(cell.date.slice(8, 10));
+                const cellDate = cell.date;
+                const isFree = day === undefined;
+                const canStartLease =
+                  isFree && vehicle?.arrangement === "A" && onSelectFreeDay !== undefined;
+                const canBookTrip =
+                  isFree &&
+                  (vehicle?.arrangement === "B" || vehicle?.arrangement === "C") &&
+                  onSelectFreeDayForTrip !== undefined;
+                const content = (
+                  <span className="flex flex-col items-center leading-none">
+                    <span>{dayOfMonth}</span>
+                    {style !== null ? <span aria-hidden>{style.glyph}</span> : null}
+                  </span>
+                );
+                return canStartLease || canBookTrip ? (
+                  <button
+                    key={cellDate}
+                    type="button"
+                    data-testid={`day-${cellDate}`}
+                    onClick={() =>
+                      canStartLease ? onSelectFreeDay(cellDate) : onSelectFreeDayForTrip?.(cellDate)
+                    }
+                    aria-label={
+                      canStartLease
+                        ? `Start a rental from ${cellDate}`
+                        : `Book a trip from ${cellDate}`
+                    }
+                    className={cn(
+                      "flex aspect-square items-center justify-center rounded-sm text-body-sm",
+                      style?.wash,
+                    )}
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div
+                    key={cellDate}
+                    data-testid={`day-${cellDate}`}
+                    {...(style !== null ? { "aria-label": `${cellDate} — ${style.label}` } : {})}
+                    className={cn(
+                      "flex aspect-square items-center justify-center rounded-sm text-body-sm",
+                      style?.wash,
+                    )}
+                  >
+                    {content}
+                  </div>
+                );
+              })}
+            </div>
 
-        <div className="flex flex-col gap-1.5 border-t border-line-hairline pt-3">
-          <LegendRow wash="bg-brand-wash text-brand-ink" glyph="L" label="On a lease" />
-          <LegendRow wash="bg-good/15 text-good-ink" glyph="✓" label="Daily lease, ran" />
-          <LegendRow
-            wash="bg-warning/15 text-warning-ink"
-            glyph="B"
-            label="Daily lease, not yet confirmed"
-          />
-          <LegendRow wash="bg-critical/15 text-critical-ink" glyph="!" label="Daily lease, lost" />
-          <LegendRow wash="bg-serious/15 text-serious-ink" glyph="T" label="On a trip" />
-          <LegendRow
-            wash="border border-serious text-serious-ink"
-            glyph="T?"
-            label="Hold (tentative)"
-          />
-        </div>
+            <div className="flex flex-col gap-1.5 border-t border-line-hairline pt-3">
+              <LegendRow wash="bg-brand-wash text-brand-ink" glyph="L" label="On a lease" />
+              <LegendRow wash="bg-good/15 text-good-ink" glyph="✓" label="Daily lease, ran" />
+              <LegendRow
+                wash="bg-warning/15 text-warning-ink"
+                glyph="B"
+                label="Daily lease, not yet confirmed"
+              />
+              <LegendRow
+                wash="bg-critical/15 text-critical-ink"
+                glyph="!"
+                label="Daily lease, lost"
+              />
+              <LegendRow wash="bg-serious/15 text-serious-ink" glyph="T" label="On a trip" />
+              <LegendRow
+                wash="border border-serious text-serious-ink"
+                glyph="T?"
+                label="Hold (tentative)"
+              />
+            </div>
+          </>
+        )}
       </div>
     </Screen>
   );

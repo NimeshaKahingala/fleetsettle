@@ -244,6 +244,8 @@ export interface NewIncidentRecovery {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   note?: string;
+  /** GAP-10/A10b: set for `source: 'customer'` — the obligation that makes this agreed amount payable through `POST /api/payment`. An insurer is never a payer there, so `source: 'insurer'` never sets this. */
+  obligationId?: string;
 }
 
 /** W-10/W-11: money EXPECTED until it arrives, never earned — `received_amount_minor` starts at 0 and is filled in later by `recordIncidentRecoveryReceived`. */
@@ -260,6 +262,8 @@ export interface IncidentRecoveryRow {
   source: "customer" | "insurer";
   agreedAmountMinor: bigint;
   receivedAmountMinor: bigint;
+  /** GAP-10/A10b: set for `source: 'customer'` only — what `recordRecoveryReceived` settles alongside `received_amount_minor` so the two never disagree. */
+  obligationId: string | null;
   postedPeriodId: string;
   receivedPeriodId: string | null;
   belongsToPeriodId: string | null;
@@ -272,6 +276,7 @@ const INCIDENT_RECOVERY_COLUMNS = {
   source: incidentRecovery.source,
   agreedAmountMinor: incidentRecovery.agreedAmountMinor,
   receivedAmountMinor: incidentRecovery.receivedAmountMinor,
+  obligationId: incidentRecovery.obligationId,
   postedPeriodId: incidentRecovery.postedPeriodId,
   receivedPeriodId: incidentRecovery.receivedPeriodId,
   belongsToPeriodId: incidentRecovery.belongsToPeriodId,

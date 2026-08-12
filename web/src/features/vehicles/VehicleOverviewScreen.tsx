@@ -1,4 +1,4 @@
-import { businessToday, format, parse } from "@fleetsettle/shared";
+import { add, businessToday, format, parse, ZERO } from "@fleetsettle/shared";
 import type {
   ExpenseListRow,
   IncidentResponse,
@@ -12,12 +12,16 @@ import {
   CalendarDays,
   CalendarPlus,
   ChevronRight,
+  FileText,
   MoreVertical,
   Receipt,
+  Route,
   TriangleAlert,
 } from "lucide-react";
 import { useState } from "react";
+import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
@@ -33,14 +37,9 @@ import {
   INCIDENT_STATUS_BADGE_VARIANT,
   INCIDENT_STATUS_LABEL,
 } from "../../lib/incidentStatusLabel.js";
-
-const DOC_TYPE_LABEL: Record<string, string> = {
-  insurance: "Insurance",
-  registration: "Registration",
-  revenue_licence: "Revenue licence",
-  permit: "Permit",
-  emissions: "Emissions",
-};
+import { useQueryState } from "../../lib/useQueryState.js";
+import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
+import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
@@ -52,6 +51,8 @@ export interface VehicleOverviewScreenProps {
   onSelectIncident: (incidentId: string) => void;
   /** F-1.7 (B10) — offered only for a vehicle that could actually take one; see `vehicleActions` below. */
   onStartDailyLease: () => void;
+  /** GAP-97 — the mirror of B10's own finding: booking works from the calendar and Quick Add, but not from the one screen where a manager is already looking at this vehicle. Offered only for arrangement B or C, matching `canBookTrip` on the calendar and `bookTrip`'s own server-side gate. */
+  onBookTrip: () => void;
 }
 
 function formatShortDate(date: string): string {
@@ -112,16 +113,20 @@ export function VehicleOverviewScreen({
   onSelectLease,
   onSelectIncident,
   onStartDailyLease,
+  onBookTrip,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
   const today = businessToday();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
-  const { data: vehicle, isLoading } = useQuery({
+  const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
+  const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
+  const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
   });
+  const vehicle = vehicleQuery.data;
   const documentsQuery = useQuery({
     queryKey: ["vehicle", vehicleId, "document"],
     queryFn: () => api.get<VehicleDocumentResponse[]>(`/api/vehicle/${vehicleId}/document`),
@@ -142,15 +147,34 @@ export function VehicleOverviewScreen({
     queryKey: ["vehicle", vehicleId, "incident"],
     queryFn: () => api.get<IncidentResponse[]>(`/api/vehicle/${vehicleId}/incident`),
   });
+  const vehicleState = useQueryState(vehicleQuery);
+  const documentsState = useQueryState(documentsQuery);
+  const expensesState = useQueryState(expensesQuery);
+  const leaseHistoryState = useQueryState(leaseHistoryQuery);
+  const dailyLeaseHistoryState = useQueryState(dailyLeaseHistoryQuery);
+  const incidentsState = useQueryState(incidentsQuery);
 
   const documents = documentsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
   const incidents = incidentsQuery.data ?? [];
+  // GAP-96: a manager voiding a cost row had nothing on this screen to
+  // check the effect against — the row-level void itself was already
+  // correct (GAP-81). Voided rows are excluded, the same rule
+  // `TripDetailScreen`'s "Costs so far" already uses.
+  const costsTotal = expenses
+    .filter((row) => row.voidedAt === null)
+    .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
   const historyEntries = buildHistoryEntries(
     leaseHistoryQuery.data ?? [],
     dailyLeaseHistoryQuery.data ?? [],
     onSelectLease,
   );
+  const historyFailure =
+    leaseHistoryState.kind === "error"
+      ? leaseHistoryState
+      : dailyLeaseHistoryState.kind === "error"
+        ? dailyLeaseHistoryState
+        : null;
 
   // F-1.7's entry point, and the one this flow was missing entirely until
   // B10 (GAP-51). Offered when the vehicle is on arrangement B **or has no
@@ -159,9 +183,21 @@ export function VehicleOverviewScreen({
   // for A and C, whose own start flows live on the calendar (F-2.1/F-5.1);
   // `VehicleCalendarScreen`'s `canStartLease`/`canBookTrip` gate the same way.
   const canStartDailyLease = vehicle?.arrangement === undefined || vehicle.arrangement === "B";
+  // GAP-97: the same gate `bookTrip` itself enforces server-side and
+  // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
+  const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
+    {
+      key: "paperwork",
+      label: "Renew paperwork",
+      icon: FileText,
+      onSelect: () => {
+        setSelectedDocument(null);
+        setRenewPaperworkOpen(true);
+      },
+    },
     ...(canStartDailyLease
       ? [
           {
@@ -169,6 +205,16 @@ export function VehicleOverviewScreen({
             label: "Start a daily lease",
             icon: CalendarPlus,
             onSelect: onStartDailyLease,
+          },
+        ]
+      : []),
+    ...(canBookTrip
+      ? [
+          {
+            key: "book-trip",
+            label: "Book trip",
+            icon: Route,
+            onSelect: onBookTrip,
           },
         ]
       : []),
@@ -192,7 +238,13 @@ export function VehicleOverviewScreen({
       onBack={onBack}
       action={{ label: "Vehicle actions", icon: MoreVertical, onClick: () => setActionsOpen(true) }}
     >
-      {isLoading || vehicle === undefined ? (
+      {vehicleState.kind === "error" ? (
+        <QueryStateFailure
+          error={vehicleState.error}
+          retry={vehicleState.retry}
+          of="this vehicle"
+        />
+      ) : vehicle === undefined ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -217,27 +269,60 @@ export function VehicleOverviewScreen({
             </div>
           </Card>
 
+          {documentsState.kind === "error" ? (
+            <QueryStateFailure
+              error={documentsState.error}
+              retry={documentsState.retry}
+              of="paperwork"
+            />
+          ) : null}
           {documents.length > 0 ? (
             <Section
               title="Paperwork"
               count={documents.length}
               items={documents.map((doc) => (
-                <Card key={doc.docType} className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">
-                    {DOC_TYPE_LABEL[doc.docType] ?? doc.docType}
-                  </p>
-                  <p className="text-body-sm text-ink-muted">
-                    Expires {formatShortDate(doc.expiryDate)}
-                  </p>
-                </Card>
+                <button
+                  key={doc.docType}
+                  type="button"
+                  onClick={() => {
+                    setSelectedDocument(doc);
+                    setRenewPaperworkOpen(true);
+                  }}
+                  className="w-full text-left"
+                >
+                  <Card className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-body text-ink-primary">
+                        {VEHICLE_DOC_TYPE_LABEL[doc.docType] ?? doc.docType}
+                      </p>
+                      {doc.reference !== undefined ? (
+                        <p className="text-caption text-ink-muted">{doc.reference}</p>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-body-sm text-ink-muted">
+                        Expires {formatShortDate(doc.expiryDate)}
+                      </p>
+                      <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                    </div>
+                  </Card>
+                </button>
               ))}
             />
           ) : null}
 
+          {expensesState.kind === "error" ? (
+            <QueryStateFailure
+              error={expensesState.error}
+              retry={expensesState.retry}
+              of="this vehicle's costs"
+            />
+          ) : null}
           {expenses.length > 0 ? (
             <Section
               title="Costs"
               count={expenses.length}
+              total={<Money value={costsTotal} />}
               items={expenses.map((expense) => (
                 <ExpenseCostRow
                   key={expense.id}
@@ -249,6 +334,13 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {incidentsState.kind === "error" ? (
+            <QueryStateFailure
+              error={incidentsState.error}
+              retry={incidentsState.retry}
+              of="incidents"
+            />
+          ) : null}
           {incidents.length > 0 ? (
             <Section
               title="Incidents"
@@ -284,6 +376,16 @@ export function VehicleOverviewScreen({
             />
           ) : null}
 
+          {historyFailure !== null ? (
+            <QueryStateFailure
+              error={historyFailure.error}
+              retry={() => {
+                if (leaseHistoryState.kind === "error") leaseHistoryState.retry();
+                if (dailyLeaseHistoryState.kind === "error") dailyLeaseHistoryState.retry();
+              }}
+              of="this vehicle's history"
+            />
+          ) : null}
           {historyEntries.length > 0 ? (
             <section className="flex flex-col gap-2">
               <h2 className="text-label font-medium text-ink-secondary">
@@ -311,6 +413,13 @@ export function VehicleOverviewScreen({
             vehicleId={vehicleId}
             today={today}
             onRecorded={() => setRecordExpenseOpen(false)}
+          />
+          <RenewVehicleDocumentSheet
+            open={renewPaperworkOpen}
+            onOpenChange={setRenewPaperworkOpen}
+            vehicleId={vehicleId}
+            today={today}
+            {...(selectedDocument !== null ? { initialDocument: selectedDocument } : {})}
           />
           <ActionSheet
             open={actionsOpen}

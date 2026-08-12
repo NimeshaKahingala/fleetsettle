@@ -49,6 +49,7 @@ export function CreateBusinessForm({ onCreated }: CreateBusinessFormProps) {
       <Field label="Business name" htmlFor="name" error={errors.name?.message}>
         <Input
           id="name"
+          autoComplete="organization"
           aria-invalid={errors.name !== undefined}
           aria-describedby={fieldErrorId("name")}
           {...register("name")}

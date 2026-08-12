@@ -314,6 +314,21 @@ export const openingBalanceEntry = pgTable("opening_balance_entry", {
   originalDueDate: date("original_due_date", { mode: "string" }),
 });
 
+// GAP-103/migration 0014: the only durable link between one opening_balance_entry
+// and whatever it materialised elsewhere (obligation/deposit_movement/advance/
+// payment) — not itself a money table (see the migration's own header).
+export const openingBalancePosting = pgTable("opening_balance_posting", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  batchId: uuid("batch_id").notNull(),
+  entryKind: text("entry_kind").notNull(),
+  targetTable: text("target_table").notNull(),
+  targetId: uuid("target_id").notNull(),
+  depositId: uuid("deposit_id"),
+  reversedAt: timestamp("reversed_at", { withTimezone: true, mode: "string" }),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
 export const dayRecord = pgTable("day_record", {
   id: uuid("id").primaryKey(),
   businessId: uuid("business_id").notNull(),
@@ -701,6 +716,25 @@ export const writeOffRecovery = pgTable("write_off_recovery", {
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   postedPeriodId: uuid("posted_period_id").notNull(),
   belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** A7/GAP-16, migration 0013. Not a money table (no posted_period_id) — deliberately outside assert_period_open() and write_audit_log(), see 0013's header. subject_type/subject_id is polymorphic and carries no FK; the kind/subject_type pair and content_type are constrained in SQL, not here. */
+export const attachment = pgTable("attachment", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  kind: text("kind").notNull(),
+  r2Key: text("r2_key").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  subjectType: text("subject_type").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  uploadedBy: uuid("uploaded_by"),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true, mode: "string" })
+    .notNull()
+    .defaultNow(),
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),

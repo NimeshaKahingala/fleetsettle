@@ -22,6 +22,7 @@ import { dayRecord } from "./routes/day-record.js";
 import { trip } from "./routes/trip.js";
 import { openingBalance } from "./routes/opening-balance.js";
 import { expense } from "./routes/expense.js";
+import { attachment } from "./routes/attachment.js";
 import { adjustment } from "./routes/adjustment.js";
 import { advance } from "./routes/advance.js";
 import { deposit } from "./routes/deposit.js";
@@ -107,6 +108,9 @@ app.route("/api/opening-balance", openingBalance);
 
 app.use("/api/expense/*", dbMiddleware(), authMiddleware());
 app.route("/api/expense", expense);
+
+app.use("/api/attachment/*", dbMiddleware(), authMiddleware());
+app.route("/api/attachment", attachment);
 
 app.use("/api/adjustment/*", dbMiddleware(), authMiddleware());
 app.route("/api/adjustment", adjustment);

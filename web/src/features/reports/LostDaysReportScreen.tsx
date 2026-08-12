@@ -1,9 +1,12 @@
 import { parse, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { LostDaysResponse } from "@fleetsettle/shared/schemas";
+import type { LostDaysResponse, LostReason } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { LOST_REASON_OPTIONS } from "../../lib/lostReasonLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { ColumnChart, type ColumnDatum } from "./charts/ColumnChart.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
@@ -25,17 +28,35 @@ export interface DriverLostDaysTotal {
   lostValueMinor: Minor;
 }
 
-/**
- * `LostDaysRow` arrives one row per driver **per weekday** — this report's
- * own doc comment names driver and weekday as the two real dimensions, and
- * UI §11.1's "column per month" does not match what the endpoint can
- * produce (no month field exists on the row at all, only `weekday`).
- * Summing across weekdays to one total per driver is the honest reading of
- * what this contract can prove today; a real per-month time series and the
- * weekday-breakdown chart both wait on the same query change GAP-71 already
- * schedules — recorded there rather than guessed at here.
- */
-export function toDriverTotals(rows: LostDaysResponse): DriverLostDaysTotal[] {
+/** `to_char(business_date, 'YYYY-MM')` on the wire — indexed 0 for January, matching `Date`'s own convention closely enough to reuse without a library. */
+const MONTH_LABEL = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+function monthLabel(month: string): string {
+  const [year, monthNum] = month.split("-");
+  // eslint-disable-next-line no-restricted-syntax -- a 1-12 month-number label index, not money
+  const index = Number(monthNum) - 1;
+  const name = MONTH_LABEL[index] ?? month;
+  return `${name} ${year ?? ""}`.trim();
+}
+
+/** `EXTRACT(dow FROM …)` on the wire — 0 is Sunday, matching Postgres's own convention (DM §15), not `Date.getDay()`'s (which happens to agree, but this array is keyed to the wire contract, not the coincidence). */
+const WEEKDAY_LABEL = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Per-driver totals across the whole window — unchanged since Wave 1, now sourced from `byWeekday` rather than a flat array. */
+export function toDriverTotals(rows: LostDaysResponse["byWeekday"]): DriverLostDaysTotal[] {
   const byDriver = new Map<string, DriverLostDaysTotal>();
   for (const row of rows) {
     const existing = byDriver.get(row.driverId);
@@ -60,14 +81,50 @@ export function toDriverTotals(rows: LostDaysResponse): DriverLostDaysTotal[] {
   return [...byDriver.values()];
 }
 
-/** `lost` is a plain day count (already `number` on the wire), not money — no axis codec needed, the same reason `distanceKm`/`weekday` elsewhere never touch it either. */
-export function toChartData(totals: DriverLostDaysTotal[]): ColumnDatum[] {
-  return totals.map((t) => ({
-    id: t.driverId,
-    label: t.driverName ?? "Unnamed driver",
-    value: t.lost,
-    formattedValue: t.lost.toString(),
-  }));
+/**
+ * GAP-71/UI §11.1: "Column per month" — the report's primary form, summed
+ * across every driver so the business-wide pattern is the first thing
+ * shown; per-driver detail stays in the table below. Sorted chronologically
+ * rather than by count, since a time series read out of order is not a
+ * time series.
+ */
+export function toMonthChartData(rows: LostDaysResponse["byMonth"]): ColumnDatum[] {
+  const byMonth = new Map<string, number>();
+  for (const row of rows) {
+    byMonth.set(row.month, (byMonth.get(row.month) ?? 0) + row.lost);
+  }
+  return [...byMonth.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, lost]) => ({
+      id: month,
+      label: monthLabel(month),
+      value: lost,
+      formattedValue: lost.toString(),
+    }));
+}
+
+/** GAP-71/UI §11.1: the weekday-distribution second-tier chart — "a driver who takes Fridays off" — summed across drivers. All seven weekdays always render, Sunday first, matching `EXTRACT(dow …)`'s own convention: a weekday with nothing lost is a real zero (W-56), not an absent bar. */
+export function toWeekdayChartData(rows: LostDaysResponse["byWeekday"]): ColumnDatum[] {
+  const byWeekday = new Map<number, number>();
+  for (const row of rows) {
+    byWeekday.set(row.weekday, (byWeekday.get(row.weekday) ?? 0) + row.lost);
+  }
+  return WEEKDAY_LABEL.map((label, weekday) => {
+    const lost = byWeekday.get(weekday) ?? 0;
+    return { id: weekday.toString(), label, value: lost, formattedValue: lost.toString() };
+  });
+}
+
+/** GAP-71/UI §11.1: the reason-breakdown second-tier chart — "a bus that breaks down often" — summed across drivers, in the same fixed order `ReasonPicker` presents them (F-4.4). Only reasons actually present in the window render — unlike weekday, there is no fixed "all six always shown" expectation in UC-76's own text. */
+export function toReasonChartData(rows: LostDaysResponse["byReason"]): ColumnDatum[] {
+  const byReason = new Map<LostReason, number>();
+  for (const row of rows) {
+    byReason.set(row.reason, (byReason.get(row.reason) ?? 0) + row.lost);
+  }
+  return LOST_REASON_OPTIONS.filter((o) => byReason.has(o.key)).map((o) => {
+    const lost = byReason.get(o.key) as number;
+    return { id: o.key, label: o.label, value: lost, formattedValue: lost.toString() };
+  });
 }
 
 const COLUMNS: ReportTableColumn<DriverLostDaysTotal>[] = [
@@ -88,13 +145,17 @@ const COLUMNS: ReportTableColumn<DriverLostDaysTotal>[] = [
 
 /**
  * UC-76 / `GET /api/reports/lost-days` — UC-06's "your only protection".
- * The denominator shown is `leaseEligible` (`ran + lost`), read directly off
- * the endpoint's own field rather than recomputed client-side — the same
- * exclusion logic §1.2 already applies server-side (off-pattern and
- * charter-paused days never enter it). `lostValueMinor` stays per-driver,
- * never summed into one business-wide figure (a lost day's value is
- * driver-specific). Empty means no daily-lease days at all in the window,
- * not "no days lost" — a real, if unlikely, zero would still show a chart.
+ * The denominator shown in the table is `leaseEligible` (`ran + lost`), read
+ * directly off the endpoint's own field rather than recomputed client-side —
+ * the same exclusion logic §1.2 already applies server-side (off-pattern and
+ * charter-paused days never enter it). `lostValueMinor` stays per-driver in
+ * the table, never summed into one business-wide figure.
+ *
+ * GAP-71/Wave 2: the primary chart is now genuinely "column per month"
+ * (UI §11.1), with weekday distribution and the reason breakdown as its two
+ * second-tier charts — the shape UI §11.1 and DM §15 both specify. Empty
+ * means no daily-lease days at all in the window, not "no days lost" — a
+ * real, if unlikely, zero would still show a chart.
  */
 export function LostDaysReportScreen({
   from,
@@ -126,7 +187,24 @@ export function LostDaysReportScreen({
     </div>
   );
 
-  if (query.data === undefined) {
+  const state = useQueryState(query);
+
+  if (state.kind === "error") {
+    return (
+      <ReportScreen
+        title="Lost days"
+        onBack={onBack}
+        table={
+          <div className="flex flex-col gap-3">
+            {paramsForm}
+            <QueryStateFailure error={state.error} retry={state.retry} of="lost days" />
+          </div>
+        }
+      />
+    );
+  }
+
+  if (state.kind !== "ready") {
     return (
       <ReportScreen
         title="Lost days"
@@ -141,7 +219,7 @@ export function LostDaysReportScreen({
     );
   }
 
-  const totals = toDriverTotals(query.data);
+  const totals = toDriverTotals(state.data.byWeekday);
 
   if (totals.length === 0) {
     return (
@@ -165,9 +243,25 @@ export function LostDaysReportScreen({
       subtitle={`${from} – ${to}`}
       onBack={onBack}
       chart={
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           {paramsForm}
-          <ColumnChart data={toChartData(totals)} />
+          <ColumnChart data={toMonthChartData(state.data.byMonth)} />
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">By weekday</p>
+            <ColumnChart
+              data={toWeekdayChartData(state.data.byWeekday)}
+              height={120}
+              color="var(--color-chart-3)"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <p className="text-caption text-ink-muted">By reason</p>
+            <ColumnChart
+              data={toReasonChartData(state.data.byReason)}
+              height={120}
+              color="var(--color-chart-4)"
+            />
+          </div>
         </div>
       }
       table={

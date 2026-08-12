@@ -23,7 +23,7 @@ import {
   type TripRow,
 } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
 import type {
   bookTripRoute,
   cancelTripRoute,
@@ -123,6 +123,18 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
 
   const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+  // GAP-87: the identical unvalidated shape GAP-84 closed on the lease and
+  // daily-lease start screens, found while fixing them and deliberately
+  // left for its own pass — mirrors the client's own `canBookTrip` gate
+  // (`arrangement === "B" || arrangement === "C"`), so a car out on a full
+  // monthly lease (A) cannot also take a charter, and neither can a vehicle
+  // with no standing arrangement yet (unlike the daily-lease case, `null`
+  // is not accepted here).
+  if (vehicle.arrangement !== "B" && vehicle.arrangement !== "C") {
+    throw new VehicleArrangementMismatchError(
+      `This vehicle is configured for arrangement ${vehicle.arrangement ?? "none"}, not a charter`,
+    );
+  }
   if (body.customerId !== undefined) {
     const customer = await findCustomerForBusiness(reader, businessId, body.customerId);
     if (!customer) throw new NotFoundError("No such customer in this business");

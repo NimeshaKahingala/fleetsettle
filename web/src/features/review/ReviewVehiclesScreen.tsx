@@ -1,8 +1,10 @@
 import type { AccountingPeriodListRow, VehicleMonthResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { VehiclePerformanceCard } from "./VehiclePerformanceCard.js";
 
 export interface ReviewVehiclesScreenProps {
@@ -37,8 +39,34 @@ export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenPr
     },
     enabled: current !== undefined,
   });
+  const periodsState = useQueryState(periodsQuery);
+  const reportState = useQueryState(reportQuery);
 
-  if (reportQuery.data === undefined) {
+  // GAP-101: `periodsQuery` failing is checked first — without it `current`
+  // never resolves, so `reportQuery` stays `idle` forever, not `pending`.
+  if (periodsState.kind === "error") {
+    return (
+      <Screen title="Vehicles">
+        <QueryStateFailure
+          error={periodsState.error}
+          retry={periodsState.retry}
+          of="the accounting periods"
+        />
+      </Screen>
+    );
+  }
+  if (reportState.kind === "error") {
+    return (
+      <Screen title="Vehicles">
+        <QueryStateFailure
+          error={reportState.error}
+          retry={reportState.retry}
+          of="this month's vehicles"
+        />
+      </Screen>
+    );
+  }
+  if (reportState.kind !== "ready") {
     return (
       <Screen title="Vehicles">
         <p className="text-body text-ink-muted">Loading…</p>
@@ -49,7 +77,7 @@ export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenPr
   return (
     <Screen title="Vehicles">
       <div className="flex flex-col gap-2">
-        {reportQuery.data.vehicles.map((v) => {
+        {reportState.data.vehicles.map((v) => {
           const mine = v.ownerShares.find((s) => s.userId === me.userId);
           return (
             <VehiclePerformanceCard

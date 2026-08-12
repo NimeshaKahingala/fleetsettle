@@ -3,6 +3,7 @@ import type { ExpenseListRow, IncidentDetailResponse } from "@fleetsettle/shared
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { IncidentScreen } from "./IncidentScreen.js";
 
@@ -279,4 +280,28 @@ test("a closed incident does not offer Close incident again", async () => {
 
   expect(await screen.findByText("Rear bumper damage")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Close incident" })).not.toBeInTheDocument();
+});
+
+test("GAP-101: a failed incident read shows a failure notice, never an eternal spinner", async () => {
+  const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading this incident."),
+  ).toBeInTheDocument();
+});
+
+test("GAP-101: a failed repair-costs read shows a failure notice rather than a silently empty list", async () => {
+  const get = baseGet({
+    "/api/incident/inc1/expense": Promise.reject(
+      new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"),
+    ),
+  });
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Something went wrong loading repair costs.")).toBeInTheDocument();
 });

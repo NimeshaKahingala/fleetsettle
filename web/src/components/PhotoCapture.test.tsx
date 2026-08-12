@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import { downscaleAndEncode } from "../lib/photo-pipeline.js";
 import { PhotoCapture } from "./PhotoCapture.js";
 
 // createImageBitmap/OffscreenCanvas don't exist under jsdom — the real
@@ -11,6 +12,8 @@ vi.mock("../lib/photo-pipeline.js", () => ({
     Promise.resolve({ blob: new Blob(["fake"], { type: "image/jpeg" }), flagged: false }),
   ),
 }));
+
+const mockedDownscaleAndEncode = vi.mocked(downscaleAndEncode);
 
 function makeFile(): File {
   return new File(["fake"], "front.jpg", { type: "image/jpeg" });
@@ -80,4 +83,80 @@ test("an upload error shows a retry affordance the caller drives", async () => {
 
   await user.click(screen.getByRole("button", { name: "Retry" }));
   expect(onRetryUpload).toHaveBeenCalledWith("front");
+});
+
+// Finding C: previously an unhandled rejection left the tile spinning
+// forever and onCapture never fired.
+test("a decode failure shows a local error instead of spinning forever, and lets the user try again", async () => {
+  mockedDownscaleAndEncode.mockRejectedValueOnce(new Error("createImageBitmap failed"));
+  const user = userEvent.setup();
+  const onCapture = vi.fn();
+  render(<PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={onCapture} />);
+
+  await user.upload(screen.getByLabelText("Front file input"), makeFile());
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument(),
+  );
+  expect(onCapture).not.toHaveBeenCalled();
+  // Still offering to capture — not stuck mid-encode, and distinct from the
+  // caller-driven "Retry" affordance above (there is no blob to re-upload).
+  expect(screen.getByRole("button", { name: "Capture front photo" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+});
+
+// A7's plan, finding C item 4: the no-2D-context fallback in photo-pipeline
+// can hand back the original file untouched, in a format the server
+// allowlist rejects (HEIC, for one) — caught here, before onCapture ever
+// fires, rather than as a background upload failure with no sheet left.
+test("a content type outside the server's allowlist is caught before onCapture fires", async () => {
+  mockedDownscaleAndEncode.mockResolvedValueOnce({
+    blob: new Blob(["fake"], { type: "image/heic" }),
+    flagged: true,
+  });
+  const user = userEvent.setup();
+  const onCapture = vi.fn();
+  render(<PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={onCapture} />);
+
+  await user.upload(screen.getByLabelText("Front file input"), makeFile());
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument(),
+  );
+  expect(onCapture).not.toHaveBeenCalled();
+});
+
+test("retaking a slot's photo revokes the previous object URL", async () => {
+  const user = userEvent.setup();
+  const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  render(<PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={vi.fn()} />);
+
+  await user.upload(screen.getByLabelText("Front file input"), makeFile());
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Retake front photo" })).toBeInTheDocument(),
+  );
+  expect(revokeSpy).not.toHaveBeenCalled();
+
+  await user.upload(screen.getByLabelText("Front file input"), makeFile());
+  await waitFor(() => expect(revokeSpy).toHaveBeenCalledWith("blob:mock-url"));
+
+  revokeSpy.mockRestore();
+});
+
+test("unmounting revokes every object URL still live", async () => {
+  const user = userEvent.setup();
+  const revokeSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  const { unmount } = render(
+    <PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={vi.fn()} />,
+  );
+
+  await user.upload(screen.getByLabelText("Front file input"), makeFile());
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Retake front photo" })).toBeInTheDocument(),
+  );
+
+  unmount();
+  expect(revokeSpy).toHaveBeenCalledWith("blob:mock-url");
+
+  revokeSpy.mockRestore();
 });

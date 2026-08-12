@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, driver, trip, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
@@ -109,6 +109,86 @@ export async function findTripForBusiness(
     .where(and(eq(trip.id, tripId), eq(trip.businessId, businessId)))
     .limit(1);
   return rows[0] as TripRow | undefined;
+}
+
+/**
+ * F-1.2/UC-94/GAP-54: the arrangement-change precondition — "no open
+ * trip… conflicting with the effective date." A `hold`/`booked`/`in_progress`
+ * trip whose own range still reaches or passes the effective date occupies
+ * the vehicle regardless of the arrangement label being changed underneath
+ * it (GAP-87 is the mirror gap — `bookTrip` not checking the label either).
+ */
+export async function findOpenTripForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+  effectiveFrom: string,
+): Promise<{ id: string } | undefined> {
+  const rows = await db
+    .select({ id: trip.id })
+    .from(trip)
+    .where(
+      and(
+        eq(trip.vehicleId, vehicleId),
+        inArray(trip.status, ["hold", "booked", "in_progress"]),
+        gte(trip.endDate, effectiveFrom),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+export interface VehicleTripHistoryRow {
+  id: string;
+  status: "hold" | "booked" | "in_progress" | "closed" | "cancelled";
+  startDate: string;
+  endDate: string;
+  destination: string | null;
+  customerId: string | null;
+  customerName: string | null;
+  driverId: string | null;
+  driverName: string | null;
+  agreedAmountMinor: bigint;
+}
+
+/**
+ * GAP-77/UC-71: an arrangement-C vehicle's own trip history — every status,
+ * most recent first. Sibling of `listVehicleLeaseHistoryHandler`/
+ * `listVehicleDailyLeaseHistoryHandler`, the arrangement-A/B history reads;
+ * arrangement C had no equivalent. Left-joined the same way
+ * `listInProgressTripsForBusiness` is — a driver-only or customer-only trip
+ * is real (DM §8).
+ */
+export async function listTripsForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+): Promise<VehicleTripHistoryRow[]> {
+  const rows = await db
+    .select({
+      id: trip.id,
+      status: trip.status,
+      startDate: trip.startDate,
+      endDate: trip.endDate,
+      destination: trip.destination,
+      customerId: trip.customerId,
+      customerName: customer.name,
+      driverId: trip.driverId,
+      driverName: driver.name,
+      agreedAmountMinor: trip.agreedAmountMinor,
+    })
+    .from(trip)
+    .leftJoin(customer, eq(customer.id, trip.customerId))
+    .leftJoin(driver, eq(driver.id, trip.driverId))
+    .where(and(eq(trip.businessId, businessId), eq(trip.vehicleId, vehicleId)))
+    .orderBy(desc(trip.startDate));
+  return rows.map((r) => ({
+    ...r,
+    status: r.status as VehicleTripHistoryRow["status"],
+    customerId: r.customerId ?? null,
+    customerName: r.customerName ?? null,
+    driverId: r.driverId ?? null,
+    driverName: r.driverName ?? null,
+  }));
 }
 
 export interface DriverViewTripRow {

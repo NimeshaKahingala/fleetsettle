@@ -3,12 +3,14 @@ import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
+import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { ARRANGEMENT_BADGE_VARIANT, ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
+import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateVehicleForm } from "./CreateVehicleForm.js";
 
 export interface VehicleListScreenProps {
@@ -20,17 +22,21 @@ export interface VehicleListScreenProps {
 export function VehicleListScreen({ today, onSelectVehicle }: VehicleListScreenProps) {
   const api = useApi();
   const [addOpen, setAddOpen] = useState(false);
-  const { data: vehicles, isLoading } = useQuery({
+  const vehiclesQuery = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
   });
+  const state = useQueryState(vehiclesQuery);
+  const vehicles = vehiclesQuery.data;
 
   return (
     <Screen
       title="Vehicles"
       action={{ label: "Add a vehicle", icon: Plus, onClick: () => setAddOpen(true) }}
     >
-      {isLoading ? (
+      {state.kind === "error" ? (
+        <QueryStateFailure error={state.error} retry={state.retry} of="the vehicle list" />
+      ) : state.kind !== "ready" ? (
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : vehicles !== undefined && vehicles.length > 0 ? (
         <ul className="flex flex-col gap-2">

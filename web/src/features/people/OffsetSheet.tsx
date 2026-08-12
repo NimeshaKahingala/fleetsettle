@@ -55,6 +55,7 @@ export function OffsetSheet({ open, onOpenChange, driverId, today }: OffsetSheet
       } satisfies CreateOffsetWireRequest),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "balances"] });
+      void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "view"] });
       reset({ occurredOn: today });
       onOpenChange(false);
     },

@@ -47,7 +47,7 @@ export function Screen({
   const ActionIcon = action?.icon;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line-hairline px-4">
+      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line-hairline px-4 max-md:landscape:h-11 max-md:landscape:px-3">
         <div className="flex min-w-0 items-center gap-1">
           {onBack !== undefined ? (
             <button
@@ -59,7 +59,9 @@ export function Screen({
               <ChevronLeft className="size-5" aria-hidden />
             </button>
           ) : null}
-          <h1 className="truncate text-title-lg text-ink-primary">{title}</h1>
+          <h1 className="truncate text-title-lg text-ink-primary max-md:landscape:text-title">
+            {title}
+          </h1>
         </div>
         {action !== undefined && ActionIcon !== undefined ? (
           <button
@@ -75,8 +77,10 @@ export function Screen({
       {offlineBanner}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto p-4",
-          primaryAction !== undefined ? "scroll-pb-[88px]" : "scroll-pb-4",
+          "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3",
+          primaryAction !== undefined
+            ? "scroll-pb-[88px] max-md:landscape:scroll-pb-[76px]"
+            : "scroll-pb-4 max-md:landscape:scroll-pb-3",
         )}
       >
         {children}
