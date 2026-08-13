@@ -44,6 +44,12 @@ describe("the deployed Content-Security-Policy", () => {
     expect(directive("connect-src")).toContain("'self'");
   });
 
+  test("allows receipt thumbnails rendered from local blob URLs without widening images", () => {
+    const sources = directive("img-src").split(/\s+/);
+    expect(sources).toEqual(["'self'", "blob:"]);
+    expect(sources).not.toContain("*");
+  });
+
   test("keeps the protections IG §10.9 asked for", () => {
     expect(directive("frame-ancestors")).toBe("'none'");
     expect(directive("default-src")).toBe("'self'");

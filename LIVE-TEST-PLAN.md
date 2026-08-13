@@ -116,9 +116,11 @@ Open a nested sheet (e.g. `QuickAddSheet` → `AmountPad`) on a real iOS Safari 
 
 **Reproduced with a real phone photo on QA, not a generated fixture** — the exact retest this row asked for, except it arrived as a fresh user report rather than a scheduled retest. That alone already ruled out the "bad PNG fixture" theory the 11 Aug filing led with.
 
-Root cause confirmed by pulling the two actual R2 objects behind the report directly (`wrangler r2 object get fleetsettle-attachments-qa/<key>`, bypassing the app entirely): both were byte-for-byte valid, complete JPEGs (`file` confirms full baseline JPEG structure, correct SOI/EOI markers). Storage and the upload path were never at fault — the gap was on read. `ReceiptThumbnail` trusted whatever `res.blob()` resolved with; a network-truncated download (two ~350KB receipts fetching concurrently the instant the sheet opens is exactly the exposure) resolves with no thrown error and silently becomes a broken `<img>`.
+Root cause narrowed in two stages. First, pulling the two actual R2 objects behind the report directly (`wrangler r2 object get fleetsettle-attachments-qa/<key>`, bypassing the app entirely) proved both were byte-for-byte valid, complete JPEGs (`file` confirms full baseline JPEG structure, correct SOI/EOI markers). Storage and the upload path were never at fault. The first fix hardened `ReceiptThumbnail` against truncated reads by checking the downloaded blob size before rendering it.
 
-Per this row's own step 3, that makes it a real defect rather than a fixture problem — filed and closed as **GAP-112** directly (the same id, not a new one: the 11 Aug filing and this report are the same symptom with the same root cause, confirmed end to end rather than left as a re-opened question). Fixed and merged, PR #28 — full account in TRACKER.md's closed row.
+13 Aug hosted-QA retest found the remaining browser-only failure: the Worker read succeeded and the client created `blob:` URLs, but the deployed CSP still said `img-src 'self'`. The browser therefore blocked `blob:https://qa.fleetsettle.com/...` image loads before decode/render. Final required policy change: keep same-origin image loading and add `blob:` to `img-src`; do not widen `connect-src` or introduce any R2/public-bucket origin.
+
+Per this row's own step 3, that makes it a real defect rather than a fixture problem — tracked under **GAP-112** because the business symptom is the same receipt thumbnail failure, with the 13 Aug retest recording the remaining CSP cause after the storage/read-path suspicion was ruled out.
 
 ## LT-12 · Opening-balance re-confirm, post-F5, at 360×640
 
