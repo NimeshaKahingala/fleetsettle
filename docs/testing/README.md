@@ -4,6 +4,8 @@
 **Date:** 1 August 2026
 **Source documents:** `docs/product/use-cases.md` (v1.2.2) · `docs/product/user-flows.md` (v1.1.2)
 
+**Status, decided 11 Aug 2026 — GAP-58, retired.** This suite (178 cases across 12 files) has never been run: `test-manifest.yaml`'s own `last_full_run`/`last_updated` are still `null`, and every case is still `not_started`. It is **aspirational test design, not an execution record** — despite the "single source of truth" language below, which predates anyone checking whether it was true. Decided not to adopt it: the individual suite files stay as reference material, a real and thought-out mapping from use case to test case, but nothing here is evidence anything has been tested, and nothing will make it current. The repository's actual acceptance evidence is the automated suite (`npm test`, per-workspace) plus [`../../LIVE-TEST-PLAN.md`](../../LIVE-TEST-PLAN.md), the live-browser queue that has actually been run, repeatedly, and found a real defect on every pass so far. Full reasoning in `TRACKER.md`'s closed row for GAP-58.
+
 ---
 
 ## Purpose
@@ -137,7 +139,7 @@ docs/testing/
 
 ## Progress Tracking
 
-The `test-manifest.yaml` file is the single source of truth. After each execution:
+**Retired 11 Aug 2026 (GAP-58) — describes intended process, not current practice.** `test-manifest.yaml` was meant to be the single source of truth for execution progress; it has never been executed against. Kept below for anyone who does pick this suite up. After each execution:
 
 1. The agent updates each test case's `status` and `result`
 2. The suite-level `status` is derived from its cases

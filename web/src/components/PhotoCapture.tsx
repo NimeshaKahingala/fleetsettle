@@ -1,4 +1,4 @@
-import { AlertCircle, Image as ImageIcon, Plus, RefreshCw } from "lucide-react";
+import { AlertCircle, Image as ImageIcon, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ATTACHMENT_CONTENT_TYPES } from "@fleetsettle/shared/schemas";
 import { downscaleAndEncode, type EncodedPhoto } from "../lib/photo-pipeline.js";
@@ -25,13 +25,15 @@ export interface PhotoCaptureProps {
 }
 
 /**
- * §6.3 `PhotoCapture` (M-18): named slots for a condition set, or a free
- * grid for receipts/odometer photos. Capture is native
- * (`<input type="file" accept="image/*" capture="environment">`); encoding
- * runs through `lib/photo-pipeline.ts` (downscale, JPEG retry ladder) as
- * soon as a file is chosen, so "the record saves first and the photos
- * follow it" — this component never blocks on the eventual upload, only
- * on the local encode.
+ * §6.3 `PhotoCapture` (M-18, M-30): named slots for a condition set, or a
+ * free grid for receipts/odometer photos. Capture is native
+ * (`<input type="file" accept="image/*">`, deliberately no `capture`
+ * attribute — M-30 found it was silently skipping the OS picker's own
+ * choice between camera and photo library on many mobile browsers);
+ * encoding runs through `lib/photo-pipeline.ts` (downscale, JPEG retry
+ * ladder) as soon as a file is chosen, so "the record saves first and the
+ * photos follow it" — this component never blocks on the eventual upload,
+ * only on the local encode.
  */
 export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: PhotoCaptureProps) {
   const [photos, setPhotos] = useState<Record<string, CapturedPhoto>>({});
@@ -181,13 +183,20 @@ function PhotoSlotTile({
             <AlertCircle className="size-3" aria-hidden />
           </span>
         ) : null}
+        {photo !== undefined && photo.flagged ? (
+          <span
+            title="Larger than usual — may take longer to upload"
+            className="absolute left-1 top-1 flex size-5 items-center justify-center rounded-full bg-warning text-warning-ink"
+          >
+            <TriangleAlert className="size-3" aria-hidden />
+          </span>
+        ) : null}
       </button>
       <span className="text-caption text-ink-muted">{label}</span>
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         aria-label={`${label} file input`}
         className="sr-only"
         onChange={(e) => {
@@ -233,7 +242,6 @@ function AddTile({ onFile }: { onFile: (file: File) => void }) {
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         aria-label="Add a photo file input"
         className="sr-only"
         onChange={(e) => {
