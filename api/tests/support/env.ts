@@ -89,6 +89,42 @@ export interface FakeR2Bucket extends R2Bucket {
   has(key: string): boolean;
 }
 
+interface FakeR2StoredObject {
+  bytes: ArrayBuffer;
+  httpMetadata?: R2HTTPMetadata;
+}
+
+type FakeR2PutOptions = {
+  httpMetadata?: R2HTTPMetadata | Headers;
+};
+
+function cloneBytes(value: unknown): ArrayBuffer {
+  if (value instanceof ArrayBuffer) return value.slice(0);
+  if (value instanceof Uint8Array) {
+    const bytes = new ArrayBuffer(value.byteLength);
+    new Uint8Array(bytes).set(value);
+    return bytes;
+  }
+  if (typeof value === "string") {
+    const encoded = new TextEncoder().encode(value);
+    const bytes = new ArrayBuffer(encoded.byteLength);
+    new Uint8Array(bytes).set(encoded);
+    return bytes;
+  }
+  return new ArrayBuffer(0);
+}
+
+function normalizeHttpMetadata(
+  metadata: FakeR2PutOptions["httpMetadata"],
+): R2HTTPMetadata | undefined {
+  if (!metadata) return undefined;
+  if (metadata instanceof Headers) {
+    const contentType = metadata.get("content-type") ?? undefined;
+    return contentType ? { contentType } : undefined;
+  }
+  return metadata;
+}
+
 /**
  * A7/GAP-16: `attachment.ts` is the first real reader/writer of the `R2`
  * binding. Only `put`/`get`/`delete` — enough for the domain layer's
@@ -97,26 +133,30 @@ export interface FakeR2Bucket extends R2Bucket {
  * first needs it" rule `fakeKV` above already follows.
  */
 function fakeR2(): FakeR2Bucket {
-  const store = new Map<string, ArrayBuffer>();
+  const store = new Map<string, FakeR2StoredObject>();
 
-  const put = ((key: string, value: unknown) => {
-    const bytes = value instanceof ArrayBuffer ? value : new ArrayBuffer(0);
-    store.set(key, bytes);
+  const put = ((key: string, value: unknown, options?: FakeR2PutOptions) => {
+    const bytes = cloneBytes(value);
+    const httpMetadata = normalizeHttpMetadata(options?.httpMetadata);
+    store.set(key, httpMetadata === undefined ? { bytes } : { bytes, httpMetadata });
     return Promise.resolve({ key } as unknown as R2Object);
   }) as R2Bucket["put"];
 
   const get = ((key: string) => {
-    const bytes = store.get(key);
-    if (bytes === undefined) return Promise.resolve(null);
+    const record = store.get(key);
+    if (record === undefined) return Promise.resolve(null);
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new Uint8Array(bytes));
+        controller.enqueue(new Uint8Array(record.bytes));
         controller.close();
       },
     });
     return Promise.resolve({
       body,
-      arrayBuffer: () => Promise.resolve(bytes),
+      size: record.bytes.byteLength,
+      httpMetadata: record.httpMetadata,
+      etag: `${key}-etag`,
+      arrayBuffer: () => Promise.resolve(record.bytes.slice(0)),
     } as unknown as R2ObjectBody);
   }) as R2Bucket["get"];
 
