@@ -200,6 +200,7 @@ export async function assessMileage(
             amountMinor: excessAmountMinor,
             sign: -1,
             reason: "Below the auto-waive threshold (F-2.4)",
+            occurredOn: input.readOn,
             createdBy: input.userId,
             ...periodFields,
           });

@@ -25,7 +25,6 @@ import {
   PeriodClosedError,
 } from "../errors/app-error.js";
 import {
-  deleteEntriesForBatch,
   findActivePostingsForBatch,
   findBatchForBusiness,
   findEntriesForBatch,
@@ -35,6 +34,7 @@ import {
   markBatchCommitted,
   markPostingsReversed,
   updateBatchGoLiveDate,
+  voidEntriesForBatch,
   type NewOpeningBalanceEntry,
   type NewOpeningBalancePosting,
   type OpeningBalanceEntryRow,
@@ -374,7 +374,7 @@ export async function saveOpeningBalance(
         });
       }
 
-      await deleteEntriesForBatch(tx, batchId);
+      await voidEntriesForBatch(tx, batchId, input.actorUserId);
 
       const rows: NewOpeningBalanceEntry[] = input.entries.map((entry) => ({
         id: newId(),

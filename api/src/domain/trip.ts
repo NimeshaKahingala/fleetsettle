@@ -465,7 +465,7 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
       });
 
       await resumeDayRecordsForTrip(tx, trip.id);
-      await deleteAllocationDaysForTrip(tx, trip.id);
+      await deleteAllocationDaysForTrip(tx, trip.id, input.userId);
       await cancelTripRow(tx, trip.id, {
         ...(input.cancelReason !== undefined ? { cancelReason: input.cancelReason } : {}),
         ...(input.advanceDisposition !== undefined

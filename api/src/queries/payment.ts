@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { payment, paymentAllocation } from "../db/schema.js";
 
@@ -195,12 +195,12 @@ export async function findPaymentAllocationsForPayment(
       amountMinor: paymentAllocation.amountMinor,
     })
     .from(paymentAllocation)
-    .where(eq(paymentAllocation.paymentId, paymentId))
+    .where(and(eq(paymentAllocation.paymentId, paymentId), isNull(paymentAllocation.voidedAt)))
     .orderBy(desc(paymentAllocation.id));
   return rows;
 }
 
-/** Partially unwinding an allocation — `amount_minor > 0` is a CHECK constraint, so this is only ever called with `newAmountMinor > 0n`; a full unwind uses `deletePaymentAllocation` instead. */
+/** Partially unwinding an allocation — `amount_minor > 0` is a CHECK constraint, so this is only ever called with `newAmountMinor > 0n`; a full unwind uses `voidPaymentAllocation` instead. */
 export async function reducePaymentAllocation(
   db: WriteDb,
   allocationId: string,
@@ -213,14 +213,20 @@ export async function reducePaymentAllocation(
 }
 
 /**
- * F-8.2/UC-93: unwinding an allocation down to zero removes the row rather
- * than setting `amount_minor = 0` (the CHECK forbids it anyway) — the credit
- * formula in DM §10.2 (`payment.amount_minor - SUM(payment_allocation)`) is
- * arithmetic over rows that exist, so a fully-undone allocation simply has
- * no row, the same convention an off-pattern day already uses for "nothing
- * happened here" (§1.2 B).
+ * F-8.2/UC-93: unwinding an allocation down to zero voids the row rather
+ * than setting `amount_minor = 0` (the CHECK forbids it anyway). The credit
+ * formula in DM §10.2 (`payment.amount_minor - SUM(payment_allocation)`)
+ * already excludes voided rows, so a fully-undone allocation drops out of
+ * that sum exactly as a deleted row would have — D-11/W-58: voided, never
+ * deleted.
  */
-export async function deletePaymentAllocation(db: WriteDb, allocationId: string): Promise<void> {
-  // eslint-disable-next-line no-restricted-syntax -- payment_allocation is a child row with no voided_at trio of its own (DM §10.2); the parent payment's own append-only story is carried by updatePaymentAfterCorrection + payment_correction, not this row.
-  await db.delete(paymentAllocation).where(eq(paymentAllocation.id, allocationId));
+export async function voidPaymentAllocation(
+  db: WriteDb,
+  allocationId: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(paymentAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: "Undone during a payment correction", voidedBy })
+    .where(eq(paymentAllocation.id, allocationId));
 }

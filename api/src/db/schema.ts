@@ -42,6 +42,7 @@ export const businessSettings = pgTable("business_settings", {
     .notNull()
     .default(0n),
   depositHoldDays: integer("deposit_hold_days").notNull().default(30),
+  holdExpiryDays: integer("hold_expiry_days").notNull().default(7), // D-13/GAP-7, migration 0020
   paperworkWarnDays: integer("paperwork_warn_days").notNull().default(30),
   secondLanguage: text("second_language"),
   messagingKillSwitch: boolean("messaging_kill_switch").notNull().default(false),
@@ -128,6 +129,10 @@ export const customer = pgTable("customer", {
   optedInAt: timestamp("opted_in_at", { withTimezone: true, mode: "string" }),
   numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  // GAP-36/W-58, migration 0023. No endpoint writes these yet (Wave 5/A9b).
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const driver = pgTable("driver", {
@@ -144,6 +149,10 @@ export const driver = pgTable("driver", {
   numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
   settlementRhythm: text("settlement_rhythm").notNull().default("daily"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  // GAP-36/W-58, migration 0023. No endpoint writes these yet (Wave 5/A9b).
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 // W-42, migration 0001 — existed unused until A11 gave it a writer.
@@ -278,6 +287,7 @@ export const trip = pgTable("trip", {
   closingDate: date("closing_date", { mode: "string" }),
   cancelReason: text("cancel_reason"),
   advanceDisposition: text("advance_disposition"),
+  holdExpiresOn: date("hold_expires_on", { mode: "string" }), // D-13/GAP-7, migration 0020
   postedPeriodId: uuid("posted_period_id"),
   belongsToPeriodId: uuid("belongs_to_period_id"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
@@ -292,6 +302,26 @@ export const vehicleDayAllocation = pgTable("vehicle_day_allocation", {
   sourceType: text("source_type").notNull(),
   sourceId: uuid("source_id").notNull(),
   isHold: boolean("is_hold").notNull().default(false),
+  // D-11/W-58, migration 0022: voided, never deleted.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** F-1.10/GAP-26, migration 0019. Vehicle-level and arrangement-agnostic — see the migration's own header for why it does not duplicate `incident.off_road_from/to` or re-partition `day_record`'s own states. */
+export const vehicleUnavailability = pgTable("vehicle_unavailability", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  reason: text("reason").notNull(),
+  unavailableFrom: date("unavailable_from", { mode: "string" }).notNull(),
+  unavailableTo: date("unavailable_to", { mode: "string" }),
+  note: text("note"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const openingBalanceBatch = pgTable("opening_balance_batch", {
@@ -312,6 +342,11 @@ export const openingBalanceEntry = pgTable("opening_balance_entry", {
   vehicleId: uuid("vehicle_id"),
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   originalDueDate: date("original_due_date", { mode: "string" }),
+  // D-11/W-58, migration 0022: voided, never deleted — "replaced wholesale"
+  // now means every live entry is voided, then the corrected set inserted.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 // GAP-103/migration 0014: the only durable link between one opening_balance_entry
@@ -344,6 +379,25 @@ export const dayRecord = pgTable("day_record", {
   note: text("note"),
   postedPeriodId: uuid("posted_period_id").notNull(),
   belongsToPeriodId: uuid("belongs_to_period_id"),
+  // D-11/W-58, migration 0022: voided, never deleted — a stale future card
+  // (a driver or arrangement change) is voided rather than mutated in place.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+});
+
+/** GAP-20, migration 0018. An excepted date never becomes a day_record — its absence is the record, the same convention an off-pattern day already uses (§1.2 B). */
+export const leaseDayException = pgTable("lease_day_exception", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  dailyLeaseId: uuid("daily_lease_id").notNull(),
+  exceptionDate: date("exception_date", { mode: "string" }).notNull(),
+  reason: text("reason"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const obligation = pgTable("obligation", {
@@ -370,6 +424,7 @@ export const obligation = pgTable("obligation", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const payment = pgTable("payment", {
@@ -398,6 +453,10 @@ export const paymentAllocation = pgTable("payment_allocation", {
   obligationId: uuid("obligation_id").notNull(),
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   allocatedOn: date("allocated_on", { mode: "string" }).notNull(),
+  // D-11/W-58, migration 0022: voided, never deleted.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const expense = pgTable("expense", {
@@ -424,6 +483,7 @@ export const expense = pgTable("expense", {
   voidedBy: uuid("voided_by"),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const adjustment = pgTable("adjustment", {
@@ -434,6 +494,7 @@ export const adjustment = pgTable("adjustment", {
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   sign: smallint("sign").notNull(),
   reason: text("reason"),
+  occurredOn: date("occurred_on", { mode: "string" }).notNull(), // GAP-73, migration 0017
   postedPeriodId: uuid("posted_period_id").notNull(),
   belongsToPeriodId: uuid("belongs_to_period_id"),
   createdBy: uuid("created_by"),
@@ -441,6 +502,7 @@ export const adjustment = pgTable("adjustment", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const offsetRecord = pgTable("offset_record", {
@@ -457,6 +519,7 @@ export const offsetRecord = pgTable("offset_record", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const offsetAllocation = pgTable("offset_allocation", {
@@ -494,6 +557,7 @@ export const depositMovement = pgTable("deposit_movement", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const advance = pgTable("advance", {
@@ -510,6 +574,7 @@ export const advance = pgTable("advance", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 export const advanceSettlement = pgTable("advance_settlement", {
@@ -525,6 +590,7 @@ export const advanceSettlement = pgTable("advance_settlement", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** UC-02/INV-16: no `business_id` — scoped via `vehicle_id` → `vehicle.business_id`, the same as `vehicle_arrangement`. Effective-dated; `assert_shares_total()` (a deferred constraint trigger, migration 0001) is the truth that every date's shares sum to 10000 bp, not application code. */
@@ -551,6 +617,7 @@ export const capitalContribution = pgTable("capital_contribution", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** UC-03/W-53: a vehicle cost to the owner, income to the manager. No `business_id` — scoped via `vehicle_id`, the same as `ownership_share`. Effective-dated; revoke sets `effective_to` rather than deleting the row (F-1.4: "a revoked manager's records remain attributed to them"). */
@@ -583,6 +650,7 @@ export const bankingEvent = pgTable("banking_event", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** F-7.2/UC-63: never a cost of the vehicle — a payout to a partner, or a settlement between them. */
@@ -598,6 +666,7 @@ export const partnerPayout = pgTable("partner_payout", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** F-3.4/UC-12/§6.6: the container. No `posted_period_id` of its own — it is not money, the `expense`/`incident_recovery` rows attached to it are. */
@@ -657,6 +726,7 @@ export const incidentRecovery = pgTable("incident_recovery", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** W-50/INV-28/UC-97, migration 0002's writer. Read-only from the app's side — every row is written by `write_audit_log()`, never by a query in this codebase. `id` is `bigserial`, the one place this schema uses it rather than a uuid, since an audit row never appears in a URL (DM §12). */
@@ -705,6 +775,7 @@ export const writeOff = pgTable("write_off", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** INV-15: a later payment nets against the write-off it recovers — never fresh income. `paymentId` is the actual money arriving (recorded through the ordinary payment mechanism, deliberately never allocated against any obligation — see domain/write-off.ts); this row is what marks that payment as a recovery rather than new revenue. `businessId` added by migration 0004, same reason as several of P8's tables. */
@@ -719,6 +790,7 @@ export const writeOffRecovery = pgTable("write_off_recovery", {
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
 });
 
 /** A7/GAP-16, migration 0013. Not a money table (no posted_period_id) — deliberately outside assert_period_open() and write_audit_log(), see 0013's header. subject_type/subject_id is polymorphic and carries no FK; the kind/subject_type pair and content_type are constrained in SQL, not here. */

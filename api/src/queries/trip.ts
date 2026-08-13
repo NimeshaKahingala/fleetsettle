@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, driver, trip, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
@@ -45,13 +45,21 @@ export async function insertAllocationDays(db: WriteDb, days: NewAllocationDay[]
   await db.insert(vehicleDayAllocation).values(days);
 }
 
-/** F-5.5/UC-45: "the daily arrangement resumes for those dates" — freeing the vehicle's calendar. `vehicle_day_allocation` carries no `voided_at` (DM §4.1); a cancelled trip's occupancy rows are deleted rather than kept, unlike a money table. */
-export async function deleteAllocationDaysForTrip(db: WriteDb, tripId: string): Promise<void> {
-  // eslint-disable-next-line no-restricted-syntax -- allow: vehicle_day_allocation is occupancy, not money — no voided_at column exists to correct-in-place (DM §4.1)
+/** F-5.5/UC-45: "the daily arrangement resumes for those dates" — freeing the vehicle's calendar. D-11/W-58: voided, never deleted (DM §4.1). */
+export async function deleteAllocationDaysForTrip(
+  db: WriteDb,
+  tripId: string,
+  voidedBy: string,
+): Promise<void> {
   await db
-    .delete(vehicleDayAllocation)
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: "Trip cancelled", voidedBy })
     .where(
-      and(eq(vehicleDayAllocation.sourceType, "trip"), eq(vehicleDayAllocation.sourceId, tripId)),
+      and(
+        eq(vehicleDayAllocation.sourceType, "trip"),
+        eq(vehicleDayAllocation.sourceId, tripId),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
     );
 }
 

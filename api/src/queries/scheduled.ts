@@ -92,6 +92,7 @@ export async function listAllocatedDatesForVehicle(
         eq(vehicleDayAllocation.vehicleId, vehicleId),
         gte(vehicleDayAllocation.businessDate, from),
         lte(vehicleDayAllocation.businessDate, to),
+        isNull(vehicleDayAllocation.voidedAt), // D-11/W-58 — a voided day is a freed day (GAP-118)
       ),
     );
   return new Set(rows.map((r) => r.businessDate));

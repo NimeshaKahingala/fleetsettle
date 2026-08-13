@@ -367,12 +367,13 @@ export const closeOutLeaseHandler: RouteHandler<typeof closeOutLeaseRoute, Env> 
   requireCapability(c, "leaseAndTripLifecycle");
 
   const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
   const { id } = c.req.valid("param");
 
   const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
   if (!existing) throw new NotFoundError();
 
-  await closeOutLease(c.get("writer"), { businessId, leaseId: id });
+  await closeOutLease(c.get("writer"), { businessId, leaseId: id, userId });
 
   const closed = await findLeaseForBusiness(c.get("reader"), businessId, id);
   if (!closed) throw new NotFoundError();
