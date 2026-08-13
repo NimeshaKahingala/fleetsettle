@@ -117,4 +117,32 @@ describe("see who changed what (P9, F-8.6/UC-97)", () => {
 
     await ctx.cleanup();
   });
+
+  it("403 — GAP-122: a manager cannot read partner_payout's audit trail, an owners-only table reached by another route", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const res = await getAuditLog(token, "partner_payout", "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("200 — an owner can read partner_payout's audit trail", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getAuditLog(token, "partner_payout", "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ entries: [] });
+
+    await ctx.cleanup();
+  });
 });

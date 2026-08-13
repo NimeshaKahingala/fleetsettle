@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.8 — six mechanisms this document had left silent, each behind an open gap, now specified: ST-5's hold expiry (GAP-7), F-1.7's skippable individual days (GAP-20), F-1.10's off-road marking (GAP-26, new flow), F-4.7/F-1.2's freed future occupancy on a driver or arrangement change (GAP-118), F-5.1's booking-time release of a daily lease's own allocation (GAP-119), and F-8.5's void coverage widened to every table under `use-cases.md` v1.2.7's **W-58**. INV-32 and INV-33 added. Decided by the owner, 12 Aug 2026 — full reasoning in TRACKER.md's 12 Aug entry
-**Date:** 12 August 2026
+**Status:** v1.1.9 — **INV-34** added: an owner-manager's ownership/capital scope is his `ownership_share` as of the write; a manager's UC-70 scope is the vehicles whose `management_fee_agreement` overlapped the *reported* period, never its status today or at period end. §2.3's matrix and §8's traceability updated to match. Closes the mechanism `use-cases.md` v1.2.8's **W-59** names; also records that UC-71/72/74/76/78 stay deliberately whole-business for a manager and UC-75 has no vehicle to scope by. Decided closing GAP-1's Wave 3 (tenancy) planning, 13 Aug 2026
+**Date:** 13 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -123,13 +123,15 @@ Not stated anywhere in v1.1 of the use-case document, and it blocked row-level d
 | Write-off, waiver above threshold | ✓ | ✓ | **✗** | — |
 | Reverse a receipt (F-8.2) | ✓ | ✓ | **✗** | — |
 | Close a period (F-9.1) | ✓ | ✓ | ✗ | — |
-| Ownership shares, capital, payouts | ✓ | ✓ (own vehicles) | **✗** | — |
+| Ownership shares, capital, payouts | ✓ | ✓ (own vehicles — INV-34) | **✗** | — |
 | Messaging config + kill switch | ✓ | ✓ | ✓ (kill switch only) | — |
 | Invite, revoke or change a member's role (F-1.4) | ✓ | ✓ | **✗** | — |
 | See another driver's data | ✓ | ✓ | ✓ | **✗ — hard boundary** |
 | Any write at all | — | — | — | **✗ (W-3)** |
 
 The driver boundary is the only one that is a security requirement rather than a preference: a linked driver account must be unable to read any record not tied to his own driver record, including via a report, an export or a shared link.
+
+**One row this table has no place for: UC-70 alone, of every report in Group H, scopes a manager to "shared vehicles" (INV-34).** UC-71/72/74/76/78 carry no such qualifier and stay whole-business for him — deliberate (W-59), since a manager runs operations and those are his working set; what he is denied is capital and the two owners-only reports. UC-75 has no vehicle dimension to scope by at all.
 
 ---
 
@@ -308,6 +310,7 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-31** | A business always retains at least one active `owner` or `owner_manager`. Revoking or demoting the last one is refused, never merely warned | §2.3, W-49, W-57 |
 | **INV-32** | No record is ever hard-deleted at the database level. Every table is voided, never removed — not only the money-bearing ones W-50 already named | W-58 |
 | **INV-33** | A cost naming more than one of vehicle, trip and incident must name a mutually consistent set — a trip's own vehicle, an incident's own vehicle — never independently-valid but unrelated ids | §6.1, GAP-59 |
+| **INV-34** | An owner-manager's ownership/capital scope is exactly the vehicles his `ownership_share` names as of the write. A manager's UC-70 scope is exactly the vehicles whose `management_fee_agreement` overlapped the *reported* period — never the agreement's status today or at the period's end | §2.3, W-59, UC-02, UC-70 |
 
 ---
 
@@ -990,6 +993,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-4.5 | UC-37 | §6.5 |
 | F-7.6 | UC-67 | W-52, W-53 |
 | F-9.2 | UC-70…UC-79 | W-56 |
+| F-9.2 | UC-70 | W-59, INV-34 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.

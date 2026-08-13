@@ -143,6 +143,33 @@ describe("ownership shares (P7, F-1.3/UC-02)", () => {
 
     await ctx.cleanup();
   });
+
+  it("400 — GAP-121: a share names a member who is a manager, not a partner", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-01-01",
+      shares: [{ userId: manager.userId, shareBp: 10000 }],
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    // Confirms the rejected write left no partial row, the same guard the
+    // INV-16 total-mismatch test above already carries for this table.
+    const rows = await db
+      .select()
+      .from(ownershipShare)
+      .where(eq(ownershipShare.vehicleId, vehicleId));
+    expect(rows).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
 });
 
 /** F-1.3/UC-02/W-52 test matrix. */
@@ -222,6 +249,25 @@ describe("capital contribution (P7, F-1.3/UC-02)", () => {
       contributedOn: "2026-07-15",
     });
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-121: the user is a manager, not a partner", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await post("/api/capital-contribution", token, {
+      userId: manager.userId,
+      amountMinor: "100000",
+      contributedOn: "2026-07-15",
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "VALIDATION_ERROR" });
 
     await ctx.cleanup();
   });
@@ -365,6 +411,64 @@ describe("list ownership shares (A2, F-1.3/UC-02)", () => {
 
     await ctx.cleanup();
   });
+
+  it("GAP-1/W-59/D-17 — an owner-manager sees only his own vehicle's split, a plain owner sees every vehicle's", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const ownedVehicle = await ctx.createVehicle(businessId, { registration: "OWNED-1" });
+    const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-1" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerManager = await mintUser(db, ctx, businessId, "owner_manager");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const ownerManagerToken = await signAccessToken(ownerManager.asgardeoSub);
+
+    const shareId = newId();
+    await db.insert(ownershipShare).values({
+      id: shareId,
+      vehicleId: ownedVehicle,
+      userId: ownerManager.userId,
+      shareBp: 10000,
+      effectiveFrom: "2026-01-01",
+    });
+    ctx.trackCreatedOwnershipShares([shareId]);
+    const otherShareId = newId();
+    await db.insert(ownershipShare).values({
+      id: otherShareId,
+      vehicleId: otherVehicle,
+      userId: owner.userId,
+      shareBp: 10000,
+      effectiveFrom: "2026-01-01",
+    });
+    ctx.trackCreatedOwnershipShares([otherShareId]);
+
+    const scopedRes = await get("/api/ownership-share", ownerManagerToken);
+    expect(scopedRes.status).toBe(200);
+    const scopedBody: Array<{ vehicleId: string }> = await scopedRes.json();
+    expect(scopedBody.map((s) => s.vehicleId)).toEqual([ownedVehicle]);
+
+    const unscopedRes = await get("/api/ownership-share", ownerToken);
+    expect(unscopedRes.status).toBe(200);
+    const unscopedBody: Array<{ vehicleId: string }> = await unscopedRes.json();
+    expect(unscopedBody.map((s) => s.vehicleId).sort()).toEqual(
+      [ownedVehicle, otherVehicle].sort(),
+    );
+
+    await ctx.cleanup();
+  });
+
+  it("403 — GAP-1/W-59/D-17: an owner-manager explicitly names a vehicle he has no share in", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-2" });
+    const ownerManager = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(ownerManager.asgardeoSub);
+
+    const res = await get(`/api/ownership-share?vehicleId=${otherVehicle}`, token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
 });
 
 /** A2/GAP-9/W-52 test matrix. */
@@ -427,6 +531,77 @@ describe("list capital contributions (A2, F-1.3/UC-02)", () => {
     const token = await signAccessToken(manager.asgardeoSub);
 
     const res = await get("/api/capital-contribution", token);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-1/W-59/D-17 — an owner-manager sees his own vehicle's contribution and every business-wide (no-vehicle) one, never another vehicle's", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const ownedVehicle = await ctx.createVehicle(businessId, { registration: "OWNED-3" });
+    const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-3" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerManager = await mintUser(db, ctx, businessId, "owner_manager");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const ownerManagerToken = await signAccessToken(ownerManager.asgardeoSub);
+
+    const shareId = newId();
+    await db.insert(ownershipShare).values({
+      id: shareId,
+      vehicleId: ownedVehicle,
+      userId: ownerManager.userId,
+      shareBp: 10000,
+      effectiveFrom: "2026-01-01",
+    });
+    ctx.trackCreatedOwnershipShares([shareId]);
+
+    const ownedContribution = await post("/api/capital-contribution", ownerToken, {
+      vehicleId: ownedVehicle,
+      userId: owner.userId,
+      amountMinor: "100000",
+      contributedOn: "2026-07-01",
+    });
+    const ownedBody: { id: string } = await ownedContribution.json();
+    ctx.trackCreatedCapitalContribution(ownedBody.id);
+
+    const otherContribution = await post("/api/capital-contribution", ownerToken, {
+      vehicleId: otherVehicle,
+      userId: owner.userId,
+      amountMinor: "200000",
+      contributedOn: "2026-07-02",
+    });
+    const otherBody: { id: string } = await otherContribution.json();
+    ctx.trackCreatedCapitalContribution(otherBody.id);
+
+    const businessWideContribution = await post("/api/capital-contribution", ownerToken, {
+      userId: owner.userId,
+      amountMinor: "300000",
+      contributedOn: "2026-07-03",
+    });
+    const businessWideBody: { id: string } = await businessWideContribution.json();
+    ctx.trackCreatedCapitalContribution(businessWideBody.id);
+
+    const res = await get("/api/capital-contribution", ownerManagerToken);
+    expect(res.status).toBe(200);
+    const body: Array<{ id: string; vehicleId: string | null }> = await res.json();
+    expect(body.map((c) => c.id).sort()).toEqual([businessWideBody.id, ownedBody.id].sort());
+    expect(body.map((c) => c.id)).not.toContain(otherBody.id);
+
+    await ctx.cleanup();
+  });
+
+  it("403 — GAP-1/W-59/D-17: an owner-manager explicitly names a vehicle he has no share in", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-4" });
+    const ownerManager = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(ownerManager.asgardeoSub);
+
+    const res = await get(`/api/capital-contribution?vehicleId=${otherVehicle}`, token);
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
 
@@ -729,6 +904,46 @@ describe("management fee agreement (P7, F-1.4/UC-03)", () => {
 
     await ctx.cleanup();
   });
+
+  it("400 — GAP-121: managerUserId names a passive owner (UC-03: reports only, no data entry)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const passiveOwner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await post("/api/management-fee-agreement", token, {
+      vehicleId,
+      managerUserId: passiveOwner.userId,
+      effectiveFrom: "2026-01-01",
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — GAP-121, UC-64: an owner-manager can hold a management fee agreement on a vehicle he doesn't own", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerManager = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await post("/api/management-fee-agreement", token, {
+      vehicleId,
+      managerUserId: ownerManager.userId,
+      monthlyFeeMinor: "1000000",
+      effectiveFrom: "2026-01-01",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedManagementFeeAgreement(body.id);
+
+    await ctx.cleanup();
+  });
 });
 
 /** F-7.4/UC-65/INV-23 test matrix. */
@@ -934,6 +1149,26 @@ describe("partner payout (P7, F-7.2/UC-63)", () => {
       occurredOn: "2026-07-25",
     });
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-121: the user is a manager, not a partner", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await post("/api/partner-payout", token, {
+      userId: manager.userId,
+      amountMinor: "100000",
+      kind: "payout",
+      occurredOn: "2026-07-25",
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "VALIDATION_ERROR" });
 
     await ctx.cleanup();
   });

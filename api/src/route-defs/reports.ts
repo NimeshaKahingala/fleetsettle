@@ -52,7 +52,10 @@ export const getVehicleMonthReportRoute = createRoute({
       description: "Earned, costs, profit and each owner's share, per vehicle",
     },
     401: { description: "Missing or invalid access token" },
-    403: { description: "This role cannot read reports" },
+    403: {
+      description:
+        "This role cannot read reports, or (GAP-1/W-59) a manager named a vehicle not shared with him for this period",
+    },
     404: { description: "No such accounting period, or no such vehicle, in this business" },
   },
 });
