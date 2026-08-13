@@ -1,4 +1,4 @@
-import { businessToday } from "@fleetsettle/shared";
+import { addDays, businessToday } from "@fleetsettle/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
@@ -439,6 +439,106 @@ describe("change a daily lease's driver (F-4.7/UC-36, GAP-62)", () => {
     expect(oldRes.status).toBe(200);
     const oldBody: { driverId: string; effectiveTo: string | null } = await oldRes.json();
     expect(oldBody).toMatchObject({ driverId: oldDriverId, effectiveTo: "2026-07-31" });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-118 — a future date inside the old lease's own materialised horizon is freed, then refilled under the new driver", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const oldDriverId = await ctx.createDriver(businessId, { name: "Sunil" });
+    const newDriverId = await ctx.createDriver(businessId, { name: "Kamal" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const started = await postDailyLease(token, {
+      vehicleId,
+      driverId: oldDriverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(started.status).toBe(201);
+    const startedBody: { id: string } = await started.json();
+    ctx.trackCreatedDailyLease(startedBody.id);
+
+    const futureDate = addDays(today, 5);
+    const changeFrom = addDays(today, 3);
+
+    // Confirmed live, before the fix touches anything: D-9's own synchronous
+    // materialisation already put a real allocation + open day_record on the
+    // old lease for a date well inside its horizon.
+    const beforeAllocation = await db
+      .select({ sourceId: vehicleDayAllocation.sourceId, voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          eq(vehicleDayAllocation.businessDate, futureDate),
+        ),
+      );
+    expect(beforeAllocation).toEqual([{ sourceId: startedBody.id, voidedAt: null }]);
+
+    const res = await postChangeDriver(token, startedBody.id, {
+      driverId: newDriverId,
+      effectiveFrom: changeFrom,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedDailyLease(body.id);
+
+    // GAP-118's own fix: the old lease's row for this date is voided, not
+    // silently left `open` under the driver who no longer covers it.
+    const oldRecord = await db
+      .select({
+        driverId: dayRecord.driverId,
+        state: dayRecord.state,
+        voidedAt: dayRecord.voidedAt,
+      })
+      .from(dayRecord)
+      .where(
+        and(eq(dayRecord.dailyLeaseId, startedBody.id), eq(dayRecord.businessDate, futureDate)),
+      );
+    expect(oldRecord).toHaveLength(1);
+    expect(oldRecord[0]?.driverId).toBe(oldDriverId);
+    expect(oldRecord[0]?.state).toBe("open");
+    expect(oldRecord[0]?.voidedAt).not.toBeNull();
+
+    const oldAllocation = await db
+      .select({ voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "daily_lease"),
+          eq(vehicleDayAllocation.sourceId, startedBody.id),
+          eq(vehicleDayAllocation.businessDate, futureDate),
+        ),
+      );
+    expect(oldAllocation[0]?.voidedAt).not.toBeNull();
+
+    // And the new lease actually materialised over it — not left blank
+    // because `listAllocatedDatesForVehicle` still read the old (now voided)
+    // row as "already there".
+    const newAllocation = await db
+      .select({ sourceId: vehicleDayAllocation.sourceId, voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          eq(vehicleDayAllocation.businessDate, futureDate),
+          eq(vehicleDayAllocation.sourceId, body.id),
+        ),
+      );
+    expect(newAllocation).toEqual([{ sourceId: body.id, voidedAt: null }]);
+
+    const newRecord = await db
+      .select({ driverId: dayRecord.driverId, state: dayRecord.state })
+      .from(dayRecord)
+      .where(and(eq(dayRecord.dailyLeaseId, body.id), eq(dayRecord.businessDate, futureDate)));
+    expect(newRecord).toEqual([{ driverId: newDriverId, state: "open" }]);
 
     await ctx.cleanup();
   });

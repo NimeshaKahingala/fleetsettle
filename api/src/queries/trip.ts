@@ -63,6 +63,43 @@ export async function deleteAllocationDaysForTrip(
     );
 }
 
+/**
+ * GAP-119: a charter over a vehicle already on daily lease frees that
+ * lease's own occupancy for the trip's range first, so `insertAllocationDays`
+ * below doesn't collide with `one_arrangement_per_vehicle_day` (D-12,
+ * data-model.md §4.1 — "the daily-lease allocation row is REPLACED by the
+ * trip's"). Scoped by `vehicleId` + range, not a specific lease id —
+ * `bookTrip` has no daily-lease context, only the vehicle and the dates, and
+ * the live-row uniqueness the index itself enforces means at most one
+ * `daily_lease` source can occupy a given vehicle-day anyway. `cancelTrip`
+ * re-materialises whatever lease is current for the vehicle at that point,
+ * never this function's own concern.
+ */
+export async function releaseDailyLeaseAllocationsForRange(
+  db: WriteDb,
+  vehicleId: string,
+  startDate: string,
+  endDate: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(vehicleDayAllocation)
+    .set({
+      voidedAt: sql`now()`,
+      voidedReason: "Vehicle booked on a trip over its daily lease",
+      voidedBy,
+    })
+    .where(
+      and(
+        eq(vehicleDayAllocation.vehicleId, vehicleId),
+        eq(vehicleDayAllocation.sourceType, "daily_lease"),
+        gte(vehicleDayAllocation.businessDate, startDate),
+        lte(vehicleDayAllocation.businessDate, endDate),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+}
+
 export interface TripRow {
   id: string;
   businessId: string;

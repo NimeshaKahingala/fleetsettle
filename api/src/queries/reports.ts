@@ -575,6 +575,7 @@ export async function listLostDays(
         gte(dayRecord.businessDate, from),
         lte(dayRecord.businessDate, to),
         ne(dayRecord.state, "paused_for_trip"),
+        isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
     .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`);
@@ -613,6 +614,7 @@ export async function listLostDaysByMonth(
         gte(dayRecord.businessDate, from),
         lte(dayRecord.businessDate, to),
         ne(dayRecord.state, "paused_for_trip"),
+        isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
     .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`);
@@ -647,6 +649,7 @@ export async function listLostDaysByReason(
         gte(dayRecord.businessDate, from),
         lte(dayRecord.businessDate, to),
         eq(dayRecord.state, "did_not_run"),
+        isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's lost day
       ),
     )
     .groupBy(dayRecord.driverId, dayRecord.lostReason);
@@ -725,6 +728,7 @@ export async function countEarningDaysForVehicle(
         eq(dayRecord.vehicleId, vehicleId),
         gte(dayRecord.businessDate, from),
         lte(dayRecord.businessDate, to),
+        isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not this vehicle's ran/lost day either
       ),
     );
   return rows[0] ?? { ranDays: 0, lostDays: 0 };

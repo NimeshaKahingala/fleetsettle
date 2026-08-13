@@ -346,6 +346,42 @@ describe("confirm the day (P3, F-4.2/F-4.4)", () => {
 
     await ctx.cleanup();
   });
+
+  it("409 — GAP-118 (Wave 2 prerequisite): a card voided off a superseded lease cannot be confirmed, even by a client still holding its stale id", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    // No live write path voids a day_record yet — GAP-118's own fix is
+    // Wave 2's build. This is the exact shape it will leave behind: a
+    // stale future card, still `open` (voiding never touches `state`),
+    // now voided.
+    const dayRecordId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-15",
+      { voided: true },
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-15",
+      action: "paid_in_full",
+    });
+    expect(res.status).toBe(409);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "DAY_RECORD_VOIDED" });
+
+    ctx.trackCreatedDayRecord(dayRecordId);
+    await ctx.cleanup();
+  });
 });
 
 describe("read a day record (P3, F-4.1)", () => {
@@ -524,6 +560,40 @@ describe("read a day record (P3, F-4.1)", () => {
         businessDate: addDays(today, -5),
         expectedMinor: "500000",
       });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-118 (Wave 2 prerequisite) — a card voided off a superseded lease never appears, even though it is still `open`", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: addDays(today, -60),
+        periodEnd: addDays(today, 60),
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+      // No live write path voids a day_record yet — GAP-118's own fix is
+      // Wave 2's build. `state` stays `open`; only voiding distinguishes
+      // this from an ordinary card still genuinely needing confirmation.
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        addDays(today, -5),
+        { voided: true },
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await listUnconfirmedDayRecords(token);
+      expect(res.status).toBe(200);
+      const body: Array<{ id: string }> = await res.json();
+      expect(body).toEqual([]);
 
       await ctx.cleanup();
     });

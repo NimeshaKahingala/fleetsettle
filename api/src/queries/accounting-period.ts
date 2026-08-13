@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { accountingPeriod, advance, dayRecord, incident, obligation, trip } from "../db/schema.js";
 
@@ -161,6 +161,10 @@ export interface CloseChecklist {
  * requiring a pattern replay (that reasoning held before P13 shipped and no
  * longer does — TRACKER.md GAP-13). It under-reports honestly if the cron
  * hasn't run yet for a given date, which is exactly what U-7 permits.
+ * `voided_at IS NULL` (GAP-118) for the same reason as every other
+ * unscoped `day_record` scan: a driver/arrangement change can leave a stale
+ * `open` row behind for a lease this close can no longer act on, and this
+ * count is read at the one irreversible step.
  */
 export async function buildCloseChecklist(
   db: ReadDb,
@@ -183,6 +187,7 @@ export async function buildCloseChecklist(
           eq(dayRecord.businessId, businessId),
           eq(dayRecord.postedPeriodId, periodId),
           eq(dayRecord.state, "open"),
+          isNull(dayRecord.voidedAt),
         ),
       ),
     db

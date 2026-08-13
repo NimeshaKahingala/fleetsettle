@@ -162,6 +162,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
     ...(body.openingOdometerSource !== undefined
       ? { openingOdometerSource: body.openingOdometerSource }
       : {}),
+    userId: requireUserId(c),
   });
 
   // GAP-57: mirrors exactly what `bookTrip` just wrote in the same
@@ -294,6 +295,7 @@ export const cancelTripHandler: RouteHandler<typeof cancelTripRoute, Env> = asyn
     trip,
     cancelledOn,
     userId,
+    today: cancelledOn,
     ...(body.cancelReason !== undefined ? { cancelReason: body.cancelReason } : {}),
     ...(body.advanceDisposition !== undefined
       ? { advanceDisposition: body.advanceDisposition }

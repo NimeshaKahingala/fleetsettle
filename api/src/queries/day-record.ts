@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt, lte } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dayRecord, driver, obligation, vehicle } from "../db/schema.js";
 
@@ -17,6 +17,8 @@ export interface DayRecordRow {
   expectedMinor: bigint;
   lostReason: string | null;
   note: string | null;
+  /** GAP-118: read by confirmDay.ts alone, to refuse confirming a stale card a driver/arrangement change already voided. Never included in `toResponse` (handlers/day-record.ts) — not part of the wire contract. */
+  voidedAt: string | null;
 }
 
 const COLUMNS = {
@@ -30,9 +32,24 @@ const COLUMNS = {
   expectedMinor: dayRecord.expectedMinor,
   lostReason: dayRecord.lostReason,
   note: dayRecord.note,
+  voidedAt: dayRecord.voidedAt,
 };
 
-/** DM §7's `UNIQUE (daily_lease_id, business_date)` — the natural key a confirm is idempotent on. */
+/**
+ * DM §7's `UNIQUE (daily_lease_id, business_date)` — the natural key a confirm
+ * is idempotent on.
+ *
+ * Deliberately NOT filtered on `voided_at` — this table's own unique index
+ * (migration 0022's header) stayed table-wide, not partial, unlike
+ * `vehicle_day_allocation`'s: GAP-118's voiding only ever touches a
+ * *superseded* lease's own future rows, never the id a live confirm is
+ * addressed to, so this lookup can never legitimately return a voided row for
+ * the key it's given. Filtering it anyway would silently turn a genuine
+ * conflict (an INSERT racing this exact unique index, `confirmDay.ts:277`'s
+ * own `isUniqueViolation` recovery path) into a row this function claims does
+ * not exist — the recovery would then find nothing and fall through to a
+ * confusing 500 instead of the clean idempotent read it exists to provide.
+ */
 export async function findDayRecordByLeaseAndDate(
   db: ReadDb,
   dailyLeaseId: string,
@@ -126,6 +143,11 @@ export async function confirmOpenDayRecord(
  * still `open` move; a day already confirmed one way or another keeps its
  * own fact rather than being silently overwritten by the booking. One
  * bulk `UPDATE`, never a loop per day (IG §2: bounded Worker CPU).
+ *
+ * Scoped by `vehicleId` + date range, not a specific lease — unlike
+ * `confirmOpenDayRecord`, this can reach a stale row a driver/arrangement
+ * change (GAP-118) already voided for a now-superseded lease covering the
+ * same vehicle and date. `voided_at IS NULL` keeps a freed day free.
  */
 export async function pauseDayRecordsForTrip(
   db: WriteDb,
@@ -143,16 +165,58 @@ export async function pauseDayRecordsForTrip(
         gte(dayRecord.businessDate, startDate),
         lte(dayRecord.businessDate, endDate),
         eq(dayRecord.state, "open"),
+        isNull(dayRecord.voidedAt),
       ),
     );
 }
 
-/** F-5.5/UC-45: "the daily arrangement resumes" — only the rows this trip itself paused come back, never a day some other cause already touched. */
+/** F-5.5/UC-45: "the daily arrangement resumes" — only the rows this trip itself paused come back, never a day some other cause already touched. `voided_at IS NULL` for the same reason as `pauseDayRecordsForTrip` above, though a row this function paused can only have been voided afterward by a driver/arrangement change nothing in this codebase performs on a vehicle mid-trip. */
 export async function resumeDayRecordsForTrip(db: WriteDb, tripId: string): Promise<void> {
   await db
     .update(dayRecord)
     .set({ state: "open", tripId: null })
-    .where(and(eq(dayRecord.tripId, tripId), eq(dayRecord.state, "paused_for_trip")));
+    .where(
+      and(
+        eq(dayRecord.tripId, tripId),
+        eq(dayRecord.state, "paused_for_trip"),
+        isNull(dayRecord.voidedAt),
+      ),
+    );
+}
+
+/**
+ * GAP-118: the day_record half of freeing a closed lease's future
+ * occupancy — `releaseDailyLeaseAllocationsAfter` (queries/dailyLease.ts)
+ * frees the calendar; this frees the "needs confirming" cards a driver or
+ * arrangement change leaves stale. `state = 'open'` only, deliberately
+ * narrower than "every future row": a card `paused_for_trip` sits under an
+ * open trip that already blocked an arrangement change from reaching this
+ * point (`findOpenTripForVehicle`) and `changeDailyLeaseDriver` names no
+ * such guard of its own — voiding a day genuinely still in a trip's hands
+ * is a different, unaddressed question this fix does not answer, so it is
+ * left untouched rather than guessed at. A terminal state (already ran, or
+ * confirmed as lost) is a fact that already happened and stays exactly as
+ * confirmed, the same "history renders as it did" rule W-58 gives a
+ * soft-deleted parent.
+ */
+export async function voidFutureOpenDayRecordsForLease(
+  db: WriteDb,
+  dailyLeaseId: string,
+  afterDate: string,
+  voidedReason: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(dayRecord)
+    .set({ voidedAt: sql`now()`, voidedReason, voidedBy })
+    .where(
+      and(
+        eq(dayRecord.dailyLeaseId, dailyLeaseId),
+        gt(dayRecord.businessDate, afterDate),
+        eq(dayRecord.state, "open"),
+        isNull(dayRecord.voidedAt),
+      ),
+    );
 }
 
 export interface DriverViewDayRow {
@@ -170,6 +234,11 @@ export interface DriverViewDayRow {
  * bulk-fetched in one query rather than one round trip per day (IG §2). A
  * `did_not_run` day has no obligation at all (INV-6) — a real zero, not a
  * missing figure (W-56).
+ *
+ * `voided_at IS NULL`: a day GAP-118 voided off this driver, because a
+ * change moved it to someone else before it ran, is not this driver's day
+ * any more — showing it here would tell a driver he earned a day he never
+ * actually covered.
  */
 export async function listDayRecordsForDriver(
   db: ReadDb,
@@ -193,6 +262,7 @@ export async function listDayRecordsForDriver(
         eq(dayRecord.driverId, driverId),
         gte(dayRecord.businessDate, from),
         lte(dayRecord.businessDate, to),
+        isNull(dayRecord.voidedAt),
       ),
     );
   if (rows.length === 0) return [];
@@ -232,9 +302,11 @@ export interface UnconfirmedDayRecordRow {
  * before `today` — a parameter the caller derives via `businessToday()`,
  * never a server-evaluated date literal (CLAUDE.md → Time). Today's own
  * card is item 3 and the two never interleave (§3.2). `state = 'open'` is
- * the whole filter: it already excludes `paused_for_trip` (FL §4.1's own
- * accept clause) and every terminal state, so there's no second condition
- * to get wrong.
+ * most of the filter, but not all of it since GAP-118: a driver/arrangement
+ * change voids a stale future card without touching its `state`, so
+ * `voided_at IS NULL` is what actually keeps a freed day off this list —
+ * without it, a card belonging to a lease nobody can act on any more reads
+ * to the manager as something still needing a tap.
  */
 export async function listUnconfirmedDayRecordsForBusiness(
   db: ReadDb,
@@ -260,6 +332,7 @@ export async function listUnconfirmedDayRecordsForBusiness(
         eq(dayRecord.businessId, businessId),
         eq(dayRecord.state, "open"),
         lt(dayRecord.businessDate, today),
+        isNull(dayRecord.voidedAt),
       ),
     )
     .orderBy(asc(dayRecord.businessDate));

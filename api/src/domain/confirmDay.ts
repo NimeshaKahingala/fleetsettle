@@ -1,7 +1,7 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
-import { PeriodClosedError } from "../errors/app-error.js";
+import { DayRecordVoidedError, PeriodClosedError } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   confirmOpenDayRecord,
@@ -92,6 +92,18 @@ export async function confirmDay(
         input.businessDate,
       );
 
+      // GAP-118: a driver/arrangement change voids a stale future card
+      // rather than mutating it (migration 0022) — this can only be reached
+      // by a client still holding the superseded lease id (a calendar/
+      // unconfirmed-list fetch from before the change; both now exclude
+      // voided rows, so a fresh fetch never offers this id again). Checked
+      // ahead of the `state !== "open"` no-op branch below: a voided row's
+      // `state` is untouched by voiding, so it would otherwise read as an
+      // ordinary already-confirmed no-op and this fact would never surface.
+      if (existing?.voidedAt) {
+        throw new DayRecordVoidedError();
+      }
+
       if (existing && existing.state !== "open") {
         const obligationRow = await findObligationBySource(tx, "day_record", existing.id);
         return {
@@ -152,6 +164,7 @@ export async function confirmDay(
             expectedMinor: input.expectedMinor,
             lostReason: input.action.lostReason,
             note: input.note ?? null,
+            voidedAt: null,
           },
           receivedMinor: 0n as Minor,
           created: true,
@@ -261,6 +274,7 @@ export async function confirmDay(
           expectedMinor: input.expectedMinor,
           lostReason: null,
           note: input.note ?? null,
+          voidedAt: null,
         },
         receivedMinor,
         created: true,

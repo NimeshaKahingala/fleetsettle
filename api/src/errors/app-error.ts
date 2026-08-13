@@ -266,3 +266,15 @@ export class AttachmentIdConflictError extends AppError {
     super(409, "ATTACHMENT_ID_CONFLICT", message);
   }
 }
+
+// GAP-118/Wave 2: a driver or arrangement change voids a stale future
+// day_record rather than mutating it (migration 0022, W-58) — a client
+// still holding the superseded lease id for this date (a stale calendar
+// fetch from before the change) must not be able to confirm it and write
+// real money against a day nobody actually covers any more. Same "already
+// voided" shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.
+export class DayRecordVoidedError extends AppError {
+  constructor(message = "This day's schedule has changed; refresh and try again") {
+    super(409, "DAY_RECORD_VOIDED", message);
+  }
+}
