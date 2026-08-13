@@ -64,10 +64,16 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
 
 // jsdom has no Blob URL registry — PhotoCapture (and anything else that
 // previews a captured Blob) calls URL.createObjectURL/revokeObjectURL.
-// createImageBitmap/OffscreenCanvas (the actual decode/encode pipeline)
-// still don't exist under jsdom; tests that reach them mock
-// lib/photo-pipeline.ts's downscaleAndEncode instead of stubbing those.
+// createImageBitmap (the browser decode gate used by receipt thumbnails)
+// does not exist under jsdom either, so the default is a successful decode;
+// tests that need corrupt image behavior override it directly.
 if (typeof URL !== "undefined" && !URL.createObjectURL) {
   URL.createObjectURL = () => "blob:mock-url";
   URL.revokeObjectURL = () => undefined;
+}
+
+if (typeof globalThis.createImageBitmap === "undefined") {
+  const createImageBitmapMock: typeof createImageBitmap = () =>
+    Promise.resolve({ close: () => undefined, height: 1, width: 1 });
+  globalThis.createImageBitmap = createImageBitmapMock;
 }

@@ -382,7 +382,7 @@ describe("read an attachment (A7/GAP-16)", () => {
     await db.$client.end();
   });
 
-  it("happy path — the exact bytes and content type come back", async () => {
+  it("happy path — the exact bytes, content type, and QA/dev diagnostics come back", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
@@ -398,13 +398,31 @@ describe("read an attachment (A7/GAP-16)", () => {
       subjectId: expenseId,
     });
 
-    const res = await getAttachment(token, id);
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/jpeg");
-    expect(res.headers.get("cache-control")).toBe("private, no-store, no-transform");
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    expect(bytes).toEqual(JPEG_BYTES);
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const res = await getAttachment(token, id);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/jpeg");
+      expect(res.headers.get("cache-control")).toBe("private, no-store, no-transform");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      expect(bytes).toEqual(JPEG_BYTES);
+
+      const readDiagnostic = logSpy.mock.calls
+        .map(([line]) => JSON.parse(String(line)) as { msg?: string })
+        .find((entry) => entry.msg === "attachment object read");
+      expect(readDiagnostic).toMatchObject({
+        level: "info",
+        businessId,
+        attachmentId: id,
+        dbContentType: "image/jpeg",
+        dbSizeBytes: JPEG_BYTES.byteLength,
+        r2SizeBytes: JPEG_BYTES.byteLength,
+        r2HttpContentType: "image/jpeg",
+      });
+    } finally {
+      logSpy.mockRestore();
+    }
 
     await ctx.cleanup();
   });
