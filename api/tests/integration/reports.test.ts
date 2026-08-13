@@ -181,6 +181,98 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("GAP-1/W-59/INV-34 — a manager sees only the vehicle his management_fee_agreement names", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const sharedVehicle = await ctx.createVehicle(businessId, { registration: "SHARED-1" });
+      const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-1" });
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      await ctx.createManagementFeeAgreement(sharedVehicle, manager.userId, {
+        effectiveFrom: "2026-06-01",
+      });
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: { vehicles: { vehicleId: string }[] } = await res.json();
+      expect(body.vehicles.map((v) => v.vehicleId)).toEqual([sharedVehicle]);
+      expect(body.vehicles.map((v) => v.vehicleId)).not.toContain(otherVehicle);
+
+      await ctx.cleanup();
+    });
+
+    it("403 — GAP-1/W-59: a manager explicitly names a vehicle he does not manage", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const sharedVehicle = await ctx.createVehicle(businessId, { registration: "SHARED-2" });
+      const otherVehicle = await ctx.createVehicle(businessId, { registration: "OTHER-2" });
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      await ctx.createManagementFeeAgreement(sharedVehicle, manager.userId, {
+        effectiveFrom: "2026-06-01",
+      });
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport(
+        `/vehicle-month?periodId=${periodId}&vehicleId=${otherVehicle}`,
+        token,
+      );
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-1/W-59/INV-34 — period overlap, not 'as of today': a manager still sees a period his agreement covered before being revoked", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "REVOKED-1" });
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      // Effective for the first half of July only — revoked mid-period, well
+      // before period end and long before "today" in this test run. "As of
+      // period end" or "as of today" would both wrongly exclude this vehicle;
+      // period-overlap (W-59's own decision) correctly includes it.
+      await ctx.createManagementFeeAgreement(vehicleId, manager.userId, {
+        effectiveFrom: "2026-07-01",
+        effectiveTo: "2026-07-15",
+      });
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: { vehicles: { vehicleId: string }[] } = await res.json();
+      expect(body.vehicles.map((v) => v.vehicleId)).toEqual([vehicleId]);
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-1/W-59/INV-34 — an agreement granted after the reported period ends is excluded", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "FUTURE-1" });
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      await ctx.createManagementFeeAgreement(vehicleId, manager.userId, {
+        effectiveFrom: "2026-08-01",
+      });
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: { vehicles: { vehicleId: string }[] } = await res.json();
+      expect(body.vehicles).toEqual([]);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("overheads (GAP-41/UC-66, W-32: never spread across vehicles)", () => {

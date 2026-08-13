@@ -1,8 +1,8 @@
 # Data Model
 
-**Status:** v1.1.6 — six schema decisions, all still unbuilt (§19), driven by `use-cases.md` v1.2.7's **W-58**: void coverage widens from money-bearing tables to every table (**D-11**), closing two live defects a source read found while checking the decisions against it — GAP-119, a charter could not be booked on a daily-leased vehicle (**D-12**), and GAP-118, closing a daily lease never freed its future occupancy (folded into D-11/§4.1). Plus GAP-7's hold expiry (**D-13**), GAP-59's cross-entity cost validation (**D-14**), GAP-5's allocation row lock (**D-15**), and GAP-60's `replaces_id` shape formally recorded (**D-16**, decided 9 Aug, not previously written here). Two new tables: `lease_day_exception` (§7, GAP-20) and `vehicle_unavailability` (§4.2, GAP-26). No fixture-figure change — none of the six touches a money table's arithmetic
-**Date:** 12 August 2026
-**Derived from:** `use-cases.md` v1.2.7 · `user-flows.md` v1.1.8
+**Status:** v1.1.7 — **D-17** added: GAP-1's per-vehicle scoping mechanism, silent since UC-03's matrix and UC-70 first named "own vehicles" and "shared vehicles" — `ownership_share` decides the owner-manager half, `management_fee_agreement` (bound to period overlap, not the agreement's status today) decides the manager half. No migration, no fixture-figure change — both tables already exist
+**Date:** 13 August 2026
+**Derived from:** `use-cases.md` v1.2.8 · `user-flows.md` v1.1.9
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
 **Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
@@ -1973,6 +1973,7 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-14** | GAP-59: an `expense` can name a vehicle, a trip and an incident that have nothing to do with one another | **Resolved 12 Aug 2026 — composite FKs from `expense` to `(trip.id, vehicle_id)` and `(incident.id, vehicle_id)`, `MATCH SIMPLE`, backstopped by two `CHECK`s so a null `vehicle_id` cannot be used to dodge the composite check when a trip or incident *is* named.** §9 carries the full reasoning; `post_closure_charge` (§10.1) gets a handler-level check instead, since it is an `obligation.kind`, not a table of its own |
 | **D-15** | GAP-5: forward allocation of a payment surplus has no concurrency guard | **Resolved 12 Aug 2026 — `SELECT … FOR UPDATE` on the payment row for the duration of the allocating transaction.** The design itself (§10.2) was already correct and needed no change; this closes the one race two concurrent allocations against different obligations could otherwise create |
 | **D-16** | GAP-60: a void and its replacement are not linked anywhere in the schema | **Shape decided 9 Aug 2026, recorded here 12 Aug 2026 — a nullable, self-referencing `replaces_id uuid` on each of the twelve money tables**, not one shared polymorphic correction table: typed, indexable, and enforceable as a real per-table FK. Scoped to the money tables only — the two new occupancy/exception tables (§4.2, §7) and the three tables D-11 widened (§4.1, §10.2, §10.6) carry the void trio but not `replaces_id`; a structural cause is text in `voided_reason` there, not a second FK concept |
+| **D-17** | GAP-1: `use-cases.md` UC-03's matrix has carried "own vehicles" (owner-manager) and "shared vehicles" (manager, UC-70) since it was written, with no record of which table decides either, or a manager's read as of when | **Resolved 13 Aug 2026 — no migration, an access-control interpretation of tables that already exist.** An owner-manager's `managePartnerCapital` scope is the vehicles his `ownership_share` (§6) names as of the write — a present-tense read, the same one UC-02 already does. A manager's UC-70 (`viewReports`) scope is the vehicles whose `management_fee_agreement` (§7) **overlapped the reported accounting period** — `effective_from <= period_end AND (effective_to IS NULL OR effective_to >= period_start)`, never the agreement's row state today. Two alternatives declined: *as of period end*, which would agree with `sumManagementFeeAsOfDate`'s own basis but let a manager granted on the period's last day see a month he took no part in; *as of today*, simplest but lets a later revoke retroactively hide a month he actually worked. Resolved at the handler that calls `getVehicleMonthReport` (queries/reports.ts), never inside that function itself — it is also called by `sumAllTimeEarnedForUser` (partner.ts) for the unrelated partner-summary figure, and baking scope into the shared function would have silently changed money there. UC-71/72/74/76/78 take no scope — confirmed, not merely left, since `use-cases.md` W-59 records the same pass considered and declined widening them. §15/UC-70's own query is otherwise unchanged; `user-flows.md` INV-34 carries the property test |
 
 ---
 
@@ -1985,6 +1986,10 @@ When a decision changes: update the use cases, update the flows, update §14 and
 ---
 
 ## 19. What changed
+
+### v1.1.7 — 13 August 2026
+
+**One decision, no schema change, no fixture-figure change.** §17 **D-17** resolves GAP-1's own open mechanism question, closing planning for Wave 3 (tenancy): which record decides "own vehicles" (owner-manager, `managePartnerCapital`) and "shared vehicles" (manager, UC-70's `viewReports`), and for the manager half, as of when. `ownership_share` and `management_fee_agreement` — both already exist, since P7/A10a — decide the two capabilities respectively; the manager half binds to whether the agreement **overlapped the reported period**, not its status today or at the period's end. Matching decision in `use-cases.md` v1.2.8 (**W-59**) and `user-flows.md` v1.1.9 (**INV-34**, §2.3, §8).
 
 ### v1.1.6 — 12 August 2026
 

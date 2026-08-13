@@ -1,6 +1,6 @@
 import { inclusiveDays, splitInteger, type BusinessDate } from "@fleetsettle/shared";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js";
 import {
   countAllocatedDaysForVehicle,
   countEarningDaysForVehicle,
@@ -119,19 +119,40 @@ async function computeVehicleMonthRow(
   };
 }
 
-/** UC-70: "per vehicle and combined" — the caller sums this array for the combined total (the same pre-computed-lines convention `AllocationPreview` already uses, UI §6), never re-derived server-side a second way. */
+/**
+ * UC-70: "per vehicle and combined" — the caller sums this array for the
+ * combined total (the same pre-computed-lines convention `AllocationPreview`
+ * already uses, UI §6), never re-derived server-side a second way.
+ *
+ * `allowedVehicleIds` (GAP-1/W-59/D-17): `undefined` means unrestricted —
+ * every current caller but the handler below passes nothing, including
+ * `sumAllTimeEarnedForUser` (partner.ts), which must keep reading every
+ * vehicle for its own unrelated all-time figure. **Resolving *which* ids
+ * belong here is the handler's job, never this function's** — this stays a
+ * plain filter over an already-decided set, so a future caller can never
+ * silently inherit a role-lookup this function was never meant to make.
+ */
 export async function getVehicleMonthReport(
   db: ReadDb,
   businessId: string,
   periodId: string,
   vehicleId: string | undefined,
+  allowedVehicleIds?: readonly string[],
 ): Promise<VehicleMonthReport> {
   const period = await findPeriodBoundaries(db, businessId, periodId);
   if (!period) throw new NotFoundError("No such accounting period in this business");
 
-  const vehicles = vehicleId
-    ? [await requireVehicle(db, businessId, vehicleId)]
-    : await listVehiclesForBusiness(db, businessId);
+  let vehicles: VehicleRow[];
+  if (vehicleId) {
+    const one = await requireVehicle(db, businessId, vehicleId);
+    if (allowedVehicleIds && !allowedVehicleIds.includes(vehicleId)) {
+      throw new ForbiddenCapabilityError("This vehicle is not shared with you");
+    }
+    vehicles = [one];
+  } else {
+    const all = await listVehiclesForBusiness(db, businessId);
+    vehicles = allowedVehicleIds ? all.filter((v) => allowedVehicleIds.includes(v.id)) : all;
+  }
 
   const rows = await Promise.all(
     vehicles.map((v) => computeVehicleMonthRow(db, businessId, v, periodId, period.periodEnd)),

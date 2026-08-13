@@ -39,7 +39,12 @@ export const listBusinessMembersHandler: RouteHandler<
   return c.json(rows.map(toResponse), 200);
 };
 
-/** A11/W-57/F-1.4. `manageMembers` — OWNERS only. */
+/**
+ * A11/W-57/F-1.4. `manageMembers` — OWNERS only. `manager` is a real,
+ * invitable role (Wave 3, 13 Aug 2026, lifting the stopgap that held it
+ * back until GAP-1's per-vehicle scoping — `use-cases.md` W-59,
+ * `user-flows.md` INV-34, `data-model.md` D-17 — actually landed).
+ */
 export const inviteBusinessMemberHandler: RouteHandler<
   typeof inviteBusinessMemberRoute,
   Env

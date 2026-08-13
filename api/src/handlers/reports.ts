@@ -1,7 +1,13 @@
 import { toWire, type Minor } from "@fleetsettle/shared";
 import type { LostReason } from "@fleetsettle/shared/schemas";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
+import {
+  requireBusinessId,
+  requireBusinessTimezone,
+  requireCapability,
+  requireRole,
+  requireUserId,
+} from "../auth/context.js";
 import {
   getAgeingReport,
   getCashPositionReport,
@@ -14,6 +20,9 @@ import {
   getUtilisationReport,
   getVehicleMonthReport,
 } from "../domain/reports.js";
+import { NotFoundError } from "../errors/app-error.js";
+import { findPeriodBoundaries } from "../queries/reports.js";
+import { listVehicleIdsManagedByUserForPeriod } from "../queries/vehicle-scope.js";
 import type {
   getAgeingReportRoute,
   getCashPositionReportRoute,
@@ -28,16 +37,46 @@ import type {
 } from "../route-defs/reports.js";
 import type { Env } from "../types.js";
 
-/** UC-70/DM §15. `viewReports`: owner, owner-manager, manager — the flat per-business stand-in `auth/policy.ts` documents. */
+/**
+ * UC-70/DM §15. `viewReports`: owner, owner-manager, manager. GAP-1/W-59/
+ * D-17: a manager's own vehicle set is resolved here, never inside
+ * `getVehicleMonthReport` itself — `sumAllTimeEarnedForUser` (partner.ts)
+ * also calls that function for an unrelated all-time figure and must keep
+ * reading every vehicle. Bound to whether the manager's
+ * `management_fee_agreement` **overlapped the reported period** (INV-34),
+ * so the period lookup runs here first, only for a manager — an owner or
+ * owner-manager never pays that extra query.
+ */
 export const getVehicleMonthReportHandler: RouteHandler<
   typeof getVehicleMonthReportRoute,
   Env
 > = async (c) => {
   requireCapability(c, "viewReports");
   const businessId = requireBusinessId(c);
+  const role = requireRole(c);
   const { periodId, vehicleId } = c.req.valid("query");
 
-  const report = await getVehicleMonthReport(c.get("reader"), businessId, periodId, vehicleId);
+  let allowedVehicleIds: string[] | undefined;
+  if (role === "manager") {
+    const reader = c.get("reader");
+    const period = await findPeriodBoundaries(reader, businessId, periodId);
+    if (!period) throw new NotFoundError("No such accounting period in this business");
+    allowedVehicleIds = await listVehicleIdsManagedByUserForPeriod(
+      reader,
+      businessId,
+      requireUserId(c),
+      period.periodStart,
+      period.periodEnd,
+    );
+  }
+
+  const report = await getVehicleMonthReport(
+    c.get("reader"),
+    businessId,
+    periodId,
+    vehicleId,
+    allowedVehicleIds,
+  );
 
   return c.json(
     {

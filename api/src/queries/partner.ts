@@ -19,14 +19,21 @@ type ReadDb = Reader | Writer | Tx;
  * Tenancy). Filters `revoked_at IS NULL` — GAP-90: `listPartnerCashPositions`
  * already scopes to active members, and this guard disagreeing with it is
  * what let a revoked member's summary reach a `TypeError` instead of a 404.
+ *
+ * GAP-121: `role` is returned, not just existence — membership alone does
+ * not mean "partner". A caller writing ownership, capital or a payout must
+ * check the role is `owner`/`owner_manager` itself; `payment.ts`'s own
+ * `partyType: "partner"` deliberately does not (UC-65 lets any active
+ * member hold business cash), which is why this stays one shared query
+ * rather than a role-baked-in variant.
  */
 export async function findBusinessMemberUserId(
   db: ReadDb,
   businessId: string,
   userId: string,
-): Promise<{ id: string } | undefined> {
+): Promise<{ id: string; role: string } | undefined> {
   const rows = await db
-    .select({ id: businessMember.userId })
+    .select({ id: businessMember.userId, role: businessMember.role })
     .from(businessMember)
     .where(
       and(

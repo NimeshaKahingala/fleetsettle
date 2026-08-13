@@ -35,6 +35,26 @@ test("UI-8: lists active members with role labels", async () => {
   expect(screen.getByText("Manager")).toBeInTheDocument();
 });
 
+test("GAP-115/GAP-1: all three roles appear in both the invite and change-role pickers, now that per-vehicle scoping (Wave 3) has lifted the manager-exclusion stopgap", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <MembersScreen onBack={vi.fn()} />,
+    { get: baseGet() },
+    undefined,
+    OWNER_MANAGER,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Invite member" }));
+  expect(screen.getByRole("button", { name: "Owner" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Owner-manager" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Manager" })).toBeInTheDocument();
+  await user.click(screen.getByLabelText("Close"));
+
+  await user.click(await screen.findByRole("button", { name: /Nimal/ }));
+  await user.click(await screen.findByRole("button", { name: "Change role" }));
+  expect(screen.getByRole("button", { name: "Manager" })).toBeInTheDocument();
+});
+
 test("UI-8: owner creates an owner-manager invite and sees the one-time code", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({

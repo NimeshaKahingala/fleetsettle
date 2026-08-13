@@ -4,6 +4,7 @@ import {
   requireBusinessId,
   requireBusinessTimezone,
   requireCapability,
+  requireRole,
   requireUserId,
 } from "../auth/context.js";
 import {
@@ -15,7 +16,7 @@ import {
   revokeManagement,
   setOwnershipShares,
 } from "../domain/partner.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { ForbiddenCapabilityError, NotFoundError, ValidationError } from "../errors/app-error.js";
 import {
   findBusinessMemberUserId,
   findManagementFeeAgreementForBusiness,
@@ -32,6 +33,7 @@ import {
 } from "../queries/partner.js";
 import { findPartyNames } from "../queries/reports.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
+import { listVehicleIdsOwnedByUser } from "../queries/vehicle-scope.js";
 import type {
   getPartnerSummaryRoute,
   grantManagementRoute,
@@ -47,6 +49,20 @@ import type {
   setOwnershipSharesRoute,
 } from "../route-defs/partner.js";
 import type { Env } from "../types.js";
+
+/**
+ * GAP-121: `findBusinessMemberUserId` proves active membership, never role
+ * — UC-03's own matrix says a `manager` may hold none of ownership, capital
+ * or a payout. Every write below that names a partner by user id checks
+ * this before writing, not just that the id belongs to this business.
+ */
+const PARTNER_ROLES: ReadonlySet<string> = new Set(["owner", "owner_manager"]);
+
+function assertIsPartner(member: { role: string }): void {
+  if (!PARTNER_ROLES.has(member.role)) {
+    throw new ValidationError("This member is not an owner or owner-manager");
+  }
+}
 
 function shareToResponse(row: OwnershipShareRow) {
   return {
@@ -74,6 +90,7 @@ export const setOwnershipSharesHandler: RouteHandler<typeof setOwnershipSharesRo
   for (const share of body.shares) {
     const member = await findBusinessMemberUserId(reader, businessId, share.userId);
     if (!member) throw new NotFoundError("No such partner in this business");
+    assertIsPartner(member);
   }
 
   const rows = await setOwnershipShares(c.get("writer"), {
@@ -85,14 +102,41 @@ export const setOwnershipSharesHandler: RouteHandler<typeof setOwnershipSharesRo
   return c.json(rows.map(shareToResponse), 201);
 };
 
-/** A2/GAP-9. `managePartnerCapital` (OWNERS) — the currently active split across every vehicle, or one vehicle if `vehicleId` narrows it. */
+/**
+ * A2/GAP-9. `managePartnerCapital` (OWNERS) — the currently active split
+ * across every vehicle, or one vehicle if `vehicleId` narrows it.
+ *
+ * GAP-1/W-59/D-17, reads only: UC-03's matrix gives a plain `owner`
+ * unqualified ✓ here but scopes `owner_manager` to "own vehicles" — the
+ * vehicles his own `ownership_share` currently names. **Writes stay flat**
+ * (`setOwnershipSharesHandler` above is untouched): scoping the write side
+ * would block a solo owner-manager business from ever setting up its first
+ * vehicle's split, since nobody owns anything yet to be "in scope" for.
+ */
 export const listOwnershipSharesHandler: RouteHandler<
   typeof listOwnershipSharesRoute,
   Env
 > = async (c) => {
   requireCapability(c, "managePartnerCapital");
   const businessId = requireBusinessId(c);
+  const role = requireRole(c);
   const query = c.req.valid("query");
+
+  if (role === "owner_manager") {
+    const ownedVehicleIds = await listVehicleIdsOwnedByUser(
+      c.get("reader"),
+      businessId,
+      requireUserId(c),
+    );
+    if (query.vehicleId !== undefined && !ownedVehicleIds.includes(query.vehicleId)) {
+      throw new ForbiddenCapabilityError("This vehicle's ownership is not shared with you");
+    }
+    const rows = await listOwnershipShares(c.get("reader"), businessId, {
+      ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+    });
+    const scoped = rows.filter((r) => ownedVehicleIds.includes(r.vehicleId));
+    return c.json(scoped.map(shareToResponse), 200);
+  }
 
   const rows = await listOwnershipShares(c.get("reader"), businessId, {
     ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
@@ -128,6 +172,7 @@ export const recordCapitalContributionHandler: RouteHandler<
   }
   const member = await findBusinessMemberUserId(reader, businessId, body.userId);
   if (!member) throw new NotFoundError("No such partner in this business");
+  assertIsPartner(member);
 
   const { contributionId } = await recordCapitalContribution(c.get("writer"), {
     businessId,
@@ -152,14 +197,43 @@ export const recordCapitalContributionHandler: RouteHandler<
   );
 };
 
-/** A2/GAP-9/W-52. `managePartnerCapital` (OWNERS) — what a partner *paid*, never rendered by this handler as what he *owns*. */
+/**
+ * A2/GAP-9/W-52. `managePartnerCapital` (OWNERS) — what a partner *paid*,
+ * never rendered by this handler as what he *owns*.
+ *
+ * GAP-1/W-59/D-17, reads only, same shape as `listOwnershipSharesHandler`
+ * above: an `owner_manager` sees a vehicle-attributed row only for a
+ * vehicle he has a stake in. A business-wide contribution (`vehicleId`
+ * null — not toward any one vehicle's purchase) has no vehicle to scope by
+ * and stays visible regardless; it is not "someone else's vehicle" data.
+ */
 export const listCapitalContributionsHandler: RouteHandler<
   typeof listCapitalContributionsRoute,
   Env
 > = async (c) => {
   requireCapability(c, "managePartnerCapital");
   const businessId = requireBusinessId(c);
+  const role = requireRole(c);
   const query = c.req.valid("query");
+
+  if (role === "owner_manager") {
+    const ownedVehicleIds = await listVehicleIdsOwnedByUser(
+      c.get("reader"),
+      businessId,
+      requireUserId(c),
+    );
+    if (query.vehicleId !== undefined && !ownedVehicleIds.includes(query.vehicleId)) {
+      throw new ForbiddenCapabilityError("This vehicle's capital is not shared with you");
+    }
+    const rows = await listCapitalContributions(c.get("reader"), businessId, {
+      ...(query.userId !== undefined ? { userId: query.userId } : {}),
+      ...(query.vehicleId !== undefined ? { vehicleId: query.vehicleId } : {}),
+    });
+    const scoped = rows.filter(
+      (r) => r.vehicleId === null || ownedVehicleIds.includes(r.vehicleId),
+    );
+    return c.json(scoped.map(contributionToResponse), 200);
+  }
 
   const rows = await listCapitalContributions(c.get("reader"), businessId, {
     ...(query.userId !== undefined ? { userId: query.userId } : {}),
@@ -191,6 +265,15 @@ export const grantManagementHandler: RouteHandler<typeof grantManagementRoute, E
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
   const manager = await findBusinessMemberUserId(reader, businessId, body.managerUserId);
   if (!manager) throw new NotFoundError("No such manager in this business");
+  // GAP-121, corrected: UC-64 ("Owner-manager... fees earned from vehicles I
+  // only manage") means an owner_manager legitimately holds a management
+  // fee agreement alongside vehicles he owns — refusing that role here was
+  // this fix's own first-draft bug, caught by partner-summary.test.ts's
+  // existing UC-67 fixture exercising exactly that combination. Only a
+  // passive `owner` ("reports only, no data entry", UC-03) is refused.
+  if (manager.role === "owner") {
+    throw new ValidationError("A passive owner cannot be granted a management agreement");
+  }
 
   const { agreementId } = await grantManagement(c.get("writer"), {
     vehicleId: body.vehicleId,
@@ -344,6 +427,7 @@ export const recordPartnerPayoutHandler: RouteHandler<
 
   const member = await findBusinessMemberUserId(reader, businessId, body.userId);
   if (!member) throw new NotFoundError("No such partner in this business");
+  assertIsPartner(member);
 
   const { payoutId } = await recordPartnerPayout(c.get("writer"), {
     businessId,
