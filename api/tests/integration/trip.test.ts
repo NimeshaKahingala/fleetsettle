@@ -789,11 +789,16 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
       .where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
     expect(resumedRows.every((r) => r.state === "open" && r.tripId === null)).toBe(true);
 
+    // D-11/W-58: voided, never deleted — the trace stays, the vehicle is free.
     const allocationRows = await db
       .select()
       .from(vehicleDayAllocation)
       .where(eq(vehicleDayAllocation.sourceId, tripBody.id));
-    expect(allocationRows).toHaveLength(0);
+    expect(allocationRows).toHaveLength(3);
+    expect(allocationRows.every((r) => r.voidedAt !== null && r.voidedReason !== null)).toBe(true);
+
+    const liveAllocationRows = allocationRows.filter((r) => r.voidedAt === null);
+    expect(liveAllocationRows).toHaveLength(0);
 
     await ctx.cleanup();
   });

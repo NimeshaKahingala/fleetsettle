@@ -207,6 +207,7 @@ export async function findVehicleCalendar(
         eq(vehicleDayAllocation.vehicleId, vehicleId),
         gte(vehicleDayAllocation.businessDate, fromDate),
         lte(vehicleDayAllocation.businessDate, toDate),
+        isNull(vehicleDayAllocation.voidedAt), // D-11/W-58 — a voided day is not on the calendar
       ),
     )
     .orderBy(asc(vehicleDayAllocation.businessDate));

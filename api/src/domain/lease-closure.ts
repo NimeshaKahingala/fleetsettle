@@ -340,6 +340,7 @@ export async function settleLeaseDeposit(
 export interface CloseOutLeaseInput {
   businessId: string;
   leaseId: string;
+  userId: string;
 }
 
 /**
@@ -358,6 +359,6 @@ export async function closeOutLease(writer: Writer, input: CloseOutLeaseInput): 
 
   await writer.transaction(async (tx) => {
     await updateLeaseStatus(tx, input.leaseId, "closed");
-    await deleteLeaseAllocationAfter(tx, input.leaseId, l.endDate ?? l.startDate);
+    await deleteLeaseAllocationAfter(tx, input.leaseId, l.endDate ?? l.startDate, input.userId);
   });
 }

@@ -102,16 +102,24 @@ export async function findEntriesForBatch(
   const rows = await db
     .select(ENTRY_COLUMNS)
     .from(openingBalanceEntry)
-    .where(eq(openingBalanceEntry.batchId, batchId));
+    .where(and(eq(openingBalanceEntry.batchId, batchId), isNull(openingBalanceEntry.voidedAt)));
   return rows as OpeningBalanceEntryRow[];
 }
 
-// opening_balance_entry (DM §10.6) deliberately carries no voided_at/voided_by/posted_period_id:
-// it is a pre-close starting position, replaced wholesale on every save (F-0.2's draft-then-correct
-// flow), not a posted transaction under W-50.
-export async function deleteEntriesForBatch(db: WriteDb, batchId: string): Promise<void> {
-  // eslint-disable-next-line no-restricted-syntax -- see comment above: not a W-50 posted transaction
-  await db.delete(openingBalanceEntry).where(eq(openingBalanceEntry.batchId, batchId));
+// D-11/W-58 reverses opening_balance_entry's own prior exemption (DM §10.6):
+// "replaced wholesale on every save" now means every live entry in the
+// batch is voided, then the corrected set inserted — never delete-and-
+// reinsert — so a batch's entry history across repeated saves stays
+// reconstructable, the same standard every other table now meets.
+export async function voidEntriesForBatch(
+  db: WriteDb,
+  batchId: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(openingBalanceEntry)
+    .set({ voidedAt: sql`now()`, voidedReason: "Superseded by a re-save of this batch", voidedBy })
+    .where(and(eq(openingBalanceEntry.batchId, batchId), isNull(openingBalanceEntry.voidedAt)));
 }
 
 export interface NewOpeningBalanceEntry {

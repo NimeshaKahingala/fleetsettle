@@ -79,6 +79,7 @@ export async function applyAdjustmentTx(
       amountMinor: input.amountMinor,
       sign: input.sign,
       ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      occurredOn: input.occurredOn,
       postedPeriodId: linkage.postedPeriodId,
       ...(linkage.belongsToPeriodId !== null
         ? { belongsToPeriodId: linkage.belongsToPeriodId }

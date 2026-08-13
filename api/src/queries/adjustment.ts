@@ -11,6 +11,7 @@ export interface NewAdjustment {
   amountMinor: bigint;
   sign: -1 | 1;
   reason?: string;
+  occurredOn: string; // GAP-73, migration 0017
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;

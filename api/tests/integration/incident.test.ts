@@ -632,7 +632,9 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     });
     expect(bodyWork.status).toBe(201);
     const bodyWorkBody: { id: string } = await bodyWork.json();
-    ctx.trackCreatedExpense(bodyWorkBody.id);
+    // Tracked at the end, with the incident — GAP-59's composite FK
+    // (expense.incident_id, vehicle_id) now means these must unwind before
+    // the incident they reference, not before it's even tracked.
 
     const claim = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
       claimedAmountMinor: "75000",
@@ -658,7 +660,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     });
     expect(parts.status).toBe(201);
     const partsBody: { id: string } = await parts.json();
-    ctx.trackCreatedExpense(partsBody.id);
+    // Tracked at the end too, same reason as bodyWork above.
 
     const contribution = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
       agreedAmountMinor: "20000",
@@ -744,7 +746,14 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     expect(customerRow.postedPeriodId).toBe(augustPeriodId);
     expect(customerRow.receivedPeriodId).toBe(augustPeriodId);
 
+    // GAP-59: expense.incident_id now carries a real composite FK, so the
+    // two repair expenses must be tracked (and so unwound) after the
+    // incident is tracked, not before — registered last, unwound first
+    // (TestContext.cleanup's own LIFO order), same rule this file's own
+    // comment above already applies between the incident and its periods.
     ctx.trackCreatedIncident(incidentId);
+    ctx.trackCreatedExpense(bodyWorkBody.id);
+    ctx.trackCreatedExpense(partsBody.id);
     await ctx.cleanup();
   });
 

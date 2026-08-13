@@ -334,6 +334,7 @@ describe("reports (P11)", () => {
       await db.insert(expense).values({
         id: expense1,
         businessId,
+        vehicleId, // GAP-59/D-14: a trip_id now requires its matching vehicle_id
         tripId: trip1,
         category: "fuel",
         amountMinor: 3_000n,
