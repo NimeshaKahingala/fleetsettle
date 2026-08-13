@@ -576,6 +576,8 @@ export class TestContext {
       sign?: 1 | -1;
       /** GAP-72's own boundary tests — the column defaults to `now()`, which cannot land on the edge of a report window on demand. */
       createdAt?: string;
+      /** GAP-73, migration 0017. Defaults to `createdAt`'s own date when given, since these boundary tests already use `createdAt` as "when this happened". */
+      occurredOn?: string;
     } = {},
   ): Promise<string> {
     const id = newId();
@@ -586,6 +588,7 @@ export class TestContext {
       adjustmentType: overrides.adjustmentType ?? "waiver",
       amountMinor: overrides.amountMinor ?? 1_000n,
       sign: overrides.sign ?? -1,
+      occurredOn: overrides.occurredOn ?? overrides.createdAt?.slice(0, 10) ?? "2026-07-05",
       postedPeriodId: periodId,
       ...(overrides.createdAt !== undefined ? { createdAt: overrides.createdAt } : {}),
     });

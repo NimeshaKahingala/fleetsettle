@@ -10,11 +10,11 @@ import {
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findObligationForBusiness, updateObligationSettled } from "../queries/obligation.js";
 import {
-  deletePaymentAllocation,
   findPaymentAllocationsForPayment,
   findPaymentForBusiness,
   reducePaymentAllocation,
   updatePaymentAfterCorrection,
+  voidPaymentAllocation,
 } from "../queries/payment.js";
 import { insertPaymentCorrection } from "../queries/payment-correction.js";
 import { computeObligationStatus } from "./obligation-status.js";
@@ -77,7 +77,13 @@ export async function correctPayment(
       }
 
       if (input.bearer === "back_to_arrears") {
-        await unwindAllocations(tx, input.businessId, input.paymentId, input.differenceMinor);
+        await unwindAllocations(
+          tx,
+          input.businessId,
+          input.paymentId,
+          input.differenceMinor,
+          input.userId,
+        );
       }
 
       // `payment.amount_minor` carries a `CHECK (> 0)` (DM §10.2) — the same
@@ -134,6 +140,7 @@ async function unwindAllocations(
   businessId: string,
   paymentId: string,
   differenceMinor: bigint,
+  userId: string,
 ): Promise<void> {
   let remaining = differenceMinor;
   const allocations = await findPaymentAllocationsForPayment(tx, paymentId);
@@ -154,7 +161,7 @@ async function unwindAllocations(
     }
 
     if (take === alloc.amountMinor) {
-      await deletePaymentAllocation(tx, alloc.id);
+      await voidPaymentAllocation(tx, alloc.id, userId);
     } else {
       await reducePaymentAllocation(tx, alloc.id, alloc.amountMinor - take);
     }

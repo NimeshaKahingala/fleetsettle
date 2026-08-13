@@ -559,11 +559,27 @@ describe("close a lease (F-2.6/UC-16)", () => {
       const body: { status: string; endDate: string } = await res.json();
       expect(body).toMatchObject({ status: "closed", endDate: "2026-01-21" });
 
+      // D-11/W-58: voided, never deleted — the freed dates stay as a trace,
+      // just no longer live.
       const remaining = await db
-        .select({ businessDate: vehicleDayAllocation.businessDate })
+        .select({
+          businessDate: vehicleDayAllocation.businessDate,
+          voidedAt: vehicleDayAllocation.voidedAt,
+        })
         .from(vehicleDayAllocation)
         .where(eq(vehicleDayAllocation.sourceId, started.id));
-      expect(remaining.map((r) => r.businessDate).sort()).toEqual(["2026-01-20"]);
+      expect(
+        remaining
+          .filter((r) => r.voidedAt === null)
+          .map((r) => r.businessDate)
+          .sort(),
+      ).toEqual(["2026-01-20"]);
+      expect(
+        remaining
+          .filter((r) => r.voidedAt !== null)
+          .map((r) => r.businessDate)
+          .sort(),
+      ).toEqual(["2026-01-25", "2026-02-01"]);
 
       await ctx.cleanup();
     });
