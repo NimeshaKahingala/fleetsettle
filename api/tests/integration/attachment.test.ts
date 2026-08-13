@@ -401,7 +401,7 @@ describe("read an attachment (A7/GAP-16)", () => {
     const res = await getAttachment(token, id);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/jpeg");
-    expect(res.headers.get("cache-control")).toBe("private, no-store");
+    expect(res.headers.get("cache-control")).toBe("private, no-store, no-transform");
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     const bytes = new Uint8Array(await res.arrayBuffer());
     expect(bytes).toEqual(JPEG_BYTES);
