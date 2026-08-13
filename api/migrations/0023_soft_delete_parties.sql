@@ -12,7 +12,7 @@ ALTER TABLE driver ADD COLUMN voided_by uuid REFERENCES app_user(id);
 ALTER TABLE driver ADD CONSTRAINT driver_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-      AND voided_reason IS NOT NULL AND voided_reason <> '')
+      AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
 );
 
 ALTER TABLE customer ADD COLUMN voided_at timestamptz;
@@ -21,7 +21,7 @@ ALTER TABLE customer ADD COLUMN voided_by uuid REFERENCES app_user(id);
 ALTER TABLE customer ADD CONSTRAINT customer_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-      AND voided_reason IS NOT NULL AND voided_reason <> '')
+      AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
 );
 
 -- W-58 completion: an ON DELETE CASCADE is itself a hard-delete mechanism —

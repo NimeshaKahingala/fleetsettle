@@ -19,7 +19,7 @@ ALTER TABLE vehicle_day_allocation ADD COLUMN voided_by uuid REFERENCES app_user
 ALTER TABLE vehicle_day_allocation ADD CONSTRAINT vehicle_day_allocation_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-      AND voided_reason IS NOT NULL AND voided_reason <> '')
+      AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
 );
 
 -- INV-1 itself: a hold and a voided row are both excluded, so an enquiry
@@ -57,7 +57,7 @@ ALTER TABLE day_record ADD COLUMN voided_by uuid REFERENCES app_user(id);
 ALTER TABLE day_record ADD CONSTRAINT day_record_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-      AND voided_reason IS NOT NULL AND voided_reason <> '')
+      AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
 );
 
 -- opening_balance_entry. Previously carried no void trio at all, on the
@@ -73,5 +73,5 @@ ALTER TABLE opening_balance_entry ADD COLUMN voided_by uuid REFERENCES app_user(
 ALTER TABLE opening_balance_entry ADD CONSTRAINT opening_balance_entry_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-      AND voided_reason IS NOT NULL AND voided_reason <> '')
+      AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
 );

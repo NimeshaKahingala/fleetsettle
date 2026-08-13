@@ -33,7 +33,7 @@ CREATE TABLE vehicle_unavailability (
   CHECK (
     (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
     OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
-        AND voided_reason IS NOT NULL AND voided_reason <> '')
+        AND voided_reason IS NOT NULL AND length(voided_reason) > 0)
   ),
 
   EXCLUDE USING gist (
