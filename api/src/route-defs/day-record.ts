@@ -51,7 +51,10 @@ export const confirmDayRoute = createRoute({
     403: { description: "This role cannot confirm a day" },
     404: { description: "No such daily lease in this business" },
     // INV-10: the trigger is the truth — no application pre-check (CLAUDE.md → Writes).
-    409: { description: "That accounting period is closed" },
+    409: {
+      description:
+        "That accounting period is closed, or this day was voided by a driver/arrangement change (DAY_RECORD_VOIDED, GAP-118) — refresh and try again",
+    },
   },
 });
 

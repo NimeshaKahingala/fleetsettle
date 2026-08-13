@@ -1,6 +1,6 @@
-import { and, asc, desc, eq, isNull, lte, or, gte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lte, or, gte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { dailyLease, dailyLeaseRate, driver, vehicle } from "../db/schema.js";
+import { dailyLease, dailyLeaseRate, driver, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -87,6 +87,39 @@ export async function endDailyLeaseRow(
   effectiveTo: string,
 ): Promise<void> {
   await db.update(dailyLease).set({ effectiveTo }).where(eq(dailyLease.id, dailyLeaseId));
+}
+
+/**
+ * GAP-118: a closed lease's own future occupancy, freed the same way
+ * `deleteLeaseAllocationAfter` (queries/lease.ts) frees arrangement A's and
+ * `deleteAllocationDaysForTrip` (queries/trip.ts) frees a cancelled trip's —
+ * D-11/W-58, voided, never deleted. Must run before the replacement lease's
+ * `materializeDailyLeaseHorizon` call in the same transaction:
+ * `listAllocatedDatesForVehicle`'s `existing.has(d)` guard is what silently
+ * no-opped the new lease's own materialisation before this fix existed.
+ * `voidedReason` is a parameter, not hardcoded — this has two real callers
+ * (a driver change, F-4.7; an arrangement change moving off B, F-1.2) and
+ * they are two different facts, the same reasoning `voidExpenseRow` gives
+ * for taking its own reason as an argument.
+ */
+export async function releaseDailyLeaseAllocationsAfter(
+  db: WriteDb,
+  dailyLeaseId: string,
+  afterDate: string,
+  voidedReason: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason, voidedBy })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "daily_lease"),
+        eq(vehicleDayAllocation.sourceId, dailyLeaseId),
+        gt(vehicleDayAllocation.businessDate, afterDate),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
 }
 
 /** F-1.2/GAP-54: the vehicle's currently open `daily_lease` row (id + own start date), so an arrangement change moving off B can close it — distinct from `findCurrentDailyLeaseForVehicle` above, which resolves a borne-by default "as of" a date and returns only the driver. */

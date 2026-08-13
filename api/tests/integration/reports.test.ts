@@ -785,6 +785,59 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-118 (Wave 2 prerequisite) — a card voided off a superseded lease is not this driver's ran or lost day, in any of the three groupings", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId, { name: "Sunil" });
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+      // No live write path voids a day_record yet — GAP-118's own fix is
+      // Wave 2's build. Both a voided `did_not_run` and a voided
+      // `ran_paid_full` card, to prove neither side of ran+lost leaks.
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-03",
+        {
+          state: "did_not_run",
+          expectedMinor: 5_000n,
+          lostReason: "no_passengers",
+          voided: true,
+        },
+      );
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-04",
+        { state: "ran_paid_full", voided: true },
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-01&to=2026-07-31", token);
+      expect(res.status).toBe(200);
+      const body: {
+        byWeekday: { driverId: string; lost: number; ran: number }[];
+        byMonth: { driverId: string; lost: number; ran: number }[];
+        byReason: { driverId: string; reason: string; lost: number }[];
+      } = await res.json();
+
+      expect(body.byWeekday.some((r) => r.driverId === driverId)).toBe(false);
+      expect(body.byMonth.some((r) => r.driverId === driverId)).toBe(false);
+      expect(body.byReason.some((r) => r.driverId === driverId)).toBe(false);
+
+      await ctx.cleanup();
+    });
+
     it("byReason splits two different reasons into two rows, each valued independently", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

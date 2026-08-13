@@ -140,6 +140,39 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-118 (Wave 2 prerequisite) — a day_record voided off a superseded lease does not count as unconfirmed at the one irreversible step", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    // No live write path voids a day_record yet (GAP-118's own fix is Wave
+    // 2's build) — this is exactly the state a driver/arrangement change
+    // will leave behind: a stale future card, still `open`, now voided.
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-20",
+      {
+        voided: true,
+      },
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getChecklist(token);
+    expect(res.status).toBe(200);
+    const body: CloseChecklistBody = await res.json();
+    expect(body.checklist.unconfirmedDays).toBe(0);
+
+    await ctx.cleanup();
+  });
+
   it("happy path — closes the open period and opens its successor in the same transaction", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

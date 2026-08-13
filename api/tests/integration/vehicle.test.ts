@@ -1,5 +1,8 @@
+import { addDays, businessToday } from "@fleetsettle/shared";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { dayRecord, vehicleDayAllocation } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -93,6 +96,14 @@ async function postChangeArrangement(token: string, id: string, body: unknown) {
 
 async function getDailyLease(token: string, id: string) {
   return request(`/api/daily-lease/${id}`, bearer(token));
+}
+
+async function postDailyLease(token: string, body: unknown) {
+  return request("/api/daily-lease", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
 }
 
 async function postIncident(token: string, body: unknown) {
@@ -882,6 +893,64 @@ describe("change a vehicle's arrangement (F-1.2/UC-94, GAP-54)", () => {
     expect(dailyLeaseRes.status).toBe(200);
     const dailyLeaseBody: { effectiveTo: string | null } = await dailyLeaseRes.json();
     expect(dailyLeaseBody.effectiveTo).toBe("2026-07-31");
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-118 — moving off B frees the daily lease's own materialised future occupancy, not just the row's own effectiveTo", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B", { effectiveFrom: today });
+    ctx.trackCreatedVehicle(vehicleId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // Created through the real endpoint, not the factory's raw insert, so
+    // D-9's own synchronous materialisation puts real rows on the calendar —
+    // exactly the state GAP-118 found leaking through an arrangement change.
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const futureDate = addDays(today, 5);
+    const changeFrom = addDays(today, 3);
+
+    const res = await postChangeArrangement(token, vehicleId, {
+      arrangement: "A",
+      effectiveFrom: changeFrom,
+    });
+    expect(res.status).toBe(201);
+
+    const record = await db
+      .select({ state: dayRecord.state, voidedAt: dayRecord.voidedAt })
+      .from(dayRecord)
+      .where(and(eq(dayRecord.dailyLeaseId, leaseBody.id), eq(dayRecord.businessDate, futureDate)));
+    expect(record).toHaveLength(1);
+    expect(record[0]?.state).toBe("open");
+    expect(record[0]?.voidedAt).not.toBeNull();
+
+    const allocation = await db
+      .select({ voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "daily_lease"),
+          eq(vehicleDayAllocation.sourceId, leaseBody.id),
+          eq(vehicleDayAllocation.businessDate, futureDate),
+        ),
+      );
+    expect(allocation[0]?.voidedAt).not.toBeNull();
 
     await ctx.cleanup();
   });

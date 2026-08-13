@@ -1,11 +1,12 @@
 import { newId } from "@fleetsettle/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Writer } from "../../src/db/client.js";
 import {
   accountingPeriod,
   adjustment,
   advance,
   advanceSettlement,
+  appUser,
   attachment,
   bankingEvent,
   billingPeriod,
@@ -137,6 +138,10 @@ interface DayRecordOverrides {
   // `day_record_check2`: a `did_not_run` row requires one (§1.2 A: 'on_charter' deliberately absent).
   lostReason?:
     "breakdown" | "driver_day_off" | "driver_ill" | "public_holiday" | "no_passengers" | "other";
+  // GAP-118, migration 0022: no live write path voids a day_record yet (that's
+  // Wave 2's own build) — this is the only way a test can set up "a stale
+  // future card was voided off a superseded lease" ahead of it.
+  voided?: boolean;
 }
 
 /**
@@ -474,6 +479,17 @@ export class TestContext {
     overrides: DayRecordOverrides = {},
   ): Promise<string> {
     const id = newId();
+    // day_record_void_check (migration 0022) requires all three or none —
+    // a throwaway app_user, same reasoning mintUser's own doc comment gives
+    // for never tearing one down (audit_log FK-references it permanently
+    // anyway, in the disposable test branch).
+    let voidedBy: string | undefined;
+    if (overrides.voided) {
+      voidedBy = newId();
+      await this.#db
+        .insert(appUser)
+        .values({ id: voidedBy, asgardeoSub: `test-sub-${voidedBy}`, displayName: "Test voider" });
+    }
     await this.#db.insert(dayRecord).values({
       id,
       businessId,
@@ -486,6 +502,13 @@ export class TestContext {
       expectedMinor: overrides.expectedMinor ?? 5_000_00n,
       lostReason: overrides.lostReason,
       postedPeriodId: periodId,
+      ...(overrides.voided
+        ? {
+            voidedAt: sql`now()`,
+            voidedReason: "GAP-118 test fixture — a stale card off a superseded lease",
+            voidedBy,
+          }
+        : {}),
     });
     this.track(async () => {
       await this.#db.delete(dayRecord).where(eq(dayRecord.id, id));

@@ -309,6 +309,78 @@ function checkQueryErrorHandling(paths) {
   return findings;
 }
 
+/**
+ * Wave 2/GAP-118: `vehicle_day_allocation`, `payment_allocation`, `day_record`
+ * and `opening_balance_entry` all gained the W-58 void trio in migration
+ * 0022, specifically "ahead of Wave 2, which is what actually needs it" (its
+ * own header comment) — GAP-118's fix voids a stale future `day_record`
+ * rather than mutating it, and a scan over the table that doesn't exclude a
+ * voided row treats a freed day as still occupied. File-scoped, the same
+ * shape as `checkQueryErrorHandling` above: a file touching one of these
+ * tables via `.from`/`.update`/`.leftJoin`/`.innerJoin` with no
+ * `<table>.voidedAt` reference anywhere in it is missing the filter, not
+ * just one call site of it.
+ *
+ * Deliberately NOT every void-trio table (there are eighteen more) — most of
+ * those have no live void endpoint yet (GAP-12/GAP-36/A9b is Wave 5's own
+ * job) or a void path this rule hasn't been checked against, and widening it
+ * today would fail the gate on pre-existing reads this task never touched
+ * rather than the ones Wave 2 actually put a live void behind. Widen the
+ * list deliberately, table by table, as each one's own void path ships —
+ * not by relaxing this comment.
+ */
+const VOID_FILTERED_TABLES = [
+  "vehicleDayAllocation",
+  "paymentAllocation",
+  "dayRecord",
+  "openingBalanceEntry",
+];
+
+function checkVoidTableFilter(paths) {
+  const findings = [];
+  for (const path of paths) {
+    if (!/^api\/src\/.*\.ts$/.test(path) || /\.test\.ts$/.test(path)) continue;
+    if (path.endsWith("db/schema.ts")) continue;
+    const abs = resolve(ROOT, path);
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch {
+      continue; // binary, unreadable — not our business
+    }
+    for (const table of VOID_FILTERED_TABLES) {
+      const usage = new RegExp(`\\.(from|update|leftJoin|innerJoin)\\(${table}\\b`);
+      if (!usage.test(text)) continue;
+      const filtered = new RegExp(`${table}\\.voidedAt`);
+      if (filtered.test(text)) continue;
+      // Table-specific opt-out, not OPT_OUT's bare `allow:` — a file with an
+      // unrelated `allow:` comment (a W-56 zero, a mileage percentage) is not
+      // thereby exempt from *this* rule. checkQueryErrorHandling's own
+      // file-wide OPT_OUT.test(text) was tried here first and found to
+      // silently pass reports.ts on exactly that collision before this rule
+      // had ever actually filtered anything in it — confirmed by reverting
+      // this file to its pre-fix content and re-running the check.
+      const tableOptOut = new RegExp(`(?:--|//|#|/\\*)\\s*allow:.*\\b(void|${table})\\b`, "i");
+      if (tableOptOut.test(text)) continue;
+      findings.push({
+        file: path,
+        line: 1,
+        column: 1,
+        id: "money/void-table-unfiltered",
+        match: table,
+        message:
+          `${table} carries the W-58 void trio and this file reads or updates it with no ` +
+          `${table}.voidedAt reference anywhere — a voided row (GAP-118) can still surface as ` +
+          "live. Add `isNull(" +
+          table +
+          ".voidedAt)`, or `// allow: <reason>` if this read genuinely must see voided rows too.",
+      });
+    }
+  }
+  return findings;
+}
+
 /** Positive assertions — things that must be present, not absent. */
 function checkRequired() {
   const findings = [];
@@ -354,6 +426,7 @@ const scanTargets = filesToScan();
 const findings = [
   ...scanTargets.flatMap(scan),
   ...checkQueryErrorHandling(scanTargets),
+  ...checkVoidTableFilter(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
 
