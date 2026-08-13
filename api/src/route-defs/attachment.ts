@@ -50,7 +50,9 @@ export const createAttachmentRoute = createRoute({
  * Streams the object's bytes — never a public bucket URL, never a
  * presigned one either (A7's plan, decisions 1–2: `business_id` is
  * re-checked on every request, so no copy of this response outlives its
- * own authorisation check). `Cache-Control: private, no-store`.
+ * own authorisation check). `Cache-Control: private, no-store, no-transform`
+ * — `no-transform` stops an intermediary proxy/CDN from recompressing the
+ * receipt image, which would corrupt the bytes the endpoint hands back.
  */
 export const getAttachmentRoute = createRoute({
   method: "get",
