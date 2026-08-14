@@ -328,6 +328,20 @@ export async function listIncidentRecoveries(
   return rows as IncidentRecoveryRow[];
 }
 
+/** GAP-12/W-61/INV-36 §3.9: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidIncidentRecoveryRow(
+  db: WriteDb,
+  recoveryId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(incidentRecovery)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(incidentRecovery.id, recoveryId), isNull(incidentRecovery.voidedAt)))
+    .returning({ voidedAt: incidentRecovery.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
 /** F-3.4 steps 4/5: the same update serves both a customer contribution and an insurer settlement — see migration 0006 for why this UPDATE remains legal once `posted_period_id`'s own month has closed. */
 export async function recordIncidentRecoveryReceived(
   db: WriteDb,

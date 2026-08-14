@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { writeOff, writeOffRecovery } from "../db/schema.js";
 
@@ -133,6 +133,32 @@ export async function listWriteOffsForBusiness(
   return rows as WriteOffListRow[];
 }
 
+/** GAP-12/W-61/INV-36 §3.7: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidWriteOffRow(
+  db: WriteDb,
+  writeOffId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(writeOff)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(writeOff.id, writeOffId), isNull(writeOff.voidedAt)))
+    .returning({ voidedAt: writeOff.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
+/** GAP-12/W-61/INV-36 §3.7: `voidWriteOff`'s own refuse-guard — every live recovery against this write-off, each its own entered act (§2), named in the refusal. */
+export async function findLiveRecoveriesForWriteOff(
+  db: ReadDb,
+  writeOffId: string,
+): Promise<Array<{ id: string; amountMinor: bigint }>> {
+  const rows = await db
+    .select({ id: writeOffRecovery.id, amountMinor: writeOffRecovery.amountMinor })
+    .from(writeOffRecovery)
+    .where(and(eq(writeOffRecovery.writeOffId, writeOffId), isNull(writeOffRecovery.voidedAt)));
+  return rows;
+}
+
 export interface NewWriteOffRecovery {
   id: string;
   businessId: string;
@@ -149,4 +175,46 @@ export async function insertWriteOffRecovery(
   values: NewWriteOffRecovery,
 ): Promise<void> {
   await db.insert(writeOffRecovery).values(values);
+}
+
+export interface WriteOffRecoveryRow {
+  id: string;
+  writeOffId: string;
+  paymentId: string;
+  amountMinor: bigint;
+  voidedAt: string | null;
+}
+
+/** GAP-12/W-61/INV-36 §3.8. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+export async function findWriteOffRecoveryForBusiness(
+  db: ReadDb,
+  businessId: string,
+  recoveryId: string,
+): Promise<WriteOffRecoveryRow | undefined> {
+  const rows = await db
+    .select({
+      id: writeOffRecovery.id,
+      writeOffId: writeOffRecovery.writeOffId,
+      paymentId: writeOffRecovery.paymentId,
+      amountMinor: writeOffRecovery.amountMinor,
+      voidedAt: writeOffRecovery.voidedAt,
+    })
+    .from(writeOffRecovery)
+    .where(and(eq(writeOffRecovery.id, recoveryId), eq(writeOffRecovery.businessId, businessId)))
+    .limit(1);
+  return rows[0];
+}
+
+/** GAP-12/W-61/INV-36 §3.8: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidWriteOffRecoveryRow(
+  db: WriteDb,
+  recoveryId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(writeOffRecovery)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(writeOffRecovery.id, recoveryId), isNull(writeOffRecovery.voidedAt)))
+    .returning({ voidedAt: writeOffRecovery.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }

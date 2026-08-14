@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import { businessDateSchema, moneyWireSchema, uuidSchema, voidedResponseSchema } from "./common.js";
 
 const positiveMoneyWireSchema = moneyWireSchema.refine((v) => v > 0n, {
   message: "amountMinor must be greater than zero",
@@ -33,6 +33,24 @@ export const settleAdvanceRequestSchema = z.object({
 });
 export type SettleAdvanceRequest = z.infer<typeof settleAdvanceRequestSchema>;
 
+/** GAP-12/W-61/INV-36 §3.5: the settlement this write just recorded — what a later void targets, the same reasoning `depositResponseSchema`'s own `movementId` carries. */
+export const settledAdvanceResponseSchema = advanceResponseSchema.extend({
+  settlementId: uuidSchema,
+});
+export type SettledAdvanceResponse = z.infer<typeof settledAdvanceResponseSchema>;
+
+/** GAP-12/W-61/INV-36 §3.5: void, never delete — `advance` comes back with `status` already recomputed from the live settlements that remain. */
+export const voidedAdvanceSettlementResponseSchema = z.object({
+  id: uuidSchema,
+  voidedAt: z.string(),
+  advance: advanceResponseSchema,
+});
+export type VoidedAdvanceSettlementResponse = z.infer<typeof voidedAdvanceSettlementResponseSchema>;
+
+/** GAP-12/W-61/INV-36 §3.6: void, never delete — refused while any settlement against it is still live (VOID_BLOCKED). */
+export const voidedAdvanceResponseSchema = voidedResponseSchema;
+export type VoidedAdvanceResponse = z.infer<typeof voidedAdvanceResponseSchema>;
+
 /** F-6.7/UC-58/W-8: recorded as money held, never income (INV-4). */
 export const takeDriverDepositRequestSchema = z.object({
   driverId: uuidSchema,
@@ -54,8 +72,18 @@ export const depositResponseSchema = z.object({
   partyDriverId: z.string().uuid(),
   status: z.enum(["held", "hold_window", "released", "applied", "retained"]),
   heldMinor: z.string(),
+  /** GAP-12/W-61/INV-36 §3.3: the movement this write just recorded — what a later void targets. */
+  movementId: uuidSchema,
 });
 export type DepositResponse = z.infer<typeof depositResponseSchema>;
+
+/** GAP-12/W-61/INV-36 §3.3/§3.4: void, never delete — `deposit` comes back with `status` already recomputed from what's left live. */
+export const voidedDepositMovementResponseSchema = z.object({
+  id: uuidSchema,
+  voidedAt: z.string(),
+  deposit: depositResponseSchema.omit({ movementId: true }),
+});
+export type VoidedDepositMovementResponse = z.infer<typeof voidedDepositMovementResponseSchema>;
 
 /**
  * F-6.4/UC-56/W-2, INV-3: the ONLY thing that moves both driver balances.

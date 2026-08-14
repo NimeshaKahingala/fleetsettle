@@ -1,14 +1,22 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { NotFoundError, PeriodClosedError, ValidationError } from "../errors/app-error.js";
+import {
+  DepositMovementAlreadyVoidedError,
+  NotFoundError,
+  PeriodClosedError,
+  ValidationError,
+} from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   findDepositForBusiness,
+  findDepositMovementForBusiness,
+  findNewestLiveTerminalMovement,
   insertDeposit,
   insertDepositMovement,
   sumDepositMovements,
   updateDepositStatus,
+  voidDepositMovementRow,
   type DepositRow,
 } from "../queries/driver-money.js";
 
@@ -22,6 +30,7 @@ export interface TakeDriverDepositInput {
 
 export interface TakenDeposit {
   depositId: string;
+  movementId: string;
 }
 
 /** F-6.7/UC-58/W-8, one transaction: `deposit` and its first movement — INV-4, never income, in any month. */
@@ -34,6 +43,7 @@ export async function takeDriverDeposit(
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
     const depositId = newId();
+    const movementId = newId();
     try {
       await insertDeposit(tx, {
         id: depositId,
@@ -42,7 +52,7 @@ export async function takeDriverDeposit(
         partyDriverId: input.driverId,
       });
       await insertDepositMovement(tx, {
-        id: newId(),
+        id: movementId,
         businessId: input.businessId,
         depositId,
         movementType: "taken",
@@ -59,7 +69,7 @@ export async function takeDriverDeposit(
       throw err;
     }
 
-    return { depositId };
+    return { depositId, movementId };
   });
 }
 
@@ -74,6 +84,7 @@ export interface RecordDepositMovementInput {
 }
 
 export interface RecordedDepositMovement {
+  movementId: string;
   deposit: DepositRow;
   heldMinor: Minor;
 }
@@ -111,9 +122,10 @@ export async function recordDepositMovement(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    const movementId = newId();
     try {
       await insertDepositMovement(tx, {
-        id: newId(),
+        id: movementId,
         businessId: input.businessId,
         depositId: input.depositId,
         movementType: input.movementType,
@@ -138,10 +150,81 @@ export async function recordDepositMovement(
     if (newStatus !== dep.status) await updateDepositStatus(tx, input.depositId, newStatus);
 
     return {
+      movementId,
       deposit: { ...dep, status: newStatus },
       heldMinor: newHeld as Minor,
     };
   });
+}
+
+export interface VoidDepositMovementInput {
+  businessId: string;
+  movementId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedDepositMovement {
+  id: string;
+  voidedAt: string;
+  deposit: DepositRow;
+  heldMinor: Minor;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.3/§3.4: void the movement, then recompute
+ * `deposit.status` from what's left live — the newest surviving terminal
+ * (`refunded`/`retained`) movement wins; with none left, `hold_window` if
+ * `hold_release_date` is set (F-2.7/W-29 sets that outside the movement
+ * history) else `held`. Fully derivable, no new stored state — and this
+ * runs on every void regardless of which movement was voided, since
+ * re-deriving is always correct (a non-terminal movement's void changes
+ * nothing about it; the newest live terminal one, if unaffected, wins
+ * again unchanged).
+ */
+export async function voidDepositMovement(
+  writer: Writer,
+  input: VoidDepositMovementInput,
+): Promise<VoidedDepositMovement> {
+  try {
+    return await writer.transaction(async (tx) => {
+      const movement = await findDepositMovementForBusiness(tx, input.businessId, input.movementId);
+      if (!movement) throw new NotFoundError("No such deposit movement in this business");
+      if (movement.voidedAt !== null) throw new DepositMovementAlreadyVoidedError();
+
+      const dep = await findDepositForBusiness(tx, input.businessId, movement.depositId);
+      if (!dep) throw new NotFoundError("No such deposit in this business");
+
+      const voided = await voidDepositMovementRow(tx, input.movementId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+      if (!voided) throw new DepositMovementAlreadyVoidedError();
+
+      const newestTerminal = await findNewestLiveTerminalMovement(tx, movement.depositId);
+      const newStatus = newestTerminal
+        ? // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- TERMINAL is total over the two members findNewestLiveTerminalMovement can return
+          TERMINAL[newestTerminal.movementType]!
+        : dep.holdReleaseDate !== null
+          ? "hold_window"
+          : "held";
+      if (newStatus !== dep.status) {
+        await updateDepositStatus(tx, movement.depositId, newStatus);
+      }
+
+      const heldMinor = await sumDepositMovements(tx, movement.depositId);
+
+      return {
+        id: input.movementId,
+        voidedAt: voided.voidedAt,
+        deposit: { ...dep, status: newStatus },
+        heldMinor: heldMinor as Minor,
+      };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 }
 
 export interface TakeCustomerDepositInput {
@@ -169,6 +252,7 @@ export async function takeCustomerDepositTx(
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
   const depositId = newId();
+  const movementId = newId();
   try {
     await insertDeposit(tx, {
       id: depositId,
@@ -178,7 +262,7 @@ export async function takeCustomerDepositTx(
       leaseId: input.leaseId,
     });
     await insertDepositMovement(tx, {
-      id: newId(),
+      id: movementId,
       businessId: input.businessId,
       depositId,
       movementType: "taken",
@@ -195,7 +279,7 @@ export async function takeCustomerDepositTx(
     throw err;
   }
 
-  return { depositId };
+  return { depositId, movementId };
 }
 
 export async function takeCustomerDeposit(

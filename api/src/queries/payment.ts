@@ -218,15 +218,50 @@ export async function reducePaymentAllocation(
  * formula in DM §10.2 (`payment.amount_minor - SUM(payment_allocation)`)
  * already excludes voided rows, so a fully-undone allocation drops out of
  * that sum exactly as a deleted row would have — D-11/W-58: voided, never
- * deleted.
+ * deleted. `voidedReason` is a real parameter, never hardcoded (W-61/§4's
+ * cascade-reason rule) — `correctPayment` and `voidAdjustment` each unwind
+ * an allocation for a different reason and the row should say which.
  */
 export async function voidPaymentAllocation(
   db: WriteDb,
   allocationId: string,
-  voidedBy: string,
+  values: { voidedReason: string; voidedBy: string },
 ): Promise<void> {
   await db
     .update(paymentAllocation)
-    .set({ voidedAt: sql`now()`, voidedReason: "Undone during a payment correction", voidedBy })
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
     .where(eq(paymentAllocation.id, allocationId));
+}
+
+/**
+ * W-61/INV-36 §3.1: `voidAdjustment`'s own unwind, the same newest-first
+ * order `findPaymentAllocationsForPayment` already uses, scoped by
+ * `obligationId` instead of `paymentId` — an adjustment reversal must unwind
+ * whichever payments settled *this* obligation, which may not be the one
+ * `correctPayment` was called against.
+ */
+export interface PaymentAllocationWithPaymentRow {
+  id: string;
+  paymentId: string;
+  obligationId: string;
+  amountMinor: bigint;
+}
+
+export async function findPaymentAllocationsForObligation(
+  db: ReadDb,
+  obligationId: string,
+): Promise<PaymentAllocationWithPaymentRow[]> {
+  const rows = await db
+    .select({
+      id: paymentAllocation.id,
+      paymentId: paymentAllocation.paymentId,
+      obligationId: paymentAllocation.obligationId,
+      amountMinor: paymentAllocation.amountMinor,
+    })
+    .from(paymentAllocation)
+    .where(
+      and(eq(paymentAllocation.obligationId, obligationId), isNull(paymentAllocation.voidedAt)),
+    )
+    .orderBy(desc(paymentAllocation.id));
+  return rows;
 }

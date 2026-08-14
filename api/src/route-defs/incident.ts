@@ -12,6 +12,8 @@ import {
   settledInsuranceClaimResponseSchema,
   settleInsuranceClaimRequestSchema,
   submitInsuranceClaimRequestSchema,
+  voidedResponseSchema,
+  voidRequestSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
@@ -130,6 +132,29 @@ export const recordRecoveryReceivedRoute = createRoute({
     404: { description: "No such recovery in this business" },
     409: {
       description: "PERIOD_CLOSED — a customer-sourced recovery also posts a payment (D-9/GAP-10)",
+    },
+  },
+});
+
+/** GAP-12/W-61/INV-36 §3.9: void, never delete — refused (VOID_BLOCKED) once anything has been received against it; clear, cascades to void the obligation this row minted alongside it. */
+export const voidIncidentRecoveryRoute = createRoute({
+  method: "post",
+  path: "/{id}/recovery/{recoveryId}/void",
+  request: {
+    params: recoveryParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided recovery",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a recovery" },
+    404: { description: "No such recovery in this business" },
+    409: {
+      description:
+        "Already voided, money has already been received against it (VOID_BLOCKED), or PERIOD_CLOSED (GAP-35)",
     },
   },
 });

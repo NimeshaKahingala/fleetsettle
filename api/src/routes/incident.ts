@@ -10,6 +10,7 @@ import {
   recordRecoveryReceivedHandler,
   settleInsuranceClaimHandler,
   submitInsuranceClaimHandler,
+  voidIncidentRecoveryHandler,
 } from "../handlers/incident.js";
 import {
   closeIncidentRoute,
@@ -21,6 +22,7 @@ import {
   recordRecoveryReceivedRoute,
   settleInsuranceClaimRoute,
   submitInsuranceClaimRoute,
+  voidIncidentRecoveryRoute,
 } from "../route-defs/incident.js";
 import type { Env } from "../types.js";
 
@@ -32,6 +34,7 @@ export const incident = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(recordOffRoadRoute, recordOffRoadHandler)
   .openapi(recordCustomerContributionRoute, recordCustomerContributionHandler)
   .openapi(recordRecoveryReceivedRoute, recordRecoveryReceivedHandler)
+  .openapi(voidIncidentRecoveryRoute, voidIncidentRecoveryHandler)
   .openapi(submitInsuranceClaimRoute, submitInsuranceClaimHandler)
   .openapi(settleInsuranceClaimRoute, settleInsuranceClaimHandler)
   .openapi(closeIncidentRoute, closeIncidentHandler);
