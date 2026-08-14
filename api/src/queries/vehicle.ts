@@ -167,10 +167,16 @@ export interface VehicleCalendarDayRow {
   dayRecordState: DayRecordRow["state"] | null;
 }
 
+// isNull(dayRecord.voidedAt) is redundant given the current write paths — a
+// live vehicle_day_allocation row (already filtered below) and its
+// day_record always share the same daily_lease_id, and GAP-118 only ever
+// voids both together for a superseded lease — but included anyway so this
+// join's correctness never depends on that invariant holding forever.
 const CALENDAR_DAY_RECORD = and(
   eq(dayRecord.dailyLeaseId, vehicleDayAllocation.sourceId),
   eq(dayRecord.businessDate, vehicleDayAllocation.businessDate),
   eq(dayRecord.businessId, vehicleDayAllocation.businessId),
+  isNull(dayRecord.voidedAt),
 );
 
 /**
@@ -207,6 +213,7 @@ export async function findVehicleCalendar(
         eq(vehicleDayAllocation.vehicleId, vehicleId),
         gte(vehicleDayAllocation.businessDate, fromDate),
         lte(vehicleDayAllocation.businessDate, toDate),
+        isNull(vehicleDayAllocation.voidedAt), // D-11/W-58 — a voided day is not on the calendar
       ),
     )
     .orderBy(asc(vehicleDayAllocation.businessDate));

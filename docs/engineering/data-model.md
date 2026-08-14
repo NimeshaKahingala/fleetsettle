@@ -1,8 +1,8 @@
 # Data Model
 
-**Status:** v1.1.5 — §17 gains **D-10**: `attachment` retention, decided (keep indefinitely, no archival column, no purge job) — GAP-107, genuinely undecided until now rather than assumed. §12's insurance_claim comment corrected to match `use-cases.md` v1.2.6's W-11 wording. No schema change, no fixture-figure change
-**Date:** 11 August 2026
-**Derived from:** `use-cases.md` v1.2.6 · `user-flows.md` v1.1.7
+**Status:** v1.1.7 — **D-17** added: GAP-1's per-vehicle scoping mechanism, silent since UC-03's matrix and UC-70 first named "own vehicles" and "shared vehicles" — `ownership_share` decides the owner-manager half, `management_fee_agreement` (bound to period overlap, not the agreement's status today) decides the manager half. No migration, no fixture-figure change — both tables already exist
+**Date:** 13 August 2026
+**Derived from:** `use-cases.md` v1.2.8 · `user-flows.md` v1.1.9
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
 **Validation:** §9 checks every one of the 62 flows and 31 invariants against these tables. That section is the point of the document; the DDL is what it validates.
@@ -333,16 +333,29 @@ CREATE TABLE vehicle_day_allocation (
   source_type   text NOT NULL CHECK (source_type IN ('lease','daily_lease','trip')),
   source_id     uuid NOT NULL,
   is_hold       boolean NOT NULL DEFAULT false,   -- ST-5: tentative trip, does not occupy
-  id            uuid PRIMARY KEY
+  id            uuid PRIMARY KEY,
+  voided_at     timestamptz,                      -- ⚑ D-11/W-58: voided, never deleted
+  voided_reason text,
+  voided_by     uuid REFERENCES app_user(id),
+
+  CHECK (
+    (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
+    OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
+        AND voided_reason IS NOT NULL AND voided_reason <> '')
+  )
 );
 
--- The invariant itself. A hold is excluded, so an enquiry never suppresses income.
+-- The invariant itself. A hold and a voided row are both excluded, so an
+-- enquiry never suppresses income and a freed day is truly free again.
 CREATE UNIQUE INDEX one_arrangement_per_vehicle_day
   ON vehicle_day_allocation (vehicle_id, business_date)
-  WHERE is_hold = false;
+  WHERE is_hold = false AND voided_at IS NULL;
 
-CREATE INDEX ON vehicle_day_allocation (vehicle_id, business_date);  -- UC-95 calendar
+CREATE INDEX ON vehicle_day_allocation (vehicle_id, business_date)
+  WHERE voided_at IS NULL;                        -- UC-95 calendar, GAP-119 fix
 ```
+
+**⚑ D-11, 12 Aug 2026 — every write in this document is now voided, never deleted, including tables that hold no money.** `use-cases.md` **W-58** widens W-50's append-only promise beyond money-bearing tables, because a hard-deleted row leaves nothing for a later production investigation to find — migration `0002`'s audit trigger (§12, §13) fires `AFTER INSERT OR UPDATE` only, so a deleted row was never written to `audit_log` either. Four call sites converted, all previously carrying an explicit `no-restricted-syntax` exemption for exactly this reason: `vehicle_day_allocation` (this table — GAP-118/GAP-119, below), `payment_allocation` (§10.2, undone during a correction), `day_record` (§7, superseded by a driver or arrangement change), `opening_balance_entry` (§10.6, replaced wholesale on a pre-close correction). The ESLint exemptions are revoked with the migration; the next hard delete now fails at the point it is written, the same enforcement §12's `attachment` retrofit already models. **Two tables get the trio only, no `replaces_id`** — GAP-60's `replaces_id` stays scoped to the twelve money tables it was already decided for; a structural cause ("superseded by trip `<id>`") is text in `voided_reason`, not a second FK concept living beside GAP-60's.
 
 **W-46 (the boundary day) needs no rule of its own.** A lease writes allocations through `end_date` inclusive; the next lease starts the following day. If someone tries to start one on the same day the last ended, the unique index refuses — which is the behaviour W-46 describes, enforced rather than remembered.
 
@@ -362,8 +375,9 @@ An open-ended daily lease has no end date, so "one row per occupied day" cannot 
 
 ```
 Trip booked for a date …
-├─ inside the horizon   → the daily-lease allocation row is REPLACED by the trip's,
-│                         and the existing day_record is set to 'paused_for_trip'
+├─ inside the horizon   → the daily-lease allocation row is VOIDED and the
+│                         trip's own row is inserted, and the existing
+│                         day_record is set to 'paused_for_trip'
 └─ beyond the horizon   → only the trip's allocation row is written. Later, when
                           generate-day-cards reaches that date, it finds the day
                           already allocated to a trip and generates no card at all
@@ -371,7 +385,45 @@ Trip booked for a date …
 
 Both paths end in the same place: the day earns from the trip, not the lease. But **a developer who assumes booking always updates `day_record` rows will silently do nothing for future trips**, and the daily cards will appear weeks later as if the charter had never been booked. The cron must check `vehicle_day_allocation` before generating, and that check is not optional.
 
-`generate-day-cards` therefore reads: *for each pattern day inside the horizon with no allocation row, insert an allocation and a `day_record`.* Idempotent by the unique index, and correct for trips booked at any distance.
+`generate-day-cards` therefore reads: *for each pattern day inside the horizon with no live allocation row, insert an allocation and a `day_record`.* Idempotent by the unique index, and correct for trips booked at any distance.
+
+**⚑ D-12, GAP-119, 12 Aug 2026 — the "inside the horizon" row above was always the specification; `bookTrip` never implemented it.** D-9 (above) made the daily lease's own horizon materialise synchronously, so by the time this section's own example runs, `vehicle_day_allocation` already holds the lease's rows for every date inside it — `one_arrangement_per_vehicle_day` then refuses `bookTrip`'s insert outright, surfacing as `VEHICLE_DOUBLE_BOOKED` for the exact mixed-use case (a daily-leased vehicle also taking a charter) this document is built around. **The fix is `bookTrip` voiding the daily lease's own allocation rows for the trip's date range, in the same transaction, before inserting its own** — `voided_reason` recording the trip id. Cancelling reverses it: the lease's allocation re-materialises (not only its `day_record`, which was already restored) in the same transaction the cancellation runs in, never left for the nightly cron — the identical "no cron is a prerequisite for a user action" reasoning D-9 already established. **GAP-118, found the same day, is the mirror case**: ending a daily-lease assignment (a driver change, F-4.7, or moving the vehicle off arrangement B, F-1.2) must free its own future allocation rows the same way `deleteLeaseAllocationAfter` (§6, F-2.6/UC-16) and `deleteAllocationDaysForTrip` (§8, F-5.5/UC-45) already do for arrangements A and C — arrangement B had no equivalent, so a driver change left every future date still claimed by the assignment that just closed, and `startDailyLease`'s own materialisation for the *new* assignment silently wrote nothing. Both fixes share one primitive: release a daily lease's allocation for a date range, voiding rather than deleting (D-11).
+
+---
+
+### 4.2 Off the road — F-1.10, GAP-26
+
+```sql
+-- UC-79's utilisation report already named this bucket (§15); nothing wrote
+-- it. Vehicle-level and arrangement-agnostic, unlike vehicle_day_allocation:
+-- an arrangement A/C vehicle between allocations has no occupancy row at
+-- all to mark, so unavailability needs its own table rather than a state on
+-- one that assumes an earning claim exists.
+CREATE TABLE vehicle_unavailability (
+  id              uuid PRIMARY KEY,
+  business_id     uuid NOT NULL REFERENCES business(id),
+  vehicle_id      uuid NOT NULL REFERENCES vehicle(id),
+  reason          text NOT NULL CHECK (reason IN ('service','sale_preparation','other')),
+  unavailable_from date NOT NULL,
+  unavailable_to   date,
+  note            text,
+  created_by      uuid REFERENCES app_user(id),
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  voided_at       timestamptz,          -- ended early: voided, never deleted (D-11/W-58)
+  voided_reason   text,
+  voided_by       uuid REFERENCES app_user(id),
+  EXCLUDE USING gist (
+    vehicle_id WITH =,
+    daterange(unavailable_from, unavailable_to, '[]') WITH &&
+  ) WHERE (voided_at IS NULL)
+);
+```
+
+**Deliberately does not duplicate `incident.off_road_from`/`off_road_to` (§9.1), which already covers downtime an incident caused.** This table is for every *other* reason a vehicle sits still — routine service, preparing it for sale, an owner's own use. UC-79's off-road figure reads both sources; neither reads the other.
+
+**Does not re-partition §4.1 of `user-flows.md` (`days_in_month = not_scheduled + paused_for_trip + ran + lost`) and does not touch UC-76's `lease_eligible_days`.** Both stay exhaustively defined by `day_record`'s own states for arrangement B — a vehicle marked unavailable here while it also carries an active daily lease still needs each affected day confirmed through F-4.4 in the ordinary way, picking `breakdown` there if that is the reason. This table answers a different question (is the vehicle available at all, across every arrangement) from the one `day_record` answers (did a specific daily-lease day earn).
+
+**Stays outside `assert_period_open()`'s array (§13).** No `posted_period_id` — an outage is an availability fact, not a money one, the same reasoning `attachment` (§12) and `lease_day_exception` (§7) already carry.
 
 ---
 
@@ -589,14 +641,47 @@ CREATE TABLE day_record (
   note           text,
   posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
   belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
+  voided_at      timestamptz,                     -- ⚑ D-11/W-58: voided, never deleted
+  voided_reason  text,
+  voided_by      uuid REFERENCES app_user(id),
   UNIQUE (daily_lease_id, business_date),        -- idempotent card generation
 
   -- W-4 / INV-6: a day that did not run raises nothing. No setting can change it.
   CHECK (state <> 'did_not_run' OR earned_minor = 0),
   CHECK (state <> 'paused_for_trip' OR earned_minor = 0),
-  CHECK (state <> 'did_not_run' OR lost_reason IS NOT NULL)
+  CHECK (state <> 'did_not_run' OR lost_reason IS NOT NULL),
+  CHECK (
+    (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
+    OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
+        AND voided_reason IS NOT NULL AND voided_reason <> '')
+  )
 );
+
+-- GAP-20. Consulted by generate-day-cards *before* it writes anything for a
+-- pattern day — an excepted date behaves exactly like an off-pattern one
+-- (below): no row, ever, for that (daily_lease_id, date) pair. Its absence
+-- is the record, the same principle §1.2 B already applies to not_scheduled.
+CREATE TABLE lease_day_exception (
+  id             uuid PRIMARY KEY,
+  business_id    uuid NOT NULL REFERENCES business(id),
+  daily_lease_id uuid NOT NULL REFERENCES daily_lease(id),
+  exception_date date NOT NULL,
+  reason         text,
+  created_by     uuid REFERENCES app_user(id),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  voided_at      timestamptz,          -- un-skipping a date voids the exception (D-11/W-58)
+  voided_reason  text,
+  voided_by      uuid REFERENCES app_user(id),
+  UNIQUE (daily_lease_id, exception_date)
+);
+
+CREATE INDEX ON lease_day_exception (daily_lease_id, exception_date)
+  WHERE voided_at IS NULL;
 ```
+
+**`UNIQUE (daily_lease_id, business_date)` deliberately stays a plain unique index, not a partial one.** A voided `day_record` belongs to the daily-lease assignment that just closed (GAP-118); the replacement rows a driver or arrangement change materialises belong to a **new** `daily_lease_id` (F-4.7/F-1.2 both open a fresh row rather than mutate the old one, §1.5), so the two never collide on this constraint regardless of `voided_at`. No scenario in this document regenerates a `day_record` under the *same* `daily_lease_id` after voiding one — if that ever changes, this index is the first thing to revisit.
+
+**`lease_day_exception` stays outside `assert_period_open()`'s array (§13), the same reasoning `attachment` already carries (§12).** It has no `posted_period_id` — a skip decided at lease setup is not itself a money-bearing fact, only an input to whether one is ever generated — so it is not a money table by this document's own definition, and the hand-maintained array must not grow to include it.
 
 **Two things this table deliberately does not hold.**
 
@@ -628,14 +713,21 @@ CREATE TABLE trip (
   closing_date        date,
   cancel_reason       text,
   advance_disposition text CHECK (advance_disposition IN ('refunded','retained')), -- UC-45
+  hold_expires_on     date,             -- ⚑ D-13/GAP-7: NULL unless status = 'hold'
   -- W-41 / INV-30: recognised on the CLOSING date, in exactly one accounting period.
   posted_period_id    uuid REFERENCES accounting_period(id),
   belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_at          timestamptz NOT NULL DEFAULT now(),
   CHECK (end_date >= start_date),
-  CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))
+  CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL)),
+  CHECK (status = 'hold' OR hold_expires_on IS NULL),
+  UNIQUE (id, vehicle_id)          -- ⚑ D-14/GAP-59: lets expense hold a composite FK (§9)
 );
 ```
+
+**⚑ D-13, GAP-7, 12 Aug 2026 — `hold_expires_on` is the single source of truth for when a hold releases; `vehicle_day_allocation.is_hold` is not duplicated with its own copy.** One row, one hold — a per-allocation copy would be the exact two-representations-of-one-fact shape W-58 exists to prevent, since a trip's hold spans several allocation rows and only one of them could ever be corrected without the others silently disagreeing. Pre-filled from a business-wide default of **seven days**, editable per hold (`user-flows.md` ST-5). **Released synchronously, never only by cron**: `bookTrip` and `startDailyLease`/`startLease` each check the target vehicle's own expired holds first and void their allocation rows before checking for a conflict — CLAUDE.md's "no cron is a prerequisite for a user action" applied to holds the same way D-9 already applies it to the daily-lease horizon. The nightly job then only releases what nobody happened to book around.
+
+**`in_progress` is never written.** No column, no job, no user action sets it — `status = 'booked'` reads as `in_progress` wherever it is displayed once `start_date` has arrived, and `closed`/`cancelled` still take priority once actually written. Keeping it derived means there is nothing for a missed cron run to leave stale.
 
 The final `CHECK` is INV-30 made structural: a trip cannot be closed without landing in exactly one accounting period, so a charter running 28 July to 3 August can never be half in each.
 
@@ -650,7 +742,7 @@ CREATE TABLE expense (
   business_id    uuid NOT NULL REFERENCES business(id),
   vehicle_id     uuid REFERENCES vehicle(id),        -- NULL = overhead (UC-66)
   trip_id        uuid REFERENCES trip(id),
-  incident_id    uuid,
+  incident_id    uuid REFERENCES incident(id),       -- ⚑ D-14/GAP-59: was unconstrained
   -- The borne-by default matrix (§6.7) is keyed on this. An unconstrained free-text
   -- category means a typo silently falls through to no default.
   category       text NOT NULL CHECK (category IN (
@@ -678,13 +770,29 @@ CREATE TABLE expense (
   created_at     timestamptz NOT NULL DEFAULT now(),
 
   CHECK (borne_by <> 'driver'   OR borne_by_driver_id   IS NOT NULL),
-  CHECK (borne_by <> 'customer' OR borne_by_customer_id IS NOT NULL)
+  CHECK (borne_by <> 'customer' OR borne_by_customer_id IS NOT NULL),
+
+  -- ⚑ D-14/GAP-59/INV-33. Both trip.vehicle_id and incident.vehicle_id are
+  -- NOT NULL, so naming either without also naming the matching vehicle_id
+  -- is already an inconsistent claim — refused here, not left for the
+  -- composite FK below to silently pass under MATCH SIMPLE.
+  CHECK (trip_id     IS NULL OR vehicle_id IS NOT NULL),
+  CHECK (incident_id IS NULL OR vehicle_id IS NOT NULL),
+
+  -- MATCH SIMPLE (the default) deliberately: an overhead expense (vehicle_id
+  -- NULL, UC-66) must keep saving with neither trip_id nor incident_id set,
+  -- and the two CHECKs above are what stop that same NULL being used to
+  -- dodge the composite check when one of those IS set.
+  FOREIGN KEY (trip_id, vehicle_id)     REFERENCES trip     (id, vehicle_id),
+  FOREIGN KEY (incident_id, vehicle_id) REFERENCES incident (id, vehicle_id)
 );
 
 -- INV-5: only 'us' reaches profit. This index is what makes that cheap.
 CREATE INDEX expense_profit ON expense (business_id, posted_period_id, vehicle_id)
   WHERE borne_by = 'us' AND voided_at IS NULL;
 ```
+
+**⚑ D-14, GAP-59, 12 Aug 2026 — a cost's `vehicle_id`, `trip_id` and `incident_id` are now enforced as one consistent claim, not three independently-valid ones.** Every one of the three was checked only against `business_id`, then discarded — an expense could name a vehicle and a trip belonging to a different one, and the resulting row would appear on both vehicles' books, one of them wrongly. `trip` and `incident` each gain `UNIQUE (id, vehicle_id)` (below and §9.1) so this table can reference the pair; `MATCH SIMPLE` is kept deliberately rather than switched to `MATCH FULL`, because UC-66's overhead expense (`vehicle_id IS NULL`) must keep saving, and the two `CHECK`s above are what closes the one hole `MATCH SIMPLE` would otherwise leave — naming a trip or incident with no vehicle at all. **`post_closure_charge` (§10.1) has the same shape** — source, party and vehicle each validated independently — but writes an `obligation` rather than owning its own table, so it cannot take a composite FK the same way; it is corrected at the handler, per CLAUDE.md's "validate at boundaries," the one place in this document a constraint is not the answer.
 
 ### 9.1 Incidents — the cost container
 
@@ -701,7 +809,8 @@ CREATE TABLE incident (
   off_road_from  date,
   off_road_to    date,
   rent_treatment text CHECK (rent_treatment IN ('continue','credit_days','extend')), -- W-9
-  closed_at      timestamptz
+  closed_at      timestamptz,
+  UNIQUE (id, vehicle_id)          -- ⚑ D-14/GAP-59: lets expense hold a composite FK (§9)
 );
 
 -- W-9 'extend'. The incident pushes lease.end_date forward and generates further
@@ -847,11 +956,22 @@ CREATE TABLE payment_allocation (
   obligation_id uuid NOT NULL REFERENCES obligation(id),
   amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
   allocated_on  date NOT NULL,          -- may be later than payment.occurred_on
-  UNIQUE (payment_id, obligation_id)
+  voided_at     timestamptz,            -- ⚑ D-11/W-58: voided, never deleted
+  voided_reason text,
+  voided_by     uuid REFERENCES app_user(id)
 );
+
+-- Partial, not table-level: a voided pair must be re-allocatable, since
+-- undoing an allocation and drawing on the same payment again is ordinary
+-- correction, not a re-run of the original mistake.
+CREATE UNIQUE INDEX payment_allocation_live_pair
+  ON payment_allocation (payment_id, obligation_id)
+  WHERE voided_at IS NULL;
 ```
 
-**Overpayment and credit — the convention.** F-2.2 holds a surplus "as customer credit against the next due"; F-4.5 does the same for a driver. There is **no credit table and no credit balance column**. A credit is simply a payment that is not yet fully allocated:
+**⚑ D-11, GAP-59-adjacent, 12 Aug 2026 — this table is voided, not deleted.** It was one of the four sites converted for W-58 (§4.1's own note carries the full reasoning); undoing an allocation during a correction used to delete the row outright, leaving no trace of what had been undone.
+
+**Overpayment and credit — the convention, GAP-5 checked against this table and found already correct here.** F-2.2 holds a surplus "as customer credit against the next due"; F-4.5 does the same for a driver. There is **no credit table and no credit balance column**. A credit is simply a payment that is not yet fully allocated:
 
 ```
 credit = payment.amount_minor − SUM(payment_allocation.amount_minor)
@@ -865,12 +985,19 @@ The oldest-first preview (§6.5) must therefore surface **pre-existing credit** 
 
 ```sql
 -- Unapplied credit per party. Feeds the allocation preview and UC-74.
+-- Voided allocations excluded (D-11/W-58) — an undone allocation must give
+-- the credit back, not leave it permanently understated.
 SELECT p.id, p.amount_minor - COALESCE(SUM(a.amount_minor), 0) AS credit_minor
-  FROM payment p LEFT JOIN payment_allocation a ON a.payment_id = p.id
+  FROM payment p
+  LEFT JOIN payment_allocation a
+    ON a.payment_id = p.id AND a.voided_at IS NULL
  WHERE p.business_id = $1 AND p.status = 'active'
  GROUP BY p.id
-HAVING p.amount_minor - COALESCE(SUM(a.amount_minor), 0) > 0;
+HAVING p.amount_minor - COALESCE(SUM(a.amount_minor), 0) > 0
+   FOR UPDATE OF p;
 ```
+
+**⚑ D-15, GAP-5, 12 Aug 2026 — `SELECT … FOR UPDATE` on the payment row is new, and it is the one gap this convention actually had.** The design above was already correct; nothing wrote the forward allocation it describes, and `credit_minor` has no database guard of its own — a payment's unallocated remainder is arithmetic over rows that exist, not a checked balance. Two allocations against **different** obligations, drawn from the same payment concurrently, could between them exceed it without the lock. Locking the payment row for the duration of the allocating transaction closes that race the same way `assert_advances_settled` (§13) closes a comparable one for trip advances.
 
 ```sql
 -- UC-93, W-36/W-37. A correction references the original; it never edits it (INV-21).
@@ -1121,9 +1248,14 @@ CREATE TABLE opening_balance_entry (
   party_user_id     uuid REFERENCES app_user(id),
   vehicle_id        uuid REFERENCES vehicle(id),
   amount_minor      bigint NOT NULL CHECK (amount_minor > 0),
-  original_due_date date        -- UC-78: ageing must be truthful from day one
+  original_due_date date,        -- UC-78: ageing must be truthful from day one
+  voided_at         timestamptz, -- ⚑ D-11/W-58: voided, never deleted
+  voided_reason     text,
+  voided_by         uuid REFERENCES app_user(id)
 );
 ```
+
+**⚑ D-11 reverses this table's own prior exemption, 12 Aug 2026.** It previously carried no void trio at all, on the stated reasoning that a draft entry is "replaced wholesale on every save, not a posted transaction under W-50" — correct as far as it went, but W-58 widens the *why* beyond W-50's posted-transaction test: even a pre-close row is worth a trace once F3's materialisation (§10.6's own reports) can already read it. **"Replaced wholesale" now means every live entry in the batch is voided, then the corrected set is inserted** — never a delete-and-reinsert — so a batch's entry history across repeated saves stays reconstructable, the same standard every other table in this document now meets.
 
 ---
 
@@ -1271,6 +1403,8 @@ CREATE INDEX attachment_subject_live
 ```
 
 `attachment` stays outside `assert_period_open()`'s array and `write_audit_log()`'s discovery loop — it carries no `posted_period_id`, so it is not a money table by this document's own definition (§13). The consequence is deliberate, not a gap: **attachment writes are neither period-gated nor audit-logged.**
+
+**⚑ D-11 gives four more tables this exact shape, 12 Aug 2026.** `vehicle_day_allocation` (§4.1), `payment_allocation` (§10.2) and `opening_balance_entry` (§10.6) carry no `posted_period_id` either, so W-58's widened void policy does not pull them into `assert_period_open()`'s array or `write_audit_log()`'s discovery loop — their own `voided_at`/`voided_reason`/`voided_by` **is** the forensic trail, read directly off the row, the same as `attachment`'s. `day_record` is the one exception worth naming: it already carries `posted_period_id` and was already in the array, so it gained the void trio (§7) but needed no new attachment — it was audit-logged before this change and stays audit-logged now.
 
 **Retention decided 11 Aug 2026 — GAP-107, D-10.** Nothing stated how long an `attachment` row or its R2 object should live, and the table had no archival column — an omission recorded as one, not an assumption the first purge job would have encoded by accident. Decided: **kept indefinitely.** Condition photos and expense receipts are dispute evidence, and a dispute can surface months or years after the record it concerns; no archival column is added, no purge job is planned, and `attachment` keeps the shape above unchanged. Storage volume at this business's scale is negligible against the cost of losing evidence for a closed disagreement. Revisit only if evidence of real storage cost, or a legal retention limit, ever makes "forever" wrong — neither is true today.
 
@@ -1833,6 +1967,13 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-7** | `lease_extension` vs the audit log | An independent review argued the audit log plus `incident.rent_treatment` was sufficient traceability. A table was chosen instead because "why does this lease run 12 days long" is a dispute question, and inferring the answer from two timestamps is not an answer |
 | **D-9** | GAP-88: daily-lease (B) materialisation moved off the cron (§4.1) | **Synchronous, inside `startDailyLease`'s own transaction** — one bulk `INSERT … SELECT`, the same query shape `generate-day-cards` already runs, so the cron keeps extending the horizon rather than originating it. Two alternatives declined: *derive occupancy at read time* in `findVehicleCalendar` — rejected because the trip-conflict check and the lost-days report would each need their own separate fallback, and the close-checklist (GAP-94) a fourth, instead of fixing the one write path once; *keep the cron and patch only the calendar/report symptoms* — rejected because it leaves the ~24h blind window in place, which is exactly what CLAUDE.md's "no cron is a prerequisite for a user action" forbids, not a smaller version of it |
 | **D-10** | GAP-107: `attachment` retention — undecided since the table's own creation | **Resolved 11 Aug 2026 — kept indefinitely.** No archival column, no purge job. §12 carries the full reasoning; distinct from **D-4**, which is about `audit_log`/`message_event` growing without bound and still wants a partitioning answer this row does not supply |
+| **D-11** | `use-cases.md` **W-58**: void coverage widened beyond money-bearing tables | **Resolved 12 Aug 2026 — every table, no exceptions.** `vehicle_day_allocation`, `payment_allocation`, `day_record`, `opening_balance_entry` and the two new tables below all take the trio; the four `no-restricted-syntax` exemptions permitting a hard delete are revoked. Full reasoning at §4.1's own note and §12 |
+| **D-12** | GAP-119: a charter cannot be booked on a daily-leased vehicle | **Resolved 12 Aug 2026 — `bookTrip` voids the daily lease's own allocation for the trip's range before inserting its own, synchronously.** §4.1 carries the full account; the "inside the horizon" behaviour was already this document's own specification, only unimplemented |
+| **D-13** | GAP-7: `trip.hold_expires_on` — duration and release mechanism | **Resolved 12 Aug 2026 — explicit date, seven-day business default, released synchronously by the next booking attempt on that vehicle, never only by cron.** §8 carries the full reasoning; `user-flows.md` ST-5 for the flow-level statement |
+| **D-14** | GAP-59: an `expense` can name a vehicle, a trip and an incident that have nothing to do with one another | **Resolved 12 Aug 2026 — composite FKs from `expense` to `(trip.id, vehicle_id)` and `(incident.id, vehicle_id)`, `MATCH SIMPLE`, backstopped by two `CHECK`s so a null `vehicle_id` cannot be used to dodge the composite check when a trip or incident *is* named.** §9 carries the full reasoning; `post_closure_charge` (§10.1) gets a handler-level check instead, since it is an `obligation.kind`, not a table of its own |
+| **D-15** | GAP-5: forward allocation of a payment surplus has no concurrency guard | **Resolved 12 Aug 2026 — `SELECT … FOR UPDATE` on the payment row for the duration of the allocating transaction.** The design itself (§10.2) was already correct and needed no change; this closes the one race two concurrent allocations against different obligations could otherwise create |
+| **D-16** | GAP-60: a void and its replacement are not linked anywhere in the schema | **Shape decided 9 Aug 2026, recorded here 12 Aug 2026 — a nullable, self-referencing `replaces_id uuid` on each of the twelve money tables**, not one shared polymorphic correction table: typed, indexable, and enforceable as a real per-table FK. Scoped to the money tables only — the two new occupancy/exception tables (§4.2, §7) and the three tables D-11 widened (§4.1, §10.2, §10.6) carry the void trio but not `replaces_id`; a structural cause is text in `voided_reason` there, not a second FK concept |
+| **D-17** | GAP-1: `use-cases.md` UC-03's matrix has carried "own vehicles" (owner-manager) and "shared vehicles" (manager, UC-70) since it was written, with no record of which table decides either, or a manager's read as of when | **Resolved 13 Aug 2026 — no migration, an access-control interpretation of tables that already exist.** An owner-manager's `managePartnerCapital` scope is the vehicles his `ownership_share` (§6) names as of the write — a present-tense read, the same one UC-02 already does. A manager's UC-70 (`viewReports`) scope is the vehicles whose `management_fee_agreement` (§7) **overlapped the reported accounting period** — `effective_from <= period_end AND (effective_to IS NULL OR effective_to >= period_start)`, never the agreement's row state today. Two alternatives declined: *as of period end*, which would agree with `sumManagementFeeAsOfDate`'s own basis but let a manager granted on the period's last day see a month he took no part in; *as of today*, simplest but lets a later revoke retroactively hide a month he actually worked. Resolved at the handler that calls `getVehicleMonthReport` (queries/reports.ts), never inside that function itself — it is also called by `sumAllTimeEarnedForUser` (partner.ts) for the unrelated partner-summary figure, and baking scope into the shared function would have silently changed money there. UC-71/72/74/76/78 take no scope — confirmed, not merely left, since `use-cases.md` W-59 records the same pass considered and declined widening them. §15/UC-70's own query is otherwise unchanged; `user-flows.md` INV-34 carries the property test |
 
 ---
 
@@ -1845,6 +1986,25 @@ When a decision changes: update the use cases, update the flows, update §14 and
 ---
 
 ## 19. What changed
+
+### v1.1.7 — 13 August 2026
+
+**One decision, no schema change, no fixture-figure change.** §17 **D-17** resolves GAP-1's own open mechanism question, closing planning for Wave 3 (tenancy): which record decides "own vehicles" (owner-manager, `managePartnerCapital`) and "shared vehicles" (manager, UC-70's `viewReports`), and for the manager half, as of when. `ownership_share` and `management_fee_agreement` — both already exist, since P7/A10a — decide the two capabilities respectively; the manager half binds to whether the agreement **overlapped the reported period**, not its status today or at the period's end. Matching decision in `use-cases.md` v1.2.8 (**W-59**) and `user-flows.md` v1.1.9 (**INV-34**, §2.3, §8).
+
+### v1.1.6 — 12 August 2026
+
+**Decisions only — schema unbuilt, no migration written yet, no fixture-figure change.** Twenty-one open questions were put to the owner in one sitting while planning the remaining phase-one queue; six landed here. Full reasoning for each in its own `⚑` note and its §17 row.
+
+| | |
+|---|---|
+| **D-11** | `use-cases.md` **W-58** widens void coverage from money-bearing tables to every table. `vehicle_day_allocation` (§4.1), `payment_allocation` (§10.2), `day_record` (§7) and `opening_balance_entry` (§10.6) all gain the trio; the four hard-delete call sites this reverses are named at §4.1's own note |
+| **D-12** | GAP-119 — found checking D-11 against source: a charter cannot currently be booked on a daily-leased vehicle, because D-9's own synchronous horizon materialisation collides with `bookTrip`'s insert. §4.1 already specified the intended behaviour ("takes the allocation from the daily lease"); the fix is `bookTrip` voiding that allocation first |
+| **D-13** | GAP-7's `trip.hold_expires_on` — explicit date, seven-day default, released synchronously by the next booking attempt, never only by cron (§8) |
+| **D-14** | GAP-59 — `expense` gains composite FKs to `(trip.id, vehicle_id)` and `(incident.id, vehicle_id)`, `MATCH SIMPLE`, backstopped by two `CHECK`s (§9). `trip` and `incident` each gain `UNIQUE (id, vehicle_id)` to support it |
+| **D-15** | GAP-5 — `SELECT … FOR UPDATE` on the payment row during forward allocation (§10.2). The credit design itself needed no change; only the concurrency guard was missing |
+| **D-16** | GAP-60's `replaces_id` shape (decided 9 Aug 2026) formally recorded here for the first time — a nullable, self-referencing column on each of the twelve money tables, not written down until now |
+
+**Also folded in: GAP-118**, closing a daily lease never freed its future occupancy — the mirror case to GAP-119, found the same pass, fixed by the same D-11 primitive rather than a seventh decision of its own (§4.1). **Two new tables**: `lease_day_exception` (§7, GAP-20, F-1.7's own long-unmet promise) and `vehicle_unavailability` (§4.2, GAP-26, UC-79's own long-unmet report bucket) — both outside `assert_period_open()`'s array, neither carrying `posted_period_id`, the same standing `attachment` already has. **`user-flows.md` v1.1.8** carries the flow-level statement of all six decisions plus the two live defects; **`use-cases.md` v1.2.7** adds W-58 itself.
 
 ### v1.1.5 — 11 August 2026
 

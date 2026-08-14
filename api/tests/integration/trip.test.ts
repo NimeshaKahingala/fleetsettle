@@ -1,4 +1,5 @@
-import { and, eq } from "drizzle-orm";
+import { addDays, businessToday } from "@fleetsettle/shared";
+import { and, eq, gte, isNull, lte } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import {
@@ -17,6 +18,14 @@ const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}`
 
 async function postTrip(token: string, body: unknown) {
   return request("/api/trip", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postDailyLease(token: string, body: unknown) {
+  return request("/api/daily-lease", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
@@ -149,6 +158,114 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const getRes = await getTrip(token, body.id);
     expect(getRes.status).toBe(200);
     expect(await getRes.json()).toMatchObject({ id: body.id, destination: "Kandy" });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-119 — a charter can be booked on a vehicle already on daily lease (D-12: REPLACED, not refused), and cancelling restores the lease's occupancy", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const tripStart = addDays(today, 4);
+    const tripEnd = addDays(today, 6);
+
+    // Live before the fix touches anything: D-9's own synchronous
+    // materialisation already occupies these three dates for the daily
+    // lease, none of them voided.
+    const beforeAllocations = await db
+      .select({
+        businessDate: vehicleDayAllocation.businessDate,
+        voidedAt: vehicleDayAllocation.voidedAt,
+      })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "daily_lease"),
+          eq(vehicleDayAllocation.sourceId, leaseBody.id),
+          gte(vehicleDayAllocation.businessDate, tripStart),
+          lte(vehicleDayAllocation.businessDate, tripEnd),
+        ),
+      );
+    expect(beforeAllocations).toHaveLength(3);
+    expect(beforeAllocations.every((r) => r.voidedAt === null)).toBe(true);
+
+    // Wave 0's own reproduction of GAP-119, pre-fix: this returned 409
+    // VEHICLE_DOUBLE_BOOKED. D-12 says REPLACED, not refused.
+    const tripRes = await postTrip(token, {
+      vehicleId,
+      startDate: tripStart,
+      endDate: tripEnd,
+    });
+    expect(tripRes.status).toBe(201);
+    const tripBody: { id: string } = await tripRes.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const leaseAllocationsDuringTrip = await db
+      .select({ voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "daily_lease"),
+          eq(vehicleDayAllocation.sourceId, leaseBody.id),
+          gte(vehicleDayAllocation.businessDate, tripStart),
+          lte(vehicleDayAllocation.businessDate, tripEnd),
+        ),
+      );
+    expect(leaseAllocationsDuringTrip).toHaveLength(3);
+    expect(leaseAllocationsDuringTrip.every((r) => r.voidedAt !== null)).toBe(true);
+
+    const tripAllocations = await db
+      .select({ voidedAt: vehicleDayAllocation.voidedAt })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "trip"),
+          eq(vehicleDayAllocation.sourceId, tripBody.id),
+        ),
+      );
+    expect(tripAllocations).toHaveLength(3);
+    expect(tripAllocations.every((r) => r.voidedAt === null)).toBe(true);
+
+    // GAP-119's other half: cancelling gives the daily lease its days back.
+    const cancelRes = await postCancelTrip(token, tripBody.id, { cancelReason: "plans changed" });
+    expect(cancelRes.status).toBe(200);
+
+    const liveAfterCancel = await db
+      .select({
+        businessDate: vehicleDayAllocation.businessDate,
+        sourceId: vehicleDayAllocation.sourceId,
+      })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          gte(vehicleDayAllocation.businessDate, tripStart),
+          lte(vehicleDayAllocation.businessDate, tripEnd),
+          isNull(vehicleDayAllocation.voidedAt),
+        ),
+      );
+    expect(liveAfterCancel).toHaveLength(3);
+    // Restored under the vehicle's *current* daily lease — this test never
+    // changed drivers, so that is still the same lease id GAP-119 released.
+    expect(liveAfterCancel.every((r) => r.sourceId === leaseBody.id)).toBe(true);
 
     await ctx.cleanup();
   });
@@ -324,6 +441,58 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
       status: "pending",
       postedPeriodId: periodId,
       voidedAt: null,
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-5b — a customer's own unapplied payment credit settles the new trip_fare receivable on the spot", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const paymentRes = await request("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "1000000",
+        occurredOn: "2026-05-20",
+      }),
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string; unallocatedMinor: string } = await paymentRes.json();
+    expect(paymentBody.unallocatedMinor).toBe("1000000");
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-06-01",
+      endDate: "2026-06-03",
+      agreedAmountMinor: "700000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, body.id)));
+    expect(obligationRows).toHaveLength(1);
+    // Not the pre-GAP-5b "settledMinor: 0n, status: pending" — the
+    // customer's own credit fully covers this fare on the spot.
+    expect(obligationRows[0]).toMatchObject({
+      amountMinor: 700_000n,
+      settledMinor: 700_000n,
+      status: "paid",
     });
 
     await ctx.cleanup();
@@ -744,6 +913,10 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
     await ctx.setVehicleArrangement(vehicleId, "B");
     const driverId = await ctx.createDriver(businessId);
     const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    // GAP-119: cancelling now re-materialises the vehicle's current daily
+    // lease (this one — open-ended, effectiveFrom in the past) from today
+    // onward, real rows this fixture's own narrower cleanup doesn't expect.
+    ctx.trackCreatedDailyLease(dailyLeaseId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
@@ -789,11 +962,16 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
       .where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
     expect(resumedRows.every((r) => r.state === "open" && r.tripId === null)).toBe(true);
 
+    // D-11/W-58: voided, never deleted — the trace stays, the vehicle is free.
     const allocationRows = await db
       .select()
       .from(vehicleDayAllocation)
       .where(eq(vehicleDayAllocation.sourceId, tripBody.id));
-    expect(allocationRows).toHaveLength(0);
+    expect(allocationRows).toHaveLength(3);
+    expect(allocationRows.every((r) => r.voidedAt !== null && r.voidedReason !== null)).toBe(true);
+
+    const liveAllocationRows = allocationRows.filter((r) => r.voidedAt === null);
+    expect(liveAllocationRows).toHaveLength(0);
 
     await ctx.cleanup();
   });

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { accountingPeriod, advance, dayRecord, incident, obligation, trip } from "../db/schema.js";
 
@@ -136,6 +136,7 @@ export interface CloseChecklist {
   unreconciledAdvances: number;
   pendingObligations: number;
   openIncidents: number;
+  dayCardsGeneratedThrough: string | null;
 }
 
 /**
@@ -161,6 +162,10 @@ export interface CloseChecklist {
  * requiring a pattern replay (that reasoning held before P13 shipped and no
  * longer does — TRACKER.md GAP-13). It under-reports honestly if the cron
  * hasn't run yet for a given date, which is exactly what U-7 permits.
+ * `voided_at IS NULL` (GAP-118) for the same reason as every other
+ * unscoped `day_record` scan: a driver/arrangement change can leave a stale
+ * `open` row behind for a lease this close can no longer act on, and this
+ * count is read at the one irreversible step.
  */
 export async function buildCloseChecklist(
   db: ReadDb,
@@ -174,6 +179,7 @@ export async function buildCloseChecklist(
     unreconciledAdvancesRows,
     pendingObligationsRows,
     openIncidentsRows,
+    coverageRows,
   ] = await Promise.all([
     db
       .select({ count: sql<string>`COUNT(*)` })
@@ -183,6 +189,7 @@ export async function buildCloseChecklist(
           eq(dayRecord.businessId, businessId),
           eq(dayRecord.postedPeriodId, periodId),
           eq(dayRecord.state, "open"),
+          isNull(dayRecord.voidedAt),
         ),
       ),
     db
@@ -220,6 +227,23 @@ export async function buildCloseChecklist(
       .select({ count: sql<string>`COUNT(*)` })
       .from(incident)
       .where(and(eq(incident.businessId, businessId), eq(incident.status, "open"))),
+    // GAP-94: the furthest business_date generate-day-cards has actually
+    // reached for this period — a coverage admission, not a pattern replay
+    // (CLAUDE.md's "no cron is a prerequisite for a user action" cuts the
+    // other way here: this reads what the cron already did, it does not
+    // reimplement generate-day-cards' own scheduling logic to guess what it
+    // should have done). voided_at IS NULL for the same GAP-118 reason
+    // unconfirmedDays already carries — a superseded card is not coverage.
+    db
+      .select({ maxDate: sql<string | null>`MAX(${dayRecord.businessDate})` })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.businessId, businessId),
+          eq(dayRecord.postedPeriodId, periodId),
+          isNull(dayRecord.voidedAt),
+        ),
+      ),
   ]);
 
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
@@ -230,6 +254,7 @@ export async function buildCloseChecklist(
     unreconciledAdvances: toCount(unreconciledAdvancesRows),
     pendingObligations: toCount(pendingObligationsRows),
     openIncidents: toCount(openIncidentsRows),
+    dayCardsGeneratedThrough: coverageRows[0]?.maxDate ?? null,
   };
 }
 

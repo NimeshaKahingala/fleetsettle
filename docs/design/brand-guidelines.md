@@ -1,7 +1,7 @@
 # Brand Guidelines
 
-**Status:** v1.0.1 — second language closed (Sinhala); §7 reordered
-**Date:** 31 July 2026
+**Status:** v1.0.2 — authentication branding added: FleetSettle owns the pre-login entry page and the hosted Asgardeo page must be branded to match, so the sign-in flow no longer breaks from FleetSettle into WSO2/Asgardeo identity.
+**Date:** 14 August 2026
 **Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 **Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
 
@@ -171,6 +171,26 @@ qlmanage -t -s 512 -o png src/icon-any.svg && mv png/icon-any.svg.png png/icon-5
 
 The sources are hand-authored SVG with integer coordinates. Edit the geometry in `mark.svg`, mirror the change into the icon files, re-render `contact-sheet.svg`, and **look at it** — the sheet exists so that a change is checked at 512, 192, 96, 48, 32 and 16 in one glance, plus under a circular mask.
 
+### 5.5 Authentication surfaces
+
+The sign-in flow has two surfaces and both must read as FleetSettle:
+
+| Surface | Owner | Brand requirement |
+|---|---|---|
+| **FleetSettle pre-login entry** | Repository (`AuthGate`) | Use the live text lockup or mark + wordmark, one short value line, a lock/shield icon, one full-width primary CTA, and a small security line. It may say what the product is for; it must not become a marketing page. |
+| **Hosted Asgardeo sign-in** | Asgardeo console / tenant branding | Replace default WSO2/Asgardeo identity with FleetSettle name, mark/logo where the console permits it, and approved brand/system colours. The user should feel they moved from FleetSettle to FleetSettle sign-in, not to a different product. |
+| **Callback/loading** | Repository (`AuthGate`) | Keep FleetSettle identity visible while signing in. Loading copy stays factual: "Signing you in..." |
+
+Approved auth copy:
+
+| Element | Copy |
+|---|---|
+| Value line | `A small fleet ledger for money everyone can believe.` |
+| CTA | `Sign in to FleetSettle` |
+| Security line | `Secured sign-in for your business records.` |
+
+Do not use the mark in `good`, `warning`, `serious` or `critical` colours (B-7). Do not put the login promise in a card on mobile; it is the first identity surface, not a modal. The CTA may use `--color-brand`; secondary trust text stays `--color-ink-secondary` or `--color-ink-muted`.
+
 ---
 
 ## 6. Voice
@@ -207,6 +227,7 @@ Short form: say deposit, advance, earned, received, waiver, write-off, lost day,
 | Irreversible confirms (M-10) | Say the consequence in the button and repeat it above. No cleverness |
 | Statements and slips | Formal, complete, no first person. Someone else will read this in an argument |
 | Outbound messages | Polite, factual, terms restated. See §7 |
+| Authentication | Calm, secure, and brief. The product promise may appear once, before sign-in; after that the surface is operational |
 
 ### 6.4 Examples
 

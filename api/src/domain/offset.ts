@@ -95,11 +95,14 @@ async function allocateAgainstOldest(
   direction: "owed_to_us" | "owed_by_us",
   amountMinor: Minor,
 ): Promise<void> {
+  // GAP-5a: same lock, same reason as payment.ts's own allocateAgainstOldest
+  // — an offset settles obligations too, and races the identical way.
   const obligations = await findOutstandingObligationsForDriver(
     tx,
     businessId,
     driverId,
     direction,
+    true,
   );
 
   let remaining: bigint = amountMinor;

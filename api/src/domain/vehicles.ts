@@ -7,7 +7,12 @@ import {
   VehicleAlreadyExistsError,
   VehicleArrangementChangeBlockedError,
 } from "../errors/app-error.js";
-import { endDailyLeaseRow, findCurrentDailyLeaseRowForVehicle } from "../queries/dailyLease.js";
+import { voidFutureOpenDayRecordsForLease } from "../queries/day-record.js";
+import {
+  endDailyLeaseRow,
+  findCurrentDailyLeaseRowForVehicle,
+  releaseDailyLeaseAllocationsAfter,
+} from "../queries/dailyLease.js";
 import { findOpenLeaseForVehicle } from "../queries/lease.js";
 import { findOpenTripForVehicle } from "../queries/trip.js";
 import {
@@ -93,6 +98,8 @@ export interface ChangeVehicleArrangementInput {
   vehicleId: string;
   arrangement: "A" | "B" | "C";
   effectiveFrom: BusinessDate;
+  /** GAP-118: attributed on the closed daily lease's voided allocations/day-records the same way every other void trio is (CLAUDE.md → Writes: append-only, an actor recorded). */
+  userId: string;
 }
 
 export interface ChangedVehicleArrangement {
@@ -161,7 +168,26 @@ export async function changeVehicleArrangement(
             "effectiveFrom must be after the current daily lease's own start date",
           );
         }
-        await endDailyLeaseRow(tx, openDailyLease.id, addDays(input.effectiveFrom, -1));
+        const closesOn = addDays(input.effectiveFrom, -1);
+        await endDailyLeaseRow(tx, openDailyLease.id, closesOn);
+        // GAP-118: moving off B leaves this lease's future occupancy and
+        // cards behind otherwise — no replacement lease follows here (unlike
+        // changeDailyLeaseDriver's own materialise-back), so freeing them is
+        // the entire fix for this side.
+        await releaseDailyLeaseAllocationsAfter(
+          tx,
+          openDailyLease.id,
+          closesOn,
+          "Vehicle moved off daily lease",
+          input.userId,
+        );
+        await voidFutureOpenDayRecordsForLease(
+          tx,
+          openDailyLease.id,
+          closesOn,
+          "Vehicle moved off daily lease",
+          input.userId,
+        );
       }
     }
 

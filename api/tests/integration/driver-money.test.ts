@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { obligation, offsetAllocation } from "../../src/db/schema.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -357,6 +359,55 @@ describe("offset and the two-balances query (P4, F-6.4/UC-56/W-2)", () => {
       occurredOn: "2026-07-21",
     });
     expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-5a — two concurrent offsets against one obligation never both allocate past its own amount", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const owedToUsId = await ctx.createObligation(businessId, periodId, {
+      direction: "owed_to_us",
+      driverId,
+      amountMinor: 10_000n,
+      dueOn: "2026-07-14",
+    });
+    await ctx.createObligation(businessId, periodId, {
+      direction: "owed_by_us",
+      driverId,
+      amountMinor: 20_000n,
+      dueOn: "2026-07-20",
+    });
+
+    const body = { driverId, amountMinor: "10000", occurredOn: "2026-07-21" };
+    const [r1, r2] = await Promise.all([
+      post("/api/offset", token, body),
+      post("/api/offset", token, body),
+    ]);
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    const [b1, b2] = (await Promise.all([r1.json(), r2.json()])) as [
+      { id: string },
+      { id: string },
+    ];
+    ctx.trackCreatedOffset(b1.id);
+    ctx.trackCreatedOffset(b2.id);
+
+    const [obRow] = await db.select().from(obligation).where(eq(obligation.id, owedToUsId));
+    const allocRows = await db
+      .select()
+      .from(offsetAllocation)
+      .where(eq(offsetAllocation.obligationId, owedToUsId));
+    const totalAllocated = allocRows.reduce((sum, a) => sum + a.amountMinor, 0n);
+
+    expect(totalAllocated).toBe(10_000n);
+    expect(obRow?.settledMinor).toBe(10_000n);
+    expect(obRow?.settledMinor).toBe(totalAllocated);
 
     await ctx.cleanup();
   });

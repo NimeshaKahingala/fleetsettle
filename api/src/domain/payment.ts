@@ -110,12 +110,16 @@ async function allocateAgainstOldest(
   occurredOn: BusinessDate,
   amountMinor: Minor,
 ): Promise<{ allocations: PaymentAllocationResult[]; remaining: Minor }> {
+  // GAP-5a: locked for the rest of this transaction — two concurrent
+  // payments settling the same party's obligations must not both read the
+  // same pre-write settledMinor and lose one of their updates.
   const obligations = await findOutstandingObligationsForParty(
     tx,
     businessId,
     partyType,
     partyId,
     obligationDirection,
+    true,
   );
 
   const allocations: PaymentAllocationResult[] = [];

@@ -171,6 +171,21 @@ describe("POST /api/business-member/invite (A11)", () => {
     await ctx.cleanup();
   });
 
+  it("201 — GAP-1/W-59/D-17: manager is invitable, the Wave 3 stopgap lifted now that per-vehicle scoping is built", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    ctx.trackCreatedBusinessMemberInvites(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await inviteMember(token, "manager");
+    expect(res.status).toBe(201);
+    const body: { role: string } = await res.json();
+    expect(body.role).toBe("manager");
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request("/api/business-member/invite", {
       method: "POST",

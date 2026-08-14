@@ -86,6 +86,12 @@ After uploading a generated PNG receipt, the cost row showed `1 receipt`. Openin
 
 The browser automation environment blocked deeper byte inspection of the blob, so this should be retested with a normal camera/photo file before deciding whether the bug is in upload, retrieval, content type, or the generated fixture.
 
+13 Aug follow-up: the current hosted QA failure is now narrowed to CSP, not upload, DB, R2, or the Worker read path. Browser console showed:
+
+`Loading the image 'blob:https://qa.fleetsettle.com/...' violates the following Content Security Policy directive: "img-src 'self'".`
+
+Root cause: `ReceiptThumbnail` downloads the same-origin `/api/attachment/{id}` response, creates a local `blob:` URL with `URL.createObjectURL(blob)`, and renders that URL in `<img>`. The deployed Cloudflare asset header allowed only `img-src 'self'`, so the browser blocked the local blob image before it could render. Required modification: keep same-origin image loading but add `blob:` to `img-src`; keep `connect-src` unchanged.
+
 ## Test Data Changes
 
 - Created one QA fuel fill on NC-1234 for Rs 1 on 11 Aug 2026.

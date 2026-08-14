@@ -34,42 +34,78 @@ test("renders the thumbnail once the fetched blob matches the listed size", asyn
 });
 
 test("GAP-112 — a network-truncated download (fetch resolves short of the listed size) shows the failed tile, not a broken image", async () => {
-  const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
-  const getBlob = vi.fn().mockResolvedValue({
-    blob: new Blob(["fa"], { type: "image/jpeg" }), // 2 bytes, short of sizeBytes: 5
-    contentType: "image/jpeg",
-  });
-  renderWithProviders(
-    <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
-    { get, getBlob },
-  );
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+    const getBlob = vi.fn().mockResolvedValue({
+      blob: new Blob(["fa"], { type: "image/jpeg" }), // 2 bytes, short of sizeBytes: 5
+      contentType: "image/jpeg",
+    });
+    renderWithProviders(
+      <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
+      { get, getBlob },
+    );
 
-  expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
-  expect(document.querySelector("img")).toBeNull();
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
+  } finally {
+    warnSpy.mockRestore();
+  }
+});
+
+test("a right-sized blob that the browser cannot decode shows the failed tile, not a blank thumbnail", async () => {
+  const originalCreateImageBitmap = globalThis.createImageBitmap;
+  globalThis.createImageBitmap = vi.fn().mockRejectedValue(new Error("decode failed"));
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+    const getBlob = vi.fn().mockResolvedValue({
+      blob: new Blob(["fake!"], { type: "image/jpeg" }),
+      contentType: "image/jpeg",
+    });
+    renderWithProviders(
+      <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
+      { get, getBlob },
+    );
+
+    expect(await screen.findByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("receipt thumbnail decode failed"),
+    );
+  } finally {
+    globalThis.createImageBitmap = originalCreateImageBitmap;
+    warnSpy.mockRestore();
+  }
 });
 
 test("Retry re-fetches, and a complete blob on the second attempt renders the thumbnail", async () => {
   const user = userEvent.setup();
-  const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
-  const getBlob = vi
-    .fn()
-    .mockResolvedValueOnce({
-      blob: new Blob(["fa"], { type: "image/jpeg" }),
-      contentType: "image/jpeg",
-    })
-    .mockResolvedValueOnce({
-      blob: new Blob(["fake!"], { type: "image/jpeg" }),
-      contentType: "image/jpeg",
-    });
-  renderWithProviders(
-    <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
-    { get, getBlob },
-  );
+  const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+    const getBlob = vi
+      .fn()
+      .mockResolvedValueOnce({
+        blob: new Blob(["fa"], { type: "image/jpeg" }),
+        contentType: "image/jpeg",
+      })
+      .mockResolvedValueOnce({
+        blob: new Blob(["fake!"], { type: "image/jpeg" }),
+        contentType: "image/jpeg",
+      });
+    renderWithProviders(
+      <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
+      { get, getBlob },
+    );
 
-  await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await user.click(await screen.findByRole("button", { name: "Retry" }));
 
-  await waitFor(() => expect(document.querySelector("img")).not.toBeNull());
-  expect(getBlob).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(document.querySelector("img")).not.toBeNull());
+    expect(getBlob).toHaveBeenCalledTimes(2);
+  } finally {
+    warnSpy.mockRestore();
+  }
 });
 
 test("a hard fetch failure still shows the failed tile with a Retry affordance", async () => {

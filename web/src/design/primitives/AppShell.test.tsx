@@ -91,3 +91,22 @@ test("GAP-47: below-md landscape keeps the tab bar 44px high and icon-only visua
   expect(screen.getByRole("button", { name: "Home" })).toHaveClass("max-md:landscape:gap-0");
   expect(screen.getByText("Home")).toHaveClass("max-md:landscape:sr-only");
 });
+
+test("GAP-124a/§14: at lg the tab bar becomes a left rail, ahead of the bottom bar in source order", () => {
+  const { container } = render(
+    <AppShell shell="operate" activeTab="vehicles">
+      <p>Vehicles content</p>
+    </AppShell>,
+  );
+
+  const outer = container.firstElementChild;
+  expect(outer).toHaveClass("lg:flex-row");
+
+  const nav = container.querySelector("nav");
+  expect(nav).toHaveClass("lg:order-first", "lg:h-full", "lg:w-20", "lg:flex-col", "lg:border-r");
+
+  const activeButton = screen.getByRole("button", { name: "Vehicles" });
+  expect(activeButton).toHaveClass("lg:flex-none", "lg:w-full");
+  expect(activeButton.className).toContain("lg:before:left-0");
+  expect(activeButton.className).toContain("lg:before:w-0.5");
+});

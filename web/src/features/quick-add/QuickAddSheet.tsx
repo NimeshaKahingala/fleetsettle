@@ -63,6 +63,13 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
   const driversState = useQueryState(driversQuery);
   const vehiclesState = useQueryState(vehiclesQuery);
 
+  // GAP-125/GAP-101: `idle` and `pending` both mean "no rows yet" from
+  // ReasonPicker's own vantage — the query is `enabled`-gated on the picker
+  // being open, so `idle` only means the fetch hasn't been asked to start
+  // yet, not that the picker is closed (this sheet stays mounted with
+  // `open={false}` rather than unmounting).
+  const inFlight = (s: { kind: string }): boolean => s.kind === "pending" || s.kind === "idle";
+
   const actions: ActionSheetAction[] = [
     { key: "fuel", label: "Fuel", icon: Fuel, onSelect: () => setFuelOpen(true) },
     { key: "expense", label: "Expense", icon: Receipt, onSelect: () => setExpenseOpen(true) },
@@ -135,6 +142,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         title="Payment received — choose who paid"
         reasons={receivedPartyReasons}
         onSelect={(option) => selectPaymentParty(option, "received")}
+        pending={inFlight(customersState) || inFlight(driversState)}
         {...(customersState.kind === "error"
           ? {
               error: {
@@ -159,6 +167,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         title="Payment made — choose a driver"
         reasons={paidPartyReasons}
         onSelect={(option) => selectPaymentParty(option, "paid")}
+        pending={inFlight(driversState)}
         {...(driversState.kind === "error"
           ? {
               error: {
@@ -191,6 +200,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         title="New trip — choose a vehicle"
         reasons={(vehiclesQuery.data ?? []).map((v) => ({ key: v.id, label: v.registration }))}
         onSelect={selectTripVehicle}
+        pending={inFlight(vehiclesState)}
         {...(vehiclesState.kind === "error"
           ? {
               error: {

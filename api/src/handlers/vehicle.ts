@@ -1,6 +1,11 @@
 import { businessToday, newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireBusinessTimezone, requireCapability } from "../auth/context.js";
+import {
+  requireBusinessId,
+  requireBusinessTimezone,
+  requireCapability,
+  requireUserId,
+} from "../auth/context.js";
 import { changeVehicleArrangement, createVehicle } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
@@ -173,6 +178,7 @@ export const changeVehicleArrangementHandler: RouteHandler<
     vehicleId: id,
     arrangement: body.arrangement,
     effectiveFrom: body.effectiveFrom,
+    userId: requireUserId(c),
   });
 
   return c.json(result, 201);

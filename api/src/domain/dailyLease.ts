@@ -4,12 +4,14 @@ import { isExclusionViolation } from "../db/pg-error.js";
 import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import { findOpenPeriodRow } from "../queries/accounting-period.js";
 import { DailyLeaseOverlapsError, NotFoundError, ValidationError } from "../errors/app-error.js";
+import { voidFutureOpenDayRecordsForLease } from "../queries/day-record.js";
 import {
   endDailyLeaseRow,
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
   insertDailyLease,
   insertDailyLeaseRate,
+  releaseDailyLeaseAllocationsAfter,
 } from "../queries/dailyLease.js";
 
 export interface StartDailyLeaseInput {
@@ -107,6 +109,8 @@ export interface ChangeDailyLeaseDriverInput {
   effectiveFrom: BusinessDate;
   /** Injected — `businessToday()` (IG §4.5). Same D-9/GAP-88 materialisation as `startDailyLease`: the reassigned daily lease is a new `daily_lease` row and would otherwise be just as invisible until the next cron run. */
   today: BusinessDate;
+  /** GAP-118: attributed on the old lease's voided allocations/day-records the same way every other void trio is (CLAUDE.md → Writes: append-only, an actor recorded). */
+  userId: string;
 }
 
 export interface ChangedDailyLeaseDriver {
@@ -152,6 +156,25 @@ export async function changeDailyLeaseDriver(
 
       const closesOn = addDays(input.effectiveFrom, -1);
       await endDailyLeaseRow(tx, input.dailyLeaseId, closesOn);
+
+      // GAP-118: the old lease's future occupancy and cards, freed before the
+      // new lease's own materialisation below — `listAllocatedDatesForVehicle`'s
+      // `existing.has(d)` guard would otherwise read the old lease's rows as
+      // "already there" and silently skip every one of these dates.
+      await releaseDailyLeaseAllocationsAfter(
+        tx,
+        input.dailyLeaseId,
+        closesOn,
+        "Daily lease driver changed",
+        input.userId,
+      );
+      await voidFutureOpenDayRecordsForLease(
+        tx,
+        input.dailyLeaseId,
+        closesOn,
+        "Daily lease driver changed",
+        input.userId,
+      );
 
       const newDailyLeaseId = newId();
       await insertDailyLease(tx, {

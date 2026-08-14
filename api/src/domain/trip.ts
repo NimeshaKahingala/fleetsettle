@@ -8,7 +8,14 @@ import {
   ValidationError,
   VehicleDoubleBookedError,
 } from "../errors/app-error.js";
-import { resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { applyCreditForward } from "./credit-forward.js";
+import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
+import {
+  findCurrentDailyLeaseRowForVehicle,
+  findDailyLeaseForBusiness,
+  listDailyLeaseRatesForLease,
+} from "../queries/dailyLease.js";
 import { pauseDayRecordsForTrip, resumeDayRecordsForTrip } from "../queries/day-record.js";
 import {
   findUnsettledAdvancesForTrip,
@@ -28,6 +35,7 @@ import {
   deleteAllocationDaysForTrip,
   insertAllocationDays,
   insertTrip,
+  releaseDailyLeaseAllocationsForRange,
   type TripRow,
 } from "../queries/trip.js";
 
@@ -45,12 +53,17 @@ export interface BookTripInput {
   driverFeeMinor: Minor;
   openingOdometerKm?: number;
   openingOdometerSource?: OdometerSource;
+  /** GAP-119: attributed on the daily lease's released allocations the same way any other void names who did it. */
+  userId: string;
 }
 
 export interface BookedTrip {
   tripId: string;
   /** GAP-57: the `trip_fare` obligation's own id, when one was raised — `null` for a charter with no customer or a zero agreed amount, the same guard that decides whether to write one at all. */
   receivableId: string | null;
+  /** GAP-5b: the receivable's real settled amount and status after credit-forward — `null` alongside `receivableId` when none was raised. `0n`/`"pending"` when raised but the customer carried no credit to draw on. */
+  receivableSettledMinor: bigint | null;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
 }
 
 /** Every day in `[start, end]`, inclusive of both ends (W-54) — never open-ended, unlike a lease's horizon. */
@@ -90,11 +103,28 @@ function dateRange(start: BusinessDate, end: BusinessDate): BusinessDate[] {
  * being posted, not the trip's travel dates. `due_on`/`effective_due_on` on
  * the obligation are the trip's `endDate` — the charter's fare falls due
  * once the trip is over, not the day it was booked.
+ *
+ * GAP-119/D-12 (data-model.md §4.1): a vehicle already on a daily lease can
+ * still take this charter — "the daily-lease allocation row is REPLACED by
+ * the trip's," not refused. `releaseDailyLeaseAllocationsForRange` frees the
+ * daily lease's own occupancy for exactly this range *before* the trip's own
+ * `insertAllocationDays` below, so the two never collide on
+ * `one_arrangement_per_vehicle_day` in the first place; `cancelTrip`
+ * re-materialises whatever the vehicle's current daily lease would have
+ * occupied, undoing this release rather than leaving a permanent hole.
  */
 export async function bookTrip(writer: Writer, input: BookTripInput): Promise<BookedTrip> {
   try {
     return await writer.transaction(async (tx) => {
       const tripId = newId();
+
+      await releaseDailyLeaseAllocationsForRange(
+        tx,
+        input.vehicleId,
+        input.startDate,
+        input.endDate,
+        input.userId,
+      );
 
       let openingOdometerId: string | undefined;
       if (input.openingOdometerKm !== undefined && input.openingOdometerSource !== undefined) {
@@ -139,6 +169,8 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
       await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
 
       let receivableId: string | null = null;
+      let receivableSettledMinor: bigint | null = null;
+      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
       if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
         const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bookingDate);
         if (!linkage) {
@@ -167,9 +199,25 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
             ? { belongsToPeriodId: linkage.belongsToPeriodId }
             : {}),
         });
+
+        // GAP-5b: the customer's own unapplied credit settles this trip's
+        // fare on the spot, same as every other obligation this business
+        // raises.
+        const credit = await applyCreditForward(
+          tx,
+          input.businessId,
+          "customer",
+          input.customerId,
+          "owed_to_us",
+          receivableId,
+          input.agreedAmountMinor,
+          input.endDate,
+        );
+        receivableSettledMinor = credit.settledMinor;
+        receivableStatus = credit.status;
       }
 
-      return { tripId, receivableId };
+      return { tripId, receivableId, receivableSettledMinor, receivableStatus };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -323,8 +371,9 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
       }
 
       if (trip.driverId !== null && trip.driverFeeMinor > 0n) {
+        const driverFeeObligationId = newId();
         await insertObligation(tx, {
-          id: newId(),
+          id: driverFeeObligationId,
           businessId: input.businessId,
           direction: "owed_by_us",
           partyType: "driver",
@@ -344,6 +393,20 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
             ? { belongsToPeriodId: linkage.belongsToPeriodId }
             : {}),
         });
+
+        // GAP-5b/F-4.5: a driver who already carries unapplied "paid"
+        // credit (an earlier overpayment) has this trip's fee settled from
+        // it immediately.
+        await applyCreditForward(
+          tx,
+          input.businessId,
+          "driver",
+          trip.driverId,
+          "owed_by_us",
+          driverFeeObligationId,
+          trip.driverFeeMinor,
+          input.closingDate,
+        );
       }
 
       await closeTripRow(tx, trip.id, {
@@ -370,6 +433,8 @@ export interface CancelTripInput {
   cancelledOn: BusinessDate;
   /** GAP-23/A6: attributes the trip_fare obligation's void, the same way any other void names who did it. */
   userId: string;
+  /** Injected — `businessToday()` (IG §4.5). GAP-119: drives how far `materializeDailyLeaseHorizon` reaches when re-filling whatever this cancellation frees back up, the same injection `startDailyLease`/`changeDailyLeaseDriver` already use. */
+  today: BusinessDate;
   cancelReason?: string;
   advanceDisposition?: "refunded" | "retained";
 }
@@ -404,6 +469,15 @@ export interface CancelledTrip {
  * booked in a now-closed accounting period 409s `PERIOD_CLOSED`, because
  * voiding a receivable changes that closed month's own figures — the same
  * reason A9a had to land before this item could.
+ *
+ * GAP-119: if the vehicle is still on a daily lease, `bookTrip`'s own
+ * release left a hole in that lease's occupancy for this trip's range —
+ * `materializeDailyLeaseHorizon` re-fills it the same way it would have
+ * filled it in the first place, over the vehicle's *current* daily lease,
+ * not necessarily the one active when the trip was booked (a driver change,
+ * GAP-118, may have superseded it in the meantime; the current one is the
+ * correct one to restore). No current daily lease (the vehicle moved off B
+ * entirely, or never had one) means nothing to restore, and this is a no-op.
  */
 export async function cancelTrip(writer: Writer, input: CancelTripInput): Promise<CancelledTrip> {
   const { trip } = input;
@@ -465,7 +539,30 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
       });
 
       await resumeDayRecordsForTrip(tx, trip.id);
-      await deleteAllocationDaysForTrip(tx, trip.id);
+      await deleteAllocationDaysForTrip(tx, trip.id, input.userId);
+
+      // GAP-119: restore whatever daily-lease occupancy bookTrip released
+      // for this vehicle, if it is still on one.
+      const currentDailyLease = await findCurrentDailyLeaseRowForVehicle(tx, trip.vehicleId);
+      if (currentDailyLease) {
+        const fullLease = await findDailyLeaseForBusiness(
+          tx,
+          input.businessId,
+          currentDailyLease.id,
+        );
+        if (fullLease) {
+          const rates = await listDailyLeaseRatesForLease(tx, fullLease.id);
+          const openPeriod = (await findOpenPeriodRow(tx, input.businessId)) ?? null;
+          await materializeDailyLeaseHorizon(
+            tx,
+            { ...fullLease, businessId: input.businessId },
+            rates,
+            openPeriod,
+            input.today,
+          );
+        }
+      }
+
       await cancelTripRow(tx, trip.id, {
         ...(input.cancelReason !== undefined ? { cancelReason: input.cancelReason } : {}),
         ...(input.advanceDisposition !== undefined

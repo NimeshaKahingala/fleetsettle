@@ -7,7 +7,7 @@ export const accountingPeriodSummarySchema = z.object({
 });
 export type AccountingPeriodSummary = z.infer<typeof accountingPeriodSummarySchema>;
 
-/** F-9.1 step 1/UC-98/UI §7.7: warns and lists, never blocks (U-7). Counts only — see `queries/accounting-period.ts`'s own doc comment for exactly what each one scopes to. `unconfirmedDays` is UI §7.7's first row (GAP-13, A3); it under-reports honestly if `generate-day-cards` hasn't run for a date yet, which is what U-7 permits. */
+/** F-9.1 step 1/UC-98/UI §7.7: warns and lists, never blocks (U-7). Counts only — see `queries/accounting-period.ts`'s own doc comment for exactly what each one scopes to. `unconfirmedDays` is UI §7.7's first row (GAP-13, A3); it under-reports honestly if `generate-day-cards` hasn't run for a date yet, which is what U-7 permits — `dayCardsGeneratedThrough` (GAP-94) is the coverage admission that makes that gap visible rather than silent: the furthest `business_date` a card exists for in this period, `null` when none do yet. A manager sees "cards generated through 27th; this period ends the 31st" and can wait, not just a count that quietly excludes the four days nobody has been asked about. */
 export const closeChecklistSchema = z.object({
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
   unconfirmedDays: z.number().int().nonnegative(),
@@ -19,6 +19,7 @@ export const closeChecklistSchema = z.object({
   pendingObligations: z.number().int().nonnegative(),
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
   openIncidents: z.number().int().nonnegative(),
+  dayCardsGeneratedThrough: z.string().nullable(),
 });
 export type CloseChecklist = z.infer<typeof closeChecklistSchema>;
 

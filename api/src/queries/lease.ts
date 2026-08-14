@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, lease, vehicleDayAllocation } from "../db/schema.js";
 
@@ -112,20 +112,22 @@ export async function updateLeaseStatus(
     .where(eq(lease.id, leaseId));
 }
 
-/** F-2.6/UC-16 step 7: "car marked available" — this lease's own future occupancy, beyond the day it actually closed on, freed the same way F-5.5 frees a cancelled trip's (`deleteAllocationDaysForTrip`). Days up to and including the closing date stay — they happened. */
+/** F-2.6/UC-16 step 7: "car marked available" — this lease's own future occupancy, beyond the day it actually closed on, freed the same way F-5.5 frees a cancelled trip's (`deleteAllocationDaysForTrip`). Days up to and including the closing date stay — they happened. D-11/W-58: voided, never deleted (DM §4.1). */
 export async function deleteLeaseAllocationAfter(
   db: WriteDb,
   leaseId: string,
   afterDate: string,
+  voidedBy: string,
 ): Promise<void> {
-  // eslint-disable-next-line no-restricted-syntax -- allow: vehicle_day_allocation is occupancy, not money — no voided_at column exists to correct-in-place (DM §4.1)
   await db
-    .delete(vehicleDayAllocation)
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: "Lease closed", voidedBy })
     .where(
       and(
         eq(vehicleDayAllocation.sourceType, "lease"),
         eq(vehicleDayAllocation.sourceId, leaseId),
         gt(vehicleDayAllocation.businessDate, afterDate),
+        isNull(vehicleDayAllocation.voidedAt),
       ),
     );
 }

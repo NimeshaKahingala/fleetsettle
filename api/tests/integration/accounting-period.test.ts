@@ -73,6 +73,7 @@ interface CloseChecklistBody {
     unreconciledAdvances: number;
     pendingObligations: number;
     openIncidents: number;
+    dayCardsGeneratedThrough: string | null;
   };
 }
 
@@ -136,6 +137,57 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
     expect(body.checklist.openTrips).toBeGreaterThanOrEqual(1);
     expect(body.checklist.pendingObligations).toBeGreaterThanOrEqual(1);
     expect(body.checklist.unconfirmedDays).toBeGreaterThanOrEqual(1);
+    // GAP-94: the one card this test created is 15 July, well short of the
+    // period's own 31 July end — a coverage gap the count alone doesn't say.
+    expect(body.checklist.dayCardsGeneratedThrough).toBe("2026-07-15");
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-94 — dayCardsGeneratedThrough is null when generate-day-cards has not reached this period at all", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getChecklist(token);
+    expect(res.status).toBe(200);
+    const body: CloseChecklistBody = await res.json();
+    expect(body.checklist.dayCardsGeneratedThrough).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-118 (Wave 2 prerequisite) — a day_record voided off a superseded lease does not count as unconfirmed at the one irreversible step", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    // No live write path voids a day_record yet (GAP-118's own fix is Wave
+    // 2's build) — this is exactly the state a driver/arrangement change
+    // will leave behind: a stale future card, still `open`, now voided.
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-20",
+      {
+        voided: true,
+      },
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getChecklist(token);
+    expect(res.status).toBe(200);
+    const body: CloseChecklistBody = await res.json();
+    expect(body.checklist.unconfirmedDays).toBe(0);
 
     await ctx.cleanup();
   });
@@ -226,6 +278,33 @@ describe("close an accounting period (P9, F-9.1/UC-98)", () => {
 
     const res = await postClose(token);
     expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-8 — two concurrent closes never both succeed; closePeriodRow's own conditional UPDATE is the guard, not a new advisory lock", async () => {
+    // Wave 4 Step 0 reproduced this before any code moved (the same
+    // discipline Wave 0 applied to GAP-118/119): closePeriodRow's own
+    // `WHERE status = 'open'` conditional UPDATE already blocks a
+    // concurrent second close under READ COMMITTED — it re-evaluates
+    // against the committed row, matches nothing, and the request 404s.
+    // GAP-8's row assumed status-based idempotency alone was not enough;
+    // reproducing it found no race left to close, so this pins the
+    // guarantee as a regression test instead of adding a redundant
+    // pg_advisory_xact_lock.
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const [r1, r2] = await Promise.all([postClose(token), postClose(token)]);
+    const statuses = [r1.status, r2.status].sort();
+    expect(statuses).toEqual([200, 404]);
+
+    const winner = r1.status === 200 ? r1 : r2;
+    const winnerBody: ClosedPeriodBody = await winner.json();
+    ctx.trackCreatedPeriod(winnerBody.newPeriod.id);
 
     await ctx.cleanup();
   });

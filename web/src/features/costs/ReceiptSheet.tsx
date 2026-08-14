@@ -16,6 +16,66 @@ import { useMobileHistoryDismiss } from "../../lib/useMobileHistoryDismiss.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 
+function validateImageBlob(blob: Blob): Promise<void> {
+  if (typeof createImageBitmap === "function") {
+    return createImageBitmap(blob).then((bitmap) => {
+      bitmap.close();
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    let previewUrl: string | null = URL.createObjectURL(blob);
+
+    const cleanup = () => {
+      image.onload = null;
+      image.onerror = null;
+      if (previewUrl !== null) URL.revokeObjectURL(previewUrl);
+      previewUrl = null;
+    };
+
+    image.onload = () => {
+      cleanup();
+      resolve();
+    };
+    image.onerror = () => {
+      cleanup();
+      reject(new Error("Receipt image could not be decoded"));
+    };
+    image.src = previewUrl;
+  });
+}
+
+function logReceiptThumbnailFailure({
+  msg,
+  attachmentId,
+  expectedSizeBytes,
+  actualSizeBytes,
+  responseContentType,
+  blobContentType,
+}: {
+  msg: string;
+  attachmentId: string;
+  expectedSizeBytes: number;
+  actualSizeBytes: number;
+  responseContentType: string | null;
+  blobContentType: string;
+}) {
+  if (import.meta.env.MODE === "production") return;
+
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      msg,
+      attachmentId,
+      expectedSizeBytes,
+      actualSizeBytes,
+      responseContentType,
+      blobContentType,
+    }),
+  );
+}
+
 /**
  * A7/GAP-16, commit 7. GAP-16 does not honestly close for expenses until a
  * user can see what they uploaded, not only until the API can accept it —
@@ -164,15 +224,41 @@ function ReceiptThumbnail({
     setFailed(false);
     api
       .getBlob(`/api/attachment/${attachmentId}`)
-      .then(({ blob }) => {
+      .then(async ({ blob, contentType }) => {
         if (cancelled) return;
         if (blob.size !== sizeBytes) {
           // A network-truncated response resolves without fetch ever
           // throwing (GAP-112) — the only way to catch it is to check what
           // actually arrived against the size the server already told us.
+          logReceiptThumbnailFailure({
+            msg: "receipt thumbnail size mismatch",
+            attachmentId,
+            expectedSizeBytes: sizeBytes,
+            actualSizeBytes: blob.size,
+            responseContentType: contentType,
+            blobContentType: blob.type,
+          });
           setFailed(true);
           return;
         }
+
+        try {
+          await validateImageBlob(blob);
+        } catch {
+          if (cancelled) return;
+          logReceiptThumbnailFailure({
+            msg: "receipt thumbnail decode failed",
+            attachmentId,
+            expectedSizeBytes: sizeBytes,
+            actualSizeBytes: blob.size,
+            responseContentType: contentType,
+            blobContentType: blob.type,
+          });
+          setFailed(true);
+          return;
+        }
+
+        if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setUrl(objectUrl);
         onLoaded(objectUrl);

@@ -76,6 +76,53 @@ function toAttachmentResponse(row: AttachmentRow | AttachmentListRow) {
   } as const;
 }
 
+type AttachmentR2ObjectMetadata = R2ObjectBody & {
+  readonly size?: number;
+  readonly httpMetadata?: { readonly contentType?: string };
+  readonly etag?: string;
+  readonly httpEtag?: string;
+};
+
+function getAttachmentR2Metadata(object: R2ObjectBody) {
+  const metadata = object as AttachmentR2ObjectMetadata;
+  return {
+    r2SizeBytes: metadata.size ?? null,
+    r2HttpContentType: metadata.httpMetadata?.contentType ?? null,
+    r2Etag: metadata.etag ?? metadata.httpEtag ?? null,
+  };
+}
+
+function logAttachmentObjectRead({
+  environment,
+  requestId,
+  businessId,
+  row,
+  object,
+}: {
+  environment: Env["Bindings"]["ENVIRONMENT"];
+  requestId: string;
+  businessId: string;
+  row: AttachmentRow;
+  object: R2ObjectBody;
+}) {
+  if (environment === "production") return;
+
+  // eslint-disable-next-line no-console -- IG §3.4: QA/dev attachment reads need safe row/object metadata to diagnose browser decode failures without logging file bodies
+  console.log(
+    JSON.stringify({
+      level: "info",
+      msg: "attachment object read",
+      requestId,
+      businessId,
+      attachmentId: row.id,
+      r2Key: row.r2Key,
+      dbContentType: row.contentType,
+      dbSizeBytes: row.sizeBytes,
+      ...getAttachmentR2Metadata(object),
+    }),
+  );
+}
+
 /**
  * A7/GAP-16. Order: reject an unsupported `subjectType` before anything
  * else (decision 5) → capability from the dispatch map (finding D) →
@@ -153,6 +200,7 @@ export const getAttachmentHandler: RouteHandler<typeof getAttachmentRoute, Env> 
       JSON.stringify({
         level: "error",
         msg: "attachment row exists but its R2 object is missing",
+        requestId: c.get("requestId"),
         businessId,
         attachmentId: row.id,
         r2Key: row.r2Key,
@@ -160,6 +208,14 @@ export const getAttachmentHandler: RouteHandler<typeof getAttachmentRoute, Env> 
     );
     throw new NotFoundError("No such attachment in this business");
   }
+
+  logAttachmentObjectRead({
+    environment: c.env.ENVIRONMENT,
+    requestId: c.get("requestId"),
+    businessId,
+    row,
+    object,
+  });
 
   return c.body(object.body, 200, {
     "Content-Type": row.contentType,

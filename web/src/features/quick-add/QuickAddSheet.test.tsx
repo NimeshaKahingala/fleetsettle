@@ -234,3 +234,36 @@ test("GAP-101: a failed vehicle-list read shows a notice in the New trip picker,
     await screen.findByText("Something went wrong loading the vehicle list."),
   ).toBeInTheDocument();
 });
+
+/**
+ * GAP-125: reproduced live 14 Aug 2026 against qa.fleetsettle.com — the
+ * New trip picker's `/api/vehicle` read is `enabled`-gated on the picker
+ * being open, so every open has a real fetch-in-flight window (widened to
+ * 500-800ms under Slow 4G there), and `ReasonPicker` used to have no
+ * pending branch at all, rendering a silently empty list for that whole
+ * window. This is the case a settled `screen.findByRole` query would have
+ * hidden — the deferred `get` below is what keeps the query pending long
+ * enough to observe the loading state before resolving it.
+ */
+test("GAP-125: New trip shows a loading notice while the vehicle list is in flight, never a silently empty list", async () => {
+  const user = userEvent.setup();
+  let resolveVehicles: ((value: VehicleResponse[]) => void) | undefined;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle") {
+      return new Promise<VehicleResponse[]>((resolve) => {
+        resolveVehicles = resolve;
+      });
+    }
+    return Promise.reject(new Error(`Unexpected GET ${path}`));
+  });
+  renderWithProviders(<QuickAddSheetHarness />, { get });
+
+  await user.click(screen.getByRole("button", { name: "New trip" }));
+
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "NC-1234" })).not.toBeInTheDocument();
+
+  resolveVehicles?.(vehicles);
+  expect(await screen.findByRole("button", { name: "NC-1234" })).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+});

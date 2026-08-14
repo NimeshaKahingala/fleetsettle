@@ -47,7 +47,12 @@ describe("GET /api/partner/{userId} (A2, UC-67/W-52/W-53)", () => {
     const vehicleA = await ctx.createVehicle(businessId, { registration: "A-1111" });
     const vehicleB = await ctx.createVehicle(businessId, { registration: "B-2222" });
     const customerId = await ctx.createCustomer(businessId);
-    const owner1 = await mintUser(db, ctx, businessId, "owner");
+    // owner1 is an owner-manager, not a passive owner — UC-64's own scenario
+    // ("profit from vehicles I own, fees earned from vehicles I only
+    // manage") is what the management-fee-agreement grant below exercises,
+    // and GAP-121's fix refuses that grant for a passive owner (UC-03:
+    // "reports only, no data entry").
+    const owner1 = await mintUser(db, ctx, businessId, "owner_manager");
     const owner2 = await mintUser(db, ctx, businessId, "owner_manager");
     const owner1Token = await signAccessToken(owner1.asgardeoSub);
     const owner2Token = await signAccessToken(owner2.asgardeoSub);
@@ -166,7 +171,7 @@ describe("GET /api/partner/{userId} (A2, UC-67/W-52/W-53)", () => {
     const body: SummaryBody = await res.json();
 
     expect(body.period.id).toBe(periodId);
-    expect(body.displayName).toBe("Test owner");
+    expect(body.displayName).toBe("Test owner_manager");
     expect(body.putIn).toMatchObject({ contributionsMinor: "500000", outOfPocketMinor: "9000" });
     expect(body.takenOut).toMatchObject({ payoutsMinor: "5000", settlementsMinor: "3000" });
     // The W-52 assertion: half of 41,000 profit, not inflated by the
