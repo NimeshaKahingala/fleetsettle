@@ -6,6 +6,7 @@ import {
   type BusinessDate,
 } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import { NotFoundError, PeriodClosedError, ValidationError } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -96,6 +97,19 @@ export async function generateNextBillingPeriodTx(
     postedPeriodId: linkage.postedPeriodId,
     ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
   });
+
+  // GAP-5b: this customer's own unapplied payment credit (F-2.2's "held as
+  // credit against the next due") settles the new month's rent on the spot.
+  await applyCreditForward(
+    tx,
+    input.businessId,
+    "customer",
+    lease.customerId,
+    "owed_to_us",
+    obligationId,
+    lease.rentAmountMinor,
+    periodStart,
+  );
 
   return {
     billingPeriod: {

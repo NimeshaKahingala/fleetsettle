@@ -9,6 +9,7 @@ import {
   VehicleDoubleBookedError,
 } from "../errors/app-error.js";
 import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import {
   findCurrentDailyLeaseRowForVehicle,
@@ -60,6 +61,9 @@ export interface BookedTrip {
   tripId: string;
   /** GAP-57: the `trip_fare` obligation's own id, when one was raised — `null` for a charter with no customer or a zero agreed amount, the same guard that decides whether to write one at all. */
   receivableId: string | null;
+  /** GAP-5b: the receivable's real settled amount and status after credit-forward — `null` alongside `receivableId` when none was raised. `0n`/`"pending"` when raised but the customer carried no credit to draw on. */
+  receivableSettledMinor: bigint | null;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
 }
 
 /** Every day in `[start, end]`, inclusive of both ends (W-54) — never open-ended, unlike a lease's horizon. */
@@ -165,6 +169,8 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
       await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
 
       let receivableId: string | null = null;
+      let receivableSettledMinor: bigint | null = null;
+      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
       if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
         const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bookingDate);
         if (!linkage) {
@@ -193,9 +199,25 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
             ? { belongsToPeriodId: linkage.belongsToPeriodId }
             : {}),
         });
+
+        // GAP-5b: the customer's own unapplied credit settles this trip's
+        // fare on the spot, same as every other obligation this business
+        // raises.
+        const credit = await applyCreditForward(
+          tx,
+          input.businessId,
+          "customer",
+          input.customerId,
+          "owed_to_us",
+          receivableId,
+          input.agreedAmountMinor,
+          input.endDate,
+        );
+        receivableSettledMinor = credit.settledMinor;
+        receivableStatus = credit.status;
       }
 
-      return { tripId, receivableId };
+      return { tripId, receivableId, receivableSettledMinor, receivableStatus };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -349,8 +371,9 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
       }
 
       if (trip.driverId !== null && trip.driverFeeMinor > 0n) {
+        const driverFeeObligationId = newId();
         await insertObligation(tx, {
-          id: newId(),
+          id: driverFeeObligationId,
           businessId: input.businessId,
           direction: "owed_by_us",
           partyType: "driver",
@@ -370,6 +393,20 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
             ? { belongsToPeriodId: linkage.belongsToPeriodId }
             : {}),
         });
+
+        // GAP-5b/F-4.5: a driver who already carries unapplied "paid"
+        // credit (an earlier overpayment) has this trip's fee settled from
+        // it immediately.
+        await applyCreditForward(
+          tx,
+          input.businessId,
+          "driver",
+          trip.driverId,
+          "owed_by_us",
+          driverFeeObligationId,
+          trip.driverFeeMinor,
+          input.closingDate,
+        );
       }
 
       await closeTripRow(tx, trip.id, {

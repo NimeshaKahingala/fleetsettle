@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { obligation } from "../../src/db/schema.js";
+import { obligation, paymentCorrection } from "../../src/db/schema.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -248,6 +248,61 @@ describe("correct a payment (P9, F-8.2/UC-93)", () => {
 
     await ctx.cleanup();
     await other.cleanup();
+  });
+
+  it("GAP-14 — two sequential back_to_arrears corrections against one payment both unwind, and the correction rows sum to the total", async () => {
+    const ctx = new TestContext(db);
+    const { obligationId, token, paymentId } = await setUpFullySettledObligation(ctx);
+
+    const first = await postCorrection(token, paymentId, {
+      differenceMinor: "20000",
+      bearer: "back_to_arrears",
+      reason: "first shortfall found at banking",
+      correctedOn: "2026-07-20",
+    });
+    expect(first.status).toBe(200);
+    const firstBody: CorrectionResponseBody = await first.json();
+    expect(firstBody.payment).toMatchObject({ amountMinor: "50000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(firstBody.correctionId);
+
+    const afterFirst = await readObligation(obligationId);
+    expect(afterFirst).toMatchObject({
+      amountMinor: 70_000n,
+      settledMinor: 50_000n,
+      status: "part_paid",
+    });
+
+    // The second correction unwinds allocations the first already reduced
+    // — the same payment, corrected a second time, not a fresh mistake.
+    const second = await postCorrection(token, paymentId, {
+      differenceMinor: "10000",
+      bearer: "back_to_arrears",
+      reason: "a second shortfall found the following week",
+      correctedOn: "2026-07-27",
+    });
+    expect(second.status).toBe(200);
+    const secondBody: CorrectionResponseBody = await second.json();
+    expect(secondBody.payment).toMatchObject({ amountMinor: "40000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(secondBody.correctionId);
+
+    const afterSecond = await readObligation(obligationId);
+    expect(afterSecond).toMatchObject({
+      amountMinor: 70_000n,
+      settledMinor: 40_000n,
+      status: "part_paid",
+    });
+
+    // INV-21: two rows, one per correction, never an edit to either —
+    // and they sum to the total corrected off the payment (30,000).
+    const correctionRows = await db
+      .select({ differenceMinor: paymentCorrection.differenceMinor })
+      .from(paymentCorrection)
+      .where(eq(paymentCorrection.paymentId, paymentId));
+    expect(correctionRows).toHaveLength(2);
+    const totalCorrected = correctionRows.reduce((sum, r) => sum + r.differenceMinor, 0n);
+    expect(totalCorrected).toBe(30_000n);
+
+    await ctx.cleanup();
   });
 
   it("succeeds even after the payment's own period has closed (migration 0006)", async () => {

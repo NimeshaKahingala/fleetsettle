@@ -147,27 +147,36 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
   const agreedAmountMinor = body.agreedAmountMinor ?? ZERO;
   const driverFeeMinor = body.driverFeeMinor ?? ZERO;
 
-  const { tripId, receivableId } = await bookTrip(c.get("writer"), {
-    businessId,
-    vehicleId: body.vehicleId,
-    ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
-    ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
-    startDate: body.startDate,
-    endDate: body.endDate,
-    bookingDate,
-    ...(body.destination !== undefined ? { destination: body.destination } : {}),
-    agreedAmountMinor,
-    driverFeeMinor,
-    ...(body.openingOdometerKm !== undefined ? { openingOdometerKm: body.openingOdometerKm } : {}),
-    ...(body.openingOdometerSource !== undefined
-      ? { openingOdometerSource: body.openingOdometerSource }
-      : {}),
-    userId: requireUserId(c),
-  });
+  const { tripId, receivableId, receivableSettledMinor, receivableStatus } = await bookTrip(
+    c.get("writer"),
+    {
+      businessId,
+      vehicleId: body.vehicleId,
+      ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+      ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
+      startDate: body.startDate,
+      endDate: body.endDate,
+      bookingDate,
+      ...(body.destination !== undefined ? { destination: body.destination } : {}),
+      agreedAmountMinor,
+      driverFeeMinor,
+      ...(body.openingOdometerKm !== undefined
+        ? { openingOdometerKm: body.openingOdometerKm }
+        : {}),
+      ...(body.openingOdometerSource !== undefined
+        ? { openingOdometerSource: body.openingOdometerSource }
+        : {}),
+      userId: requireUserId(c),
+    },
+  );
 
   // GAP-57: mirrors exactly what `bookTrip` just wrote in the same
   // transaction — never re-derived from a second guard that could drift
-  // from the one that decided whether to insert the row at all.
+  // from the one that decided whether to insert the row at all. GAP-5b:
+  // settledMinor/status come from bookTrip's own return, not a hardcoded
+  // "just raised, nothing settled" — a customer's own unapplied credit can
+  // settle this fare on the spot, and reporting "pending" regardless would
+  // be exactly the confident-wrong-number W-56 exists to prevent.
   const receivable: ObligationRow | null =
     receivableId !== null
       ? {
@@ -175,9 +184,9 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
           kind: "trip_fare",
           dueOn: body.endDate,
           amountMinor: agreedAmountMinor,
-          settledMinor: 0n,
+          settledMinor: receivableSettledMinor ?? 0n,
           waivedMinor: 0n,
-          status: "pending",
+          status: receivableStatus ?? "pending",
         }
       : null;
 

@@ -24,6 +24,7 @@ import {
   sumVehicleCostsForPeriod,
   sumVehicleEarnedForPeriod,
   type AgeingRow,
+  type GoodwillByTypeRow,
   type ReceivableRow,
 } from "../queries/reports.js";
 import {
@@ -381,16 +382,16 @@ export async function getLostDaysReport(
   };
 }
 
-/** UC-77: every waiver/auto-waiver/goodwill adjustment given in the window — never pooled with a write-off (W-28). */
+/** UC-77: every waiver/auto-waiver/goodwill adjustment given in the window, and the same total broken down by `adjustment_type` (GAP-73) — never pooled with a write-off (W-28). */
 export async function getGoodwillReport(
   db: ReadDb,
   businessId: string,
   from: string,
   to: string,
-  timezone: string,
-): Promise<{ totalMinor: bigint }> {
-  const totalMinor = await sumGoodwillGiven(db, businessId, from, to, timezone);
-  return { totalMinor };
+): Promise<{ totalMinor: bigint; byType: GoodwillByTypeRow[] }> {
+  const byType = await sumGoodwillGiven(db, businessId, from, to);
+  const totalMinor = byType.reduce((sum, r) => sum + r.totalMinor, 0n);
+  return { totalMinor, byType };
 }
 
 /**

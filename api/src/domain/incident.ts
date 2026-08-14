@@ -43,6 +43,7 @@ import {
 } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
 import { applyAdjustmentTx } from "./adjustment.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { computeObligationStatus } from "./obligation-status.js";
 
 export interface OpenIncidentInput {
@@ -278,6 +279,19 @@ export async function recordCustomerContribution(
           : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
       });
+
+      // GAP-5b: a customer already carrying unapplied credit has this
+      // contribution settled from it immediately.
+      await applyCreditForward(
+        tx,
+        input.businessId,
+        "customer",
+        lease.customerId,
+        "owed_to_us",
+        obligationId,
+        input.agreedAmountMinor,
+        input.agreedOn,
+      );
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();

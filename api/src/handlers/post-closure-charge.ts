@@ -2,11 +2,12 @@ import { asBusinessDate, toWire } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability } from "../auth/context.js";
 import { recordPostClosureCharge } from "../domain/post-closure-charge.js";
-import { NotFoundError } from "../errors/app-error.js";
+import { NotFoundError, ValidationError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findLeaseForBusiness } from "../queries/lease.js";
 import { findTripForBusiness } from "../queries/trip.js";
+import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type { recordPostClosureChargeRoute } from "../route-defs/post-closure-charge.js";
 import type { Env } from "../types.js";
 
@@ -20,12 +21,15 @@ export const recordPostClosureChargeHandler: RouteHandler<
   const body = c.req.valid("json");
   const reader = c.get("reader");
 
+  let sourceVehicleId: string | undefined;
   if (body.sourceType === "lease") {
     const lease = await findLeaseForBusiness(reader, businessId, body.sourceId);
     if (!lease) throw new NotFoundError("No such lease in this business");
+    sourceVehicleId = lease.vehicleId;
   } else {
     const trip = await findTripForBusiness(reader, businessId, body.sourceId);
     if (!trip) throw new NotFoundError("No such trip in this business");
+    sourceVehicleId = trip.vehicleId;
   }
   if (body.partyCustomerId !== undefined) {
     const customer = await findCustomerForBusiness(reader, businessId, body.partyCustomerId);
@@ -35,8 +39,23 @@ export const recordPostClosureChargeHandler: RouteHandler<
     const driver = await findDriverForBusiness(reader, businessId, body.partyDriverId);
     if (!driver) throw new NotFoundError("No such driver in this business");
   }
+  if (body.vehicleId !== undefined) {
+    // GAP-59/GAP-123: every sibling id on this handler is proven against the
+    // business first — vehicleId was the one exception, an unvalidated FK
+    // that let another business's vehicle id land in this business's
+    // obligation. Existence first (404, matching the siblings), then
+    // consistency with the lease/trip actually named (400) — the same
+    // inconsistent-claim shape migration 0016's composite FK closed for
+    // expense, handled here at the handler since post_closure_charge writes
+    // an obligation, not a table of its own (D-14).
+    const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
+    if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+    if (body.vehicleId !== sourceVehicleId) {
+      throw new ValidationError("vehicleId does not match the vehicle on the named lease or trip");
+    }
+  }
 
-  const { obligationId } = await recordPostClosureCharge(c.get("writer"), {
+  const { obligationId, status } = await recordPostClosureCharge(c.get("writer"), {
     businessId,
     partyType: body.partyType,
     ...(body.partyCustomerId !== undefined ? { partyCustomerId: body.partyCustomerId } : {}),
@@ -55,7 +74,11 @@ export const recordPostClosureChargeHandler: RouteHandler<
       partyType: body.partyType,
       amountMinor: toWire(body.amountMinor),
       dueOn: body.dueOn,
-      status: "pending" as const,
+      // GAP-5b: no longer a hardcoded "pending" — a party already carrying
+      // credit can land this charge as part_paid or paid on the spot, and
+      // reporting "pending" regardless would be exactly the confident-
+      // wrong-number W-56 exists to prevent.
+      status,
     },
     201,
   );
