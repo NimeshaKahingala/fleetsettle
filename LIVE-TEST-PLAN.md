@@ -4,7 +4,7 @@
 
 **Written 8 August 2026**, after PR #11 (`acce227`) put B0b, B12, B13 and B3-core on `qa.fleetsettle.com` and PR #12 (`53258d2`) brought the trackers level with the code.
 
-**Restored 11 August 2026, after being deleted in the 10 August `PENDING-REVIEW-ITEMS-2026-08-10.md` consolidation** — that removal was a documents-cleanup step, not a decision that live testing was done; TRACKER.md and Plan.md kept citing this file the whole time, and the 11 August QA pass (`QA-FINDINGS-2026-08-11.md`) proved the practice this file exists to run is still finding real defects on every sitting. **LT-1 through LT-8, the original queue, are all closed** — restored below with their outcomes rather than deleted, since a closed live check is still evidence something was actually seen working, the same reasoning TRACKER.md's own closed table uses. **LT-9 through LT-12 are new**, carried over from the 11 August QA session's own stated limitations and the standing acceptance items TRACKER.md still lists as open.
+**Restored 11 August 2026, after being deleted in the 10 August `PENDING-REVIEW-ITEMS-2026-08-10.md` consolidation** — that removal was a documents-cleanup step, not a decision that live testing was done; TRACKER.md and Plan.md kept citing this file the whole time, and the 11 August QA pass (`QA-FINDINGS-2026-08-11.md`) proved the practice this file exists to run is still finding real defects on every sitting. **LT-1 through LT-8, the original queue, are all closed** — restored below with their outcomes rather than deleted, since a closed live check is still evidence something was actually seen working, the same reasoning TRACKER.md's own closed table uses. **LT-9 through LT-13 are new**, carried over from the 11 August QA session's own stated limitations, the standing acceptance items TRACKER.md still lists as open, and the 14 August mobile-flow report that `Add → New trip → choose a vehicle` can render nothing on a phone while working on web. **14 Aug update:** the first LT-13 case is confirmed and filed as GAP-125; the rest of the sweep remains open.
 
 **This file is no longer a one-time queue scheduled as a single Plan.md item.** Every closed tier here still found something (§ below), so the standing practice is to keep it as the running list of what a browser still needs to confirm, added to as new surface ships, not retired once emptied.
 
@@ -56,6 +56,7 @@ Ordered so that no test contaminates the state a later one needs. **Read-only fi
 | **LT-10** | F4's real-device pass (iOS Safari / Android Chrome) | 🔴 Open — TRACKER.md GAP-104's own acceptance checklist still names this; nothing in this environment can substitute for it |
 | **LT-11** | GAP-112 — receipt thumbnail, real camera photo | ✅ Closed 12 Aug — reported again with a real photo on QA, ruling out the fixture theory; root cause confirmed by pulling the actual R2 objects, fixed |
 | **LT-12** | Opening-balance re-confirm, post-F5, at 360×640 | 🔴 Open — the 11 Aug pass hit GAP-109/GAP-110 mid-attempt; both are now fixed, but the actual re-confirm (QA2 Customer Rs 2,000 / QA2 Driver Rs 5,000 materialising into the reports) has never been watched succeed |
+| **LT-13** | Phase-1 mobile interaction sweep, starting with Quick Add → New trip → vehicle picker | 🔴 Open — first case confirmed 14 Aug and filed as GAP-125: immediate `Add → New trip` can leave two sheets stacked with the picker below the viewport. Continue the wider sweep across the other sheet/picker handoffs |
 
 ---
 
@@ -131,6 +132,32 @@ Per this row's own step 3, that makes it a real defect rather than a fixture pro
 3. Press it. Confirm success, not an error — the batch already reads as committed, so this exercises GAP-109's new active-postings check rather than the ordinary draft→committed path.
 4. Re-check `Who owes us` and `Where is our cash` — both figures above must now appear.
 5. Press `Confirm and go live` again on the same batch (or re-open and re-save) — must stay a clean no-op, proving the self-heal doesn't double-post on retry.
+
+## LT-13 · Phase-1 mobile interaction sweep, starting with Quick Add → New trip
+
+**Open from 14 August 2026.** Reported live symptom: on mobile, `Add → New trip → choose/select vehicle` can render no vehicle choices, while the same flow works on web. Do not fold this into the visual-refresh item by default. A blank picker is functional: the user cannot reach `/vehicles/:id/trip/new`, and the app may also be violating M-28 if a failed `/api/vehicle` read presents as an empty list.
+
+**14 Aug partial result:** confirmed as GAP-125 in Chromium touch/coarse-pointer emulation. The failure was not an API empty state: the immediate `ActionSheet → ReasonPicker` handoff left the original `Add` sheet mounted and put the `New trip — choose a vehicle` picker almost entirely below the viewport with no visible vehicle buttons. The broader sweep below remains open.
+
+Start with this exact read-only reproduction:
+
+1. In QA, use a signed-in owner-manager/staff account at 390×844 and 360×640.
+2. Open `Add`.
+3. Tap `New trip`.
+4. Confirm whether `New trip — choose a vehicle` appears.
+5. Capture the visible list, console messages, and `/api/vehicle` status.
+6. If vehicles appear, tap the first vehicle and confirm the route changes to `/vehicles/:id/trip/new` and shows the `BookTripScreen` stepper. Stop before `Book trip`.
+
+Then run the same pattern across the other phase-1 sheet handoffs and picker-driven flows, read-only unless a test row can be safely created and voided:
+
+- Quick Add: Fuel, Expense, Payment received, Payment made, New trip.
+- Entity creation sheets: Add vehicle, add driver, add customer.
+- Vehicle/detail actions: start monthly lease, start daily lease, book trip, calendar free-day tap-through, renew document.
+- People/money actions: collect payment, pay driver, record advance, record deposit, offset, settle advance.
+- Cash/partner/admin: banking, partner contribution/payout, vehicle sharing, members invite/role/revoke, mileage packages, opening balances.
+- Trips/incidents/costs: close/cancel trip, report incident, off-road days, insurance claim/recovery/settlement, fuel/expense receipt and void flows.
+
+A confirmed failure becomes a dated `QA-FINDINGS-YYYY-MM-DD.md` entry first, then a TRACKER gap. A rejected or tooling-only report belongs in TRACKER §6, not in the open gap table.
 
 ---
 

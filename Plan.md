@@ -238,6 +238,16 @@ Asked one at a time and answered the same sitting, the pattern this queue has us
 
 **Assignment: this session takes Track 5B**; Track 5A goes to the second worker.
 
+#### Step 0 · The shared prelude — added 14 August 2026, and it runs before either track
+
+**GAP-125 · GAP-124a.** Both were filed into Wave 7 by the 14 Aug QA/design pass; both moved here by the evaluation of that pass, for the same reason: **each is a change to a shared client primitive that Wave 5 then adds callers to.** Ordering rule 1 of the five below — *"`packages/shared` is the root of the dependency graph; a bug in it is structural, not local"* — is about a package, but the logic is about position in the graph, and `Sheet`/`ReasonPicker`/`Section`/`EmptyState` occupy exactly that position for the client.
+
+**GAP-125 — and it is not the gap it was filed as.** Filed as a GAP-104 sheet-history regression; re-diagnosed against source as a **GAP-101 miss**. `ReasonPicker` has two branches, `error` and the list, and **no pending state**; `QuickAddSheet` feeds all three of its pickers from `?? []` over queries gated `enabled: <picker is open>`, so each renders an empty list for the entire flight of its own fetch. The 105px sheet in the report is a title with zero rows, and both reported `y` values are mid-animation. The report's own "a slower run loaded the picker fine" is the confirming evidence: a completed fetch fixes this, and broken layout would not be fixed by waiting. **The guard is part of the fix** — `checkQueryErrorHandling` exempts an entire file when `useQueryState` appears anywhere in it ([check-forbidden.mjs:297](scripts/check-forbidden.mjs#L297)), which is why three error-only wirings hid every unhandled pending state in the same file. **Reproduce live before fixing**, per the Wave 0 discipline; the re-diagnosis is source-confirmed and has not been re-run against QA.
+
+**GAP-124a — the M-31 shared primitives** (step 1 of its own implementation order): `Section` header treatment, `EmptyState`/`NotAvailable` variants, row icon/accent conventions, `StatTile`, desktop rail/content constraints. **Absorbs B16 Phase 2.** Wave 5 builds roughly twelve void sheets, an end-a-lease screen, three new calendar states, two settlement sheets and a printed slip — every one of them a consumer of these primitives. Landing them after Wave 5 means building all of it in a visual language that is already scheduled for replacement.
+
+**Where it runs:** on the `wave5/plan-2026-08-14` base branch, before either track branch does client work — **both track branches rebase onto it once it lands.** Owned by this session (5B) because it is small and 5B is the track already carrying the client-side sheet work. **5A is not blocked by it**: 5A-1's and 5A-2's server halves can start immediately and only their screens need the rebase.
+
 #### The split, and why it falls here
 
 Not by size and not by track letter — **by the fact each cluster reasons about**. Split any other way and two people independently re-derive the same denominator or the same void convention, which is the divergence trap CLAUDE.md names.
@@ -303,13 +313,15 @@ GAP-18 (UC-73's yearly view, UC-99's export) · GAP-19 (UC-79's revenue per avai
 
 ### Wave 7 · Client remainder (M)
 
-GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schema, the Dialog — after Wave 2) · GAP-111 (the table view's missing empty state) · GAP-113 (M-15 colour-alone violation) · GAP-27 (arrangement C's orange gets a real token) · GAP-17 (photo pipeline off the main thread) · B16 Phase 2/3 (component variants, catalogue grouping, money-direction consistency) · **GAP-124 (M-31 whole-app visual refresh: auth branding, Home cockpit, route-wide semantic hierarchy, and §14 desktop baseline).**
+GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schema, the Dialog — after Wave 2) · GAP-111 (the table view's missing empty state) · GAP-113 (M-15 colour-alone violation) · GAP-27 (arrangement C's orange gets a real token) · GAP-17 (photo pipeline off the main thread) · **GAP-124b (the M-31 route-by-route pass: auth branding, first-run setup, Home cockpit, the §7.11 route inventory, overlay/form consistency, and the §14 desktop baseline) — which absorbs B16 Phase 3.**
 
-**GAP-124 order inside the wave:** design primitives first (`Section`, `EmptyState`, `NotAvailable`, row icon/accent conventions, `StatTile` usage, desktop rail/content constraints), then auth + shell + Home, then Operate route families, then Review/Reports/Mine. It deliberately follows functional client gaps whose output it styles; a visual pass over missing or soon-to-change flows is how this project keeps rediscovering the same UI work twice.
+**GAP-125 and GAP-124a have moved out of this wave to Wave 5 · Step 0** — see that wave's own section for the evaluation that moved them. **What stays here is the half that genuinely wants to follow its flows**: a route-level visual pass over screens that Wave 5 is still changing would restyle work that is about to move, which is how this project keeps rediscovering the same UI work twice. Order inside GAP-124b: auth + first-run setup + shell + Home, then the Operate route families and their sheets, then Review/Reports/Mine — the shared primitives it builds on having already landed in Wave 5 · Step 0.
+
+**B16 Phase 2 and Phase 3 are absorbed, not run separately** — checked against both rather than assumed. B16 Phase 2 ("`Section`/`EmptyState`/`NotAvailable` variants") is M-31 implementation step 1 almost verbatim, so it goes with **GAP-124a**; B16 Phase 3 ("reports-catalogue grouping, Review-shell money-direction consistency") is restated by §7.11's own Reports and Review rows, so it goes with **GAP-124b**. Listing them as separate items alongside GAP-124, as this wave did until 14 Aug, means the same work is either done twice or done twice differently.
 
 ### Wave 8 · Verification debt (S–M)
 
-GAP-114 (the assertion that passes either way) · GAP-115 (five thinner-tested screens) · GAP-86 (suite noise) · LT-9 (needs a linked driver created first — QA has none) · LT-10 (real iOS Safari / Android Chrome) · LT-11 (real photo, then decides GAP-112) · LT-12 (watch a stranded batch's re-confirm render in the reports — the data path itself already checked live: three postings seconds apart, first two reversed, third live, real offsetting movements).
+GAP-114 (the assertion that passes either way) · GAP-115 (five thinner-tested screens) · GAP-86 (suite noise) · LT-9 (needs a linked driver created first — QA has none) · LT-10 (real iOS Safari / Android Chrome) · LT-11 (real photo, then decides GAP-112) · LT-12 (watch a stranded batch's re-confirm render in the reports — the data path itself already checked live: three postings seconds apart, first two reversed, third live, real offsetting movements) · LT-13 (phase-1 mobile interaction sweep, starting with the reported `Add → New trip → choose vehicle` blank picker).
 
 ### Wave 9 · Release (S)
 
