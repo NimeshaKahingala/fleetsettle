@@ -1,7 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.3.1 — M-30: `PhotoCapture`'s file input drops `capture="environment"`, restoring the OS's own choice between camera and photo library (GAP-112 investigation found no product reason for camera-only). v1.3.0's low-API UI branch (B6/B5 core screens, B2 callers, Vehicle sharing, GAP-100's advance issue/settle callers) still stands, as do DateField's v1.2.7 M-17 shortcut removal and v1.2.8 Toast host
-**Date:** 12 August 2026
+**Status:** v1.4.0 — M-31: the whole-app visual refresh is now a planned, route-wide design-system pass rather than a Home-only polish item. It keeps the mobile-first contract, uses semantic colour/icon/word pairings, and folds the live QA findings on login, Home and desktop stretch into §7.11, §14 and §15. M-30 still stands for `PhotoCapture`.
+**Date:** 14 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -114,6 +114,7 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-28** ⚑ | **Every read has three visible outcomes: data, a real nothing, or a stated failure.** A screen that can render only "loading" and "data" is unfinished, whether or not it looks finished | Found 10 August 2026 (GAP-101): §9.5 specified the first two and was silent on the third, so nothing in the client could render a failed read as anything but an eternal spinner — or worse, a fallback (`?? []`, `?? 0`) that renders it as a confident wrong answer. W-56 already forbids the second half on reports specifically; this makes it a rule for every read, and gives it a component (`QueryState`, §6.4) rather than 32 hand-rolled branches |
 | **M-29** ⚑ | **`PhotoCapture`'s upload goes through the Worker's own `R2` binding (`env.R2.put()`), never a presigned PUT the browser sends straight to the bucket** — reversing this table's own prior wording | A presigned PUT needs the S3 API and real credentials signed with `aws4fetch` (a bucket binding cannot presign) — two new secrets with no rotation story in a codebase that has never needed one, and it moves authorisation off the write entirely: the URL is a bearer capability, valid for its whole lifetime, where the binding gets the same per-request `business_id` and capability check every other write already gets. It is also structurally prone to exactly the failure this page already names as the one that matters: sign → PUT → confirm is three steps, and a confirm that never arrives — the manager who taps Save, sees a spinner, and closes the app — leaves an object in R2 with no record of it anywhere, since the row is the only index of what the bucket holds. The binding closes that window: the put and the insert happen in one Worker request, with a compensating delete if the insert fails. The one real cost is byte-level upload progress, since `fetch` gives none — accepted, because `PhotoCapture`'s own status is three states, not a percentage, and nothing here promised more than that. Reads move the same way: IG §10.10 is amended to serve them through the Worker too, re-authorised per request, rather than a presigned GET |
 | **M-30** ⚑ | **`PhotoCapture`'s file input drops `capture="environment"`, keeping `accept="image/*"`** | Found 12 August 2026, investigating GAP-112 (a broken-thumbnail bug, unrelated in cause but same component family): `capture` was chosen for M-18's one stated reason — avoiding `getUserMedia`'s iOS PWA permission unreliability — but carries a second, un-discussed effect. On many mobile browsers it skips the OS picker's own choice between "Camera" and "Photo Library", jumping straight to the camera app and leaving no way to attach a photo that already exists (one taken minutes earlier, forwarded on WhatsApp, or scanned by another app). No product document requires a photo be captured live rather than picked from an existing one — W-18, W-30 and W-38's evidentiary language is about a photo outweighing a verbal claim, and about retention once a photo exists, never about how it entered the app. Dropping the attribute restores the OS's native choice; `<input type="file">` still satisfies M-18 since no `getUserMedia` call is added |
+| **M-31** ⚑ | **The visual refresh is a system pass, not decoration.** Every phase-1 route gets the same hierarchy model: one focal job, semantic status/action treatment, icon + word for meaning, responsive panes at `lg`, and no new raw palette | Found by the 14 August 2026 QA/code audit prompted by the login and Home review. The live app is structurally usable, but several routes read as one flat stack: Home's work queues use quiet section labels, `Rs 0` lacks enough context, critical alerts are heavy without structure, and desktop stretches mobile rows to 1280px despite §14. The correction is not "add colour everywhere." Material 3's current theming guidance maps colour through roles and hierarchy, Apple HIG warns against reusing a colour for several meanings, and WCAG 2.2 adds mobile-relevant focus/target criteria; those all match rules this document already had. So this decision tightens usage: brand colour is for the primary action/active destination, status tokens are for status with icons and words, surfaces remain mostly neutral, and every route is reviewed against the route inventory in §7.11 before any code refresh is called done |
 
 ---
 
@@ -727,6 +728,45 @@ One screen, read-only, and the security boundary is server-side (§2.3). `TwoBal
 | F-8.2 reverse a receipt | new amount, reason | Partial by default. The shortfall destination is a required choice, never a silent default to the driver's arrears |
 | F-8.5 fix a mistake | reason | Void and replace, never overwrite. The original stays visible with its correction attached |
 
+### 7.11 Whole-app design refresh pass (M-31)
+
+The 14 August 2026 QA pass found the app structurally usable but visually flatter than the product deserves: the login entry has almost no identity, Home has the right facts without enough priority, and desktop stretches mobile rows instead of becoming the §14 layout. This pass is therefore a route-wide design refresh, not a Home-only restyle.
+
+**Principles.** These sit below the existing U/W/M rules, never above them:
+
+1. **One focal job per screen.** The first viewport answers "what needs me now?" for Operate, "what changed?" for Review, and "what is my position?" for Mine.
+2. **Semantic colour, not decorative colour.** Brand, status and direction tokens keep their meanings from §5.1. Any coloured surface ships with an icon and a word; money stays ink-coloured (M-15).
+3. **Iconography clarifies category.** Use `lucide-react` icons beside alerts, queue headers, entity rows, tabs and quick actions where category recognition matters. Icons never replace labels on touch surfaces except below-`md` landscape, where accessible names remain.
+4. **Surfaces create hierarchy.** Neutral surface area stays dominant. Use accent borders, badges, washes and type weight to separate critical alerts, today's work, queues and secondary history.
+5. **Adaptive layout is part of the design.** At `lg`, the same routes gain the §14 left rail and a constrained or two-pane content layout; no 1200px-wide mobile row is acceptable.
+6. **Every route has data / real nothing / failed read states.** The M-28 contract remains visible after the refresh; prettier empties must not hide a failed read or turn unknown into zero.
+7. **Copy remains operational.** No marketing copy inside the app shell, no accounting vocabulary, no congratulations. The login entry may state the product promise; work screens stay factual.
+
+**Route inventory for the refresh.** A design-refresh PR is not done until each row below is inspected at 390 x 844, 360 x 640 and `lg`, with light and dark where the surface materially changes.
+
+| Route family | Routes | Required design modifications |
+|---|---|---|
+| **Auth entry** | unauthenticated `/`, `/auth/callback` loading | Branded FleetSettle entry: mark/wordmark, one value line, lock/shield icon, full-width primary CTA, short security line, and a loading state that keeps the same identity. Hosted Asgardeo branding is BR §5.5, not code-only. |
+| **First-run setup** | post-auth no-membership state: create business, redeem invite | Treat this as setup, not marketing: two clear choices, business/invite icons, short helper copy, one-column forms, honest loading/error states, and the same FleetSettle identity as auth. It must still work for revoked members without revealing whether access was revoked. |
+| **Operate home** | `/` | "Fleet operations cockpit": compact greeting/date, critical alert with icon/title/detail/action, top summary row (`Rent due`, `Trips in progress`, `Confirmed today`), labelled `Rs 0` facts, stronger work-queue headings, semantic row accents, and bottom breathing room above the tab bar. |
+| **Vehicles** | `/vehicles`, `/vehicles/:id`, `/vehicles/:id/calendar`, `/vehicles/:id/lease/new`, `/vehicles/:id/daily-lease/new`, `/leases/:id`, `/leases/:id/close` | Vehicle rows use registration-first hierarchy, vehicle/status icons, arrangement/status badges, clear next actions, and calendar cells keep glyph + colour. Create/close routes keep one sticky primary action and level-2 disclosure hierarchy. |
+| **Trips and incidents** | `/vehicles/:id/trip/new`, `/trips/:id`, `/incidents/:id` | Trip cards use vehicle/route/date chips and clear state badges. Detail screens lead with the financial summary and unresolved blockers, then actions, then history. Incident containers show spent/recovered/expected/net cost as a compact stat group before rows. |
+| **People** | `/people`, `/people/drivers/:id`, `/people/customers/:id` | People rows use customer/driver icons and explicit role/category badges. Driver pages keep `TwoBalances` visually dominant without netting. Customer pages treat dues as work queues with due-age chips and clear collection actions. |
+| **Cash, partners and administration** | `/cash`, `/partners/:userId`, `/vehicle-sharing`, `/members`, `/mileage-packages`, `/opening-balances`, `/period/close`, `/more` | More/Cash rows get icon + chevron consistency. Partner/cash screens use stat tiles and direction markers from §5.1. Ownership totals must say the state in words, not colour alone. Close-month checklist rows use warning structure, not a flat list. |
+| **Review shell** | `/review`, `/review/vehicles`, `/review/vehicles/:id`, `/review/money` | Review uses higher-density owner reporting: top answer first, vehicle performance cards with unusual items surfaced inline, direction markers consistent with `TwoBalances`, no write affordances. |
+| **Reports** | `/reports`, `/reports/*` | Catalogue grouped by owner question, not endpoint name. Report screens use stat tiles + chart/table pairs, direct labels for low-contrast chart colours, and consistent `NotAvailable`/empty/failure variants. |
+| **Mine** | `/me` | One read-only statement-like screen. `TwoBalances` first, then days/trips/advances/deposit. No write-looking affordance, no tab bar, and the statement link reads as evidence, not marketing. |
+
+**Overlay and form inventory.** Route inspection also covers flows mounted as sheets/forms rather than URL paths: Quick Add and quick payments, create vehicle, add driver/customer, collect payment, pay driver, advances/deposits/offsets, settle advance, banking, partner contribution/payout, opening-balance entry, renew vehicle document, renew/read/adjust/collect lease actions, daily "something else", incident report/off-road/insurance/recovery/settlement actions, member invite/role/revoke, sign-out confirmation, and expense/fuel/receipt/void cost sheets. These share one design rule: each sheet has a plain title, a category icon only where it improves recognition, one primary action, no nested cards, 44px targets, field-level errors, and a visible success/error path that preserves M-12/M-28 honesty.
+
+**Implementation order.** The refresh should move from shared language to route families:
+
+1. **Design primitives first:** `Section` header treatment, `EmptyState` variants, `NotAvailable` variants, row icon/accent conventions, `StatTile` usage, and desktop rail/content constraints.
+2. **Auth + first-run setup + shell + Home:** the live QA pain points and the surfaces every user sees.
+3. **Operate route families:** Vehicles, Trips/Incidents, People, Cash/More.
+4. **Review, Reports and Mine:** reporting density and direction consistency.
+5. **Verification:** browser route pass at 360 x 640 and 390 x 844, `lg` desktop, no horizontal body scroll, 44px targets, axe-core, console warnings, and text clipping at 200% text size.
+
 ---
 
 ## 8. Money and numbers
@@ -1158,6 +1198,15 @@ Desktop is the same application at `lg` and `xl`. Three changes, no more:
 2. **List screens become two-pane** — list left, detail right — which is why routes are already `/people/drivers/:id` rather than nested state.
 3. **Reports gain their full form**: the mobile card view becomes a real table with sortable columns, more series per chart, small multiples across vehicles, and side-by-side month comparison.
 
+The 14 August 2026 QA pass makes the failure case concrete: a 1280px Home viewport still rendered the bottom tab bar and 1200px-wide mobile rows. That is not an acceptable desktop interpretation of this section. Until the analytical dashboard exists, `lg` still must at minimum render the left rail, constrain single-column content to a readable measure, and use a supporting-pane layout where a screen naturally has primary and secondary work.
+
+| Screen shape | `lg` treatment |
+|---|---|
+| Home / cockpit | Left rail. Primary pane for alerts and today's work; secondary pane for rent due, trips and deposits. If content is sparse, constrain the stack rather than stretching rows. |
+| List + detail | Two panes, list left and selected/detail route right. The URL remains the source of truth; resizing back to mobile shows the active pane only. |
+| Forms and sheets | Forms stay one column with a readable max width. Quick Add opens the same action list in a 420px centred sheet, per §3.1. |
+| Reports | Tables and charts may sit side by side, but every figure remains present on mobile in the narrower form. |
+
 The analytical dashboard is the *only* screen in the product designed desktop-first, and it is additive: everything on it exists on mobile in a narrower form. A number that appears only on desktop is a number the owner-manager cannot check while standing next to the vehicle it concerns.
 
 Print stylesheets matter more than usual here: the driver's slip (UC-57), the customer statement (UC-19) and the export (UC-99) all end up on paper or in a PDF, and all three are evidence in an argument three months later.
@@ -1170,7 +1219,7 @@ Aligned with UC §9.1. The design work that must exist before a flow can be buil
 
 | Phase | UI deliverables |
 |---|---|
-| **First** | Tokens and the design layer · `AppShell` + the Operate tab bar · `DayCard`, `AmountPad`, `MoneyField`, `AllocationPreview`, `TwoBalances` · home stack · F-2, F-3, F-4, F-5, F-6, F-7 screens · vehicle calendar · period close · `PhotoCapture` · offline queue · Review shell · phase-1 reports |
+| **First** | Tokens and the design layer · `AppShell` + the Operate tab bar · `DayCard`, `AmountPad`, `MoneyField`, `AllocationPreview`, `TwoBalances` · home stack · F-2, F-3, F-4, F-5, F-6, F-7 screens · vehicle calendar · period close · `PhotoCapture` · offline queue · Review shell · phase-1 reports · **M-31 visual refresh across auth, Home, all phase-1 routes and the §14 desktop baseline** |
 | **Second** | Write-off and post-closure flows · ageing and utilisation reports · **Mine shell** · export · side-by-side condition comparison · Sinhala localisation pass |
 | **Third** | Desktop analytical dashboard beyond §14's three changes · depreciation and disposal screens · offline capture of photos |
 | **Last** | Message log and failure strips — WhatsApp dispatch is sequenced last (UC §9.1) |
@@ -1270,5 +1319,6 @@ Research consulted July 2026. Platform behaviour moves; re-check the PWA and vie
 - Colour-blind safe palettes — [Tableau](https://www.tableau.com/blog/examining-data-viz-rules-dont-use-red-green-together), [Venngage](https://venngage.com/blog/color-blind-friendly-palette/)
 - Multilingual typography — [Material language support](https://m2.material.io/design/typography/language-support.html), [Noto Sans Sinhala](https://fonts.google.com/noto/specimen/Noto+Sans+Sinhala)
 - Sri Lanka device and network context — [ikman buying guide](https://blog.ikman.lk/en/mobile-phone-buying-guide-sri-lanka/), [Lanka Websites 2026](https://lankawebsites.com/blog/mobile-gadgets/best-phone-in-sri-lanka-under-50000-2026)
+- 2026 platform design refresh references for M-31 — [Apple HIG design principles](https://developer.apple.com/design/human-interface-guidelines/design-principles), [Apple HIG colour](https://developer.apple.com/design/human-interface-guidelines/color), [Apple HIG layout](https://developer.apple.com/design/human-interface-guidelines/layout), [Material 3 theming and roles](https://developer.android.com/codelabs/m3-design-theming), [Material 3 adaptive layout](https://developer.android.com/develop/adaptive-apps/guides/get-started-with-adaptive-apps), [WCAG 2.2 new criteria](https://www.w3.org/WAI/standards-guidelines/wcag/new-in-22/)
 
 Palette figures in §5.1 and §11.2 are measured, not estimated: contrast ratios computed against the surfaces in §5.1, and the categorical order run through the data-viz validator against those same surfaces.
