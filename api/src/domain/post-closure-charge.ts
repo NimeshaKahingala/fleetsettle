@@ -1,5 +1,6 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
 import { PeriodClosedError } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -20,6 +21,7 @@ export interface RecordPostClosureChargeInput {
 
 export interface RecordedPostClosureCharge {
   obligationId: string;
+  status: "pending" | "part_paid" | "paid" | "waived";
 }
 
 /**
@@ -67,7 +69,21 @@ export async function recordPostClosureCharge(
           : {}),
       });
 
-      return { obligationId };
+      // GAP-5b: a fine or toll landing on a party who already carries
+      // unapplied credit settles from it immediately, same as every other
+      // obligation this business raises.
+      const credit = await applyCreditForward(
+        tx,
+        input.businessId,
+        input.partyType,
+        (input.partyType === "customer" ? input.partyCustomerId : input.partyDriverId) as string,
+        "owed_to_us",
+        obligationId,
+        input.amountMinor,
+        input.dueOn,
+      );
+
+      return { obligationId, status: credit.status };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();

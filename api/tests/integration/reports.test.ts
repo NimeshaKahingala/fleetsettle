@@ -1015,13 +1015,17 @@ describe("reports (P11)", () => {
 
       const res = await getReport("/goodwill?from=2020-01-01&to=2099-12-31", token);
       expect(res.status).toBe(200);
-      const body: { totalMinor: string } = await res.json();
+      const body: {
+        totalMinor: string;
+        byType: Array<{ adjustmentType: string; totalMinor: string }>;
+      } = await res.json();
       expect(body.totalMinor).toBe("2000");
+      expect(body.byType).toEqual([{ adjustmentType: "waiver", totalMinor: "2000" }]);
 
       await ctx.cleanup();
     });
 
-    it("GAP-72: an adjustment given late on the last day of the window is included, not silently dropped", async () => {
+    it("GAP-73: windows on occurred_on (when the waiver was given), not created_at (when the row was entered)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       const periodId = await ctx.createOpenPeriod(businessId);
@@ -1033,15 +1037,62 @@ describe("reports (P11)", () => {
         amountMinor: 10_000n,
       });
 
-      // 8pm Colombo (Asia/Colombo, UTC+5:30) on 30 June — comfortably
-      // within the window's own last day, but 14:30 UTC: a bare
-      // `created_at <= '2026-06-30'` compares against UTC midnight and
-      // excludes anything recorded after it, dropping this one.
+      // U-8: any record can be entered for a past date. Given 15 June,
+      // entered 2 July — a report windowed on created_at would land this in
+      // July; occurred_on keeps it in June, where it was actually given.
       await ctx.createAdjustment(businessId, periodId, obligationId, {
         adjustmentType: "waiver",
         amountMinor: 2_000n,
         sign: -1,
-        createdAt: "2026-06-30T20:00:00+05:30",
+        occurredOn: "2026-06-15",
+        createdAt: "2026-07-02T10:00:00+05:30",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const juneRes = await getReport("/goodwill?from=2026-06-01&to=2026-06-30", token);
+      const juneBody: { totalMinor: string } = await juneRes.json();
+      expect(juneBody.totalMinor).toBe("2000");
+
+      const julyRes = await getReport("/goodwill?from=2026-07-01&to=2026-07-31", token);
+      const julyBody: { totalMinor: string } = await julyRes.json();
+      expect(julyBody.totalMinor).toBe("0");
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-73: honours sign — a sign=1 goodwill entry claws back rather than inflating the total, grouped separately by type", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 10_000n,
+      });
+
+      await ctx.createAdjustment(businessId, periodId, obligationId, {
+        adjustmentType: "goodwill",
+        amountMinor: 3_000n,
+        sign: -1,
+        occurredOn: "2026-06-05",
+      });
+      // A correction reversing part of a prior goodwill entry — sign = 1,
+      // an increase to what's owed, not a fresh discount.
+      await ctx.createAdjustment(businessId, periodId, obligationId, {
+        adjustmentType: "goodwill",
+        amountMinor: 1_000n,
+        sign: 1,
+        occurredOn: "2026-06-10",
+      });
+      await ctx.createAdjustment(businessId, periodId, obligationId, {
+        adjustmentType: "waiver",
+        amountMinor: 500n,
+        sign: -1,
+        occurredOn: "2026-06-20",
       });
 
       const owner = await mintUser(db, ctx, businessId, "owner");
@@ -1049,42 +1100,18 @@ describe("reports (P11)", () => {
 
       const res = await getReport("/goodwill?from=2026-06-01&to=2026-06-30", token);
       expect(res.status).toBe(200);
-      const body: { totalMinor: string } = await res.json();
-      expect(body.totalMinor).toBe("2000");
-
-      await ctx.cleanup();
-    });
-
-    it("GAP-72: a waiver given just after midnight Colombo time counts toward its own business day, not the UTC day it lands on", async () => {
-      const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      const periodId = await ctx.createOpenPeriod(businessId);
-      const driverId = await ctx.createDriver(businessId);
-      const obligationId = await ctx.createObligation(businessId, periodId, {
-        direction: "owed_to_us",
-        partyType: "driver",
-        driverId,
-        amountMinor: 10_000n,
-      });
-
-      // 2am Colombo on 1 January 2026 is 20:30 UTC on 31 December 2025 —
-      // a bare `created_at >= '2026-01-01'` compares against UTC midnight
-      // and excludes this from a report windowed on the business's own
-      // 2026, even though the waiver was given on 1 January in Colombo.
-      await ctx.createAdjustment(businessId, periodId, obligationId, {
-        adjustmentType: "goodwill",
-        amountMinor: 3_000n,
-        sign: -1,
-        createdAt: "2026-01-01T02:00:00+05:30",
-      });
-
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const res = await getReport("/goodwill?from=2026-01-01&to=2026-12-31", token);
-      expect(res.status).toBe(200);
-      const body: { totalMinor: string } = await res.json();
-      expect(body.totalMinor).toBe("3000");
+      const body: {
+        totalMinor: string;
+        byType: Array<{ adjustmentType: string; totalMinor: string }>;
+      } = await res.json();
+      // 3,000 given, 1,000 clawed back, 500 waived: net 2,500.
+      expect(body.totalMinor).toBe("2500");
+      expect(body.byType).toEqual(
+        expect.arrayContaining([
+          { adjustmentType: "goodwill", totalMinor: "2000" },
+          { adjustmentType: "waiver", totalMinor: "500" },
+        ]),
+      );
 
       await ctx.cleanup();
     });

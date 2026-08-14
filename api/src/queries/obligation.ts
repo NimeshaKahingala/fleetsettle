@@ -178,14 +178,28 @@ export interface OutstandingObligation {
   waivedMinor: bigint;
 }
 
-/** Oldest-`due_on`-first (§6.5's allocation discipline) — the obligations an offset (or a future generic settle) draws down against, one direction at a time. */
+/**
+ * Oldest-`due_on`-first (§6.5's allocation discipline) — the obligations an
+ * offset (or a future generic settle) draws down against, one direction at
+ * a time.
+ *
+ * GAP-5a: `forUpdate` locks the rows for the duration of the caller's own
+ * transaction, closing the race two concurrent settlements against the
+ * same party could otherwise create — the identical shape D-15/GAP-5 (DM
+ * §10.2) already closed for a payment's own forward-allocation credit.
+ * Defaults `false`: this function's other callers (a read-only summary, a
+ * read-only screen) never write, and locking rows they only display would
+ * be pure contention with no correctness benefit — only `offset.ts`'s own
+ * write path, inside its transaction, passes `true`.
+ */
 export async function findOutstandingObligationsForDriver(
   db: ReadDb,
   businessId: string,
   driverId: string,
   direction: "owed_to_us" | "owed_by_us",
+  forUpdate = false,
 ): Promise<OutstandingObligation[]> {
-  const rows = await db
+  const query = db
     .select({
       id: obligation.id,
       kind: obligation.kind,
@@ -206,16 +220,27 @@ export async function findOutstandingObligationsForDriver(
       ),
     )
     .orderBy(asc(obligation.dueOn));
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows;
 }
 
-/** §6.5's allocation discipline, generalised to any party — F-2.2's generic payment collection draws down a customer's `owed_to_us` obligations the same oldest-first way the driver-scoped query above already does. */
+/**
+ * §6.5's allocation discipline, generalised to any party — F-2.2's generic
+ * payment collection draws down a customer's `owed_to_us` obligations the
+ * same oldest-first way the driver-scoped query above already does.
+ *
+ * GAP-5a: same `forUpdate` shape and the same reason — only `payment.ts`'s
+ * write path passes `true`; `lease-closure.ts`'s closure summary and
+ * `customer.ts`'s obligations screen are both display-only reads via
+ * `reader` and stay unlocked.
+ */
 export async function findOutstandingObligationsForParty(
   db: ReadDb,
   businessId: string,
   partyType: "customer" | "driver" | "partner",
   partyId: string,
   direction: "owed_to_us" | "owed_by_us",
+  forUpdate = false,
 ): Promise<OutstandingObligation[]> {
   const partyColumn =
     partyType === "customer"
@@ -224,7 +249,7 @@ export async function findOutstandingObligationsForParty(
         ? obligation.partyDriverId
         : obligation.partyUserId;
 
-  const rows = await db
+  const query = db
     .select({
       id: obligation.id,
       kind: obligation.kind,
@@ -245,6 +270,7 @@ export async function findOutstandingObligationsForParty(
       ),
     )
     .orderBy(asc(obligation.dueOn));
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows;
 }
 

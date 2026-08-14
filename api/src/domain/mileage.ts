@@ -21,6 +21,7 @@ import {
 } from "../queries/odometer-reading.js";
 import { insertAdjustment } from "../queries/adjustment.js";
 import { insertObligation, findObligationBySource } from "../queries/obligation.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { computeObligationStatus } from "./obligation-status.js";
 
 export interface AssessMileageInput {
@@ -204,6 +205,20 @@ export async function assessMileage(
             createdBy: input.userId,
             ...periodFields,
           });
+        } else {
+          // GAP-5b: an auto-waived obligation has nothing left to draw
+          // credit against (waivedMinor already covers it) — only the
+          // genuinely outstanding case applies forward.
+          await applyCreditForward(
+            tx,
+            input.businessId,
+            "customer",
+            lease.customerId,
+            "owed_to_us",
+            obligationId,
+            excessAmountMinor,
+            input.readOn,
+          );
         }
       }
 

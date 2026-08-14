@@ -11,6 +11,7 @@ import {
 } from "../queries/day-record.js";
 import { findObligationBySource, insertObligation } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
+import { applyCreditForward } from "./credit-forward.js";
 import { computeObligationStatus } from "./obligation-status.js";
 import type { LostReason } from "@fleetsettle/shared/schemas";
 
@@ -260,6 +261,25 @@ export async function confirmDay(
           amountMinor: receivedMinor,
           allocatedOn: input.businessDate,
         });
+      }
+
+      // GAP-5b: whatever today's own cash-on-the-spot payment above didn't
+      // cover, this driver's own unapplied credit (an earlier overpayment)
+      // settles the rest — the remainder, not earnedMinor itself, since
+      // settledMinor already carries receivedMinor from creation.
+      const stillOutstanding = earnedMinor - receivedMinor;
+      if (stillOutstanding > 0n) {
+        await applyCreditForward(
+          tx,
+          input.businessId,
+          "driver",
+          input.driverId,
+          "owed_to_us",
+          obligationId,
+          stillOutstanding,
+          input.businessDate,
+          receivedMinor,
+        );
       }
 
       return {

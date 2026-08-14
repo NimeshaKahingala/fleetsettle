@@ -161,6 +161,110 @@ describe("charge something after everything has closed (P10, F-8.4/UC-91)", () =
     await ctx.cleanup();
   });
 
+  it("GAP-5b — a customer's own unapplied payment credit settles the charge on the spot", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+      status: "closed",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // A surplus payment with nothing to settle against yet — held as credit
+    // (DM §10.2), same convention F-2.2 already describes.
+    const paymentRes = await request("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "500000",
+        occurredOn: "2026-08-01",
+      }),
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string; unallocatedMinor: string } = await paymentRes.json();
+    expect(paymentBody.unallocatedMinor).toBe("500000");
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      vehicleId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "200000",
+      dueOn: "2026-08-05",
+      note: "camera fine, settled straight from existing credit",
+    });
+    expect(res.status).toBe(201);
+    const body: PostClosureChargeResponseBody = await res.json();
+    // Not the pre-GAP-5b hardcoded "pending" — the credit fully covers it.
+    expect(body).toMatchObject({ amountMinor: "200000", status: "paid" });
+
+    // GAP-5b now leaves a real payment_allocation row tying the payment to
+    // the obligation — trackCreatedPayment must unwind first (registered
+    // last), or its own payment_allocation cleanup runs after the
+    // obligation is already gone from under it.
+    ctx.trackCreatedPostClosureCharge(body.obligationId);
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — GAP-59/GAP-123: vehicleId belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "closed" });
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      vehicleId: otherVehicleId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "1000",
+      dueOn: "2026-08-01",
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-59/GAP-123: vehicleId does not match the named lease's own vehicle", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const anotherVehicleId = await ctx.createVehicle(businessId, { registration: "OTHER-999" });
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "closed" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      vehicleId: anotherVehicleId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "1000",
+      dueOn: "2026-08-01",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("409 — a closed accounting period rejects the write", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

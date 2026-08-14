@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { accountingPeriodSummarySchema } from "./accounting-period.js";
+import { adjustmentTypeSchema } from "./adjustment.js";
 import { uuidSchema } from "./common.js";
 import { lostReasonSchema } from "./day-record.js";
 
@@ -183,9 +184,17 @@ export const lostDaysResponseSchema = z.object({
 });
 export type LostDaysResponse = z.infer<typeof lostDaysResponseSchema>;
 
+/** GAP-73: `totalMinor` by `adjustment_type` — the real enum, not the sparse free-text `reason` column (UI §11.1's "table by reason" is served by this grouping, `waiver`/`auto_waiver`/`goodwill` being the only three types UC-77's own WHERE clause ever counts as goodwill given). */
+export const goodwillByTypeRowSchema = z.object({
+  adjustmentType: adjustmentTypeSchema,
+  totalMinor: z.string(),
+});
+export type GoodwillByTypeRow = z.infer<typeof goodwillByTypeRowSchema>;
+
 /** UC-77: every waiver/auto-waiver/goodwill adjustment given in the window — never pooled with a write-off (W-28, reported separately by UC-90/UC-74). */
 export const goodwillResponseSchema = z.object({
   totalMinor: z.string(),
+  byType: z.array(goodwillByTypeRowSchema),
 });
 export type GoodwillResponse = z.infer<typeof goodwillResponseSchema>;
 

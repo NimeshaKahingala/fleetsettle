@@ -446,6 +446,58 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-5b — a customer's own unapplied payment credit settles the new trip_fare receivable on the spot", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const paymentRes = await request("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "1000000",
+        occurredOn: "2026-05-20",
+      }),
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string; unallocatedMinor: string } = await paymentRes.json();
+    expect(paymentBody.unallocatedMinor).toBe("1000000");
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-06-01",
+      endDate: "2026-06-03",
+      agreedAmountMinor: "700000",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, body.id)));
+    expect(obligationRows).toHaveLength(1);
+    // Not the pre-GAP-5b "settledMinor: 0n, status: pending" — the
+    // customer's own credit fully covers this fare on the spot.
+    expect(obligationRows[0]).toMatchObject({
+      amountMinor: 700_000n,
+      settledMinor: 700_000n,
+      status: "paid",
+    });
+
+    await ctx.cleanup();
+  });
+
   it("GAP-23/A6 — an owner-driven charter with no customer raises no receivable", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
