@@ -1,7 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.9 — **INV-34** added: an owner-manager's ownership/capital scope is his `ownership_share` as of the write; a manager's UC-70 scope is the vehicles whose `management_fee_agreement` overlapped the *reported* period, never its status today or at period end. §2.3's matrix and §8's traceability updated to match. Closes the mechanism `use-cases.md` v1.2.8's **W-59** names; also records that UC-71/72/74/76/78 stay deliberately whole-business for a manager and UC-75 has no vehicle to scope by. Decided closing GAP-1's Wave 3 (tenancy) planning, 13 Aug 2026
-**Date:** 13 August 2026
+**Status:** v1.1.10 — **INV-35** and **F-1.11** added: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md` v1.2.9's **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
+**Date:** 14 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -311,6 +311,7 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-32** | No record is ever hard-deleted at the database level. Every table is voided, never removed — not only the money-bearing ones W-50 already named | W-58 |
 | **INV-33** | A cost naming more than one of vehicle, trip and incident must name a mutually consistent set — a trip's own vehicle, an incident's own vehicle — never independently-valid but unrelated ids | §6.1, GAP-59 |
 | **INV-34** | An owner-manager's ownership/capital scope is exactly the vehicles his `ownership_share` names as of the write. A manager's UC-70 scope is exactly the vehicles whose `management_fee_agreement` overlapped the *reported* period — never the agreement's status today or at the period's end | §2.3, W-59, UC-02, UC-70 |
+| **INV-35** | Archiving a driver or customer is refused while any `obligation` (either direction), `deposit` or — driver only — `advance` tied to him is not fully settled. The refusal names every open figure separately; INV-3 still applies, so a driver's two balances are never netted into one | W-60, UC-100 |
 
 ---
 
@@ -427,6 +428,25 @@ UC-79's own utilisation report already named an "off-road" bucket beside earning
 · The range shows on the calendar (F-1.5) as its own state, never as merely "free"
 · **Feeds UC-79's off-road bucket only** — it does not re-partition §4.1's `days_in_month` formula and does not touch UC-76's `lease_eligible_days`, both of which stay exhaustively defined by `day_record`'s own states for arrangement B. A vehicle marked off the road *while* it also carries an active daily lease still needs each affected day confirmed through F-4.4 in the ordinary way, picking `breakdown` there if that is the reason — this flow records the vehicle-level fact for reporting and the calendar; it is additive, not a replacement for the driver-facing one
 · An incident's own `off_road_from`/`off_road_to` already covers incident-caused downtime and is not duplicated here — UC-79's bucket reads both sources.
+
+#### F-1.11 Archive a driver or customer
+*Actor:* Manager · *Source:* UC-100, W-58, W-60 · *Phase:* 1 *(new, GAP-36, resolved 14 Aug 2026)*
+A9a proved the `voided_*` mechanism on `expense`; this is the entity-lifecycle half W-58 promised and never mechanised — `driver` and `customer` have carried the same void trio (INV-32) since migration `0023`, with no endpoint that ever sets it.
+**Pre** the check below — INV-35 — passes.
+**Steps** From the driver's or customer's own page, **Archive** → confirm.
+**System** checks, live, for anything still open against him:
+· any `obligation` row naming him, of **either** `direction`, with `status IN ('pending','part_paid')`
+· any `deposit` row naming him with `status IN ('held','hold_window')` — money still on hand, not yet released, applied or retained
+· **driver only** — any `advance` row with `status IN ('open','part_settled')`
+Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was already taken off the books by its own correction, and counting it again would refuse an archive over money that no longer exists.
+**Writes** `voided_at`/`voided_reason`/`voided_by` on the driver or customer row — archived, not deleted, the same mechanism as every other W-58 table.
+**Alternates** · **Refused** — none of the above is empty. The refusal lists each nonzero figure by kind (a due, an advance, a deposit held), never netted into one number (INV-3/INV-35) — a driver owing an unsettled advance while also owed unpaid fees sees both named, not the difference · **Unarchive** — clears `voided_at`; nothing about his history is touched by either direction.
+**Accept**
+· A party with every obligation, deposit and advance settled, waived, written off or voided archives cleanly
+· A party with even one `pending`/`part_paid` obligation, an unreleased deposit, or an unreconciled advance is refused, and the refusal names it
+· An archived driver or customer still resolves by id — a voided expense that names him, a closed month's rent that names him, keeps rendering exactly as before (W-58); archiving removes him from pickers and "new record" lists, it does not touch anything already written
+· A closed month's totals never move because someone archived a driver or customer afterward — nothing about archiving is a money write against any period
+· Archiving is never offered as "Delete" (U-6) — the interface says which one it means.
 
 ---
 
@@ -994,6 +1014,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-7.6 | UC-67 | W-52, W-53 |
 | F-9.2 | UC-70…UC-79 | W-56 |
 | F-9.2 | UC-70 | W-59, INV-34 |
+| F-1.11 | UC-100 | W-60, INV-35 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.
