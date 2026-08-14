@@ -221,6 +221,38 @@ export const changeVehicleArrangementRoute = createRoute({
   },
 });
 
+/** GAP-36/A9b item 2, ST-1: `active → archived`, "kept for history, no new allocations." `manageEntities` — the same gate `createVehicleRoute` uses. */
+export const archiveVehicleRoute = createRoute({
+  method: "post",
+  path: "/{id}/archive",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleResponseSchema } },
+      description: "The vehicle, archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot archive a vehicle" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** The same "Unarchive" alternate F-1.11 offers a driver or customer — a vehicle archived by mistake, or one coming back into service. */
+export const unarchiveVehicleRoute = createRoute({
+  method: "post",
+  path: "/{id}/unarchive",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleResponseSchema } },
+      description: "The vehicle, no longer archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot unarchive a vehicle" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
 /** GAP-77/UC-71: an arrangement-C vehicle's own trip history — every status, most recent first. `dailyOperations`, matching `listVehicleIncidentsRoute` — operational content, not vehicle master-data. */
 export const listVehicleTripsRoute = createRoute({
   method: "get",
