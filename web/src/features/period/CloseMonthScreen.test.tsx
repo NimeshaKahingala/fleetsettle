@@ -23,6 +23,7 @@ const checklist: CloseChecklistResponse = {
     unreconciledAdvances: 0,
     pendingObligations: 5,
     openIncidents: 2,
+    dayCardsGeneratedThrough: "2026-08-28",
   },
 };
 

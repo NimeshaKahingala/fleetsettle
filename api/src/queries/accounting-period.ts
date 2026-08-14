@@ -136,6 +136,7 @@ export interface CloseChecklist {
   unreconciledAdvances: number;
   pendingObligations: number;
   openIncidents: number;
+  dayCardsGeneratedThrough: string | null;
 }
 
 /**
@@ -178,6 +179,7 @@ export async function buildCloseChecklist(
     unreconciledAdvancesRows,
     pendingObligationsRows,
     openIncidentsRows,
+    coverageRows,
   ] = await Promise.all([
     db
       .select({ count: sql<string>`COUNT(*)` })
@@ -225,6 +227,23 @@ export async function buildCloseChecklist(
       .select({ count: sql<string>`COUNT(*)` })
       .from(incident)
       .where(and(eq(incident.businessId, businessId), eq(incident.status, "open"))),
+    // GAP-94: the furthest business_date generate-day-cards has actually
+    // reached for this period — a coverage admission, not a pattern replay
+    // (CLAUDE.md's "no cron is a prerequisite for a user action" cuts the
+    // other way here: this reads what the cron already did, it does not
+    // reimplement generate-day-cards' own scheduling logic to guess what it
+    // should have done). voided_at IS NULL for the same GAP-118 reason
+    // unconfirmedDays already carries — a superseded card is not coverage.
+    db
+      .select({ maxDate: sql<string | null>`MAX(${dayRecord.businessDate})` })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.businessId, businessId),
+          eq(dayRecord.postedPeriodId, periodId),
+          isNull(dayRecord.voidedAt),
+        ),
+      ),
   ]);
 
   // eslint-disable-next-line no-restricted-syntax -- a row count for a warn-only checklist, not money
@@ -235,6 +254,7 @@ export async function buildCloseChecklist(
     unreconciledAdvances: toCount(unreconciledAdvancesRows),
     pendingObligations: toCount(pendingObligationsRows),
     openIncidents: toCount(openIncidentsRows),
+    dayCardsGeneratedThrough: coverageRows[0]?.maxDate ?? null,
   };
 }
 

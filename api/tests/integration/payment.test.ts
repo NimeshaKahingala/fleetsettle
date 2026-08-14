@@ -1,6 +1,8 @@
 import { newId } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { obligation, paymentAllocation } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -145,6 +147,57 @@ describe("record a payment (P5, F-2.2/UC-11)", () => {
     expect(body.allocations).toEqual([{ obligationId, amountMinor: "70000" }]);
     expect(body.unallocatedMinor).toBe("20000");
     ctx.trackCreatedPayment(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-5a — two concurrent payments against one obligation never both allocate past its own amount", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 10_000n,
+      dueOn: "2026-07-12",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const body = {
+      partyType: "customer",
+      partyId: customerId,
+      amountMinor: "10000",
+      occurredOn: "2026-07-15",
+    };
+    const [r1, r2] = await Promise.all([postPayment(token, body), postPayment(token, body)]);
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    const [b1, b2] = (await Promise.all([r1.json(), r2.json()])) as [
+      PaymentResponseBody,
+      PaymentResponseBody,
+    ];
+    ctx.trackCreatedPayment(b1.id);
+    ctx.trackCreatedPayment(b2.id);
+
+    // Without the lock, both requests read settledMinor = 0 before either
+    // writes, both allocate the full 10,000, and the second UPDATE clobbers
+    // the first — obligation.settledMinor ends at 10,000 while two
+    // payment_allocation rows sum to 20,000 against a 10,000 obligation.
+    // With the lock, the second request's SELECT blocks until the first
+    // transaction commits, then re-reads the now-settled row and correctly
+    // finds nothing left to allocate.
+    const [obRow] = await db.select().from(obligation).where(eq(obligation.id, obligationId));
+    const allocRows = await db
+      .select()
+      .from(paymentAllocation)
+      .where(eq(paymentAllocation.obligationId, obligationId));
+    const totalAllocated = allocRows.reduce((sum, a) => sum + a.amountMinor, 0n);
+
+    expect(totalAllocated).toBe(10_000n);
+    expect(obRow?.settledMinor).toBe(10_000n);
+    expect(obRow?.settledMinor).toBe(totalAllocated);
 
     await ctx.cleanup();
   });

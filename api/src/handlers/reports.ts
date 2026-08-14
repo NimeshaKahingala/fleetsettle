@@ -3,7 +3,6 @@ import type { LostReason } from "@fleetsettle/shared/schemas";
 import type { RouteHandler } from "@hono/zod-openapi";
 import {
   requireBusinessId,
-  requireBusinessTimezone,
   requireCapability,
   requireRole,
   requireUserId,
@@ -286,12 +285,20 @@ export const getGoodwillReportHandler: RouteHandler<typeof getGoodwillReportRout
 ) => {
   requireCapability(c, "viewOwnerOnlyReports");
   const businessId = requireBusinessId(c);
-  const timezone = requireBusinessTimezone(c);
   const { from, to } = c.req.valid("query");
 
-  const report = await getGoodwillReport(c.get("reader"), businessId, from, to, timezone);
+  const report = await getGoodwillReport(c.get("reader"), businessId, from, to);
 
-  return c.json({ totalMinor: toWire(report.totalMinor as Minor) }, 200);
+  return c.json(
+    {
+      totalMinor: toWire(report.totalMinor as Minor),
+      byType: report.byType.map((r) => ({
+        adjustmentType: r.adjustmentType,
+        totalMinor: toWire(r.totalMinor as Minor),
+      })),
+    },
+    200,
+  );
 };
 
 /** UC-79. `viewOwnerOnlyReports`: owner, owner-manager only. */

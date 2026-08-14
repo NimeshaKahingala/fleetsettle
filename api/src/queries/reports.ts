@@ -685,26 +685,58 @@ export async function listLostDaysByReason(
  * upper bound for the same reason: `timestamp + integer` is not valid,
  * where `date + integer` silently was, on the wrong type.
  */
+export interface GoodwillByTypeRow {
+  adjustmentType: string;
+  totalMinor: bigint;
+}
+
+/**
+ * GAP-73: windows on `occurred_on` (migration 0017), the business date the
+ * waiver was actually given — `created_at` was when the row was inserted,
+ * which is a different date whenever U-8's "any record can be entered for a
+ * past date" applies, exactly as GAP-56 was for `expense.spent_on` before
+ * it. `occurred_on` is a plain `date`; no `AT TIME ZONE` conversion is
+ * needed the way `created_at`'s `timestamptz` required, since the column is
+ * already a business date, not an instant to localise.
+ *
+ * Grouped by `adjustment_type` — the real enum every row already carries —
+ * rather than the sparse free-text `reason` column.
+ *
+ * `-sign * amount_minor` per row, not the bare (always-positive)
+ * `amount_minor`: a `waiver`/`auto_waiver` is always `sign = -1` (the wire
+ * schema's own `.refine()`, DM §10.3), so `-sign * amount_minor` is
+ * `+amount_minor` — the waived amount, as goodwill given should read. A
+ * free-standing `goodwill` adjustment can carry either sign (F-2.4's
+ * general "adjustment ± with a reason"); `sign = -1` there is a discount —
+ * goodwill given, same positive contribution — while `sign = 1` is an
+ * increase, which the old bare sum counted as goodwill given regardless of
+ * direction. The uniform `-sign * amount_minor` formula treats a `sign = 1`
+ * entry against one of the three types as clawing back goodwill previously
+ * given, not adding to it.
+ */
 export async function sumGoodwillGiven(
   db: ReadDb,
   businessId: string,
   from: string,
   to: string,
-  timezone: string,
-): Promise<bigint> {
+): Promise<GoodwillByTypeRow[]> {
   const rows = await db
-    .select({ amountMinor: adjustment.amountMinor })
+    .select({
+      adjustmentType: adjustment.adjustmentType,
+      totalMinor: sql<string>`SUM(-${adjustment.sign} * ${adjustment.amountMinor})`,
+    })
     .from(adjustment)
     .where(
       and(
         eq(adjustment.businessId, businessId),
         sql`${adjustment.adjustmentType} IN ('waiver', 'auto_waiver', 'goodwill')`,
         isNull(adjustment.voidedAt),
-        sql`${adjustment.createdAt} >= ${from}::timestamp AT TIME ZONE ${timezone}`,
-        sql`${adjustment.createdAt} < (${to}::timestamp + interval '1 day') AT TIME ZONE ${timezone}`,
+        gte(adjustment.occurredOn, from),
+        lte(adjustment.occurredOn, to),
       ),
-    );
-  return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+    )
+    .groupBy(adjustment.adjustmentType);
+  return rows.map((r) => ({ adjustmentType: r.adjustmentType, totalMinor: BigInt(r.totalMinor) }));
 }
 
 /** UC-79: a day is "earning" if it ran on a daily lease — everything else on this vehicle's own daily-lease calendar in range is idle or off-road, decided elsewhere. */

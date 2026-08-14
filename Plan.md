@@ -170,7 +170,7 @@ The only open item that is a security requirement rather than a feature. **Reseq
 
 **Verification, full account in TRACKER.md's 13 Aug entry:** every touched file green in isolation, each new assertion confirmed red against the pre-fix code first, golden fixture reproduced exactly at 134,000, full gate clean. The one full-suite run hit this branch's own documented Neon-contention flake (108 failures, all `Connection terminated` on a basic insert, after 81 minutes of sustained load) — confirmed environmental by re-running an affected, untouched file alone, clean.
 
-### Wave 4 · Money correctness (M–L) — planned 13 August 2026, not started
+### ~~Wave 4 · Money correctness~~ (M–L) — ✅ done, 14 August 2026
 
 GAP-94 · GAP-73 · GAP-5 · GAP-8 · GAP-14 · GAP-59. **Sized against source rather than off its own row**, and three things moved before any code was written.
 
@@ -201,6 +201,8 @@ GAP-94 · GAP-73 · GAP-5 · GAP-8 · GAP-14 · GAP-59. **Sized against source r
 **Step 8 · GAP-14 — coverage only (S).** No code change. `payment-correction.test.ts` has nine cases and none stacks. The one that matters: two sequential `back_to_arrears` corrections against one payment, the second unwinding allocations the first already reduced — assert the obligation's `settled_minor` and the party's arrears after each, and that the `payment_correction` rows sum to the total corrected.
 
 **Order:** `0 → 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8`. Reproductions and decisions first because two items change size on their outcome; then ascending by size, with **GAP-5a jumped ahead of items smaller than it** because a live over-settlement outranks a feature. **Risks:** GAP-5b is the one item that can overrun the wave if Step 1 chooses the on-read sweep, which brings its own retry-safety surface; and Step 3 moves a report query, so 134,000 / 15,000 / 7,500 is the check that matters, not a green suite.
+
+**Both premises settled by Step 0, exactly as written above: GAP-8 did not reproduce (closed as a regression test, not a lock), GAP-5a did.** GAP-5b landed on-write, the lower-risk of the two options this section named — one shared helper (`domain/credit-forward.ts`), seven call sites. **The wiring itself surfaced two bugs neither this plan nor GAP-5b's own row anticipated**: `bookTrip` and `recordPostClosureCharge` both hardcoded their HTTP response's `status`/`settledMinor` fields, true before credit-forward existed and false after — both domains now return the real post-credit state, both handlers report it, and two end-to-end tests pin it. Golden fixtures unmoved; full account in TRACKER.md's 14 Aug entry.
 
 ### Wave 5 · Finish the half-built flows (XL)
 
