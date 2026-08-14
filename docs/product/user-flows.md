@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.11 — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
+**Status:** v1.1.12 — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
 **Date:** 14 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
@@ -312,6 +312,7 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-33** | A cost naming more than one of vehicle, trip and incident must name a mutually consistent set — a trip's own vehicle, an incident's own vehicle — never independently-valid but unrelated ids | §6.1, GAP-59 |
 | **INV-34** | An owner-manager's ownership/capital scope is exactly the vehicles his `ownership_share` names as of the write. A manager's UC-70 scope is exactly the vehicles whose `management_fee_agreement` overlapped the *reported* period — never the agreement's status today or at the period's end | §2.3, W-59, UC-02, UC-70 |
 | **INV-35** | Archiving a driver or customer is refused while any `obligation` (either direction), `deposit` or — driver only — `advance` tied to him is not fully settled. The refusal names every open figure separately; INV-3 still applies, so a driver's two balances are never netted into one | W-60, UC-100 |
+| **INV-36** | Voiding a record cascades only into a row the same write minted; a record entered separately, on its own, beneath the one being voided blocks the void and is named in the refusal. Per-table mechanics: F-8.5 | W-61 |
 
 ---
 
@@ -869,6 +870,26 @@ Wrong vehicle, duplicate day confirm, fuel logged against the wrong trip, a day 
 · Non-money fields may be edited with the change captured in the audit trail (F-8.6)
 · A voided record never disappears from the audit trail.
 
+**INV-36 — cascade or refuse, per table** *(added v1.1.12, GAP-12)*. Voiding a parent record moves only what that same write minted — a row nobody ever entered on its own screen. A record entered separately, in its own right, beneath the one being voided blocks the parent's void instead, so the manager undoes what he actually did, in the order he did it:
+
+| Table | On void |
+|---|---|
+| `adjustment` | Reverses the effect exactly: a waiver lowers `waived_minor`; a `+1` type (`late_fee`, `extra_charge`) unwinds `payment_allocation` newest-first until the total fits, and the surplus becomes ordinary unallocated credit (§9.2/DM §10.2) — the receipt itself is never touched, because the cash genuinely arrived |
+| `offset_record` | Unwinds both allocation sides symmetrically — never one balance without the other (INV-3) — recomputing each affected `obligation`'s status |
+| `deposit_movement` | Voids; `deposit.status` recomputes from the newest surviving terminal movement, falling back to `hold_window` (if `hold_release_date` is set) or `held` when none remain — so INV-35's open-deposit check never reads a status the void left stale |
+| `advance` | **Refused** while any `advance_settlement` against it is live, naming each and their total — a settlement is its own entered act |
+| `advance_settlement` | Voids; `advance.status` recomputes from the live settlements, restoring INV-17's trip-close block against cash the driver still holds |
+| `write_off` | Restores the linked `obligation`'s prior status exactly — nothing is stored to replay, `status` is re-derived the same way it always is; **refused** while any `write_off_recovery` against it is live |
+| `write_off_recovery` | Cascades — the `payment` it minted is marked reversed with it (INV-15), because that receipt was never entered as a thing on its own |
+| `incident_recovery` | **Refused** once `received_amount_minor` is set — the receipt behind it is its own entered act, undone through its own correction (F-8.2), not through voiding the recovery it settled |
+| `obligation` | Direct void only where a person raised it directly with nothing else to correct instead — today, a post-closure charge (F-8.4). Every other source corrects at its source: close the lease, void the day, cancel the trip, so a figure never detaches from the event that caused it. `opening_balance` obligations are the one exception to *that* exception — they correct through their own batch reversal (F-0.2), not a direct void |
+
+Every refusal in this table names the blocking rows and their total, the same `details` shape `F-1.11`'s already uses — U-5's "every figure can be corrected later" has to stay true in the client's hand, not only in the API.
+
+**Two answers considered and declined.** Reversing a `+1` adjustment by voiding the receipt behind it, or by recording a waiver for the difference, were both considered and declined for the same reason: the cash genuinely arrived, so a reversed receipt misdescribes what happened and a waiver misrecords a typo as a chosen discount (INV-14/W-28) — unwinding the allocation is the only description that matches the event. And for `deposit_movement`, the equal-and-opposite `refunded` row that already corrects a mistaken opening-balance movement (its own path, separate from this flow) was considered and declined as the *general* fix: `movement_type` is a business fact, and a fake `refunded` row on an ordinary mistyped movement would make the history claim a refund that never happened. The opening-balance case is unaffected — reversing it genuinely is a giving-back.
+
+**Closed periods, stated explicitly rather than left implicit.** A void is refused once its own record's month has closed (INV-10/W-35, via the same check every other post to that record goes through) — a mistake found after close is corrected by an adjustment posting to the open period (F-8.1), not by reaching back into a settled one. Recomputing `obligation.settled_minor`/`status` from an unwound allocation **is** allowed even when the obligation itself posted to a now-closed period, because `listReceivables` and the ageing report (F-9.2) are as-of-now views, not period-scoped — unwinding current outstanding never rewrites what a closed month reported as income.
+
 #### F-8.6 See who changed what
 *Actor:* Owner / owner-manager · *Source:* UC-97, W-50 · *Phase:* 1
 Two partners share this ledger and one of them does all the entry. An edit history is not a nicety here — it is the thing that makes the arrangement in §2.1 workable.
@@ -1015,6 +1036,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-9.2 | UC-70…UC-79 | W-56 |
 | F-9.2 | UC-70 | W-59, INV-34 |
 | F-1.11 | UC-100 | W-60, INV-35 |
+| F-8.5 | UC-96 | W-61, INV-36 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.
