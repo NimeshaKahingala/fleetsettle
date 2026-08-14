@@ -500,7 +500,7 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
       // and it must run after this payment is created but the teardown
       // order is LIFO, so tracking the payment separately here would delete
       // it first and violate write_off_recovery's FK on the way out.
-      const recoveredBody: { id: string; paymentId: string } = await recovered.json();
+      expect(recovered.status).toBe(201);
 
       const res = await post(`/api/write-off/${createdBody.id}/void`, token, { reason: "x" });
       expect(res.status).toBe(409);
