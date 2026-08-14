@@ -66,6 +66,31 @@ describe("POST /api/capital-contribution/{id}/void (GAP-12)", () => {
     await ctx.cleanup();
   });
 
+  it("regression: two concurrent voids race cleanly — one wins, the other is refused as already voided rather than clobbering the reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "500000",
+      contributedOn: "2026-07-15",
+    });
+    const { id }: { id: string } = await created.json();
+    ctx.trackCreatedCapitalContribution(id);
+
+    const [a, b] = await Promise.all([
+      post(`/api/capital-contribution/${id}/void`, token, { reason: "request A" }),
+      post(`/api/capital-contribution/${id}/void`, token, { reason: "request B" }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request(`/api/capital-contribution/${crypto.randomUUID()}/void`, {
       method: "POST",

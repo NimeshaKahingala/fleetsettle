@@ -133,14 +133,13 @@ export async function voidCapitalContributionRow(
   db: WriteDb,
   id: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(capitalContribution)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(capitalContribution.id, id))
+    .where(and(eq(capitalContribution.id, id), isNull(capitalContribution.voidedAt)))
     .returning({ voidedAt: capitalContribution.voidedAt });
-  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface NewManagementFeeAgreement {
@@ -271,14 +270,13 @@ export async function voidBankingEventRow(
   db: WriteDb,
   id: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(bankingEvent)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(bankingEvent.id, id))
+    .where(and(eq(bankingEvent.id, id), isNull(bankingEvent.voidedAt)))
     .returning({ voidedAt: bankingEvent.voidedAt });
-  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface NewPartnerPayout {
@@ -336,14 +334,13 @@ export async function voidPartnerPayoutRow(
   db: WriteDb,
   id: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(partnerPayout)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(partnerPayout.id, id))
+    .where(and(eq(partnerPayout.id, id), isNull(partnerPayout.voidedAt)))
     .returning({ voidedAt: partnerPayout.voidedAt });
-  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 // ---------------------------------------------------------------------------

@@ -149,12 +149,18 @@ export async function voidCapitalContribution(
   if (existing.voidedAt !== null) throw new CapitalContributionAlreadyVoidedError();
 
   try {
-    return await writer.transaction((tx) =>
+    // `voidCapitalContributionRow`'s WHERE guards `voided_at IS NULL`, so a
+    // losing race against a concurrent void returns undefined here rather
+    // than clobbering the winner's own reason/actor (the same shape
+    // `archiveDriverRow`/`archiveCustomerRow` already use).
+    const voided = await writer.transaction((tx) =>
       voidCapitalContributionRow(tx, input.contributionId, {
         voidedReason: input.reason,
         voidedBy: input.userId,
       }),
     );
+    if (!voided) throw new CapitalContributionAlreadyVoidedError();
+    return voided;
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -292,12 +298,16 @@ export async function voidBankingEvent(
   if (existing.voidedAt !== null) throw new BankingEventAlreadyVoidedError();
 
   try {
-    return await writer.transaction((tx) =>
+    // See voidCapitalContribution's own comment: the WHERE guard makes a
+    // losing race return undefined instead of a clobbered row.
+    const voided = await writer.transaction((tx) =>
       voidBankingEventRow(tx, input.bankingEventId, {
         voidedReason: input.reason,
         voidedBy: input.userId,
       }),
     );
+    if (!voided) throw new BankingEventAlreadyVoidedError();
+    return voided;
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -366,12 +376,16 @@ export async function voidPartnerPayout(
   if (existing.voidedAt !== null) throw new PartnerPayoutAlreadyVoidedError();
 
   try {
-    return await writer.transaction((tx) =>
+    // See voidCapitalContribution's own comment: the WHERE guard makes a
+    // losing race return undefined instead of a clobbered row.
+    const voided = await writer.transaction((tx) =>
       voidPartnerPayoutRow(tx, input.payoutId, {
         voidedReason: input.reason,
         voidedBy: input.userId,
       }),
     );
+    if (!voided) throw new PartnerPayoutAlreadyVoidedError();
+    return voided;
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
