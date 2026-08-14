@@ -204,9 +204,84 @@ GAP-94 · GAP-73 · GAP-5 · GAP-8 · GAP-14 · GAP-59. **Sized against source r
 
 **Both premises settled by Step 0, exactly as written above: GAP-8 did not reproduce (closed as a regression test, not a lock), GAP-5a did.** GAP-5b landed on-write, the lower-risk of the two options this section named — one shared helper (`domain/credit-forward.ts`), seven call sites. **The wiring itself surfaced two bugs neither this plan nor GAP-5b's own row anticipated**: `bookTrip` and `recordPostClosureCharge` both hardcoded their HTTP response's `status`/`settledMinor` fields, true before credit-forward existed and false after — both domains now return the real post-credit state, both handlers report it, and two end-to-end tests pin it. Golden fixtures unmoved; full account in TRACKER.md's 14 Aug entry.
 
-### Wave 5 · Finish the half-built flows (XL)
+### Wave 5 · Finish the half-built flows (XL) — planned 14 August 2026, **split into two tracks**
 
-The largest wave, and the one with the most independent items. **A8** — fuel-fill odometer writes its own reading in the same transaction, borne-by preview, prefill (GAP-30, GAP-32, GAP-34). **A9b** — roughly fifteen void endpoints, now over a schema where every table supports it (GAP-12, GAP-36, GAP-60). **A14** — the printed slip's signed 30-day link (GAP-65). **GAP-25** — end a daily lease; smaller than its own row: `endDailyLeaseRow` already exists with two callers, so this is an endpoint and a screen, not a mechanism. **GAP-2** — rate change on the built mechanism, plus F-4.6's bulk week-confirm. **GAP-7** — hold and in-progress end to end. **GAP-20**, **GAP-26** — skippable days and off the road, over Wave 1's tables. **GAP-68** — the predictive maintenance prompt; recording already ships. **GAP-6**, **GAP-15** — deposit-apply and deduct-from-fee, with F-8.3/F-8.4's sheets.
+The largest wave, and the first one this project has deliberately sized for **two people working at once**. Planned in its own sitting before any code moved, sourced against the tree rather than off the gap rows — **five of the eleven rows turned out to be stale in the same direction**, because Wave 1 built the schema they each say is missing and nobody went back to correct the text.
+
+Base branch: `wave5/plan-2026-08-14`, cut from Wave 4's head so it carries Waves 1–4 in full. **Wave 5 merges after Wave 4** (PRs #39/#40) — 5B touches `domain/payment.ts` and `domain/offset.ts`, both of which Wave 4 moved.
+
+#### What the source check corrected
+
+Every one of these was found by grepping `api/src` for the thing the row says does not exist, not by re-reading the row:
+
+| Row says | Actually |
+|---|---|
+| **GAP-7** "needs a `doc-change` (hold-expiry mechanism) before it can size" | **The `doc-change` landed 12 Aug** — `user-flows.md` v1.1.8 (ST-5, INV-32/33) — and migration `0020` shipped `trip.hold_expires_on` plus `business_settings.hold_expiry_days DEFAULT 7`. **GAP-7 is startable and has been since Wave 1.** `trip.status` has defaulted to `'hold'` in the CHECK since `0001` ([:361](api/migrations/0001_initial_schema.sql#L361)); `bookTrip` writes `'booked'` outright and no code in `api/src/domain` mentions `hold` at all |
+| **GAP-20** "has no column to hold an exception" | `lease_day_exception` exists (`0018`). **Referenced by nothing but [db/schema.ts:390](api/src/db/schema.ts#L390)** |
+| **GAP-26** "no write path marks a vehicle-day unavailable" | Half true — `vehicle_unavailability` exists (`0019`), same state: declared at [db/schema.ts:312](api/src/db/schema.ts#L312), read and written nowhere |
+| **GAP-36** "`driver` and `customer` have no soft-delete column at all" | `0023` added the full void trio to both. **No endpoint sets them** |
+| **GAP-60** "there is no `replaces_id` column anywhere in the schema" | `0021` put it on **thirteen** tables. Nine `replacesId` declarations in `db/schema.ts`, **zero writes** |
+
+**One migration comment is wrong and should be corrected by whoever takes 5A-1.** `0020`'s own header says release-on-conflict lands in "Wave 2". Wave 2 was GAP-118/119/120 and built no hold code; that work is this wave's 5A-1.
+
+**Wave 5 needs no migration, checked rather than assumed.** Every column the eleven items write landed in Wave 1 — including the two nobody expected: `deposit_movement` has carried `movement_type = 'applied'` and `obligation_id uuid REFERENCES obligation(id)` since `0001` ([:670-675](api/migrations/0001_initial_schema.sql#L670-L675)), so **GAP-6 is a domain gap over a schema that already anticipated it**, not a schema change. The single exception is A14's share link, which is 5B's one open decision (below).
+
+#### The split, and why it falls here
+
+Not by size and not by track letter — **by the fact each cluster reasons about**. Split any other way and two people independently re-derive the same denominator or the same void convention, which is the divergence trap CLAUDE.md names.
+
+---
+
+### Track 5A · Occupancy and lease lifecycle — *"when is a vehicle earning, and when is it not"*
+
+**GAP-7 · GAP-25 · GAP-20 · GAP-26 · GAP-2.** One track because all five move the **lost-day denominator (`ran + lost`)** and the day-card horizon. Branch: `wave5a/occupancy-2026-08-14`.
+
+**5A-1 · GAP-7 — trip `hold` and `in_progress`, end to end (M).** Goes first: it is the only item here whose absence makes a *specified* UI unreachable — `VehicleCalendarScreen`'s hold-outline cell and `T?` glyph render and are tested and cannot occur. Schema is ready. Three decided mechanics, from 12 Aug, not to be re-litigated: **`hold_expires_on` is the only truth** (never duplicated onto `vehicle_day_allocation.is_hold`, one hold spanning several rows); **release is synchronous** — `bookTrip`/`startDailyLease`/`startLease` each void the vehicle's own expired holds *before* checking for a conflict, with the nightly sweep releasing only what nobody booked around (CLAUDE.md, "no cron is a prerequisite for a user action"); **`in_progress` is derived from the business date, never written**. Note the ordering trap Wave 2 already paid for once: the release must land before the conflict check, the same reason `releaseDailyLeaseAllocationsForRange` precedes `insertAllocationDays`.
+
+**5A-2 · GAP-25 — end a daily lease (S).** `endDailyLeaseRow` exists with two callers ([domain/vehicles.ts:172](api/src/domain/vehicles.ts#L172), [domain/dailyLease.ts:158](api/src/domain/dailyLease.ts#L158)); this is an endpoint and a screen, not a mechanism. **It must reuse Wave 2's `releaseDailyLeaseAllocationsAfter` + `voidFutureOpenDayRecordsForLease`** — the third caller of the pair `changeDailyLeaseDriver` and `changeVehicleArrangement` already have. Skip it and this silently reintroduces GAP-118 on a new path, which is exactly how GAP-118 got there.
+
+**5A-3 · GAP-20 — skippable individual days, F-1.7 (S–M).** `day-card-generation.ts` consults `lease_day_exception` *before* it writes; an excepted date behaves exactly like an off-pattern one — **no row, ever, the absence is the record**. The write path also needs the un-skip, which is a void, not a delete (W-58). **Confirm against UC-76 before writing the query**: an excepted day must land in neither `ran` nor `lost`, or the report overstates.
+
+**5A-4 · GAP-26 — off the road, F-1.10 (M).** Write path over `vehicle_unavailability`, calendar rendering, and the UC-79 utilisation bucket that has always named it. The reason mapping was decided 12 Aug and is the whole point of the item: **a breakdown still reaches UC-76's lost-day denominator; a routine outage does not.** Deliberately does not duplicate `incident.off_road_from/to`.
+
+**5A-5 · GAP-2 — effective-dated rate change (F-4.3) + bulk week-confirm (F-4.6) (M).** The rate-change mechanism already exists: close the row and open a new one, exactly what `changeDailyLeaseDriver` does — roughly halving this item (12 Aug). Last in the track because several screens' "current rate" simplifications are safe only while it is unbuilt, so it wants the other four settled around it.
+
+**Order:** `5A-1 → 5A-2 → 5A-3 → 5A-4 → 5A-5`. **The gate for this track is UC-76, not a green suite** — every item can move the lost-day denominator, and moving it is silent.
+
+---
+
+### Track 5B · Corrections, costs and attribution — *"how do we take it back, and whose is it"*
+
+**A9b (GAP-12/36/60) · A8 (GAP-30/32/34) · GAP-6 · GAP-15 · GAP-68 · A14 (GAP-65).** One track because all of it either writes a void or decides who bears a cost. Branch: `wave5b/corrections-2026-08-14`.
+
+**5B-1 · A9b — the void endpoints (XL, the largest item in the wave).** GAP-12 + GAP-36 + GAP-60 together, because they are one pass over the same fifteen-odd tables and doing them separately means three. Schema is entirely ready and entirely unused. **The reference pattern is [`voidExpense`](api/src/domain/expense.ts#L170) + [`voidExpenseRow`](api/src/queries/expense.ts#L71)** — replicate it, do not reinvent it: existence check → already-voided check → `writer.transaction` (`withActor` only attributes inside a real one) → catch `isPeriodClosedViolation` → `PeriodClosedError`. Three things to get right once, at the start, rather than fifteen times: **`replaces_id` is written by the *replacement*, not the void** (GAP-60 is void-*and-replace*, so the correction row carries the pointer); **`voidedReason` is a parameter, never hardcoded** (`voidExpenseRow`'s own comment, and Wave 2's reason for it); and **`driver`/`customer` are soft-deletes, not voids** — a soft-deleted parent must keep every past record rendering exactly as before, so a closed month's totals never move because someone archived a driver later (12 Aug). **Widening `check-forbidden.mjs`'s `money/void-table-unfiltered` rule to the tables this item puts a live void behind is part of the item**, not a follow-up — Wave 2 scoped it to four tables precisely because the rest had no void endpoint yet, and this is what changes that.
+
+**5B-2 · A8 — fuel-fill odometer, borne-by, prefill (M).** GAP-30: **a fuel fill writes its own `odometer_reading` row in the same transaction** — decided 11 Aug, not fuzzy-matched to a nearby reading and not stored on the expense alone. `expense.odometer_reading_id` has been a column since P3 and is read by [queries/reports.ts:234](api/src/queries/reports.ts#L234) with nothing ever writing it. GAP-32: borne-by override to a *specific* driver or customer, which needs the "who currently holds this vehicle" lookup — [`resolveBorneByDefault`](api/src/domain/expense.ts#L52) already resolves as of `spentOn` (GAP-56), so the preview reuses it rather than adding a second answer. GAP-34: prefill, the smallest of the three.
+
+**5B-3 · GAP-6 + GAP-15 — deposit-apply and deduct-from-fee (M).** Paired: both are F-8.3/F-8.4's sheets and both settle an obligation from money that is already somewhere. **GAP-6's whole difficulty is one sentence** — applying a held deposit must **not** mint a `payment` row for money already held, so `allocateAgainstOldest` cannot be reused verbatim; `recordDepositMovement` takes an `obligationId` it currently ignores, and the obligation's `settled_minor` moves with the `applied` movement in the same transaction. GAP-15: `createOffset` exists ([domain/offset.ts:35](api/src/domain/offset.ts#L35)) and is applied afterward; this is the combined one-tap path. **Read Wave 4's `credit-forward.ts` first** — it solved the adjacent problem of settling an obligation from money held elsewhere, and a second implementation of that arithmetic is the trap.
+
+**5B-4 · GAP-68 — the predictive maintenance prompt (S–M).** F-3.5's predictive half; the recording action already ships. **Sequenced after 5B-2** because it reads the odometer history 5B-2 is what finally writes.
+
+**5B-5 · A14 — the signed share link, GAP-65 (M).** F-6.6's "not optional" mechanism: a signed, expiring, **no-login** link, 30 days (11 Aug). Fully independent of everything else in either track — the natural filler when something blocks. **The one open decision in Wave 5, and it is 5B's**: a stateless signed token (no table, no migration, but no revocation) or a stored link row (revocable, and the only migration Wave 5 would need). **Recommendation: stateless**, matching this wave's no-migration shape; take it to the owner before building, not after. **W-49 is the acceptance criterion, not a nice-to-have** — a share link is a route that bypasses the JWT, so it gets the linked-driver isolation test class by construction.
+
+**Order:** `5B-1 → 5B-2 → 5B-3 → 5B-4`, with `5B-5` floating. 5B-1 first because it is the largest and because the void convention it settles is one every later item inherits.
+
+---
+
+### The seam between the tracks
+
+Stated explicitly so two people do not discover it in a merge. **The tracks share no domain file and no schema file.** What they do touch in common:
+
+| Shared surface | Rule |
+|---|---|
+| `api/src/errors/app-error.ts` | Both append error codes. **Append only, never reorder** — conflicts stay trivial |
+| `scripts/check-forbidden.mjs` | **5B owns it** (widening the void rule is 5B-1's own work). 5A's two new void-trio tables get filed to 5B rather than edited in |
+| `api/src/db/schema.ts` | **Read-only for both.** Wave 1 landed every column; a Wave 5 migration means a fact nobody planned for — stop and say so |
+| `packages/shared/src/schemas/` | Disjoint: 5A owns `trip-lifecycle.ts`/`vehicle.ts`, 5B owns `expense.ts`/`driver.ts`/`customer.ts` |
+| Web screens | Disjoint: 5A owns `VehicleCalendarScreen`/lease screens, 5B owns `RecordExpenseSheet`/`FuelFillSheet`/the void sheets |
+| The `test` Neon branch | **Shared, and it is the real contention risk** — §5's documented connection-pool exhaustion is worse with two people. Run touched-file-alone, not the full suite, and coordinate before any full run |
+
+**Both tracks clear the same gate independently before merging**: `npm run check`, golden fixtures unmoved at 134,000 / 15,000 / 7,500, and DM §13's drift assertion. **Neither track merges to `develop` before Wave 4 does.**
 
 ### Wave 6 · Reports (M)
 
