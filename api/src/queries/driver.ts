@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { driver } from "../db/schema.js";
 
@@ -26,6 +26,7 @@ export interface DriverRow {
   driverDayFeeMinor: bigint | null;
   driverTripFeeMinor: bigint | null;
   licenceExpiry: string | null;
+  voidedAt: string | null;
 }
 
 const COLUMNS = {
@@ -35,6 +36,7 @@ const COLUMNS = {
   driverDayFeeMinor: driver.driverDayFeeMinor,
   driverTripFeeMinor: driver.driverTripFeeMinor,
   licenceExpiry: driver.licenceExpiry,
+  voidedAt: driver.voidedAt,
 };
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
@@ -82,4 +84,27 @@ export async function linkDriverToUser(
 /** F-1.8's "Unlink" alternate: "his access ends, his record and history are untouched" — clears the one column, touches nothing else. */
 export async function unlinkDriver(db: WriteDb, driverId: string): Promise<void> {
   await db.update(driver).set({ linkedUserId: null }).where(eq(driver.id, driverId));
+}
+
+/** F-1.11/GAP-36: archive, never delete (W-58) — the same `voided_*` trio migration 0023 gave this table, so a closed month that names this driver keeps rendering exactly as before. INV-35's open-money check runs before this is ever called. */
+export async function archiveDriverRow(
+  db: WriteDb,
+  driverId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string }> {
+  const rows = await db
+    .update(driver)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(eq(driver.id, driverId))
+    .returning({ voidedAt: driver.voidedAt });
+  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
+  return rows[0] as { voidedAt: string };
+}
+
+/** F-1.11's "Unarchive" alternate: nothing about his history changed while he was gone, so there is nothing else to touch. */
+export async function unarchiveDriverRow(db: WriteDb, driverId: string): Promise<void> {
+  await db
+    .update(driver)
+    .set({ voidedAt: null, voidedReason: null, voidedBy: null })
+    .where(eq(driver.id, driverId));
 }

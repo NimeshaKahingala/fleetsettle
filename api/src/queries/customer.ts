@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer } from "../db/schema.js";
 
@@ -30,6 +30,7 @@ export interface CustomerRow {
   contactPerson: string | null;
   mobile: string | null;
   address: string | null;
+  voidedAt: string | null;
 }
 
 const COLUMNS = {
@@ -41,6 +42,7 @@ const COLUMNS = {
   contactPerson: customer.contactPerson,
   mobile: customer.mobile,
   address: customer.address,
+  voidedAt: customer.voidedAt,
 };
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
@@ -55,6 +57,29 @@ export async function findCustomerForBusiness(
     .where(and(eq(customer.id, customerId), eq(customer.businessId, businessId)))
     .limit(1);
   return rows[0] as CustomerRow | undefined;
+}
+
+/** F-1.11/GAP-36: archive, never delete (W-58) — the same `voided_*` trio migration 0023 gave this table, so a closed month that names this customer keeps rendering exactly as before. INV-35's open-money check runs before this is ever called. */
+export async function archiveCustomerRow(
+  db: WriteDb,
+  customerId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string }> {
+  const rows = await db
+    .update(customer)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(eq(customer.id, customerId))
+    .returning({ voidedAt: customer.voidedAt });
+  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
+  return rows[0] as { voidedAt: string };
+}
+
+/** F-1.11's "Unarchive" alternate: nothing about his history changed while he was gone, so there is nothing else to touch. */
+export async function unarchiveCustomerRow(db: WriteDb, customerId: string): Promise<void> {
+  await db
+    .update(customer)
+    .set({ voidedAt: null, voidedReason: null, voidedBy: null })
+    .where(eq(customer.id, customerId));
 }
 
 export async function listCustomersForBusiness(

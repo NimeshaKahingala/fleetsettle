@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.10 — **INV-35** and **F-1.11** added: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md` v1.2.9's **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
+**Status:** v1.1.11 — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
 **Date:** 14 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
@@ -433,13 +433,13 @@ UC-79's own utilisation report already named an "off-road" bucket beside earning
 *Actor:* Manager · *Source:* UC-100, W-58, W-60 · *Phase:* 1 *(new, GAP-36, resolved 14 Aug 2026)*
 A9a proved the `voided_*` mechanism on `expense`; this is the entity-lifecycle half W-58 promised and never mechanised — `driver` and `customer` have carried the same void trio (INV-32) since migration `0023`, with no endpoint that ever sets it.
 **Pre** the check below — INV-35 — passes.
-**Steps** From the driver's or customer's own page, **Archive** → confirm.
+**Steps** From the driver's or customer's own page, **Archive**, give a reason, confirm.
 **System** checks, live, for anything still open against him:
 · any `obligation` row naming him, of **either** `direction`, with `status IN ('pending','part_paid')`
 · any `deposit` row naming him with `status IN ('held','hold_window')` — money still on hand, not yet released, applied or retained
 · **driver only** — any `advance` row with `status IN ('open','part_settled')`
 Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was already taken off the books by its own correction, and counting it again would refuse an archive over money that no longer exists.
-**Writes** `voided_at`/`voided_reason`/`voided_by` on the driver or customer row — archived, not deleted, the same mechanism as every other W-58 table.
+**Writes** `voided_at`/`voided_reason`/`voided_by` on the driver or customer row — archived, not deleted, the same mechanism as every other W-58 table. **The reason is required, not optional** — migration `0023`'s own `CHECK` on both tables refuses `voided_at` set with `voided_reason` null or empty, the identical audit discipline W-50 already requires of a money void, matched at the API boundary rather than left to surface as a raw constraint failure.
 **Alternates** · **Refused** — none of the above is empty. The refusal lists each nonzero figure by kind (a due, an advance, a deposit held), never netted into one number (INV-3/INV-35) — a driver owing an unsettled advance while also owed unpaid fees sees both named, not the difference · **Unarchive** — clears `voided_at`; nothing about his history is touched by either direction.
 **Accept**
 · A party with every obligation, deposit and advance settled, waived, written off or voided archives cleanly

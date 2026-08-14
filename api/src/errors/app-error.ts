@@ -278,3 +278,26 @@ export class DayRecordVoidedError extends AppError {
     super(409, "DAY_RECORD_VOIDED", message);
   }
 }
+
+// INV-35/W-60/UC-100: a receivable (or a driver's unpaid fee) must never
+// leave a report because someone archived the party it belongs to — refused,
+// not merely warned, and every open figure is named separately (INV-3: a
+// driver's two balances are never netted into one number).
+export interface OpenMoneyItem {
+  kind: "due" | "payable" | "deposit_held" | "advance";
+  amountMinor: string;
+}
+export class PartyHasOpenMoneyError extends AppError {
+  constructor(message: string, openItems: OpenMoneyItem[]) {
+    super(409, "PARTY_HAS_OPEN_MONEY", message, { openItems });
+  }
+}
+
+// F-1.11: a driver or customer already carrying `voided_at` — a second
+// archive would silently overwrite the first one's own reason and actor,
+// the same shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.
+export class PartyAlreadyArchivedError extends AppError {
+  constructor(message = "This driver or customer has already been archived") {
+    super(409, "PARTY_ALREADY_ARCHIVED", message);
+  }
+}
