@@ -1,6 +1,6 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2.9 — **W-60** added, and **UC-100** written: archiving a driver or customer with any open money — a due, an unreconciled advance, a deposit held — is refused, naming the figure, never merely warned. W-58 already promised no party is hard-deleted; this settles the other half it left silent, the condition under which one may be *hidden*. Decided 14 Aug 2026, closing GAP-36 for Wave 5 Track 5B's Step 0; full mechanism in `user-flows.md` INV-35 and F-1.11
+**Status:** v1.2.10 — **UC-100** corrected: archiving a driver or customer requires a reason, not just a confirm. Found building 5B-1 against migration `0023`'s own `CHECK` (`driver`/`customer` refuse `voided_at` set with `voided_reason` null or empty) — the same W-50 audit discipline every money void already carries, which the flow had left unstated. **v1.2.9** added **W-60** and **UC-100** itself: archiving a driver or customer with any open money — a due, an unreconciled advance, a deposit held — is refused, naming the figure, never merely warned. W-58 already promised no party is hard-deleted; this settles the other half it left silent, the condition under which one may be *hidden*. Decided 14 Aug 2026, closing GAP-36 for Wave 5 Track 5B's Step 0; full mechanism in `user-flows.md` INV-35 and F-1.11
 **Date:** 14 August 2026
 **Companion:** `user-flows.md` holds the executable form of everything here — state machines, invariants, acceptance criteria and the test plan. This document owns *intent*; that one owns *mechanics*. Changes travel together (§10).
 **Deliberately excluded:** entity design, data model, functional requirement IDs, architecture. Those follow once these use cases are frozen. The existing requirements spec is unchanged and now partly out of date — it will be revised against whatever this document settles on.
@@ -995,7 +995,7 @@ Manager — a duplicate driver, a test customer, a party who genuinely stopped d
 
 W-58 already promises he is never hard-deleted. This is the other half: a way to stop seeing him everywhere without pretending the history he's part of never happened.
 
-*Flow:* open his record, **Archive**, confirm.
+*Flow:* open his record, **Archive**, give a reason, confirm — the same reason discipline W-50 already requires of a money void, since this is the one place archiving touches the audit trail.
 *Refused if any money is still open* (W-60) — a due he owes, an advance still unreconciled, a deposit still held. The refusal **names the figure**, so the next step is obvious: settle it, then archive.
 *What archiving does:* he drops out of every picker and every "add a new record" list. Every past record that already names him — a closed month's expense, last year's rental — keeps rendering exactly as it always did; a closed month's totals never move because someone archived a driver a year later.
 *Unarchive* puts him back in every picker. Nothing about his history changed while he was gone, so there is nothing to reconcile on the way back.
