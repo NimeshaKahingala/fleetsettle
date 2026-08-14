@@ -301,3 +301,26 @@ export class PartyAlreadyArchivedError extends AppError {
     super(409, "PARTY_ALREADY_ARCHIVED", message);
   }
 }
+
+// GAP-12/A9b: void-and-replace lands on the remaining twelve W-50 tables,
+// one table at a time — the reference pattern is `voidExpense`/
+// `ExpenseAlreadyVoidedError`. Same "already voided" shape, one class per
+// table (matching Expense/Attachment/DayRecord's own precedent) so each
+// carries its own message and wire code.
+export class CapitalContributionAlreadyVoidedError extends AppError {
+  constructor(message = "This capital contribution has already been voided") {
+    super(409, "CAPITAL_CONTRIBUTION_ALREADY_VOIDED", message);
+  }
+}
+
+export class BankingEventAlreadyVoidedError extends AppError {
+  constructor(message = "This banking event has already been voided") {
+    super(409, "BANKING_EVENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class PartnerPayoutAlreadyVoidedError extends AppError {
+  constructor(message = "This payout has already been voided") {
+    super(409, "PARTNER_PAYOUT_ALREADY_VOIDED", message);
+  }
+}
