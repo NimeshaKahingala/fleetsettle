@@ -1,7 +1,8 @@
 import { newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { computeObligationStatus } from "../domain/obligation-status.js";
+import { archiveCustomer, unarchiveCustomer } from "../domain/party-archive.js";
 import { NotFoundError } from "../errors/app-error.js";
 import {
   findCustomerForBusiness,
@@ -12,11 +13,13 @@ import {
 import { findOutstandingObligationsForParty } from "../queries/obligation.js";
 import { listPaymentsForBusiness } from "../queries/payment.js";
 import type {
+  archiveCustomerRoute,
   createCustomerRoute,
   getCustomerRoute,
   listCustomerObligationsRoute,
   listCustomerPaymentsRoute,
   listCustomersRoute,
+  unarchiveCustomerRoute,
 } from "../route-defs/customer.js";
 import type { Env } from "../types.js";
 import { toListRow as paymentListRowToResponse } from "./payment.js";
@@ -31,6 +34,7 @@ function toResponse(row: CustomerRow) {
     contactPerson: row.contactPerson,
     mobile: row.mobile,
     address: row.address,
+    archivedAt: row.voidedAt,
   };
 }
 
@@ -53,6 +57,7 @@ export const createCustomerHandler: RouteHandler<typeof createCustomerRoute, Env
           contactPerson: null,
           mobile: body.mobile ?? null,
           address: body.address ?? null,
+          voidedAt: null,
         }
       : {
           id,
@@ -63,6 +68,7 @@ export const createCustomerHandler: RouteHandler<typeof createCustomerRoute, Env
           contactPerson: body.contactPerson ?? null,
           mobile: body.mobile ?? null,
           address: body.address ?? null,
+          voidedAt: null,
         };
 
   await insertCustomer(c.get("writer"), {
@@ -160,4 +166,44 @@ export const listCustomerPaymentsHandler: RouteHandler<
   });
 
   return c.json(rows.map(paymentListRowToResponse), 200);
+};
+
+/** F-1.11/UC-100/W-60/GAP-36. `manageEntities` — same gate as F-2.1 (add a customer). */
+export const archiveCustomerHandler: RouteHandler<typeof archiveCustomerRoute, Env> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const reader = c.get("reader");
+
+  const row = await findCustomerForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  const { voidedAt } = await archiveCustomer(reader, c.get("writer"), {
+    businessId,
+    partyId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json({ ...toResponse(row), archivedAt: voidedAt }, 200);
+};
+
+/** F-1.11's "Unarchive" alternate — same `manageEntities` gate. */
+export const unarchiveCustomerHandler: RouteHandler<typeof unarchiveCustomerRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const row = await findCustomerForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await unarchiveCustomer(reader, c.get("writer"), businessId, id);
+  return c.json({ ...toResponse(row), archivedAt: null }, 200);
 };

@@ -13,6 +13,9 @@ import {
   recordPartnerPayoutHandler,
   revokeManagementHandler,
   setOwnershipSharesHandler,
+  voidBankingEventHandler,
+  voidCapitalContributionHandler,
+  voidPartnerPayoutHandler,
 } from "../handlers/partner.js";
 import {
   getPartnerSummaryRoute,
@@ -27,6 +30,9 @@ import {
   recordPartnerPayoutRoute,
   revokeManagementRoute,
   setOwnershipSharesRoute,
+  voidBankingEventRoute,
+  voidCapitalContributionRoute,
+  voidPartnerPayoutRoute,
 } from "../route-defs/partner.js";
 import type { Env } from "../types.js";
 
@@ -37,7 +43,8 @@ export const ownershipShare = new OpenAPIHono<Env>({ defaultHook: zodValidationH
 
 export const capitalContribution = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(recordCapitalContributionRoute, recordCapitalContributionHandler)
-  .openapi(listCapitalContributionsRoute, listCapitalContributionsHandler);
+  .openapi(listCapitalContributionsRoute, listCapitalContributionsHandler)
+  .openapi(voidCapitalContributionRoute, voidCapitalContributionHandler);
 
 export const managementFeeAgreement = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(grantManagementRoute, grantManagementHandler)
@@ -46,11 +53,13 @@ export const managementFeeAgreement = new OpenAPIHono<Env>({ defaultHook: zodVal
 
 export const bankingEvent = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(recordBankingEventRoute, recordBankingEventHandler)
-  .openapi(listBankingEventsRoute, listBankingEventsHandler);
+  .openapi(listBankingEventsRoute, listBankingEventsHandler)
+  .openapi(voidBankingEventRoute, voidBankingEventHandler);
 
 export const partnerPayout = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(recordPartnerPayoutRoute, recordPartnerPayoutHandler)
-  .openapi(listPartnerPayoutsRoute, listPartnerPayoutsHandler);
+  .openapi(listPartnerPayoutsRoute, listPartnerPayoutsHandler)
+  .openapi(voidPartnerPayoutRoute, voidPartnerPayoutHandler);
 
 /** A2/GAP-9/GAP-4/UC-67: the composed one-page-per-partner summary, mounted at `/api/partner` — distinct from the five sub-resources above. */
 export const partner = new OpenAPIHono<Env>({ defaultHook: zodValidationHook }).openapi(

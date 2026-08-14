@@ -20,3 +20,22 @@ export const businessDateSchema = z
   .transform(asBusinessDate);
 
 export const uuidSchema = z.string().uuid();
+
+/**
+ * GAP-12/A9b: the `voidExpense` request/response shape (`schemas/expense.ts`
+ * `voidExpenseRequestSchema`/`voidedExpenseResponseSchema`), generalised —
+ * every void endpoint across the remaining twelve W-50 tables sends and
+ * returns exactly this, so one pair is shared rather than twelve identical
+ * copies. `expense`'s own two stay as they are; nothing depends on them
+ * matching this one by reference, only by shape.
+ */
+export const voidRequestSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type VoidRequest = z.infer<typeof voidRequestSchema>;
+
+export const voidedResponseSchema = z.object({
+  id: uuidSchema,
+  voidedAt: z.string(),
+});
+export type VoidedResponse = z.infer<typeof voidedResponseSchema>;

@@ -278,3 +278,49 @@ export class DayRecordVoidedError extends AppError {
     super(409, "DAY_RECORD_VOIDED", message);
   }
 }
+
+// INV-35/W-60/UC-100: a receivable (or a driver's unpaid fee) must never
+// leave a report because someone archived the party it belongs to — refused,
+// not merely warned, and every open figure is named separately (INV-3: a
+// driver's two balances are never netted into one number).
+export interface OpenMoneyItem {
+  kind: "due" | "payable" | "deposit_held" | "advance";
+  amountMinor: string;
+}
+export class PartyHasOpenMoneyError extends AppError {
+  constructor(message: string, openItems: OpenMoneyItem[]) {
+    super(409, "PARTY_HAS_OPEN_MONEY", message, { openItems });
+  }
+}
+
+// F-1.11: a driver or customer already carrying `voided_at` — a second
+// archive would silently overwrite the first one's own reason and actor,
+// the same shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.
+export class PartyAlreadyArchivedError extends AppError {
+  constructor(message = "This driver or customer has already been archived") {
+    super(409, "PARTY_ALREADY_ARCHIVED", message);
+  }
+}
+
+// GAP-12/A9b: void-and-replace lands on the remaining twelve W-50 tables,
+// one table at a time — the reference pattern is `voidExpense`/
+// `ExpenseAlreadyVoidedError`. Same "already voided" shape, one class per
+// table (matching Expense/Attachment/DayRecord's own precedent) so each
+// carries its own message and wire code.
+export class CapitalContributionAlreadyVoidedError extends AppError {
+  constructor(message = "This capital contribution has already been voided") {
+    super(409, "CAPITAL_CONTRIBUTION_ALREADY_VOIDED", message);
+  }
+}
+
+export class BankingEventAlreadyVoidedError extends AppError {
+  constructor(message = "This banking event has already been voided") {
+    super(409, "BANKING_EVENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class PartnerPayoutAlreadyVoidedError extends AppError {
+  constructor(message = "This payout has already been voided") {
+    super(409, "PARTNER_PAYOUT_ALREADY_VOIDED", message);
+  }
+}

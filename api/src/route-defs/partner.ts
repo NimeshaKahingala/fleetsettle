@@ -20,6 +20,8 @@ import {
   recordCapitalContributionRequestSchema,
   recordPartnerPayoutRequestSchema,
   setOwnershipSharesRequestSchema,
+  voidedResponseSchema,
+  voidRequestSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
@@ -91,6 +93,26 @@ export const listCapitalContributionsRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read capital contributions" },
+  },
+});
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50: void, never delete — the `voidExpense` shape. */
+export const voidCapitalContributionRoute = createRoute({
+  method: "post",
+  path: "/{id}/void",
+  request: {
+    params: idParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided capital contribution",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a capital contribution" },
+    404: { description: "No such capital contribution in this business" },
+    409: { description: "Already voided, or PERIOD_CLOSED (GAP-35)" },
   },
 });
 
@@ -181,6 +203,26 @@ export const listBankingEventsRoute = createRoute({
   },
 });
 
+/** GAP-12/A9b/F-8.5/UC-96/W-50: void, never delete. */
+export const voidBankingEventRoute = createRoute({
+  method: "post",
+  path: "/{id}/void",
+  request: {
+    params: idParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided banking event",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a banking event" },
+    404: { description: "No such banking event in this business" },
+    409: { description: "Already voided, or PERIOD_CLOSED (GAP-35)" },
+  },
+});
+
 /** F-7.2/UC-63: never a cost of the vehicle. */
 export const recordPartnerPayoutRoute = createRoute({
   method: "post",
@@ -212,6 +254,26 @@ export const listPartnerPayoutsRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read partner payouts" },
+  },
+});
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50: void, never delete. */
+export const voidPartnerPayoutRoute = createRoute({
+  method: "post",
+  path: "/{id}/void",
+  request: {
+    params: idParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided payout",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a partner payout" },
+    404: { description: "No such payout in this business" },
+    409: { description: "Already voided, or PERIOD_CLOSED (GAP-35)" },
   },
 });
 

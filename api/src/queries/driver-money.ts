@@ -159,6 +159,26 @@ export async function updateAdvanceStatus(
   await db.update(advance).set({ status }).where(eq(advance.id, advanceId));
 }
 
+/** INV-35/F-1.11: the archive check's own read — every advance this driver still owes settlement on, never a voided one (a correction, not a fact he still owes against, the same convention `listAdvancesForDriver` already uses). */
+export async function findOpenAdvancesForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+): Promise<Array<{ id: string; amountMinor: bigint }>> {
+  const rows = await db
+    .select({ id: advance.id, amountMinor: advance.amountMinor })
+    .from(advance)
+    .where(
+      and(
+        eq(advance.businessId, businessId),
+        eq(advance.driverId, driverId),
+        sql`${advance.status} IN ('open', 'part_settled')`,
+        isNull(advance.voidedAt),
+      ),
+    );
+  return rows;
+}
+
 /** GAP-103: an opening-balance correction voids the advance a prior commit posted, by id — `WHERE … voided_at IS NULL` keeps a second call a no-op. */
 export async function voidAdvanceById(
   db: WriteDb,
@@ -233,6 +253,27 @@ export async function findHeldDepositForDriver(
     .orderBy(desc(deposit.createdAt))
     .limit(1);
   return rows[0] as DepositRow | undefined;
+}
+
+/** INV-35/F-1.11: the archive check's own read — every deposit still `held` or in `hold_window` for this party, either kind, not yet `released`/`applied`/`retained`. */
+export async function findOpenDepositsForParty(
+  db: ReadDb,
+  businessId: string,
+  partyType: "customer" | "driver",
+  partyId: string,
+): Promise<DepositRow[]> {
+  const partyColumn = partyType === "customer" ? deposit.partyCustomerId : deposit.partyDriverId;
+  const rows = await db
+    .select(DEPOSIT_COLUMNS)
+    .from(deposit)
+    .where(
+      and(
+        eq(deposit.businessId, businessId),
+        eq(partyColumn, partyId),
+        sql`${deposit.status} IN ('held', 'hold_window')`,
+      ),
+    );
+  return rows as DepositRow[];
 }
 
 export async function findDepositForBusiness(

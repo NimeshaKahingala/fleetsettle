@@ -38,6 +38,11 @@ export const ERROR_CODES = [
   "ATTACHMENT_SUBJECT_UNSUPPORTED",
   "ATTACHMENT_ID_CONFLICT",
   "DAY_RECORD_VOIDED",
+  "PARTY_HAS_OPEN_MONEY",
+  "PARTY_ALREADY_ARCHIVED",
+  "CAPITAL_CONTRIBUTION_ALREADY_VOIDED",
+  "BANKING_EVENT_ALREADY_VOIDED",
+  "PARTNER_PAYOUT_ALREADY_VOIDED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

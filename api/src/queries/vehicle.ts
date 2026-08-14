@@ -98,6 +98,25 @@ export async function findVehicleForBusiness(
   return rows[0] as VehicleRow | undefined;
 }
 
+/**
+ * GAP-36/A9b item 2: the `lifecycle` column DM §4 has carried since `0001`,
+ * with no endpoint ever moving it off `'active'`. `mileage_package`'s
+ * `archived_at` is the reference pattern for entity archiving, but this
+ * table already has its own three-state column — archiving is a plain
+ * transition on it, not a second mechanism. Unconditional, the same as
+ * `mileage_package`: no domain code reads `lifecycle` at booking time
+ * today, so an active lease survives an archive untouched, and the archive
+ * itself is not a claim that nothing is using this vehicle right now — only
+ * that nothing new should start.
+ */
+export async function setVehicleLifecycle(
+  db: WriteDb,
+  vehicleId: string,
+  lifecycle: "active" | "archived",
+): Promise<void> {
+  await db.update(vehicle).set({ lifecycle }).where(eq(vehicle.id, vehicleId));
+}
+
 export interface CurrentVehicleArrangementRow {
   id: string;
   arrangement: "A" | "B" | "C";
