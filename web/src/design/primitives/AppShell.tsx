@@ -43,16 +43,23 @@ export interface AppShellProps {
  * — `Screen`'s, never a second one here — and renders the tab bar as a
  * true flex sibling below `children` rather than a fixed overlay (see
  * `Screen.tsx`'s note on the same trade-off).
+ *
+ * §14/M-31 (GAP-124a, Wave 5 Step 0): at `lg`, the same tab bar becomes a
+ * persistent left rail — same destinations, same order, `lg:order-first`
+ * rather than a JSX reorder, since the DOM position (after `children`)
+ * still matters for the mobile bottom-bar case. The active indicator moves
+ * from a top strip to a left-edge strip at that breakpoint; a strip on the
+ * wrong edge of a vertical rail would read as broken, not merely unstyled.
  */
 export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }: AppShellProps) {
   const tabs = shell === "operate" ? OPERATE_TABS : shell === "review" ? REVIEW_TABS : null;
 
   return (
-    <div className="flex h-[100svh] flex-col bg-page pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)]">
+    <div className="flex h-[100svh] flex-col bg-page pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] lg:flex-row">
       <div className="min-h-0 flex-1">{children}</div>
       {tabs !== null ? (
         <nav
-          className="flex h-14 shrink-0 border-t border-line-hairline bg-surface pb-[env(safe-area-inset-bottom)] max-md:landscape:h-11"
+          className="flex h-14 shrink-0 border-t border-line-hairline bg-surface pb-[env(safe-area-inset-bottom)] max-md:landscape:h-11 lg:order-first lg:h-full lg:w-20 lg:flex-col lg:justify-start lg:gap-1 lg:border-t-0 lg:border-r lg:pb-4 lg:pt-4"
           aria-label={shell === "operate" ? "Operate" : "Review"}
         >
           {tabs.map(({ key, label, icon: Icon }) => {
@@ -71,9 +78,9 @@ export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }
                   }
                 }}
                 className={cn(
-                  "relative flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5 max-md:landscape:gap-0",
+                  "relative flex min-h-tap flex-1 flex-col items-center justify-center gap-0.5 max-md:landscape:gap-0 lg:flex-none lg:w-full lg:py-3",
                   isActive
-                    ? "text-brand-ink before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-full before:bg-brand"
+                    ? "text-brand-ink before:absolute before:top-0 before:h-0.5 before:w-8 before:rounded-full before:bg-brand lg:before:inset-y-2 lg:before:left-0 lg:before:h-auto lg:before:w-0.5"
                     : "text-ink-secondary",
                 )}
               >

@@ -35,6 +35,13 @@ export interface ScreenProps {
  * trades a little of §4.2's under-bar parallax polish for a layout with no
  * way to miscalculate an overlap, which matters more here since every
  * later screen builds on this one.
+ *
+ * §14/M-31 (GAP-124a, Wave 5 Step 0): the scroll region caps at a readable
+ * measure and centres itself at `lg`, the baseline §14 asks for ("constrain
+ * single-column content rather than stretching rows") ahead of any route
+ * actually adopting the two-pane list+detail treatment §14 also names —
+ * that split is per-route work for Wave 7 (GAP-124b), not this primitive's.
+ * The header stays full width; only the content people read as rows narrows.
  */
 export function Screen({
   title,
@@ -77,7 +84,7 @@ export function Screen({
       {offlineBanner}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3",
+          "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3 lg:mx-auto lg:w-full lg:max-w-2xl",
           primaryAction !== undefined
             ? "scroll-pb-[88px] max-md:landscape:scroll-pb-[76px]"
             : "scroll-pb-4 max-md:landscape:scroll-pb-3",
