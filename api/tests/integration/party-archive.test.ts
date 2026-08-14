@@ -102,6 +102,23 @@ describe("POST /api/driver/{id}/archive and /unarchive (F-1.11/GAP-36)", () => {
     await ctx.cleanup();
   });
 
+  it("regression: two concurrent archives race cleanly — one wins, the other is refused as already archived rather than clobbering the reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const [a, b] = await Promise.all([
+      postArchiveDriver(token, driverId, { reason: "request A" }),
+      postArchiveDriver(token, driverId, { reason: "request B" }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request(`/api/driver/${crypto.randomUUID()}/archive`, {
       method: "POST",

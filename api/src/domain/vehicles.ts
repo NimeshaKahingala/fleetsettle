@@ -20,6 +20,7 @@ import {
   findCurrentVehicleArrangementRow,
   insertVehicle,
   insertVehicleArrangement,
+  setVehicleLifecycle,
   upsertVehicleDocument,
 } from "../queries/vehicle.js";
 
@@ -209,4 +210,22 @@ export async function changeVehicleArrangement(
       effectiveTo: null,
     };
   });
+}
+
+/**
+ * GAP-36/A9b item 2: `lifecycle` moves off `'active'` for the first time.
+ * Transaction-wrapped for consistency with every other write in this
+ * codebase (found by review) — `vehicle` carries no `posted_period_id`
+ * (DM §13), so migration 0002's audit trigger never attaches to it and
+ * there is no `audit_log` attribution at stake either way. Unconditional,
+ * matching `mileage_package`'s own archive: no domain code reads
+ * `lifecycle` at booking time, so there is no already-archived state to
+ * race against.
+ */
+export async function archiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
+  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "archived"));
+}
+
+export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
+  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "active"));
 }

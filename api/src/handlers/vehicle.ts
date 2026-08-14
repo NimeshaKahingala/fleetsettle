@@ -6,7 +6,12 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { changeVehicleArrangement, createVehicle } from "../domain/vehicles.js";
+import {
+  archiveVehicle,
+  changeVehicleArrangement,
+  createVehicle,
+  unarchiveVehicle,
+} from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
 import { listExpensesForVehicle } from "../queries/expense.js";
@@ -18,7 +23,6 @@ import {
   findVehicleForBusiness,
   listVehicleDocumentsForVehicle,
   listVehiclesForBusiness,
-  setVehicleLifecycle,
   upsertVehicleDocument,
   type VehicleRow,
 } from "../queries/vehicle.js";
@@ -115,7 +119,7 @@ export const archiveVehicleHandler: RouteHandler<typeof archiveVehicleRoute, Env
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await setVehicleLifecycle(c.get("writer"), id, "archived");
+  await archiveVehicle(c.get("writer"), id);
   return c.json(toResponse({ ...row, lifecycle: "archived" }), 200);
 };
 
@@ -132,7 +136,7 @@ export const unarchiveVehicleHandler: RouteHandler<typeof unarchiveVehicleRoute,
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await setVehicleLifecycle(c.get("writer"), id, "active");
+  await unarchiveVehicle(c.get("writer"), id);
   return c.json(toResponse({ ...row, lifecycle: "active" }), 200);
 };
 

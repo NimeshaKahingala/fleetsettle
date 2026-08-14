@@ -136,10 +136,22 @@ export async function archiveDriver(
 
   await assertArchivable(reader, input.businessId, "driver", input.partyId);
 
-  return archiveDriverRow(writer, input.partyId, {
-    voidedReason: input.reason,
-    voidedBy: input.userId,
-  });
+  // Transaction-wrapped for consistency with every void endpoint in this
+  // codebase, though `driver`/`customer` carry no `posted_period_id` (DM
+  // §13) so migration 0002's audit trigger never attaches to them — there is
+  // no `audit_log` row to attribute either way; `voided_by` is set directly,
+  // from `input.userId`, regardless. What the transaction *does* matter for
+  // here is the WHERE guard inside `archiveDriverRow`: a losing race against
+  // a concurrent archive returns undefined rather than a clobbered row,
+  // treated the same as the already-archived check above.
+  const voided = await writer.transaction((tx) =>
+    archiveDriverRow(tx, input.partyId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+  if (!voided) throw new PartyAlreadyArchivedError();
+  return voided;
 }
 
 export async function unarchiveDriver(
@@ -150,7 +162,7 @@ export async function unarchiveDriver(
 ): Promise<void> {
   const existing = await findDriverForBusiness(reader, businessId, driverId);
   if (!existing) throw new NotFoundError("No such driver in this business");
-  await unarchiveDriverRow(writer, driverId);
+  await writer.transaction((tx) => unarchiveDriverRow(tx, driverId));
 }
 
 export async function archiveCustomer(
@@ -164,10 +176,17 @@ export async function archiveCustomer(
 
   await assertArchivable(reader, input.businessId, "customer", input.partyId);
 
-  return archiveCustomerRow(writer, input.partyId, {
-    voidedReason: input.reason,
-    voidedBy: input.userId,
-  });
+  // See archiveDriver's own comment: the transaction here is for the WHERE
+  // guard's race behaviour, not audit_log attribution — `customer` has no
+  // `posted_period_id` either, so migration 0002's trigger doesn't cover it.
+  const voided = await writer.transaction((tx) =>
+    archiveCustomerRow(tx, input.partyId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+  if (!voided) throw new PartyAlreadyArchivedError();
+  return voided;
 }
 
 export async function unarchiveCustomer(
@@ -178,5 +197,5 @@ export async function unarchiveCustomer(
 ): Promise<void> {
   const existing = await findCustomerForBusiness(reader, businessId, customerId);
   if (!existing) throw new NotFoundError("No such customer in this business");
-  await unarchiveCustomerRow(writer, customerId);
+  await writer.transaction((tx) => unarchiveCustomerRow(tx, customerId));
 }

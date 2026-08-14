@@ -86,19 +86,29 @@ export async function unlinkDriver(db: WriteDb, driverId: string): Promise<void>
   await db.update(driver).set({ linkedUserId: null }).where(eq(driver.id, driverId));
 }
 
-/** F-1.11/GAP-36: archive, never delete (W-58) — the same `voided_*` trio migration 0023 gave this table, so a closed month that names this driver keeps rendering exactly as before. INV-35's open-money check runs before this is ever called. */
+/**
+ * F-1.11/GAP-36: archive, never delete (W-58) — the same `voided_*` trio
+ * migration 0023 gave this table, so a closed month that names this driver
+ * keeps rendering exactly as before. INV-35's open-money check runs before
+ * this is ever called. `WHERE … voided_at IS NULL` (found by review, same
+ * shape `voidAdvanceById` already uses): the already-archived check upstream
+ * is a separate read, not atomic with this write, so two concurrent archives
+ * could otherwise both pass the check and the second silently overwrite the
+ * first's own reason and actor — this guard makes a losing race 0 rows
+ * (mapped to `PartyAlreadyArchivedError` by the caller) rather than a
+ * clobber.
+ */
 export async function archiveDriverRow(
   db: WriteDb,
   driverId: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(driver)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(driver.id, driverId))
+    .where(and(eq(driver.id, driverId), isNull(driver.voidedAt)))
     .returning({ voidedAt: driver.voidedAt });
-  // Written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 /** F-1.11's "Unarchive" alternate: nothing about his history changed while he was gone, so there is nothing else to touch. */
