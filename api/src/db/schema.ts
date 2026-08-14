@@ -527,6 +527,11 @@ export const offsetAllocation = pgTable("offset_allocation", {
   offsetId: uuid("offset_id").notNull(),
   obligationId: uuid("obligation_id").notNull(),
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  // GAP-12/W-58, migration 0024: structurally identical to payment_allocation
+  // (§10.2), which got this trio in 0022 — this table never had.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const deposit = pgTable("deposit", {

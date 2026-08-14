@@ -1,5 +1,6 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  archiveDriverRequestSchema,
   businessDateSchema,
   createDriverRequestSchema,
   driverBalancesResponseSchema,
@@ -127,6 +128,42 @@ export const unlinkDriverRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot unlink a driver's account" },
+    404: { description: "No such driver in this business" },
+  },
+});
+
+/** F-1.11/UC-100/W-60/INV-35: refused (409) while any due, payable, held deposit or unreconciled advance is still open — the refusal names every open figure separately. */
+export const archiveDriverRoute = createRoute({
+  method: "post",
+  path: "/{id}/archive",
+  request: {
+    params: driverIdParams,
+    body: { content: { "application/json": { schema: archiveDriverRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: driverResponseSchema } },
+      description: "The driver, archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot archive a driver" },
+    404: { description: "No such driver in this business" },
+    409: { description: "Already archived, or still carrying open money (INV-35)" },
+  },
+});
+
+/** F-1.11's "Unarchive" alternate: back in every picker, history untouched either way. */
+export const unarchiveDriverRoute = createRoute({
+  method: "post",
+  path: "/{id}/unarchive",
+  request: { params: driverIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: driverResponseSchema } },
+      description: "The driver, no longer archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot unarchive a driver" },
     404: { description: "No such driver in this business" },
   },
 });

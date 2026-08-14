@@ -38,6 +38,25 @@ export const ERROR_CODES = [
   "ATTACHMENT_SUBJECT_UNSUPPORTED",
   "ATTACHMENT_ID_CONFLICT",
   "DAY_RECORD_VOIDED",
+  "PARTY_HAS_OPEN_MONEY",
+  "PARTY_ALREADY_ARCHIVED",
+  "CAPITAL_CONTRIBUTION_ALREADY_VOIDED",
+  "BANKING_EVENT_ALREADY_VOIDED",
+  "PARTNER_PAYOUT_ALREADY_VOIDED",
+  // GAP-12/W-61/INV-36: the nine remaining void-cascade tables. One
+  // "already voided" code per table (matching Expense/CapitalContribution's
+  // own precedent), plus one shared VOID_BLOCKED for every refusal that
+  // names a separately-entered child row still standing in the way (§4).
+  "ADJUSTMENT_ALREADY_VOIDED",
+  "OBLIGATION_ALREADY_VOIDED",
+  "DEPOSIT_MOVEMENT_ALREADY_VOIDED",
+  "ADVANCE_ALREADY_VOIDED",
+  "ADVANCE_SETTLEMENT_ALREADY_VOIDED",
+  "WRITE_OFF_ALREADY_VOIDED",
+  "WRITE_OFF_RECOVERY_ALREADY_VOIDED",
+  "INCIDENT_RECOVERY_ALREADY_VOIDED",
+  "OFFSET_RECORD_ALREADY_VOIDED",
+  "VOID_BLOCKED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

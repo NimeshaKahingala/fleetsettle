@@ -3,6 +3,8 @@ import {
   listWriteOffsQuerySchema,
   listWriteOffsResponseSchema,
   recordWriteOffRecoveryRequestSchema,
+  voidedResponseSchema,
+  voidRequestSchema,
   writeOffRecoveryResponseSchema,
   writeOffRequestSchema,
   writeOffResponseSchema,
@@ -10,6 +12,7 @@ import {
 import { z } from "zod";
 
 const writeOffIdParams = z.object({ id: z.string().uuid() });
+const writeOffRecoveryParams = z.object({ id: z.string().uuid(), recoveryId: z.string().uuid() });
 
 /** A3: every filter optional, newest first. Voided rows stay in, struck through with their reason (W-50). */
 export const listWriteOffsRoute = createRoute({
@@ -62,5 +65,48 @@ export const recordWriteOffRecoveryRoute = createRoute({
     403: { description: "This role cannot record a write-off recovery" },
     404: { description: "No such write-off in this business" },
     409: { description: "That accounting period is closed" },
+  },
+});
+
+/** GAP-12/W-61/INV-36 §3.7: void, never delete — refused (VOID_BLOCKED) while any recovery against it is still live; the linked obligation's prior status is restored exactly. */
+export const voidWriteOffRoute = createRoute({
+  method: "post",
+  path: "/{id}/void",
+  request: {
+    params: writeOffIdParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided write-off",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a write-off" },
+    404: { description: "No such write-off in this business" },
+    409: {
+      description:
+        "Already voided, a live recovery is still against it (VOID_BLOCKED), or PERIOD_CLOSED (GAP-35)",
+    },
+  },
+});
+
+/** GAP-12/W-61/INV-36 §3.8: void, never delete — cascades to mark the payment this recovery minted as reversed, since it was never entered on its own. */
+export const voidWriteOffRecoveryRoute = createRoute({
+  method: "post",
+  path: "/{id}/recovery/{recoveryId}/void",
+  request: {
+    params: writeOffRecoveryParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The voided recovery",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot void a write-off recovery" },
+    404: { description: "No such recovery in this business" },
+    409: { description: "Already voided, or PERIOD_CLOSED (GAP-35)" },
   },
 });

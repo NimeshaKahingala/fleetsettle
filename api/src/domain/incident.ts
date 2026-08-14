@@ -9,10 +9,12 @@ import {
 import type { Reader, Writer } from "../db/client.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
 import {
+  IncidentRecoveryAlreadyVoidedError,
   InsuranceClaimAlreadyExistsError,
   NotFoundError,
   PeriodClosedError,
   ValidationError,
+  VoidBlockedError,
 } from "../errors/app-error.js";
 import { findPeriodForDate, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findBillingPeriodCoveringDate } from "../queries/billing-period.js";
@@ -31,6 +33,7 @@ import {
   recordIncidentRecoveryReceived,
   settleInsuranceClaimRow,
   updateIncidentOffRoad,
+  voidIncidentRecoveryRow,
   type IncidentRecoveryRow,
   type IncidentRow,
   type InsuranceClaimRow,
@@ -40,8 +43,15 @@ import {
   findObligationBySource,
   insertObligation,
   updateObligationSettled,
+  voidObligationBySource,
 } from "../queries/obligation.js";
-import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
+import {
+  findPaymentAllocationsForObligation,
+  insertPayment,
+  insertPaymentAllocation,
+  markPaymentReversed,
+  voidPaymentAllocation,
+} from "../queries/payment.js";
 import { applyAdjustmentTx } from "./adjustment.js";
 import { applyCreditForward } from "./credit-forward.js";
 import { computeObligationStatus } from "./obligation-status.js";
@@ -380,6 +390,27 @@ export async function recordRecoveryReceived(
           status,
         });
 
+        // Bug found 14 Aug 2026 (GAP-12/W-61/INV-36 §3.9): this handler
+        // overwrites `received_amount_minor` (a real correction) but used to
+        // mint a *fresh* payment unconditionally on every call — so
+        // re-recording a fat-fingered amount silently double-posted cash
+        // into UC-75's position and the customer's payment history. Fixed by
+        // reversing whatever this obligation's own live allocation already
+        // is before posting the new pair, the same "reverse then repost"
+        // shape `correctPayment` (F-8.2) uses — never more than one live
+        // payment behind this recovery at a time.
+        const priorAllocations = await findPaymentAllocationsForObligation(
+          tx,
+          recovery.obligationId,
+        );
+        for (const alloc of priorAllocations) {
+          await voidPaymentAllocation(tx, alloc.id, {
+            voidedReason: "Superseded by a corrected recovery amount",
+            voidedBy: input.userId,
+          });
+          await markPaymentReversed(tx, alloc.paymentId);
+        }
+
         if (input.receivedAmountMinor > 0n) {
           const linkage = await resolvePeriodLinkage(tx, input.businessId, input.receivedOn);
           if (!linkage) {
@@ -424,6 +455,75 @@ export async function recordRecoveryReceived(
       receivedPeriodId: receivedPeriod?.id ?? null,
     },
   };
+}
+
+export interface VoidIncidentRecoveryInput {
+  businessId: string;
+  recoveryId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedIncidentRecovery {
+  id: string;
+  voidedAt: string;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.9: refuses once `received_amount_minor > 0` — the
+ * receipt behind it is its own entered act, undone through its own
+ * correction (F-8.2/`recordRecoveryReceived`'s reverse-then-repost path
+ * above), not by voiding the recovery it settled. Clear, this cascades only
+ * `voidObligationBySource` — the obligation `recordCustomerContribution`
+ * minted alongside this row, never entered separately (§2's exception).
+ */
+export async function voidIncidentRecovery(
+  writer: Writer,
+  input: VoidIncidentRecoveryInput,
+): Promise<VoidedIncidentRecovery> {
+  const recovery = await findIncidentRecoveryForBusiness(
+    writer,
+    input.businessId,
+    input.recoveryId,
+  );
+  if (!recovery) throw new NotFoundError("No such recovery in this business");
+  if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
+
+  if (recovery.receivedAmountMinor > 0n) {
+    throw new VoidBlockedError(
+      `Cannot void — ${recovery.receivedAmountMinor.toString()} has already been received against ` +
+        "it. Correct the receipt itself first",
+      [
+        {
+          kind: "receipt",
+          id: input.recoveryId,
+          amountMinor: recovery.receivedAmountMinor.toString(),
+        },
+      ],
+    );
+  }
+
+  try {
+    return await writer.transaction(async (tx) => {
+      const voided = await voidIncidentRecoveryRow(tx, input.recoveryId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+      if (!voided) throw new IncidentRecoveryAlreadyVoidedError();
+
+      if (recovery.source === "customer" && recovery.obligationId !== null) {
+        await voidObligationBySource(tx, "incident_recovery", input.recoveryId, {
+          voidedReason: `Recovery voided: ${input.reason}`,
+          voidedBy: input.userId,
+        });
+      }
+
+      return { id: input.recoveryId, voidedAt: voided.voidedAt };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 }
 
 export interface SubmitInsuranceClaimInput {

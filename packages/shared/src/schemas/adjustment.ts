@@ -62,3 +62,26 @@ export const obligationAfterAdjustmentSchema = z.object({
   status: z.enum(["pending", "part_paid", "paid", "waived", "written_off"]),
 });
 export type ObligationAfterAdjustment = z.infer<typeof obligationAfterAdjustmentSchema>;
+
+/**
+ * GAP-12/W-61/INV-36 §3.1: found wiring the adjustment void endpoint — the
+ * create response carried the obligation's own id as `id` (deliberately,
+ * "one round trip instead of two") but never the adjustment's own id
+ * anywhere, so nothing a client held after creating one could ever address
+ * it for a later void. `adjustmentId` alongside the obligation shape, not
+ * folded into `obligationAfterAdjustmentSchema` itself — that schema is
+ * reused by the void response's own `obligation` field, where a fresh
+ * `adjustmentId` would not describe anything real.
+ */
+export const createdAdjustmentResponseSchema = obligationAfterAdjustmentSchema.extend({
+  adjustmentId: uuidSchema,
+});
+export type CreatedAdjustmentResponse = z.infer<typeof createdAdjustmentResponseSchema>;
+
+/** GAP-12/W-61/INV-36 §3.1: the voided adjustment plus the obligation it reversed, the same "one round trip" reasoning `createAdjustmentRoute` already uses. */
+export const voidedAdjustmentResponseSchema = z.object({
+  id: uuidSchema,
+  voidedAt: z.string(),
+  obligation: obligationAfterAdjustmentSchema,
+});
+export type VoidedAdjustmentResponse = z.infer<typeof voidedAdjustmentResponseSchema>;

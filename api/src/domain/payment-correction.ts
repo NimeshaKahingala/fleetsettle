@@ -161,7 +161,10 @@ async function unwindAllocations(
     }
 
     if (take === alloc.amountMinor) {
-      await voidPaymentAllocation(tx, alloc.id, userId);
+      await voidPaymentAllocation(tx, alloc.id, {
+        voidedReason: "Undone during a payment correction",
+        voidedBy: userId,
+      });
     } else {
       await reducePaymentAllocation(tx, alloc.id, alloc.amountMinor - take);
     }

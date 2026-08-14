@@ -278,3 +278,123 @@ export class DayRecordVoidedError extends AppError {
     super(409, "DAY_RECORD_VOIDED", message);
   }
 }
+
+// INV-35/W-60/UC-100: a receivable (or a driver's unpaid fee) must never
+// leave a report because someone archived the party it belongs to — refused,
+// not merely warned, and every open figure is named separately (INV-3: a
+// driver's two balances are never netted into one number).
+export interface OpenMoneyItem {
+  kind: "due" | "payable" | "deposit_held" | "advance";
+  amountMinor: string;
+}
+export class PartyHasOpenMoneyError extends AppError {
+  constructor(message: string, openItems: OpenMoneyItem[]) {
+    super(409, "PARTY_HAS_OPEN_MONEY", message, { openItems });
+  }
+}
+
+// F-1.11: a driver or customer already carrying `voided_at` — a second
+// archive would silently overwrite the first one's own reason and actor,
+// the same shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.
+export class PartyAlreadyArchivedError extends AppError {
+  constructor(message = "This driver or customer has already been archived") {
+    super(409, "PARTY_ALREADY_ARCHIVED", message);
+  }
+}
+
+// GAP-12/A9b: void-and-replace lands on the remaining twelve W-50 tables,
+// one table at a time — the reference pattern is `voidExpense`/
+// `ExpenseAlreadyVoidedError`. Same "already voided" shape, one class per
+// table (matching Expense/Attachment/DayRecord's own precedent) so each
+// carries its own message and wire code.
+export class CapitalContributionAlreadyVoidedError extends AppError {
+  constructor(message = "This capital contribution has already been voided") {
+    super(409, "CAPITAL_CONTRIBUTION_ALREADY_VOIDED", message);
+  }
+}
+
+export class BankingEventAlreadyVoidedError extends AppError {
+  constructor(message = "This banking event has already been voided") {
+    super(409, "BANKING_EVENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class PartnerPayoutAlreadyVoidedError extends AppError {
+  constructor(message = "This payout has already been voided") {
+    super(409, "PARTNER_PAYOUT_ALREADY_VOIDED", message);
+  }
+}
+
+// GAP-12/W-61/INV-36: the nine remaining void-cascade tables — the same
+// "already voided" shape as CapitalContributionAlreadyVoidedError etc.,
+// one class per table so each carries its own message and wire code.
+export class AdjustmentAlreadyVoidedError extends AppError {
+  constructor(message = "This adjustment has already been voided") {
+    super(409, "ADJUSTMENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class ObligationAlreadyVoidedError extends AppError {
+  constructor(message = "This obligation has already been voided") {
+    super(409, "OBLIGATION_ALREADY_VOIDED", message);
+  }
+}
+
+export class DepositMovementAlreadyVoidedError extends AppError {
+  constructor(message = "This deposit movement has already been voided") {
+    super(409, "DEPOSIT_MOVEMENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class AdvanceAlreadyVoidedError extends AppError {
+  constructor(message = "This advance has already been voided") {
+    super(409, "ADVANCE_ALREADY_VOIDED", message);
+  }
+}
+
+export class AdvanceSettlementAlreadyVoidedError extends AppError {
+  constructor(message = "This settlement has already been voided") {
+    super(409, "ADVANCE_SETTLEMENT_ALREADY_VOIDED", message);
+  }
+}
+
+export class WriteOffAlreadyVoidedError extends AppError {
+  constructor(message = "This write-off has already been voided") {
+    super(409, "WRITE_OFF_ALREADY_VOIDED", message);
+  }
+}
+
+export class WriteOffRecoveryAlreadyVoidedError extends AppError {
+  constructor(message = "This recovery has already been voided") {
+    super(409, "WRITE_OFF_RECOVERY_ALREADY_VOIDED", message);
+  }
+}
+
+export class IncidentRecoveryAlreadyVoidedError extends AppError {
+  constructor(message = "This recovery has already been voided") {
+    super(409, "INCIDENT_RECOVERY_ALREADY_VOIDED", message);
+  }
+}
+
+export class OffsetRecordAlreadyVoidedError extends AppError {
+  constructor(message = "This offset has already been voided") {
+    super(409, "OFFSET_RECORD_ALREADY_VOIDED", message);
+  }
+}
+
+// GAP-12/W-61/INV-36 §2/§4: the governing principle's refuse half — a parent
+// whose void would touch a row someone entered separately, in its own
+// right (a live settlement, recovery, or receipt), refuses and names every
+// blocking row, the same `details` shape PartyHasOpenMoneyError already
+// uses — U-5's "every figure can be corrected later" must be true in the
+// client's hand, not only in the API.
+export interface VoidBlockingItem {
+  kind: string;
+  id: string;
+  amountMinor?: string;
+}
+export class VoidBlockedError extends AppError {
+  constructor(message: string, blocking: VoidBlockingItem[]) {
+    super(409, "VOID_BLOCKED", message, { blocking });
+  }
+}

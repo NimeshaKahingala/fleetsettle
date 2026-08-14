@@ -1,6 +1,7 @@
 import { newId, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
+import { archiveDriver, unarchiveDriver } from "../domain/party-archive.js";
 import { getDriverOwnView } from "../domain/driver-view.js";
 import { inviteDriverLink } from "../domain/membership.js";
 import { NotFoundError } from "../errors/app-error.js";
@@ -13,12 +14,14 @@ import {
 } from "../queries/driver.js";
 import { sumOutstandingByDirectionForDriver } from "../queries/obligation.js";
 import type {
+  archiveDriverRoute,
   createDriverRoute,
   getDriverBalancesRoute,
   getDriverHistoryRoute,
   getDriverRoute,
   inviteDriverLinkRoute,
   listDriversRoute,
+  unarchiveDriverRoute,
   unlinkDriverRoute,
 } from "../route-defs/driver.js";
 import type { Env } from "../types.js";
@@ -34,6 +37,7 @@ function toResponse(row: DriverRow) {
     driverTripFeeMinor:
       row.driverTripFeeMinor !== null ? toWire(row.driverTripFeeMinor as Minor) : null,
     licenceExpiry: row.licenceExpiry,
+    archivedAt: row.voidedAt,
   };
 }
 
@@ -67,6 +71,7 @@ export const createDriverHandler: RouteHandler<typeof createDriverRoute, Env> = 
       driverTripFeeMinor:
         body.driverTripFeeMinor !== undefined ? toWire(body.driverTripFeeMinor) : null,
       licenceExpiry: body.licenceExpiry ?? null,
+      archivedAt: null,
     },
     201,
   );
@@ -185,4 +190,42 @@ export const unlinkDriverHandler: RouteHandler<typeof unlinkDriverRoute, Env> = 
 
   await unlinkDriver(c.get("writer"), id);
   return c.json(toResponse(row), 200);
+};
+
+/** F-1.11/UC-100/W-60/GAP-36. `manageEntities` — same gate as F-1.6 (add a driver). */
+export const archiveDriverHandler: RouteHandler<typeof archiveDriverRoute, Env> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const reader = c.get("reader");
+
+  const row = await findDriverForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  const { voidedAt } = await archiveDriver(reader, c.get("writer"), {
+    businessId,
+    partyId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json({ ...toResponse(row), archivedAt: voidedAt }, 200);
+};
+
+/** F-1.11's "Unarchive" alternate — same `manageEntities` gate. */
+export const unarchiveDriverHandler: RouteHandler<typeof unarchiveDriverRoute, Env> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const row = await findDriverForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await unarchiveDriver(reader, c.get("writer"), businessId, id);
+  return c.json({ ...toResponse(row), archivedAt: null }, 200);
 };

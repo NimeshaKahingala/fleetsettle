@@ -6,7 +6,12 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { changeVehicleArrangement, createVehicle } from "../domain/vehicles.js";
+import {
+  archiveVehicle,
+  changeVehicleArrangement,
+  createVehicle,
+  unarchiveVehicle,
+} from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
 import { listExpensesForVehicle } from "../queries/expense.js";
@@ -22,6 +27,7 @@ import {
   type VehicleRow,
 } from "../queries/vehicle.js";
 import type {
+  archiveVehicleRoute,
   changeVehicleArrangementRoute,
   createVehicleRoute,
   getVehicleCalendarRoute,
@@ -33,6 +39,7 @@ import type {
   listVehicleLeaseHistoryRoute,
   listVehicleTripsRoute,
   listVehiclesRoute,
+  unarchiveVehicleRoute,
   upsertVehicleDocumentRoute,
 } from "../route-defs/vehicle.js";
 import { incidentToResponse } from "./incident.js";
@@ -99,6 +106,38 @@ export const listVehiclesHandler: RouteHandler<typeof listVehiclesRoute, Env> = 
   const rows = await listVehiclesForBusiness(c.get("reader"), businessId);
 
   return c.json(rows.map(toResponse), 200);
+};
+
+/** GAP-36/A9b item 2. `manageEntities` — same gate as `createVehicleRoute`. */
+export const archiveVehicleHandler: RouteHandler<typeof archiveVehicleRoute, Env> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const row = await findVehicleForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await archiveVehicle(c.get("writer"), id);
+  return c.json(toResponse({ ...row, lifecycle: "archived" }), 200);
+};
+
+/** "Unarchive" alternate — same `manageEntities` gate. */
+export const unarchiveVehicleHandler: RouteHandler<typeof unarchiveVehicleRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const row = await findVehicleForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await unarchiveVehicle(c.get("writer"), id);
+  return c.json(toResponse({ ...row, lifecycle: "active" }), 200);
 };
 
 /** UC-95: "is the vehicle free on the 12th" — read-only, `dailyOperations` (the same capability booking a trip or confirming a day needs). */

@@ -1,10 +1,23 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { PeriodClosedError, ValidationError } from "../errors/app-error.js";
-import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { insertOffsetAllocation, insertOffsetRecord } from "../queries/driver-money.js";
 import {
+  NotFoundError,
+  OffsetRecordAlreadyVoidedError,
+  PeriodClosedError,
+  ValidationError,
+} from "../errors/app-error.js";
+import { resolvePeriodLinkage } from "../queries/accounting-period.js";
+import {
+  findLiveOffsetAllocations,
+  findOffsetRecordForBusiness,
+  insertOffsetAllocation,
+  insertOffsetRecord,
+  voidOffsetAllocationRow,
+  voidOffsetRecordRow,
+} from "../queries/driver-money.js";
+import {
+  findObligationForBusiness,
   findOutstandingObligationsForDriver,
   sumOutstandingByDirectionForDriver,
   updateObligationSettled,
@@ -124,5 +137,60 @@ async function allocateAgainstOldest(
     });
 
     remaining -= take;
+  }
+}
+
+export interface VoidOffsetInput {
+  businessId: string;
+  offsetId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedOffset {
+  id: string;
+  voidedAt: string;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.2: unwinds both sides symmetrically — INV-3's own
+ * rule, never one balance without the other. Migration 0024 gave
+ * `offset_allocation` the void trio it never had; for each live allocation
+ * this offset made, the obligation it touched has `settled_minor` reversed
+ * and its status recomputed before the allocation itself is voided, then
+ * the `offset_record` goes last.
+ */
+export async function voidOffset(writer: Writer, input: VoidOffsetInput): Promise<VoidedOffset> {
+  try {
+    return await writer.transaction(async (tx) => {
+      const off = await findOffsetRecordForBusiness(tx, input.businessId, input.offsetId);
+      if (!off) throw new NotFoundError("No such offset in this business");
+      if (off.voidedAt !== null) throw new OffsetRecordAlreadyVoidedError();
+
+      const allocations = await findLiveOffsetAllocations(tx, input.offsetId);
+      for (const alloc of allocations) {
+        const ob = await findObligationForBusiness(tx, input.businessId, alloc.obligationId);
+        if (ob && ob.voidedAt === null) {
+          const newSettled = ob.settledMinor - alloc.amountMinor;
+          const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
+          await updateObligationSettled(tx, ob.id, { settledMinor: newSettled, status });
+        }
+        await voidOffsetAllocationRow(tx, alloc.id, {
+          voidedReason: `Offset voided: ${input.reason}`,
+          voidedBy: input.userId,
+        });
+      }
+
+      const voided = await voidOffsetRecordRow(tx, input.offsetId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+      if (!voided) throw new OffsetRecordAlreadyVoidedError();
+
+      return { id: input.offsetId, voidedAt: voided.voidedAt };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
   }
 }

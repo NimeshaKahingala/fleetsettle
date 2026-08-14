@@ -6,9 +6,9 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { applyAdjustment } from "../domain/adjustment.js";
+import { applyAdjustment, voidAdjustment } from "../domain/adjustment.js";
 import { findBusinessSettings } from "../queries/business.js";
-import type { createAdjustmentRoute } from "../route-defs/adjustment.js";
+import type { createAdjustmentRoute, voidAdjustmentRoute } from "../route-defs/adjustment.js";
 import type { Env } from "../types.js";
 
 const WAIVER_TYPES = new Set(["waiver", "auto_waiver"]);
@@ -58,7 +58,39 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
       settledMinor: toWire(result.obligation.settledMinor as Minor),
       waivedMinor: toWire(result.obligation.waivedMinor as Minor),
       status: result.obligation.status,
+      adjustmentId: result.adjustmentId,
     },
     201,
+  );
+};
+
+/** GAP-12/W-61/INV-36 §3.1. `dailyOperations` — the same gate `voidExpense` uses. */
+export const voidAdjustmentHandler: RouteHandler<typeof voidAdjustmentRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidAdjustment(c.get("writer"), {
+    businessId,
+    adjustmentId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(
+    {
+      id: result.id,
+      voidedAt: result.voidedAt,
+      obligation: {
+        id: result.obligation.id,
+        amountMinor: toWire(result.obligation.amountMinor as Minor),
+        settledMinor: toWire(result.obligation.settledMinor as Minor),
+        waivedMinor: toWire(result.obligation.waivedMinor as Minor),
+        status: result.obligation.status,
+      },
+    },
+    200,
   );
 };

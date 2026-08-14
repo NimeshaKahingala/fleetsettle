@@ -24,6 +24,7 @@ import { openingBalance } from "./routes/opening-balance.js";
 import { expense } from "./routes/expense.js";
 import { attachment } from "./routes/attachment.js";
 import { adjustment } from "./routes/adjustment.js";
+import { obligation } from "./routes/obligation.js";
 import { advance } from "./routes/advance.js";
 import { deposit } from "./routes/deposit.js";
 import { offset } from "./routes/offset.js";
@@ -114,6 +115,9 @@ app.route("/api/attachment", attachment);
 
 app.use("/api/adjustment/*", dbMiddleware(), authMiddleware());
 app.route("/api/adjustment", adjustment);
+
+app.use("/api/obligation/*", dbMiddleware(), authMiddleware());
+app.route("/api/obligation", obligation);
 
 app.use("/api/advance/*", dbMiddleware(), authMiddleware());
 app.route("/api/advance", advance);

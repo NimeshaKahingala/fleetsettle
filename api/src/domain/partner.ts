@@ -6,9 +6,12 @@ import {
   isSharesNotFullViolation,
 } from "../db/pg-error.js";
 import {
+  BankingEventAlreadyVoidedError,
+  CapitalContributionAlreadyVoidedError,
   ManagementAgreementOverlapsError,
   NotFoundError,
   OwnershipSharesInvalidError,
+  PartnerPayoutAlreadyVoidedError,
   PeriodClosedError,
 } from "../errors/app-error.js";
 import {
@@ -18,6 +21,9 @@ import {
 } from "../queries/accounting-period.js";
 import { sumOutOfPocketExpensesForUser } from "../queries/expense.js";
 import {
+  findBankingEventForBusiness,
+  findCapitalContributionForBusiness,
+  findPartnerPayoutForBusiness,
   insertBankingEvent,
   insertCapitalContribution,
   insertManagementFeeAgreement,
@@ -27,6 +33,9 @@ import {
   sumCapitalContributionsForUser,
   sumManagementFeeAsOfDate,
   sumPartnerPayoutsForUser,
+  voidBankingEventRow,
+  voidCapitalContributionRow,
+  voidPartnerPayoutRow,
   type OwnershipShareRow,
 } from "../queries/partner.js";
 import { listPartnerCashPositions } from "../queries/reports.js";
@@ -117,6 +126,45 @@ export async function recordCapitalContribution(
   }
 
   return { contributionId };
+}
+
+export interface VoidCapitalContributionInput {
+  businessId: string;
+  contributionId: string;
+  reason: string;
+  userId: string;
+}
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50: the `voidExpense` shape — existence check → already-voided check → transaction (`withActor` only attributes inside a real one) → catch the period trigger. No child rows to unwind. */
+export async function voidCapitalContribution(
+  writer: Writer,
+  input: VoidCapitalContributionInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findCapitalContributionForBusiness(
+    writer,
+    input.businessId,
+    input.contributionId,
+  );
+  if (!existing) throw new NotFoundError("No such capital contribution in this business");
+  if (existing.voidedAt !== null) throw new CapitalContributionAlreadyVoidedError();
+
+  try {
+    // `voidCapitalContributionRow`'s WHERE guards `voided_at IS NULL`, so a
+    // losing race against a concurrent void returns undefined here rather
+    // than clobbering the winner's own reason/actor (the same shape
+    // `archiveDriverRow`/`archiveCustomerRow` already use).
+    const voided = await writer.transaction((tx) =>
+      voidCapitalContributionRow(tx, input.contributionId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      }),
+    );
+    if (!voided) throw new CapitalContributionAlreadyVoidedError();
+    return voided;
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 }
 
 export interface GrantManagementInput {
@@ -229,6 +277,43 @@ export async function recordBankingEvent(
   };
 }
 
+export interface VoidBankingEventInput {
+  businessId: string;
+  bankingEventId: string;
+  reason: string;
+  userId: string;
+}
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50: the `voidExpense` shape. No child rows to unwind — INV-23's unattributable shortfall lives on this row directly. */
+export async function voidBankingEvent(
+  writer: Writer,
+  input: VoidBankingEventInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findBankingEventForBusiness(
+    writer,
+    input.businessId,
+    input.bankingEventId,
+  );
+  if (!existing) throw new NotFoundError("No such banking event in this business");
+  if (existing.voidedAt !== null) throw new BankingEventAlreadyVoidedError();
+
+  try {
+    // See voidCapitalContribution's own comment: the WHERE guard makes a
+    // losing race return undefined instead of a clobbered row.
+    const voided = await writer.transaction((tx) =>
+      voidBankingEventRow(tx, input.bankingEventId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      }),
+    );
+    if (!voided) throw new BankingEventAlreadyVoidedError();
+    return voided;
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
+}
+
 export interface RecordPartnerPayoutInput {
   businessId: string;
   userId: string;
@@ -272,6 +357,39 @@ export async function recordPartnerPayout(
   }
 
   return { payoutId };
+}
+
+export interface VoidPartnerPayoutInput {
+  businessId: string;
+  payoutId: string;
+  reason: string;
+  userId: string;
+}
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50: the `voidExpense` shape. No child rows to unwind — a payout or partner settlement is a standalone fact about cash that moved. */
+export async function voidPartnerPayout(
+  writer: Writer,
+  input: VoidPartnerPayoutInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findPartnerPayoutForBusiness(writer, input.businessId, input.payoutId);
+  if (!existing) throw new NotFoundError("No such payout in this business");
+  if (existing.voidedAt !== null) throw new PartnerPayoutAlreadyVoidedError();
+
+  try {
+    // See voidCapitalContribution's own comment: the WHERE guard makes a
+    // losing race return undefined instead of a clobbered row.
+    const voided = await writer.transaction((tx) =>
+      voidPartnerPayoutRow(tx, input.payoutId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      }),
+    );
+    if (!voided) throw new PartnerPayoutAlreadyVoidedError();
+    return voided;
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
 }
 
 export interface PartnerSummary {
