@@ -1,11 +1,13 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   AdvanceAlreadyVoidedError,
   AdvanceSettlementAlreadyVoidedError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
   VoidBlockedError,
   type VoidBlockingItem,
@@ -31,19 +33,31 @@ export interface IssueAdvanceInput {
   amountMinor: Minor;
   issuedOn: BusinessDate;
   issuedByUserId: string;
+  replacesId?: string;
 }
 
 export interface IssuedAdvance {
   advanceId: string;
 }
 
-/** F-6.3/UC-53. Not a cost — reconciled to zero, and INV-17 (trip.ts, P6) blocks trip closure until it is. */
+/**
+ * F-6.3/UC-53. Not a cost — reconciled to zero, and INV-17 (trip.ts, P6)
+ * blocks trip closure until it is.
+ *
+ * GAP-60/D-16: `replacesId` — see `createExpense`'s own comment for the shape.
+ */
 export async function issueAdvance(
   writer: Writer,
   input: IssueAdvanceInput,
 ): Promise<IssuedAdvance> {
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.issuedOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findAdvanceForBusiness(writer, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such advance in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
 
   const advanceId = newId();
   try {
@@ -62,10 +76,14 @@ export async function issueAdvance(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       }),
     );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "advance_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
@@ -78,6 +96,7 @@ export interface SettleAdvanceInput {
   kind: "spent" | "returned" | "kept_as_fee";
   amountMinor: Minor;
   occurredOn: BusinessDate;
+  replacesId?: string;
 }
 
 export interface SettledAdvance {
@@ -91,6 +110,8 @@ export interface SettledAdvance {
  * kept as fee) is its own row — DM §10.4 keeps no stored running total, so
  * this sums every settlement recorded so far and compares it to the
  * original amount to decide `open` / `part_settled` / `settled`.
+ *
+ * GAP-60/D-16: `replacesId` — see `createExpense`'s own comment for the shape.
  */
 export async function settleAdvance(
   writer: Writer,
@@ -109,6 +130,12 @@ export async function settleAdvance(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    if (input.replacesId !== undefined) {
+      const target = await findAdvanceSettlementForBusiness(tx, input.businessId, input.replacesId);
+      if (!target) throw new NotFoundError("No such settlement in this business");
+      if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    }
+
     const settlementId = newId();
     try {
       await insertAdvanceSettlement(tx, {
@@ -122,6 +149,7 @@ export async function settleAdvance(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       const status = newSettled >= adv.amountMinor ? "settled" : "part_settled";
@@ -134,6 +162,9 @@ export async function settleAdvance(
       };
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      if (isUniqueViolation(err, "advance_settlement_replaces_id_key")) {
+        throw new ReplacesTargetAlreadyReplacedError();
+      }
       throw err;
     }
   });

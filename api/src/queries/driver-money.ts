@@ -22,6 +22,7 @@ export interface NewAdvance {
   issuedByUserId?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** UC-53. Not a cost — reconciled to zero, and INV-17 blocks trip closure until it is. */
@@ -44,6 +45,7 @@ export interface AdvanceRow {
   issuedOn: string;
   status: "open" | "part_settled" | "settled";
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
@@ -62,6 +64,7 @@ export async function findAdvanceForBusiness(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(and(eq(advance.id, advanceId), eq(advance.businessId, businessId)))
@@ -84,6 +87,7 @@ export async function findUnsettledAdvancesForTrip(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(
@@ -110,6 +114,7 @@ export async function listAdvancesForDriver(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(
@@ -133,6 +138,7 @@ export interface NewAdvanceSettlement {
   occurredOn: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 export async function insertAdvanceSettlement(
@@ -148,6 +154,7 @@ export interface AdvanceSettlementRow {
   kind: "spent" | "returned" | "kept_as_fee";
   amountMinor: bigint;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 /** GAP-12/W-61/INV-36 §3.5. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
@@ -163,6 +170,7 @@ export async function findAdvanceSettlementForBusiness(
       kind: advanceSettlement.kind,
       amountMinor: advanceSettlement.amountMinor,
       voidedAt: advanceSettlement.voidedAt,
+      replacesId: advanceSettlement.replacesId,
     })
     .from(advanceSettlement)
     .where(
@@ -391,6 +399,7 @@ export interface NewDepositMovement {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 export async function insertDepositMovement(
@@ -528,6 +537,7 @@ export interface NewOffsetRecord {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy: string;
+  replacesId?: string;
 }
 
 /** W-2/UC-56: the ONLY thing that moves both driver balances (INV-3). */

@@ -78,6 +78,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     paidByUserId: body.paidByUserId ?? userId,
     ...(body.litres !== undefined ? { litres: body.litres } : {}),
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -95,6 +96,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
       paidByUserId: body.paidByUserId ?? userId,
       litres: body.litres ?? null,
       note: body.note ?? null,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );
@@ -135,6 +137,7 @@ function toListRow(row: BusinessExpenseRow) {
     note: row.note,
     voidedAt: row.voidedAt,
     voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
   } as const;
 }
 

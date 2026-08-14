@@ -52,6 +52,10 @@ export const createExpenseRequestSchema = z
     // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money (UC-72)
     litres: z.number().positive().optional(),
     note: z.string().trim().max(500).optional(),
+    // GAP-60/D-16/F-8.5: set when this expense is the corrected replacement
+    // for one already voided — the target must belong to this business and
+    // already be voided, checked server-side (domain/expense.ts).
+    replacesId: uuidSchema.optional(),
   })
   .refine((v) => v.borneBy !== "driver" || v.borneByDriverId !== undefined, {
     message: "borneByDriverId is required when borneBy is 'driver'",
@@ -78,6 +82,9 @@ export const expenseResponseSchema = z.object({
   // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money
   litres: z.number().nullable(),
   note: z.string().nullable(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record
+  // itself rather than only from a global log.
+  replacesId: z.string().uuid().nullable(),
 });
 export type ExpenseResponse = z.infer<typeof expenseResponseSchema>;
 

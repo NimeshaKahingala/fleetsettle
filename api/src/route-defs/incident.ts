@@ -109,8 +109,11 @@ export const recordCustomerContributionRoute = createRoute({
     400: { description: "This incident has no lease, so there is no customer to bill" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a customer contribution" },
-    404: { description: "No such incident in this business" },
-    409: { description: "PERIOD_CLOSED" },
+    404: { description: "No such incident or replacesId recovery in this business" },
+    409: {
+      description:
+        "PERIOD_CLOSED, replacesId names a recovery that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 
@@ -175,8 +178,11 @@ export const submitInsuranceClaimRoute = createRoute({
     400: { description: "The excess borne cannot exceed the amount claimed" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot submit an insurance claim" },
-    404: { description: "No such incident in this business" },
-    409: { description: "An insurance claim already exists for this incident, or PERIOD_CLOSED" },
+    404: { description: "No such incident or replacesId recovery in this business" },
+    409: {
+      description:
+        "An insurance claim already exists for this incident, PERIOD_CLOSED, replacesId names a recovery that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

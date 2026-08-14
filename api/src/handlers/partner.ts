@@ -158,6 +158,7 @@ function contributionToResponse(row: CapitalContributionRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     contributedOn: row.contributedOn,
     note: row.note,
+    replacesId: row.replacesId,
   };
 }
 
@@ -187,6 +188,7 @@ export const recordCapitalContributionHandler: RouteHandler<
     amountMinor: body.amountMinor,
     contributedOn: body.contributedOn,
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -199,6 +201,7 @@ export const recordCapitalContributionHandler: RouteHandler<
       contributedOn: body.contributedOn,
       note: body.note ?? null,
       voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -372,6 +375,7 @@ function bankingEventToResponse(row: BankingEventRow) {
     // allows 'attributed_to_receipt'.
     discrepancyBearer:
       row.discrepancyBearer === "attributed_to_receipt" ? null : row.discrepancyBearer,
+    replacesId: row.replacesId,
   };
 }
 
@@ -399,6 +403,7 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
     ...(body.reference !== undefined ? { reference: body.reference } : {}),
     ...(body.discrepancyBearer !== undefined ? { discrepancyBearer: body.discrepancyBearer } : {}),
     createdBy: userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -414,6 +419,7 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
       discrepancyMinor,
       discrepancyBearer: body.discrepancyBearer ?? null,
       voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -460,6 +466,7 @@ function payoutToResponse(row: PartnerPayoutRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     kind: row.kind,
     occurredOn: row.occurredOn,
+    replacesId: row.replacesId,
   };
 }
 
@@ -484,6 +491,7 @@ export const recordPartnerPayoutHandler: RouteHandler<
     amountMinor: body.amountMinor,
     kind: body.kind,
     occurredOn: body.occurredOn,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -495,6 +503,7 @@ export const recordPartnerPayoutHandler: RouteHandler<
       kind: body.kind,
       occurredOn: body.occurredOn,
       voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );

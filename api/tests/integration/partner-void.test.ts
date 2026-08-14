@@ -261,3 +261,215 @@ describe("POST /api/partner-payout/{id}/void (GAP-12)", () => {
     await ctx.cleanup();
   });
 });
+
+/** GAP-60/D-16: "the replacement writes replaces_id, not the void" — F-8.5's replace half, the three tables this file already covers for void. */
+describe("replace a voided capital contribution, banking event or payout (GAP-60/D-16)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("capital contribution — happy path links the replacement to the voided original", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "500000",
+      contributedOn: "2026-07-15",
+    });
+    const { id }: { id: string } = await created.json();
+    ctx.trackCreatedCapitalContribution(id);
+    await post(`/api/capital-contribution/${id}/void`, token, { reason: "wrong amount" });
+
+    const res = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "550000",
+      contributedOn: "2026-07-15",
+      replacesId: id,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(id);
+    ctx.trackCreatedCapitalContribution(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("capital contribution — 409 when replacesId names one not voided yet, and 409 when it's already replaced", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const live = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "500000",
+      contributedOn: "2026-07-15",
+    });
+    const { id: liveId }: { id: string } = await live.json();
+    ctx.trackCreatedCapitalContribution(liveId);
+
+    const notVoidedYet = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "550000",
+      contributedOn: "2026-07-15",
+      replacesId: liveId,
+    });
+    expect(notVoidedYet.status).toBe(409);
+    expect(await notVoidedYet.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await post(`/api/capital-contribution/${liveId}/void`, token, { reason: "wrong amount" });
+    const firstReplacement = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "550000",
+      contributedOn: "2026-07-15",
+      replacesId: liveId,
+    });
+    const { id: firstReplacementId }: { id: string } = await firstReplacement.json();
+    ctx.trackCreatedCapitalContribution(firstReplacementId);
+
+    const secondReplacement = await post("/api/capital-contribution", token, {
+      userId: owner.userId,
+      amountMinor: "560000",
+      contributedOn: "2026-07-15",
+      replacesId: liveId,
+    });
+    expect(secondReplacement.status).toBe(409);
+    expect(await secondReplacement.json()).toMatchObject({
+      code: "REPLACES_TARGET_ALREADY_REPLACED",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("banking event — happy path links the replacement to the voided original", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const created = await post("/api/banking-event", token, {
+      amountRecordedMinor: "1000000",
+      amountCountedMinor: "1000000",
+      bankedOn: "2026-07-10",
+      destination: "BOC current account",
+    });
+    const { id }: { id: string } = await created.json();
+    ctx.trackCreatedBankingEvent(id);
+    await post(`/api/banking-event/${id}/void`, token, { reason: "wrong account" });
+
+    const res = await post("/api/banking-event", token, {
+      amountRecordedMinor: "1000000",
+      amountCountedMinor: "1000000",
+      bankedOn: "2026-07-10",
+      destination: "Commercial Bank current account",
+      replacesId: id,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(id);
+    ctx.trackCreatedBankingEvent(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("banking event — 409 when replacesId names one not voided yet", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const live = await post("/api/banking-event", token, {
+      amountRecordedMinor: "1000000",
+      amountCountedMinor: "1000000",
+      bankedOn: "2026-07-10",
+      destination: "BOC current account",
+    });
+    const { id: liveId }: { id: string } = await live.json();
+    ctx.trackCreatedBankingEvent(liveId);
+
+    const res = await post("/api/banking-event", token, {
+      amountRecordedMinor: "1000000",
+      amountCountedMinor: "1000000",
+      bankedOn: "2026-07-10",
+      destination: "Commercial Bank current account",
+      replacesId: liveId,
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("partner payout — happy path links the replacement to the voided original", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await post("/api/partner-payout", token, {
+      userId: owner.userId,
+      amountMinor: "500000",
+      kind: "payout",
+      occurredOn: "2026-07-10",
+    });
+    const { id }: { id: string } = await created.json();
+    ctx.trackCreatedPartnerPayout(id);
+    await post(`/api/partner-payout/${id}/void`, token, { reason: "wrong amount" });
+
+    const res = await post("/api/partner-payout", token, {
+      userId: owner.userId,
+      amountMinor: "550000",
+      kind: "payout",
+      occurredOn: "2026-07-10",
+      replacesId: id,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(id);
+    ctx.trackCreatedPartnerPayout(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("partner payout — 404 when replacesId names one in another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    await ctx.createOpenPeriod(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+
+    const otherPayout = await post("/api/partner-payout", otherToken, {
+      userId: otherOwner.userId,
+      amountMinor: "500000",
+      kind: "payout",
+      occurredOn: "2026-07-10",
+    });
+    const { id: otherId }: { id: string } = await otherPayout.json();
+    ctx.trackCreatedPartnerPayout(otherId);
+    await post(`/api/partner-payout/${otherId}/void`, otherToken, { reason: "wrong amount" });
+
+    const res = await post("/api/partner-payout", token, {
+      userId: owner.userId,
+      amountMinor: "550000",
+      kind: "payout",
+      occurredOn: "2026-07-10",
+      replacesId: otherId,
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});

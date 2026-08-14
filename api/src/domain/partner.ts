@@ -4,6 +4,7 @@ import {
   isExclusionViolation,
   isPeriodClosedViolation,
   isSharesNotFullViolation,
+  isUniqueViolation,
 } from "../db/pg-error.js";
 import {
   BankingEventAlreadyVoidedError,
@@ -13,6 +14,8 @@ import {
   OwnershipSharesInvalidError,
   PartnerPayoutAlreadyVoidedError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
 } from "../errors/app-error.js";
 import {
   findOpenPeriodRow,
@@ -87,19 +90,38 @@ export interface RecordCapitalContributionInput {
   amountMinor: Minor;
   contributedOn: BusinessDate;
   note?: string;
+  replacesId?: string;
 }
 
 export interface RecordedCapitalContribution {
   contributionId: string;
 }
 
-/** F-1.3/UC-02/W-52: what he paid — the gap against what he owns (`ownership_share`) is read elsewhere (P11), never resolved here. */
+/**
+ * F-1.3/UC-02/W-52: what he paid — the gap against what he owns
+ * (`ownership_share`) is read elsewhere (P11), never resolved here.
+ *
+ * GAP-60/D-16: `replacesId`, when set, is F-8.5's "replace" half — see
+ * `createExpense`'s own comment for the full shape (target must belong to
+ * this business and already be voided; the partial unique index, migration
+ * 0025, is the constraint stopping a second reply at the same voided row).
+ */
 export async function recordCapitalContribution(
   writer: Writer,
   input: RecordCapitalContributionInput,
 ): Promise<RecordedCapitalContribution> {
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.contributedOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findCapitalContributionForBusiness(
+      writer,
+      input.businessId,
+      input.replacesId,
+    );
+    if (!target) throw new NotFoundError("No such capital contribution in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
 
   const contributionId = newId();
   try {
@@ -118,10 +140,14 @@ export async function recordCapitalContribution(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       }),
     );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "capital_contribution_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
@@ -228,6 +254,7 @@ export interface RecordBankingEventInput {
   reference?: string;
   discrepancyBearer?: "absorbed" | "unattributed";
   createdBy: string;
+  replacesId?: string;
 }
 
 export interface RecordedBankingEvent {
@@ -235,13 +262,27 @@ export interface RecordedBankingEvent {
   discrepancyMinor: Minor;
 }
 
-/** F-7.4/UC-65/INV-23: the same money in a different place — never income, an expense, or a payout. `discrepancy_minor` is a generated column (DB, migration 0001); computed here too only to shape the response without a second round trip, never written. */
+/**
+ * F-7.4/UC-65/INV-23: the same money in a different place — never income, an
+ * expense, or a payout. `discrepancy_minor` is a generated column (DB,
+ * migration 0001); computed here too only to shape the response without a
+ * second round trip, never written.
+ *
+ * GAP-60/D-16: `replacesId` — see `recordCapitalContribution`'s own comment
+ * for the shape.
+ */
 export async function recordBankingEvent(
   writer: Writer,
   input: RecordBankingEventInput,
 ): Promise<RecordedBankingEvent> {
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.bankedOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findBankingEventForBusiness(writer, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such banking event in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
 
   const bankingEventId = newId();
   try {
@@ -264,10 +305,14 @@ export async function recordBankingEvent(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.createdBy,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       }),
     );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "banking_event_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
@@ -320,19 +365,32 @@ export interface RecordPartnerPayoutInput {
   amountMinor: Minor;
   kind: "payout" | "partner_settlement";
   occurredOn: BusinessDate;
+  replacesId?: string;
 }
 
 export interface RecordedPartnerPayout {
   payoutId: string;
 }
 
-/** F-7.2/UC-63: never a cost of the vehicle — a payout, or a settlement between partners that moves the current account, not the P&L. */
+/**
+ * F-7.2/UC-63: never a cost of the vehicle — a payout, or a settlement
+ * between partners that moves the current account, not the P&L.
+ *
+ * GAP-60/D-16: `replacesId` — see `recordCapitalContribution`'s own comment
+ * for the shape.
+ */
 export async function recordPartnerPayout(
   writer: Writer,
   input: RecordPartnerPayoutInput,
 ): Promise<RecordedPartnerPayout> {
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.occurredOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findPartnerPayoutForBusiness(writer, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such payout in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
 
   const payoutId = newId();
   try {
@@ -349,10 +407,14 @@ export async function recordPartnerPayout(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       }),
     );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "partner_payout_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 

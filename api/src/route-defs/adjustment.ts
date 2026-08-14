@@ -32,8 +32,11 @@ export const createAdjustmentRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     // A manual waiver above the auto-waive threshold needs `writeOffOrWaiveAboveThreshold` (OWNERS).
     403: { description: "This role cannot make this adjustment" },
-    404: { description: "No such obligation in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such obligation or replacesId adjustment in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names an adjustment that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

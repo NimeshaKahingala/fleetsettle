@@ -27,6 +27,7 @@ function toResponse(row: AdvanceRow, settledMinor: bigint) {
     issuedOn: row.issuedOn,
     status: row.status,
     settledMinor: toWire(settledMinor as Minor),
+    replacesId: row.replacesId,
   };
 }
 
@@ -48,6 +49,7 @@ export const issueAdvanceHandler: RouteHandler<typeof issueAdvanceRoute, Env> = 
     amountMinor: body.amountMinor,
     issuedOn: asBusinessDate(body.issuedOn),
     issuedByUserId: userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -61,6 +63,7 @@ export const issueAdvanceHandler: RouteHandler<typeof issueAdvanceRoute, Env> = 
         issuedOn: body.issuedOn,
         status: "open",
         voidedAt: null,
+        replacesId: body.replacesId ?? null,
       },
       0n,
     ),
@@ -80,10 +83,15 @@ export const settleAdvanceHandler: RouteHandler<typeof settleAdvanceRoute, Env> 
     kind: body.kind,
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
-    { ...toResponse(result.advance, result.settledMinor), settlementId: result.settlementId },
+    {
+      ...toResponse(result.advance, result.settledMinor),
+      settlementId: result.settlementId,
+      settlementReplacesId: body.replacesId ?? null,
+    },
     200,
   );
 };

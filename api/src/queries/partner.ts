@@ -82,6 +82,7 @@ export interface NewCapitalContribution {
   note?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** UC-02/W-52: what he PAID — a claim against `ownership_share` (what he OWNS), never a bigger slice. */
@@ -101,6 +102,7 @@ export interface CapitalContributionRow {
   contributedOn: string;
   note: string | null;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 const CAPITAL_CONTRIBUTION_COLUMNS = {
@@ -112,6 +114,7 @@ const CAPITAL_CONTRIBUTION_COLUMNS = {
   contributedOn: capitalContribution.contributedOn,
   note: capitalContribution.note,
   voidedAt: capitalContribution.voidedAt,
+  replacesId: capitalContribution.replacesId,
 };
 
 /** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
@@ -216,6 +219,7 @@ export interface NewBankingEvent {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** F-7.4/UC-65/INV-23: banking is the same money in a different place — not income, not an expense, not a payout (§1.5). */
@@ -235,6 +239,7 @@ export interface BankingEventRow {
   discrepancyMinor: bigint;
   discrepancyBearer: "absorbed" | "unattributed" | "attributed_to_receipt" | null;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 const BANKING_EVENT_COLUMNS = {
@@ -249,6 +254,7 @@ const BANKING_EVENT_COLUMNS = {
   discrepancyMinor: bankingEvent.discrepancyMinor,
   discrepancyBearer: bankingEvent.discrepancyBearer,
   voidedAt: bankingEvent.voidedAt,
+  replacesId: bankingEvent.replacesId,
 };
 
 /** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
@@ -288,6 +294,7 @@ export interface NewPartnerPayout {
   occurredOn: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** F-7.2/UC-63: never a cost of the vehicle — a payout, or a settlement between partners that moves the current account, not the P&L. */
@@ -303,6 +310,7 @@ export interface PartnerPayoutRow {
   kind: "payout" | "partner_settlement";
   occurredOn: string;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 const PARTNER_PAYOUT_COLUMNS = {
@@ -313,6 +321,7 @@ const PARTNER_PAYOUT_COLUMNS = {
   kind: partnerPayout.kind,
   occurredOn: partnerPayout.occurredOn,
   voidedAt: partnerPayout.voidedAt,
+  replacesId: partnerPayout.replacesId,
 };
 
 /** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
@@ -417,6 +426,7 @@ export async function listCapitalContributions(
       contributedOn: capitalContribution.contributedOn,
       note: capitalContribution.note,
       voidedAt: capitalContribution.voidedAt,
+      replacesId: capitalContribution.replacesId,
     })
     .from(capitalContribution)
     .where(
@@ -491,6 +501,7 @@ export async function listBankingEvents(
       reference: bankingEvent.reference,
       discrepancyBearer: bankingEvent.discrepancyBearer,
       voidedAt: bankingEvent.voidedAt,
+      replacesId: bankingEvent.replacesId,
     })
     .from(bankingEvent)
     .where(
@@ -532,6 +543,7 @@ export async function listPartnerPayouts(
       kind: partnerPayout.kind,
       occurredOn: partnerPayout.occurredOn,
       voidedAt: partnerPayout.voidedAt,
+      replacesId: partnerPayout.replacesId,
     })
     .from(partnerPayout)
     .where(

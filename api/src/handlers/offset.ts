@@ -25,6 +25,7 @@ export const createOffsetHandler: RouteHandler<typeof createOffsetRoute, Env> = 
     occurredOn: asBusinessDate(body.occurredOn),
     ...(body.note !== undefined ? { note: body.note } : {}),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -34,6 +35,7 @@ export const createOffsetHandler: RouteHandler<typeof createOffsetRoute, Env> = 
       amountMinor: toWire(body.amountMinor),
       occurredOn: body.occurredOn,
       note: body.note ?? null,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );

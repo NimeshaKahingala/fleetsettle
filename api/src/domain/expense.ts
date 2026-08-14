@@ -6,11 +6,13 @@ import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
 import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   ExpenseAlreadyVoidedError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
 } from "../errors/app-error.js";
 
 /**
@@ -84,6 +86,7 @@ export interface CreateExpenseInput {
   paidByUserId: string;
   litres?: number;
   note?: string;
+  replacesId?: string;
 }
 
 export interface CreatedExpense {
@@ -96,6 +99,15 @@ export interface CreatedExpense {
  * business's own cash" is what should increase what the business owes that
  * partner (F-3.1's "no extra step"), but partner current accounts are P7's
  * table, not yet built. Recorded here rather than silently assumed.
+ *
+ * GAP-60/D-16: `replacesId`, when set, is F-8.5's "replace" half — void the
+ * mistake, then record the correct one through this same endpoint, naming
+ * what it corrects. The target must belong to this business and already be
+ * voided (checked before the insert, in the same transaction the period
+ * check already opened); the partial unique index on `replaces_id`
+ * (migration 0025) is the constraint that stops a second reply pointing at
+ * the same voided row, the same "constraint, not code" shape every other
+ * race guard in this file's neighbours already uses.
  */
 export async function createExpense(
   writer: Writer,
@@ -103,6 +115,12 @@ export async function createExpense(
 ): Promise<CreatedExpense> {
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.spentOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findExpenseForBusiness(writer, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such expense in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
 
   const expenseId = newId();
   try {
@@ -134,10 +152,14 @@ export async function createExpense(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.paidByUserId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       }),
     );
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "expense_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 

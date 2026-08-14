@@ -33,10 +33,18 @@ const contributions: CapitalContributionsResponse = [
     amountMinor: "500000",
     contributedOn: "2026-08-01",
     note: null,
+    replacesId: null,
   },
 ];
 const payouts: PartnerPayoutsResponse = [
-  { id: "po1", userId: "u1", amountMinor: "200000", kind: "payout", occurredOn: "2026-08-02" },
+  {
+    id: "po1",
+    userId: "u1",
+    amountMinor: "200000",
+    kind: "payout",
+    occurredOn: "2026-08-02",
+    replacesId: null,
+  },
 ];
 const bankings: BankingEventsResponse = [
   {
@@ -49,6 +57,7 @@ const bankings: BankingEventsResponse = [
     reference: null,
     discrepancyMinor: "0",
     discrepancyBearer: null,
+    replacesId: null,
   },
 ];
 

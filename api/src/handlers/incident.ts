@@ -87,7 +87,7 @@ async function incidentDetailToResponse(reader: Reader, row: IncidentRow) {
 
 type RecoveryResponseRow = Pick<
   IncidentRecoveryRow,
-  "id" | "incidentId" | "source" | "agreedAmountMinor" | "receivedAmountMinor"
+  "id" | "incidentId" | "source" | "agreedAmountMinor" | "receivedAmountMinor" | "replacesId"
 >;
 
 function recoveryToResponse(row: RecoveryResponseRow) {
@@ -97,6 +97,7 @@ function recoveryToResponse(row: RecoveryResponseRow) {
     source: row.source,
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     receivedAmountMinor: toWire(row.receivedAmountMinor as Minor),
+    replacesId: row.replacesId,
   };
 }
 
@@ -264,6 +265,7 @@ export const recordCustomerContributionHandler: RouteHandler<
     agreedAmountMinor: body.agreedAmountMinor,
     agreedOn: asBusinessDate(body.agreedOn),
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -273,6 +275,7 @@ export const recordCustomerContributionHandler: RouteHandler<
       source: "customer",
       agreedAmountMinor: body.agreedAmountMinor,
       receivedAmountMinor: 0n,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -325,6 +328,7 @@ export const submitInsuranceClaimHandler: RouteHandler<
     claimedAmountMinor: body.claimedAmountMinor,
     excessBorneMinor,
     claimedOn: asBusinessDate(body.claimedOn),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(

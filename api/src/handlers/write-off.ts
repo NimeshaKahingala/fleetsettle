@@ -38,6 +38,7 @@ function toListRow(row: WriteOffListRow) {
     writtenOffOn: row.writtenOffOn,
     voidedAt: row.voidedAt,
     voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
   };
 }
 
@@ -92,6 +93,7 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
     reason: body.reason,
     writtenOffOn: asBusinessDate(body.writtenOffOn),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -105,6 +107,7 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
       amountMinor: toWire(body.amountMinor),
       reason: body.reason,
       writtenOffOn: body.writtenOffOn,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );
@@ -127,6 +130,7 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -135,6 +139,7 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
       writeOffId: id,
       paymentId,
       amountMinor: toWire(body.amountMinor),
+      replacesId: body.replacesId ?? null,
     },
     201,
   );

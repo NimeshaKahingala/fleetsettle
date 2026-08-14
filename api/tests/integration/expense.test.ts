@@ -507,6 +507,162 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
   });
 });
 
+/** GAP-60/D-16: "the replacement writes replaces_id, not the void" — F-8.5's replace half. */
+describe("replace a voided expense (GAP-60/D-16)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a fresh expense naming a voided one as replacesId links the two", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+    await postVoidExpense(token, createdBody.id, { reason: "wrong amount" });
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(createdBody.id);
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("a create with no replacesId still returns replacesId: null", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBeNull();
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — replacesId names an expense that has not been voided yet", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const live = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const liveBody: { id: string } = await live.json();
+    ctx.trackCreatedExpense(liveBody.id);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: liveBody.id,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — replacesId names an expense already replaced by another", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+    await postVoidExpense(token, createdBody.id, { reason: "wrong amount" });
+
+    const firstReplacement = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    const firstReplacementBody: { id: string } = await firstReplacement.json();
+    ctx.trackCreatedExpense(firstReplacementBody.id);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "56000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "REPLACES_TARGET_ALREADY_REPLACED" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — replacesId names an expense in another business", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    await other.createOpenPeriod(otherBusinessId);
+    const otherOwner = await mintUser(db, other, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherExpense = await postExpense(otherToken, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const otherExpenseBody: { id: string } = await otherExpense.json();
+    other.trackCreatedExpense(otherExpenseBody.id);
+    await postVoidExpense(otherToken, otherExpenseBody.id, { reason: "wrong amount" });
+
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: otherExpenseBody.id,
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+});
+
 /** Web-P8b's costs list (F-3.1): every filter optional, voided rows included and struck through by the caller (W-50). */
 describe("list expenses (Web-P8b, F-3.1)", () => {
   const db = writer(TEST_DATABASE_URL);

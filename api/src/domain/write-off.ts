@@ -1,9 +1,11 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   VoidBlockedError,
   WriteOffAlreadyVoidedError,
   WriteOffRecoveryAlreadyVoidedError,
@@ -34,6 +36,7 @@ export interface RecordWriteOffInput {
   reason: string;
   writtenOffOn: BusinessDate;
   userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedWriteOff {
@@ -74,6 +77,12 @@ export async function recordWriteOff(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findWriteOffForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such write-off in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
       const writeOffId = newId();
       await insertWriteOff(tx, {
         id: writeOffId,
@@ -91,12 +100,16 @@ export async function recordWriteOff(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.userId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       return { writeOffId };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "write_off_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 }
@@ -107,6 +120,7 @@ export interface RecordWriteOffRecoveryInput {
   amountMinor: Minor;
   occurredOn: BusinessDate;
   userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedWriteOffRecovery {
@@ -141,6 +155,16 @@ export async function recordWriteOffRecovery(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findWriteOffRecoveryForBusiness(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
+        if (!target) throw new NotFoundError("No such recovery in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
       const paymentId = newId();
       await insertPayment(tx, {
         id: paymentId,
@@ -174,12 +198,16 @@ export async function recordWriteOffRecovery(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       return { recoveryId, paymentId };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "write_off_recovery_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 }

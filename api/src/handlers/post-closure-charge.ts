@@ -66,6 +66,7 @@ export const recordPostClosureChargeHandler: RouteHandler<
     amountMinor: body.amountMinor,
     dueOn: asBusinessDate(body.dueOn),
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -79,6 +80,7 @@ export const recordPostClosureChargeHandler: RouteHandler<
       // reporting "pending" regardless would be exactly the confident-
       // wrong-number W-56 exists to prevent.
       status,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );

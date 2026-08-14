@@ -1,10 +1,15 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
 import { applyCreditForward } from "./credit-forward.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { PeriodClosedError } from "../errors/app-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
+import {
+  NotFoundError,
+  PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
+} from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { insertObligation } from "../queries/obligation.js";
+import { findObligationForBusiness, insertObligation } from "../queries/obligation.js";
 
 export interface RecordPostClosureChargeInput {
   businessId: string;
@@ -17,6 +22,7 @@ export interface RecordPostClosureChargeInput {
   amountMinor: Minor;
   dueOn: BusinessDate;
   note?: string;
+  replacesId?: string;
 }
 
 export interface RecordedPostClosureCharge {
@@ -45,6 +51,12 @@ export async function recordPostClosureCharge(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findObligationForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such obligation in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
       const obligationId = newId();
       await insertObligation(tx, {
         id: obligationId,
@@ -67,6 +79,7 @@ export async function recordPostClosureCharge(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       // GAP-5b: a fine or toll landing on a party who already carries
@@ -87,6 +100,9 @@ export async function recordPostClosureCharge(
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "obligation_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 }

@@ -1,10 +1,12 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   DepositMovementAlreadyVoidedError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -81,6 +83,7 @@ export interface RecordDepositMovementInput {
   occurredOn: BusinessDate;
   reason?: string;
   userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedDepositMovement {
@@ -122,6 +125,12 @@ export async function recordDepositMovement(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    if (input.replacesId !== undefined) {
+      const target = await findDepositMovementForBusiness(tx, input.businessId, input.replacesId);
+      if (!target) throw new NotFoundError("No such deposit movement in this business");
+      if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    }
+
     const movementId = newId();
     try {
       await insertDepositMovement(tx, {
@@ -137,9 +146,13 @@ export async function recordDepositMovement(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.userId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      if (isUniqueViolation(err, "deposit_movement_replaces_id_key")) {
+        throw new ReplacesTargetAlreadyReplacedError();
+      }
       throw err;
     }
 

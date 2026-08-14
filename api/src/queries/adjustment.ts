@@ -17,6 +17,7 @@ export interface NewAdjustment {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** DM §10.3. Never a deletion — a waiver is a recorded adjustment (UC-15). */

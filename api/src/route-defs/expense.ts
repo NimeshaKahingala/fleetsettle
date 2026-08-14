@@ -41,8 +41,13 @@ export const createExpenseRoute = createRoute({
     400: { description: "borne-by names a party with no matching id" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record an expense" },
-    404: { description: "No such vehicle, trip, driver or customer in this business" },
-    409: { description: "That accounting period is closed" },
+    404: {
+      description: "No such vehicle, trip, driver, customer or replacesId expense in this business",
+    },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names an expense that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

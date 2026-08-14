@@ -1,7 +1,14 @@
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { advance, deposit, obligation, offsetAllocation, payment } from "../../src/db/schema.js";
+import {
+  advance,
+  deposit,
+  incidentRecovery,
+  obligation,
+  offsetAllocation,
+  payment,
+} from "../../src/db/schema.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -853,6 +860,573 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
 
       const res = await post(`/api/offset/${otherOffsetId}/void`, token, { reason: "x" });
       expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+  });
+});
+
+/**
+ * GAP-60/D-16: "the replacement writes replaces_id, not the void" — F-8.5's
+ * replace half, for every table this file's own void cascades already
+ * cover (bar the three landed earlier in partner-void.test.ts, and
+ * obligation's own direct-void case in post-closure-charge.test.ts).
+ */
+describe("replace a voided record (GAP-60/D-16)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  describe("adjustment", () => {
+    it("happy path — a fresh adjustment naming a voided one as replacesId links the two", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        partyType: "customer",
+        customerId,
+        amountMinor: 10_000n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post("/api/adjustment", token, {
+        obligationId,
+        adjustmentType: "waiver",
+        amountMinor: "4000",
+        sign: -1,
+      });
+      const createdBody: { adjustmentId: string } = await created.json();
+      await post(`/api/adjustment/${createdBody.adjustmentId}/void`, token, {
+        reason: "waived by mistake",
+      });
+
+      const res = await post("/api/adjustment", token, {
+        obligationId,
+        adjustmentType: "waiver",
+        amountMinor: "4000",
+        sign: -1,
+        replacesId: createdBody.adjustmentId,
+      });
+      expect(res.status).toBe(201);
+      const body: { replacesId: string | null } = await res.json();
+      expect(body.replacesId).toBe(createdBody.adjustmentId);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — replacesId names an adjustment that has not been voided yet", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        partyType: "customer",
+        customerId,
+        amountMinor: 10_000n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const live = await post("/api/adjustment", token, {
+        obligationId,
+        adjustmentType: "waiver",
+        amountMinor: "4000",
+        sign: -1,
+      });
+      const liveBody: { adjustmentId: string } = await live.json();
+
+      const res = await post("/api/adjustment", token, {
+        obligationId,
+        adjustmentType: "waiver",
+        amountMinor: "1000",
+        sign: -1,
+        replacesId: liveBody.adjustmentId,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("deposit_movement", () => {
+    it("happy path — a fresh movement naming a voided one as replacesId links the two", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const depositId = await ctx.createDeposit(businessId, { partyType: "driver", driverId });
+      await ctx.createDepositMovement(businessId, periodId, depositId, {
+        movementType: "taken",
+        amountMinor: 25_000n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post(`/api/deposit/${depositId}/movement`, token, {
+        movementType: "reduced",
+        amountMinor: "5000",
+        occurredOn: "2026-07-12",
+        reason: "damage deduction",
+      });
+      const createdBody: { movementId: string } = await created.json();
+      await post(`/api/deposit/${depositId}/movement/${createdBody.movementId}/void`, token, {
+        reason: "wrong deposit",
+      });
+
+      const res = await post(`/api/deposit/${depositId}/movement`, token, {
+        movementType: "reduced",
+        amountMinor: "6000",
+        occurredOn: "2026-07-12",
+        reason: "damage deduction, corrected amount",
+        replacesId: createdBody.movementId,
+      });
+      expect(res.status).toBe(200);
+      const body: { movementReplacesId: string | null } = await res.json();
+      expect(body.movementReplacesId).toBe(createdBody.movementId);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — replacesId names a movement that has not been voided yet", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const depositId = await ctx.createDeposit(businessId, { partyType: "driver", driverId });
+      await ctx.createDepositMovement(businessId, periodId, depositId, {
+        movementType: "taken",
+        amountMinor: 25_000n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const live = await post(`/api/deposit/${depositId}/movement`, token, {
+        movementType: "reduced",
+        amountMinor: "5000",
+        occurredOn: "2026-07-12",
+        reason: "damage deduction",
+      });
+      const liveBody: { movementId: string } = await live.json();
+
+      const res = await post(`/api/deposit/${depositId}/movement`, token, {
+        movementType: "reduced",
+        amountMinor: "1000",
+        occurredOn: "2026-07-12",
+        reason: "x",
+        replacesId: liveBody.movementId,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("advance and advance_settlement", () => {
+    it("advance — happy path, then 409 when replacesId has already been replaced", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const issued = await post("/api/advance", token, {
+        driverId,
+        amountMinor: "5000",
+        issuedOn: "2026-07-10",
+      });
+      const issuedBody: { id: string } = await issued.json();
+      ctx.trackCreatedAdvance(issuedBody.id);
+      await post(`/api/advance/${issuedBody.id}/void`, token, { reason: "issued in error" });
+
+      const firstReplacement = await post("/api/advance", token, {
+        driverId,
+        amountMinor: "5000",
+        issuedOn: "2026-07-10",
+        replacesId: issuedBody.id,
+      });
+      expect(firstReplacement.status).toBe(201);
+      const firstReplacementBody: { id: string; replacesId: string | null } =
+        await firstReplacement.json();
+      expect(firstReplacementBody.replacesId).toBe(issuedBody.id);
+      ctx.trackCreatedAdvance(firstReplacementBody.id);
+
+      const secondReplacement = await post("/api/advance", token, {
+        driverId,
+        amountMinor: "5500",
+        issuedOn: "2026-07-10",
+        replacesId: issuedBody.id,
+      });
+      expect(secondReplacement.status).toBe(409);
+      expect(await secondReplacement.json()).toMatchObject({
+        code: "REPLACES_TARGET_ALREADY_REPLACED",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("advance_settlement — happy path links the settlement's replacement, and 409 when not voided yet", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const issued = await post("/api/advance", token, {
+        driverId,
+        amountMinor: "5000",
+        issuedOn: "2026-07-10",
+      });
+      const issuedBody: { id: string } = await issued.json();
+      ctx.trackCreatedAdvance(issuedBody.id);
+
+      const settled = await post(`/api/advance/${issuedBody.id}/settle`, token, {
+        kind: "spent",
+        amountMinor: "2000",
+        occurredOn: "2026-07-15",
+      });
+      const settledBody: { settlementId: string } = await settled.json();
+
+      const notVoidedYet = await post(`/api/advance/${issuedBody.id}/settle`, token, {
+        kind: "spent",
+        amountMinor: "500",
+        occurredOn: "2026-07-16",
+        replacesId: settledBody.settlementId,
+      });
+      expect(notVoidedYet.status).toBe(409);
+      expect(await notVoidedYet.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+      await post(
+        `/api/advance/${issuedBody.id}/settlement/${settledBody.settlementId}/void`,
+        token,
+        { reason: "wrong amount" },
+      );
+
+      const res = await post(`/api/advance/${issuedBody.id}/settle`, token, {
+        kind: "spent",
+        amountMinor: "2500",
+        occurredOn: "2026-07-16",
+        replacesId: settledBody.settlementId,
+      });
+      expect(res.status).toBe(200);
+      const body: { settlementReplacesId: string | null } = await res.json();
+      expect(body.settlementReplacesId).toBe(settledBody.settlementId);
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("write_off and write_off_recovery", () => {
+    it("write_off — happy path links the replacement to the voided original", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post("/api/write-off", token, {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: "40000",
+        reason: "written off last quarter",
+        writtenOffOn: "2026-07-01",
+      });
+      const createdBody: { id: string } = await created.json();
+      ctx.trackCreatedWriteOff(createdBody.id);
+      await post(`/api/write-off/${createdBody.id}/void`, token, { reason: "wrong customer" });
+
+      const res = await post("/api/write-off", token, {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: "40000",
+        reason: "written off last quarter, correct customer",
+        writtenOffOn: "2026-07-01",
+        replacesId: createdBody.id,
+      });
+      expect(res.status).toBe(201);
+      const body: { id: string; replacesId: string | null } = await res.json();
+      expect(body.replacesId).toBe(createdBody.id);
+      ctx.trackCreatedWriteOff(body.id);
+
+      await ctx.cleanup();
+    });
+
+    it("write_off_recovery — happy path links the replacement, and 409 when it's already replaced", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post("/api/write-off", token, {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: "40000",
+        reason: "written off last quarter",
+        writtenOffOn: "2026-07-01",
+      });
+      const createdBody: { id: string } = await created.json();
+      ctx.trackCreatedWriteOff(createdBody.id);
+
+      const recovered = await post(`/api/write-off/${createdBody.id}/recovery`, token, {
+        amountMinor: "10000",
+        occurredOn: "2026-07-25",
+      });
+      const recoveredBody: { id: string } = await recovered.json();
+      await post(`/api/write-off/${createdBody.id}/recovery/${recoveredBody.id}/void`, token, {
+        reason: "wrong amount",
+      });
+
+      const firstReplacement = await post(`/api/write-off/${createdBody.id}/recovery`, token, {
+        amountMinor: "15000",
+        occurredOn: "2026-07-26",
+        replacesId: recoveredBody.id,
+      });
+      expect(firstReplacement.status).toBe(201);
+      const firstReplacementBody: { replacesId: string | null } = await firstReplacement.json();
+      expect(firstReplacementBody.replacesId).toBe(recoveredBody.id);
+
+      const secondReplacement = await post(`/api/write-off/${createdBody.id}/recovery`, token, {
+        amountMinor: "16000",
+        occurredOn: "2026-07-27",
+        replacesId: recoveredBody.id,
+      });
+      expect(secondReplacement.status).toBe(409);
+      expect(await secondReplacement.json()).toMatchObject({
+        code: "REPLACES_TARGET_ALREADY_REPLACED",
+      });
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("incident_recovery", () => {
+    it("customer contribution — happy path links the replacement to the voided original", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      const agreedBody: { id: string } = await agreed.json();
+      await post(`/api/incident/${incidentId}/recovery/${agreedBody.id}/void`, token, {
+        reason: "amount agreed wrong",
+      });
+
+      const res = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "25000",
+        agreedOn: "2026-07-20",
+        replacesId: agreedBody.id,
+      });
+      expect(res.status).toBe(201);
+      const body: { replacesId: string | null } = await res.json();
+      expect(body.replacesId).toBe(agreedBody.id);
+
+      await ctx.cleanup();
+    });
+
+    it("customer contribution — 409 when replacesId names one not voided yet", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const live = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      const liveBody: { id: string } = await live.json();
+
+      const res = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "25000",
+        agreedOn: "2026-07-20",
+        replacesId: liveBody.id,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+      await ctx.cleanup();
+    });
+
+    it("insurance claim — the paired recovery row links to the one it replaces", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const claimed = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
+        claimedAmountMinor: "75000",
+        excessBorneMinor: "15000",
+        claimedOn: "2026-07-08",
+      });
+      expect(claimed.status).toBe(201);
+
+      const recoveries = await db
+        .select({ id: incidentRecovery.id, voidedAt: incidentRecovery.voidedAt })
+        .from(incidentRecovery)
+        .where(eq(incidentRecovery.incidentId, incidentId));
+      const insurerRecovery = recoveries[0];
+      if (!insurerRecovery)
+        throw new Error("expected the insurer recovery row submitting the claim just wrote");
+
+      const voidRes = await post(
+        `/api/incident/${incidentId}/recovery/${insurerRecovery.id}/void`,
+        token,
+        { reason: "claim withdrawn, resubmitting at the right amount" },
+      );
+      expect(voidRes.status).toBe(200);
+
+      const resubmitted = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
+        claimedAmountMinor: "80000",
+        excessBorneMinor: "15000",
+        claimedOn: "2026-07-08",
+        replacesId: insurerRecovery.id,
+      });
+      expect(resubmitted.status).toBe(201);
+
+      const rows = await db
+        .select({ replacesId: incidentRecovery.replacesId })
+        .from(incidentRecovery)
+        .where(eq(incidentRecovery.incidentId, incidentId));
+      expect(rows.map((r) => r.replacesId)).toContain(insurerRecovery.id);
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("offset_record", () => {
+    it("happy path — a fresh offset naming a voided one as replacesId links the two", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 5_000n,
+        dueOn: "2026-07-01",
+      });
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_by_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 5_000n,
+        dueOn: "2026-07-01",
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post("/api/offset", token, {
+        driverId,
+        amountMinor: "5000",
+        occurredOn: "2026-07-10",
+      });
+      const createdBody: { id: string } = await created.json();
+      ctx.trackCreatedOffset(createdBody.id);
+      await post(`/api/offset/${createdBody.id}/void`, token, {
+        reason: "recorded against the wrong driver",
+      });
+
+      const res = await post("/api/offset", token, {
+        driverId,
+        amountMinor: "5000",
+        occurredOn: "2026-07-10",
+        replacesId: createdBody.id,
+      });
+      expect(res.status).toBe(201);
+      const body: { id: string; replacesId: string | null } = await res.json();
+      expect(body.replacesId).toBe(createdBody.id);
+      ctx.trackCreatedOffset(body.id);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — replacesId names an offset that has not been voided yet", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 10_000n,
+        dueOn: "2026-07-01",
+      });
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_by_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 10_000n,
+        dueOn: "2026-07-01",
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const live = await post("/api/offset", token, {
+        driverId,
+        amountMinor: "5000",
+        occurredOn: "2026-07-10",
+      });
+      const liveBody: { id: string } = await live.json();
+      ctx.trackCreatedOffset(liveBody.id);
+
+      const res = await post("/api/offset", token, {
+        driverId,
+        amountMinor: "3000",
+        occurredOn: "2026-07-10",
+        replacesId: liveBody.id,
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
 
       await ctx.cleanup();
     });

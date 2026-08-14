@@ -42,6 +42,7 @@ export interface NewObligation {
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** DM §10.1: everything anyone owes anyone. `settledMinor`/`status` are supplied already-correct by the caller — this endpoint's writes never need a follow-up UPDATE (CLAUDE.md → Writes: one transaction). */

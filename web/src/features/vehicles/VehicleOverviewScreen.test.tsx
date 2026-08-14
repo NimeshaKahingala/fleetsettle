@@ -379,6 +379,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       note: null,
       voidedAt: null,
       voidedReason: null,
+      replacesId: null,
     },
     {
       id: "e2",
@@ -396,6 +397,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       note: null,
       voidedAt: "2026-07-11T00:00:00Z",
       voidedReason: "wrong vehicle",
+      replacesId: null,
     },
   ];
   const get = baseGet({ "/api/vehicle/v1/expense": expenses });

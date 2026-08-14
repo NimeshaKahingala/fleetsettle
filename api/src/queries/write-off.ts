@@ -19,6 +19,7 @@ export interface NewWriteOff {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** F-8.3/UC-90/W-28. */
@@ -37,6 +38,7 @@ export interface WriteOffRow {
   reason: string;
   writtenOffOn: string;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 /** Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
@@ -57,6 +59,7 @@ export async function findWriteOffForBusiness(
       reason: writeOff.reason,
       writtenOffOn: writeOff.writtenOffOn,
       voidedAt: writeOff.voidedAt,
+      replacesId: writeOff.replacesId,
     })
     .from(writeOff)
     .where(and(eq(writeOff.id, writeOffId), eq(writeOff.businessId, businessId)))
@@ -76,6 +79,7 @@ export interface WriteOffListRow {
   writtenOffOn: string;
   voidedAt: string | null;
   voidedReason: string | null;
+  replacesId: string | null;
 }
 
 export interface WriteOffListFilters {
@@ -91,8 +95,8 @@ export interface WriteOffListFilters {
  * A3: every write-off this business has ever recorded — every filter
  * optional, newest first. Voided rows stay in, struck through by the caller
  * with their reason (W-50), the same convention `listExpensesForBusiness`
- * already established; GAP-12 means nothing sets `voided_at` on this table
- * yet, but the shape is ready for when it does.
+ * already established — GAP-12/A9b built the void endpoint that sets
+ * `voided_at` on this table.
  */
 export async function listWriteOffsForBusiness(
   db: ReadDb,
@@ -112,6 +116,7 @@ export async function listWriteOffsForBusiness(
       writtenOffOn: writeOff.writtenOffOn,
       voidedAt: writeOff.voidedAt,
       voidedReason: writeOff.voidedReason,
+      replacesId: writeOff.replacesId,
     })
     .from(writeOff)
     .where(
@@ -167,6 +172,7 @@ export interface NewWriteOffRecovery {
   amountMinor: bigint;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** INV-15: nets against the write-off it recovers — never fresh income. */
@@ -183,6 +189,7 @@ export interface WriteOffRecoveryRow {
   paymentId: string;
   amountMinor: bigint;
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 /** GAP-12/W-61/INV-36 §3.8. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
@@ -198,6 +205,7 @@ export async function findWriteOffRecoveryForBusiness(
       paymentId: writeOffRecovery.paymentId,
       amountMinor: writeOffRecovery.amountMinor,
       voidedAt: writeOffRecovery.voidedAt,
+      replacesId: writeOffRecovery.replacesId,
     })
     .from(writeOffRecovery)
     .where(and(eq(writeOffRecovery.id, recoveryId), eq(writeOffRecovery.businessId, businessId)))

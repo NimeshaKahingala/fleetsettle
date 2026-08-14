@@ -51,6 +51,10 @@ export const recordCapitalContributionRequestSchema = z.object({
   amountMinor: moneyWireSchema,
   contributedOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
+  // GAP-60/D-16/F-8.5: set when this contribution is the corrected
+  // replacement for one already voided — the target must belong to this
+  // business and already be voided, checked server-side.
+  replacesId: uuidSchema.optional(),
 });
 export type RecordCapitalContributionRequest = z.infer<
   typeof recordCapitalContributionRequestSchema
@@ -63,6 +67,8 @@ export const capitalContributionResponseSchema = z.object({
   amountMinor: z.string(),
   contributedOn: z.string(),
   note: z.string().nullable(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: z.string().uuid().nullable(),
 });
 export type CapitalContributionResponse = z.infer<typeof capitalContributionResponseSchema>;
 
@@ -131,6 +137,8 @@ export const recordBankingEventRequestSchema = z
     destination: z.string().trim().min(1).max(200),
     reference: z.string().trim().max(200).optional(),
     discrepancyBearer: bankingDiscrepancyBearerSchema.optional(),
+    // GAP-60/D-16/F-8.5: see recordCapitalContributionRequestSchema's own comment.
+    replacesId: uuidSchema.optional(),
   })
   .refine((v) => v.amountCountedMinor <= v.amountRecordedMinor, {
     message: "amountCountedMinor cannot exceed amountRecordedMinor",
@@ -156,6 +164,8 @@ export const bankingEventResponseSchema = z.object({
   reference: z.string().nullable(),
   discrepancyMinor: z.string(),
   discrepancyBearer: bankingDiscrepancyBearerSchema.nullable(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: z.string().uuid().nullable(),
 });
 export type BankingEventResponse = z.infer<typeof bankingEventResponseSchema>;
 
@@ -174,6 +184,8 @@ export const recordPartnerPayoutRequestSchema = z.object({
   amountMinor: moneyWireSchema,
   kind: z.enum(["payout", "partner_settlement"]),
   occurredOn: businessDateSchema,
+  // GAP-60/D-16/F-8.5: see recordCapitalContributionRequestSchema's own comment.
+  replacesId: uuidSchema.optional(),
 });
 export type RecordPartnerPayoutRequest = z.infer<typeof recordPartnerPayoutRequestSchema>;
 
@@ -183,6 +195,8 @@ export const partnerPayoutResponseSchema = z.object({
   amountMinor: z.string(),
   kind: z.enum(["payout", "partner_settlement"]),
   occurredOn: z.string(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: z.string().uuid().nullable(),
 });
 export type PartnerPayoutResponse = z.infer<typeof partnerPayoutResponseSchema>;
 

@@ -18,7 +18,13 @@ export const recordPostClosureChargeRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a post-closure charge" },
-    404: { description: "No such lease, trip, customer or driver in this business" },
-    409: { description: "That accounting period is closed" },
+    404: {
+      description:
+        "No such lease, trip, customer, driver or replacesId obligation in this business",
+    },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names an obligation that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });

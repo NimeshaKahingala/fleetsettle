@@ -1,10 +1,12 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
   OffsetRecordAlreadyVoidedError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -31,6 +33,7 @@ export interface CreateOffsetInput {
   occurredOn: BusinessDate;
   note?: string;
   userId: string;
+  replacesId?: string;
 }
 
 export interface CreatedOffset {
@@ -65,6 +68,12 @@ export async function createOffset(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    if (input.replacesId !== undefined) {
+      const target = await findOffsetRecordForBusiness(tx, input.businessId, input.replacesId);
+      if (!target) throw new NotFoundError("No such offset in this business");
+      if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    }
+
     const offsetId = newId();
     try {
       await insertOffsetRecord(tx, {
@@ -79,6 +88,7 @@ export async function createOffset(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.userId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       for (const direction of ["owed_to_us", "owed_by_us"] as const) {
@@ -93,6 +103,9 @@ export async function createOffset(
       }
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      if (isUniqueViolation(err, "offset_record_replaces_id_key")) {
+        throw new ReplacesTargetAlreadyReplacedError();
+      }
       throw err;
     }
 
