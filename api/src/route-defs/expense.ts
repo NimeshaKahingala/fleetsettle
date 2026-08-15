@@ -1,9 +1,12 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   createExpenseRequestSchema,
+  expensePrefillVehicleResponseSchema,
   expenseResponseSchema,
   listExpensesQuerySchema,
   listExpensesResponseSchema,
+  resolveBorneByQuerySchema,
+  resolveBorneByResponseSchema,
   voidedExpenseResponseSchema,
   voidExpenseRequestSchema,
 } from "@fleetsettle/shared/schemas";
@@ -38,7 +41,10 @@ export const createExpenseRoute = createRoute({
       content: { "application/json": { schema: expenseResponseSchema } },
       description: "The expense",
     },
-    400: { description: "borne-by names a party with no matching id" },
+    400: {
+      description:
+        "borne-by names a party with no matching id, or odometerReadingKm is given without a vehicleId (GAP-30)",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record an expense" },
     404: {
@@ -68,5 +74,35 @@ export const voidExpenseRoute = createRoute({
     403: { description: "This role cannot void an expense" },
     404: { description: "No such expense in this business" },
     409: { description: "This expense has already been voided, or PERIOD_CLOSED (GAP-35)" },
+  },
+});
+
+/** GAP-32/§6.7: a live preview of the default-owner matrix — lets the client show who a cost would default to before offering an override to someone else, reusing `resolveBorneByDefault` rather than a second implementation of the matrix. */
+export const resolveBorneByRoute = createRoute({
+  method: "get",
+  path: "/borne-by-default",
+  request: { query: resolveBorneByQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: resolveBorneByResponseSchema } },
+      description: "What borneBy would default to for this vehicle/category/date, if saved now",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot record an expense" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** GAP-34/U-3: the vehicle with something pending, for the expense form's own vehicle picker to default to. */
+export const expensePrefillVehicleRoute = createRoute({
+  method: "get",
+  path: "/prefill-vehicle",
+  responses: {
+    200: {
+      content: { "application/json": { schema: expensePrefillVehicleResponseSchema } },
+      description: "The vehicle with the oldest unconfirmed day, or null when nothing is pending",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot record an expense" },
   },
 });

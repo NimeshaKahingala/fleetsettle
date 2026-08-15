@@ -25,6 +25,7 @@ const liveExpense: ExpenseListRow = {
   note: null,
   voidedAt: null,
   voidedReason: null,
+  odometerReadingId: null,
   replacesId: null,
 };
 

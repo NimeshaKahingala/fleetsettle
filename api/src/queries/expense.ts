@@ -19,6 +19,7 @@ export interface NewExpense {
   borneByCustomerId?: string;
   paidByUserId?: string;
   litres?: number;
+  odometerReadingId?: string;
   note?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
@@ -171,6 +172,7 @@ export interface BusinessExpenseRow {
   borneByCustomerId: string | null;
   paidByUserId: string | null;
   litres: number | null;
+  odometerReadingId: string | null;
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
@@ -213,6 +215,7 @@ export async function listExpensesForBusiness(
       borneByCustomerId: expense.borneByCustomerId,
       paidByUserId: expense.paidByUserId,
       litres: expense.litres,
+      odometerReadingId: expense.odometerReadingId,
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,

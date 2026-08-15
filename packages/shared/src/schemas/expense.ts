@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import { odometerSourceSchema } from "./lease-billing.js";
 
 /** DM §9's `CHECK` on `expense.category` — the borne-by default matrix (UC §6.7) is keyed on this. */
 export const expenseCategorySchema = z.enum([
@@ -51,6 +52,14 @@ export const createExpenseRequestSchema = z
     paidByUserId: uuidSchema.optional(),
     // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money (UC-72)
     litres: z.number().positive().optional(),
+    // GAP-30/F-3.3: a fuel fill's own odometer reading, written as a real
+    // `odometer_reading` row in the same transaction (INV-19/W-18) — not
+    // stored on the expense alone. Needs a vehicle to belong to, and the two
+    // fields are given together or not at all, same shape as
+    // `bookTripRequestSchema`'s opening reading.
+    // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+    odometerReadingKm: z.number().int().nonnegative().optional(),
+    odometerSource: odometerSourceSchema.optional(),
     note: z.string().trim().max(500).optional(),
     // GAP-60/D-16/F-8.5: set when this expense is the corrected replacement
     // for one already voided — the target must belong to this business and
@@ -64,6 +73,14 @@ export const createExpenseRequestSchema = z
   .refine((v) => v.borneBy !== "customer" || v.borneByCustomerId !== undefined, {
     message: "borneByCustomerId is required when borneBy is 'customer'",
     path: ["borneByCustomerId"],
+  })
+  .refine((v) => (v.odometerReadingKm === undefined) === (v.odometerSource === undefined), {
+    message: "odometerReadingKm and odometerSource must be given together",
+    path: ["odometerSource"],
+  })
+  .refine((v) => v.odometerReadingKm === undefined || v.vehicleId !== undefined, {
+    message: "vehicleId is required to record an odometer reading",
+    path: ["vehicleId"],
   });
 export type CreateExpenseRequest = z.infer<typeof createExpenseRequestSchema>;
 
@@ -81,6 +98,10 @@ export const expenseResponseSchema = z.object({
   paidByUserId: z.string().uuid().nullable(),
   // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money
   litres: z.number().nullable(),
+  // GAP-30/UC-72: the `odometer_reading` row this fill wrote, when it did —
+  // `listUsBoughtFuelFills` (queries/reports.ts) is what dereferences this
+  // into a km/l figure for the fuel-efficiency report.
+  odometerReadingId: z.string().uuid().nullable(),
   note: z.string().nullable(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record
   // itself rather than only from a global log.
@@ -113,6 +134,40 @@ export const listExpensesQuerySchema = z.object({
   to: businessDateSchema.optional(),
 });
 export type ListExpensesQuery = z.infer<typeof listExpensesQuerySchema>;
+
+/**
+ * GAP-32/§6.7: a live preview of the default-owner matrix, resolved against
+ * the vehicle's arrangement as of `spentOn` — what `resolveBorneByDefault`
+ * (domain/expense.ts) would choose if the record were saved right now. Lets
+ * the client show the default before offering an override to a *different*
+ * driver or customer, without a second implementation of the matrix.
+ */
+export const resolveBorneByQuerySchema = z.object({
+  vehicleId: uuidSchema,
+  category: expenseCategorySchema,
+  spentOn: businessDateSchema,
+});
+export type ResolveBorneByQuery = z.infer<typeof resolveBorneByQuerySchema>;
+
+export const resolveBorneByResponseSchema = z.object({
+  borneBy: borneBySchema,
+  borneByDriverId: z.string().uuid().nullable(),
+  borneByCustomerId: z.string().uuid().nullable(),
+});
+export type ResolveBorneByResponse = z.infer<typeof resolveBorneByResponseSchema>;
+
+/**
+ * GAP-34/U-3: "vehicle defaults to the one with something pending" — no
+ * last-touched-vehicle column exists, so this reuses the one concrete
+ * "pending" fact already tracked against a vehicle: Home item 4's own
+ * unconfirmed-day definition, oldest first. `vehicleId` is `null` when
+ * nothing is pending — the caller's own fallback (first vehicle in the
+ * list) is unaffected.
+ */
+export const expensePrefillVehicleResponseSchema = z.object({
+  vehicleId: z.string().uuid().nullable(),
+});
+export type ExpensePrefillVehicleResponse = z.infer<typeof expensePrefillVehicleResponseSchema>;
 
 /** F-8.5/UC-96: "wrong vehicle... fuel logged against the wrong trip" — void it, with a reason, then record the corrected one through the ordinary create endpoint. */
 export const voidExpenseRequestSchema = z.object({

@@ -233,6 +233,7 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       note: null,
       voidedAt: null,
       voidedReason: null,
+      odometerReadingId: null,
       replacesId: null,
     },
     {
@@ -251,6 +252,7 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       note: null,
       voidedAt: "2026-08-06T00:00:00.000Z",
       voidedReason: "wrong invoice",
+      odometerReadingId: null,
       replacesId: null,
     },
   ];

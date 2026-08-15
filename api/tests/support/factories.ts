@@ -1158,10 +1158,18 @@ export class TestContext {
     });
   }
 
-  /** F-3.1/F-3.2/F-3.3: `POST /api/expense` writes a single row — this is that write's teardown. */
-  trackCreatedExpense(expenseId: string): void {
+  /**
+   * F-3.1/F-3.2/F-3.3: `POST /api/expense` writes the expense row, plus
+   * (GAP-30) an `odometer_reading` row when a fuel fill's own reading was
+   * given — pass the create response's `odometerReadingId` so both clear
+   * before a tracked vehicle's own teardown runs (LIFO order).
+   */
+  trackCreatedExpense(expenseId: string, odometerReadingId?: string | null): void {
     this.track(async () => {
       await this.#db.delete(expense).where(eq(expense.id, expenseId));
+      if (odometerReadingId) {
+        await this.#db.delete(odometerReading).where(eq(odometerReading.id, odometerReadingId));
+      }
     });
   }
 

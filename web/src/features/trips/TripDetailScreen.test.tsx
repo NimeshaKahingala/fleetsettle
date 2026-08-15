@@ -78,6 +78,7 @@ const expenses: ExpenseListRow[] = [
     note: null,
     voidedAt: null,
     voidedReason: null,
+    odometerReadingId: null,
     replacesId: null,
   },
   {
@@ -96,6 +97,7 @@ const expenses: ExpenseListRow[] = [
     note: null,
     voidedAt: "2026-07-13T00:00:00.000Z",
     voidedReason: "wrong trip",
+    odometerReadingId: null,
     replacesId: null,
   },
 ];

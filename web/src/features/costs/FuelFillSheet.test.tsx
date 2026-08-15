@@ -35,6 +35,7 @@ const created: ExpenseResponse = {
   paidByUserId: "u1",
   litres: null,
   note: null,
+  odometerReadingId: null,
   replacesId: null,
 };
 

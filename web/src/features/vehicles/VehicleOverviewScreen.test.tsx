@@ -379,6 +379,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       note: null,
       voidedAt: null,
       voidedReason: null,
+      odometerReadingId: null,
       replacesId: null,
     },
     {
@@ -397,6 +398,7 @@ test("a voided expense stays in the costs list, struck through, with its reason 
       note: null,
       voidedAt: "2026-07-11T00:00:00Z",
       voidedReason: "wrong vehicle",
+      odometerReadingId: null,
       replacesId: null,
     },
   ];
