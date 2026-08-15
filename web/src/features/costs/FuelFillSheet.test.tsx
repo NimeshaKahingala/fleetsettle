@@ -35,6 +35,8 @@ const created: ExpenseResponse = {
   paidByUserId: "u1",
   litres: null,
   note: null,
+  odometerReadingId: null,
+  replacesId: null,
 };
 
 test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone — litres stays optional (W-20)", async () => {

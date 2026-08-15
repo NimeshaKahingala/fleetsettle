@@ -1,14 +1,15 @@
-import { asBusinessDate } from "@fleetsettle/shared";
+import { asBusinessDate, newId } from "@fleetsettle/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { dayRecord, obligation, vehicleDayAllocation } from "../../src/db/schema.js";
+import { dayRecord, obligation, trip, vehicleDayAllocation } from "../../src/db/schema.js";
 import { rollDueBillingPeriods } from "../../src/domain/billing-period.js";
 import { generateDayCards } from "../../src/domain/day-card-generation.js";
 import {
   generateManagementFeeObligationsForAllOpenPeriods,
   generateManagementFeeObligationsTx,
 } from "../../src/domain/management-fee.js";
+import { releaseAllExpiredHolds } from "../../src/domain/trip.js";
 import { mintUser } from "../support/auth.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -440,5 +441,85 @@ describe("scheduled jobs (P13)", () => {
 
       await ctx.cleanup();
     }, 60_000); // unscoped across every business's own open period on this shared branch — see the identical note on generate-billing-periods above
+  });
+
+  /**
+   * GAP-7/ST-5: the optimisation, not the mechanism — `bookTrip`/
+   * `startDailyLease`/`startLease` already release a vehicle's own expired
+   * holds synchronously. This is only "tidies up what nobody happened to
+   * book around," unscoped by `business_id` like every other unit above.
+   */
+  describe("release-expired-holds", () => {
+    it("cancels an expired hold and voids its own allocation, and leaves an unexpired hold untouched", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const vehicleId = await ctx.createVehicle(businessId);
+      const stillGoodVehicleId = await ctx.createVehicle(businessId, { registration: "H-9999" });
+
+      const expiredHoldId = newId();
+      await db.insert(trip).values({
+        id: expiredHoldId,
+        businessId,
+        vehicleId,
+        status: "hold",
+        startDate: "2026-09-01",
+        endDate: "2026-09-02",
+        holdExpiresOn: "2020-01-01",
+      });
+      ctx.trackCreatedTrip(expiredHoldId);
+      const expiredAllocationId = newId();
+      await db.insert(vehicleDayAllocation).values({
+        id: expiredAllocationId,
+        businessId,
+        vehicleId,
+        businessDate: "2026-09-01",
+        arrangement: "C",
+        sourceType: "trip",
+        sourceId: expiredHoldId,
+        isHold: true,
+      });
+
+      const stillGoodHoldId = newId();
+      await db.insert(trip).values({
+        id: stillGoodHoldId,
+        businessId,
+        vehicleId: stillGoodVehicleId,
+        status: "hold",
+        startDate: "2026-09-01",
+        endDate: "2026-09-02",
+        holdExpiresOn: "2099-01-01",
+      });
+      ctx.trackCreatedTrip(stillGoodHoldId);
+
+      await releaseAllExpiredHolds(db, asBusinessDate("2026-08-01"));
+
+      const [expiredRow] = await db
+        .select({
+          status: trip.status,
+          cancelReason: trip.cancelReason,
+          holdExpiresOn: trip.holdExpiresOn,
+        })
+        .from(trip)
+        .where(eq(trip.id, expiredHoldId));
+      expect(expiredRow).toMatchObject({
+        status: "cancelled",
+        cancelReason: "Hold expired",
+        holdExpiresOn: null,
+      });
+
+      const [expiredAllocation] = await db
+        .select({ voidedAt: vehicleDayAllocation.voidedAt })
+        .from(vehicleDayAllocation)
+        .where(eq(vehicleDayAllocation.id, expiredAllocationId));
+      expect(expiredAllocation?.voidedAt).not.toBeNull();
+
+      const [stillGoodRow] = await db
+        .select({ status: trip.status })
+        .from(trip)
+        .where(eq(trip.id, stillGoodHoldId));
+      expect(stillGoodRow?.status).toBe("hold");
+
+      await ctx.cleanup();
+    });
   });
 });

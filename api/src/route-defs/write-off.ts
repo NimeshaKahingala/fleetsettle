@@ -41,10 +41,16 @@ export const recordWriteOffRoute = createRoute({
       content: { "application/json": { schema: writeOffResponseSchema } },
       description: "The write-off",
     },
+    400: { description: "replacesId names a write-off against a different party" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot write off a balance" },
-    404: { description: "No such obligation, customer or driver in this business" },
-    409: { description: "That accounting period is closed" },
+    404: {
+      description: "No such obligation, customer, driver or replacesId write-off in this business",
+    },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a write-off that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 
@@ -61,10 +67,14 @@ export const recordWriteOffRecoveryRoute = createRoute({
       content: { "application/json": { schema: writeOffRecoveryResponseSchema } },
       description: "The recovery, and the payment it was recorded through",
     },
+    400: { description: "replacesId names a recovery against a different write-off" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a write-off recovery" },
-    404: { description: "No such write-off in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such write-off or replacesId recovery in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a recovery that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

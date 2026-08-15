@@ -26,7 +26,7 @@ import {
 } from "../queries/obligation.js";
 import { applyAdjustmentTx } from "./adjustment.js";
 import { assessMileage } from "./mileage.js";
-import { recordDepositMovement } from "./deposit.js";
+import { recordDepositMovement, recordDepositMovementTx } from "./deposit.js";
 
 /**
  * F-2.6/UC-16 "Close the lease" — a wizard with a running order (W-26), so
@@ -238,7 +238,7 @@ export async function getLeaseClosureSummary(
 export interface SettleLeaseDepositInput {
   businessId: string;
   leaseId: string;
-  action: "refund" | "retain" | "hold";
+  action: "refund" | "retain" | "hold" | "apply";
   /** Required for "retain" — a portion, never assumed to be everything held. */
   amountMinor?: Minor;
   /** Required for "retain" (a reason for keeping someone's money, W-26). */
@@ -255,14 +255,25 @@ export interface SettledLeaseDeposit {
 }
 
 /**
- * Step 6/W-29/W-44: refund in full, retain a portion, or hold for the
- * configured window — "apply against what is owed" (F-8.4) is deliberately
- * not built this pass, since it needs the same oldest-first
- * obligation-settling wiring `recordPayment`'s `allocateAgainstOldest`
- * already solved for real cash, and reusing that verbatim would wrongly
- * create a new `payment` row for money that was already held; a parallel
- * apply-without-a-payment-row path is real, separate design work (recorded
- * in TRACKER.md rather than half-built here).
+ * Step 6/W-29/W-44: refund in full, retain a portion, apply against what is
+ * owed, or hold for the configured window.
+ *
+ * GAP-6: "apply" sweeps the deposit's held balance against the customer's
+ * own outstanding `owed_to_us` obligations, oldest-`due_on`-first (§6.5,
+ * the same discipline `getLeaseClosureSummary`'s own INV-18 list already
+ * reads), one `recordDepositMovementTx` call per obligation touched — each
+ * `deposit_movement` row names exactly one `obligation_id`, so settling N
+ * obligations from one deposit is N rows, not one. Deliberately not
+ * `recordPayment`'s `allocateAgainstOldest`: that mints a `payment` row for
+ * cash arriving now, and this is money already held — reusing it verbatim
+ * would manufacture a payment for money that never moved. Any balance left
+ * once every outstanding obligation is cleared stays held, available for a
+ * follow-up "refund" call; `recordDepositMovementTx` is what actually caps
+ * each application at what remains outstanding on its own obligation.
+ * **The whole sweep is one transaction, obligations locked `forUpdate`**
+ * (GAP-5a discipline) — N separate commits would leave a partial apply
+ * behind if a later iteration threw, and an unlocked read could over-settle
+ * under a concurrent write.
  *
  * Requires the lease to already be past step 1 (`status !== 'active'`) —
  * the same "stop the clock first" ordering UC-16 itself insists on, read
@@ -312,6 +323,59 @@ export async function settleLeaseDeposit(
       depositId: dep.id,
       status: result.deposit.status,
       heldMinor: result.heldMinor,
+      holdReleaseDate: null,
+    };
+  }
+
+  if (input.action === "apply") {
+    const heldBefore = await sumDepositMovements(writer, dep.id);
+    if (heldBefore <= 0n) {
+      throw new ValidationError("Nothing is held on this deposit to apply");
+    }
+
+    // The whole sweep is one transaction, obligations locked for its
+    // duration (GAP-5a discipline) — a failure partway (period closed, a
+    // concurrent write tripping the outstanding guard) must not leave some
+    // obligations settled and others not.
+    const lastResult = await writer.transaction(async (tx) => {
+      const unpaidObligations = await findOutstandingObligationsForParty(
+        tx,
+        input.businessId,
+        "customer",
+        l.customerId,
+        "owed_to_us",
+        true,
+      );
+
+      let remaining = heldBefore;
+      let last: Awaited<ReturnType<typeof recordDepositMovementTx>> | undefined;
+      for (const ob of unpaidObligations) {
+        if (remaining <= 0n) break;
+        const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+        if (outstanding <= 0n) continue;
+
+        const take = (remaining < outstanding ? remaining : outstanding) as Minor;
+        last = await recordDepositMovementTx(tx, {
+          businessId: input.businessId,
+          depositId: dep.id,
+          movementType: "applied",
+          amountMinor: take,
+          occurredOn: input.occurredOn,
+          obligationId: ob.id,
+          userId: input.userId,
+        });
+        remaining -= take;
+      }
+      return last;
+    });
+
+    if (lastResult === undefined) {
+      throw new ValidationError("Nothing is currently owed for this deposit to apply against");
+    }
+    return {
+      depositId: dep.id,
+      status: lastResult.deposit.status,
+      heldMinor: lastResult.heldMinor,
       holdReleaseDate: null,
     };
   }

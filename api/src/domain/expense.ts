@@ -1,16 +1,19 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { BorneBy, ExpenseCategory } from "@fleetsettle/shared/schemas";
+import type { BorneBy, ExpenseCategory, OdometerSource } from "@fleetsettle/shared/schemas";
 import type { Reader, Writer } from "../db/client.js";
 import { findActiveLeaseForVehicle } from "../queries/lease.js";
 import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
+import { insertOdometerReading } from "../queries/odometer-reading.js";
 import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   ExpenseAlreadyVoidedError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
 } from "../errors/app-error.js";
 
 /**
@@ -83,11 +86,15 @@ export interface CreateExpenseInput {
   borneByCustomerId?: string;
   paidByUserId: string;
   litres?: number;
+  odometerReadingKm?: number;
+  odometerSource?: OdometerSource;
   note?: string;
+  replacesId?: string;
 }
 
 export interface CreatedExpense {
   expenseId: string;
+  odometerReadingId: string | null;
 }
 
 /**
@@ -96,6 +103,24 @@ export interface CreatedExpense {
  * business's own cash" is what should increase what the business owes that
  * partner (F-3.1's "no extra step"), but partner current accounts are P7's
  * table, not yet built. Recorded here rather than silently assumed.
+ *
+ * GAP-60/D-16: `replacesId`, when set, is F-8.5's "replace" half — void the
+ * mistake, then record the correct one through this same endpoint, naming
+ * what it corrects. The target must belong to this business and already be
+ * voided (checked before the insert, in the same transaction the period
+ * check already opened); the partial unique index on `replaces_id`
+ * (migration 0025) is the constraint that stops a second reply pointing at
+ * the same voided row, the same "constraint, not code" shape every other
+ * race guard in this file's neighbours already uses.
+ *
+ * GAP-30/F-3.3: `odometerReadingKm`/`odometerSource`, when both given,
+ * write a real `odometer_reading` row in the same transaction rather than
+ * only on the expense (INV-19/W-18 — a reading always carries its source),
+ * the identical shape `bookTrip`'s opening reading and `startLease`'s
+ * handover reading already use. The wire schema's own refine guarantees
+ * `vehicleId` is present whenever a reading is; `expense.odometer_reading_id`
+ * is what `listUsBoughtFuelFills` (queries/reports.ts, UC-72) has been
+ * reading with nothing ever writing it.
  */
 export async function createExpense(
   writer: Writer,
@@ -104,15 +129,38 @@ export async function createExpense(
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.spentOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+  if (input.replacesId !== undefined) {
+    const target = await findExpenseForBusiness(writer, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such expense in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+  }
+
   const expenseId = newId();
+  let odometerReadingId: string | undefined;
   try {
     // withActor (db/client.ts) only attributes writes that open a real
     // transaction — a bare top-level insert never runs one, and its own
     // audit_log row would silently carry a NULL changed_by (found while
     // proving F-8.6 against this exact write). Wrapped here even though
     // nothing else needs the atomicity.
-    await writer.transaction((tx) =>
-      insertExpense(tx, {
+    await writer.transaction(async (tx) => {
+      if (
+        input.odometerReadingKm !== undefined &&
+        input.odometerSource !== undefined &&
+        input.vehicleId !== undefined
+      ) {
+        odometerReadingId = newId();
+        await insertOdometerReading(tx, {
+          id: odometerReadingId,
+          businessId: input.businessId,
+          vehicleId: input.vehicleId,
+          readingKm: input.odometerReadingKm,
+          readOn: input.spentOn,
+          source: input.odometerSource,
+        });
+      }
+
+      await insertExpense(tx, {
         id: expenseId,
         businessId: input.businessId,
         ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
@@ -128,20 +176,25 @@ export async function createExpense(
           : {}),
         paidByUserId: input.paidByUserId,
         ...(input.litres !== undefined ? { litres: input.litres } : {}),
+        ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
         postedPeriodId: linkage.postedPeriodId,
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.paidByUserId,
-      }),
-    );
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "expense_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
-  return { expenseId };
+  return { expenseId, odometerReadingId: odometerReadingId ?? null };
 }
 
 export interface VoidExpenseInput {

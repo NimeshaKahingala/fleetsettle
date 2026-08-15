@@ -7,6 +7,7 @@ import {
   advanceSettlement,
   dayRecord,
   obligation,
+  trip as tripTable,
   vehicleDayAllocation,
 } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
@@ -61,6 +62,14 @@ async function postCancelTrip(token: string, id: string, body: unknown) {
     method: "POST",
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
+  });
+}
+
+async function postConfirmTrip(token: string, id: string) {
+  return request(`/api/trip/${id}/confirm`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: "{}",
   });
 }
 
@@ -581,6 +590,418 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
 });
 
 /**
+ * ST-5/GAP-7 test matrix: F-5.1 step 4's "Confirm → booked, or hold if the
+ * enquiry is tentative." A hold reserves the calendar (an `isHold: true`
+ * allocation row) but takes neither of `bookTrip`'s two "this is real now"
+ * steps — the daily lease's own day records stay unpaused, and no
+ * `trip_fare` obligation is raised, both deferred to confirm.
+ */
+describe("book a trip as a hold (GAP-7/ST-5)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("reserves the calendar with isHold allocation rows, sets holdExpiresOn, and does not pause the daily lease's day records or raise a receivable", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const holdStart = addDays(today, 2);
+    const holdEnd = addDays(today, 3);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: holdStart,
+      endDate: holdEnd,
+      agreedAmountMinor: "1000000",
+      asHold: true,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string; holdExpiresOn: string | null } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+    expect(body.status).toBe("hold");
+    expect(body.holdExpiresOn).toBe(addDays(today, 7)); // business_settings.hold_expiry_days default
+    expect(body).toMatchObject({ receivable: null });
+
+    const allocationRows = await db
+      .select()
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "trip"),
+          eq(vehicleDayAllocation.sourceId, body.id),
+        ),
+      );
+    expect(allocationRows).toHaveLength(2);
+    expect(allocationRows.every((r) => r.arrangement === "C" && r.isHold)).toBe(true);
+
+    // The whole point of a hold: the daily lease's own already-generated
+    // day records for these dates are untouched — no pause, no lost income.
+    const dayRecordRows = await db
+      .select({ state: dayRecord.state, businessDate: dayRecord.businessDate })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, holdStart),
+          lte(dayRecord.businessDate, holdEnd),
+        ),
+      );
+    expect(dayRecordRows).toHaveLength(2);
+    expect(dayRecordRows.every((r) => r.state === "open")).toBe(true);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, body.id)));
+    expect(obligationRows).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
+  it("defaults asHold to false — an old client that has never heard of holds keeps booking outright", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-04-01",
+      endDate: "2026-04-01",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string; holdExpiresOn: string | null } = await res.json();
+    ctx.trackCreatedTrip(body.id);
+    expect(body.status).toBe("booked");
+    expect(body.holdExpiresOn).toBeNull();
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * ST-5/GAP-7: the confirm half of "it expires or is confirmed" —
+ * `hold` → `booked`.
+ */
+describe("confirm a hold (GAP-7/ST-5)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("pauses the daily lease's day records, clears isHold, raises the deferred receivable, and reports in_progress once the range has started", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    // Starts today, so once confirmed it reads as in_progress immediately.
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: today,
+      endDate: addDays(today, 1),
+      agreedAmountMinor: "800000",
+      asHold: true,
+    });
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    const confirmRes = await postConfirmTrip(token, holdBody.id);
+    expect(confirmRes.status).toBe(200);
+    const confirmed: {
+      status: string;
+      holdExpiresOn: string | null;
+      receivable: { amountMinor: string; status: string } | null;
+    } = await confirmRes.json();
+    expect(confirmed.status).toBe("in_progress");
+    expect(confirmed.holdExpiresOn).toBeNull();
+    expect(confirmed.receivable).toMatchObject({ amountMinor: "800000", status: "pending" });
+
+    const allocationRows = await db
+      .select({ isHold: vehicleDayAllocation.isHold })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "trip"),
+          eq(vehicleDayAllocation.sourceId, holdBody.id),
+        ),
+      );
+    expect(allocationRows.every((r) => !r.isHold)).toBe(true);
+
+    const dayRecordRows = await db
+      .select({ state: dayRecord.state })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, today),
+          lte(dayRecord.businessDate, addDays(today, 1)),
+        ),
+      );
+    expect(dayRecordRows).toHaveLength(2);
+    expect(dayRecordRows.every((r) => r.state === "paused_for_trip")).toBe(true);
+
+    const obligationRows = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, holdBody.id)));
+    expect(obligationRows).toHaveLength(1);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — a trip that is not a hold cannot be confirmed", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const bookedRes = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-04-10",
+      endDate: "2026-04-10",
+    });
+    const bookedBody: { id: string } = await bookedRes.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+
+    const res = await postConfirmTrip(token, bookedBody.id);
+    expect(res.status).toBe(400);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await request(`/api/trip/00000000-0000-0000-0000-000000000000/confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(401);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "MISSING_TOKEN" });
+  });
+
+  it("403 — a linked driver cannot confirm a hold", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await postConfirmTrip(token, "00000000-0000-0000-0000-000000000000");
+    expect(res.status).toBe(403);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "FORBIDDEN_CAPABILITY" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the trip belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    await ctx.setVehicleArrangement(otherVehicleId, "C");
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+
+    const otherHoldRes = await postTrip(otherToken, {
+      vehicleId: otherVehicleId,
+      startDate: "2026-04-15",
+      endDate: "2026-04-15",
+      asHold: true,
+    });
+    const otherHoldBody: { id: string } = await otherHoldRes.json();
+    ctx.trackCreatedTrip(otherHoldBody.id);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmTrip(token, otherHoldBody.id);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * GAP-7/ST-5: "release is synchronous… before it checks for a conflict" —
+ * `bookTrip`/`startDailyLease`/`startLease` each release a vehicle's own
+ * expired holds ahead of every conflict check, never only by the nightly
+ * sweep.
+ */
+describe("expired holds release synchronously, never only by cron (GAP-7)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("a real booking over an expired hold's own dates succeeds, and the stale hold is cancelled with its allocation voided", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-05-01",
+      endDate: "2026-05-02",
+      asHold: true,
+    });
+    expect(holdRes.status).toBe(201);
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    // Backdate the expiry — the only way to reach "already expired" in a
+    // test, since the API itself always computes a real future date.
+    await db
+      .update(tripTable)
+      .set({ holdExpiresOn: "2020-01-01" })
+      .where(eq(tripTable.id, holdBody.id));
+
+    const bookedRes = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-05-01",
+      endDate: "2026-05-02",
+    });
+    expect(bookedRes.status).toBe(201);
+    const bookedBody: { id: string; status: string } = await bookedRes.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+    expect(bookedBody.status).toBe("booked");
+
+    const staleHold = await getTrip(token, holdBody.id);
+    const staleHoldBody: { status: string; cancelReason: string | null } = await staleHold.json();
+    expect(staleHoldBody).toMatchObject({ status: "cancelled", cancelReason: "Hold expired" });
+
+    const staleAllocations = await db
+      .select({
+        voidedAt: vehicleDayAllocation.voidedAt,
+        voidedReason: vehicleDayAllocation.voidedReason,
+      })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "trip"),
+          eq(vehicleDayAllocation.sourceId, holdBody.id),
+        ),
+      );
+    expect(staleAllocations).toHaveLength(2);
+    expect(
+      staleAllocations.every((r) => r.voidedAt !== null && r.voidedReason === "Hold expired"),
+    ).toBe(true);
+
+    await ctx.cleanup();
+  });
+
+  it("starting a daily lease releases this vehicle's own expired hold first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    const vehicleId = await ctx.createVehicle(businessId);
+    // GAP-84/GAP-87: booking a trip needs B or C, starting a daily lease
+    // needs B or null — B is the only arrangement this test's own sequence
+    // (hold, then a daily lease on the same vehicle) can pass both gates
+    // with, the same choice the sibling GAP-119 test above makes.
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      startDate: today,
+      endDate: addDays(today, 1),
+      asHold: true,
+    });
+    expect(holdRes.status).toBe(201);
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+    await db
+      .update(tripTable)
+      .set({ holdExpiresOn: "2020-01-01" })
+      .where(eq(tripTable.id, holdBody.id));
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: today,
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const staleHold = await getTrip(token, holdBody.id);
+    const staleHoldBody: { status: string } = await staleHold.json();
+    expect(staleHoldBody).toMatchObject({ status: "cancelled" });
+
+    // The daily lease's own horizon claimed today's date once the hold's
+    // stale allocation stopped occupying it.
+    const dailyLeaseAllocation = await db
+      .select()
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.sourceType, "daily_lease"),
+          eq(vehicleDayAllocation.sourceId, leaseBody.id),
+          eq(vehicleDayAllocation.businessDate, today),
+          isNull(vehicleDayAllocation.voidedAt),
+        ),
+      );
+    expect(dailyLeaseAllocation).toHaveLength(1);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
  * F-5.4/UC-44/W-41 test matrix. The happy path reproduces UC §7.1's own
  * worked charter exactly: 60,000 agreed, 22,000 fuel + 3,000 tolls (both
  * `borne_by = 'us'` on a charter, §6.7) + 9,000 driver fee = 34,000 costs,
@@ -827,6 +1248,30 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     await ctx.cleanup();
   });
 
+  it("400 — GAP-7: a hold must be confirmed before it can be closed", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-05",
+      endDate: "2026-07-06",
+      asHold: true,
+    });
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    const closed = await postCloseTrip(token, holdBody.id, { closingDate: "2026-07-06" });
+    expect(closed.status).toBe(400);
+    expect(await closed.json()).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request(`/api/trip/${crypto.randomUUID()}/close`, {
       method: "POST",
@@ -972,6 +1417,40 @@ describe("cancel a trip (P6, F-5.5/UC-45)", () => {
 
     const liveAllocationRows = allocationRows.filter((r) => r.voidedAt === null);
     expect(liveAllocationRows).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-7 — cancels a hold directly, with nothing to undo (no obligation raised, no day records paused)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-08-01",
+      endDate: "2026-08-02",
+      agreedAmountMinor: "500000",
+      asHold: true,
+    });
+    expect(holdRes.status).toBe(201);
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    const cancelled = await postCancelTrip(token, holdBody.id, {});
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toMatchObject({ status: "cancelled" });
+
+    const allocationRows = await db
+      .select()
+      .from(vehicleDayAllocation)
+      .where(eq(vehicleDayAllocation.sourceId, holdBody.id));
+    expect(allocationRows.every((r) => r.voidedAt !== null)).toBe(true);
 
     await ctx.cleanup();
   });

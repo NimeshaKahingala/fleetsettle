@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, driver, trip, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
@@ -11,13 +11,15 @@ export interface NewTrip {
   vehicleId: string;
   customerId?: string;
   driverId?: string;
-  status: "booked";
+  status: "hold" | "booked";
   startDate: string;
   endDate: string;
   destination?: string;
   agreedAmountMinor: bigint;
   driverFeeMinor: bigint;
   openingOdometerId?: string;
+  /** GAP-7/D-13: set only when `status` is `'hold'` — `trip_hold_expires_on_check` refuses the other combination. */
+  holdExpiresOn?: string;
 }
 
 export async function insertTrip(db: WriteDb, values: NewTrip): Promise<void> {
@@ -32,6 +34,8 @@ export interface NewAllocationDay {
   arrangement: "A" | "B" | "C";
   sourceType: "lease" | "daily_lease" | "trip";
   sourceId: string;
+  /** GAP-7: set only by a hold's own allocation rows — `false`/omitted for every other caller (booked trips, leases, daily leases), which is the column's own default. */
+  isHold?: boolean;
 }
 
 /**
@@ -100,6 +104,75 @@ export async function releaseDailyLeaseAllocationsForRange(
     );
 }
 
+export interface ReleasedExpiredHolds {
+  released: number;
+  /**
+   * Distinct (businessId, vehicleId) pairs whose holds were released — the
+   * caller re-materialises each one's *current* daily-lease horizon
+   * afterward (GAP-7 calendar-hole fix), the same restore `cancelTrip`
+   * already does for GAP-119. `businessId` travels with each pair rather
+   * than being a single argument because the nightly cron calls this
+   * unscoped, across every business at once.
+   */
+  affected: { businessId: string; vehicleId: string }[];
+}
+
+/**
+ * GAP-7/ST-5: release is synchronous, never only by cron — `bookTrip`,
+ * `startDailyLease` and `startLease` each call this for their own vehicle
+ * before checking for a conflict, so a stale hold nobody confirmed cannot
+ * block a real booking just because the nightly sweep has not run yet
+ * (CLAUDE.md → Writes: no cron is a prerequisite for a user action). Two
+ * bulk statements bounded by however many holds this vehicle actually has
+ * outstanding — never a per-row loop. Omitting `vehicleId` is the nightly
+ * cron's own shape (`generate-day-cards`'s siblings are deliberately
+ * unscoped by business, TS §4); voiding twice is a no-op both times, since
+ * the second pass's `WHERE status = 'hold'` matches nothing already
+ * cancelled.
+ */
+export async function releaseExpiredHolds(
+  db: WriteDb,
+  today: string,
+  vehicleId?: string,
+  /** Who caused the release — the user whose booking/lease-start triggered it. `undefined` for the nightly sweep, which has no actor. */
+  voidedBy?: string,
+): Promise<ReleasedExpiredHolds> {
+  const expired = await db
+    .select({ id: trip.id, vehicleId: trip.vehicleId, businessId: trip.businessId })
+    .from(trip)
+    .where(
+      and(
+        eq(trip.status, "hold"),
+        lt(trip.holdExpiresOn, today),
+        ...(vehicleId !== undefined ? [eq(trip.vehicleId, vehicleId)] : []),
+      ),
+    );
+  if (expired.length === 0) return { released: 0, affected: [] };
+  const expiredIds = expired.map((r) => r.id);
+  const affected = [...new Map(expired.map((r) => [r.vehicleId, r])).values()].map((r) => ({
+    businessId: r.businessId,
+    vehicleId: r.vehicleId,
+  }));
+
+  await db
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: "Hold expired", voidedBy })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "trip"),
+        inArray(vehicleDayAllocation.sourceId, expiredIds),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+
+  await db
+    .update(trip)
+    .set({ status: "cancelled", cancelReason: "Hold expired", holdExpiresOn: null })
+    .where(inArray(trip.id, expiredIds));
+
+  return { released: expiredIds.length, affected };
+}
+
 export interface TripRow {
   id: string;
   businessId: string;
@@ -117,6 +190,8 @@ export interface TripRow {
   closingDate: string | null;
   cancelReason: string | null;
   advanceDisposition: "refunded" | "retained" | null;
+  /** GAP-7/D-13: the only source of truth for when a hold releases — `null` once confirmed or cancelled. */
+  holdExpiresOn: string | null;
   postedPeriodId: string | null;
   belongsToPeriodId: string | null;
 }
@@ -138,21 +213,33 @@ const COLUMNS = {
   closingDate: trip.closingDate,
   cancelReason: trip.cancelReason,
   advanceDisposition: trip.advanceDisposition,
+  holdExpiresOn: trip.holdExpiresOn,
   postedPeriodId: trip.postedPeriodId,
   belongsToPeriodId: trip.belongsToPeriodId,
 };
 
-/** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md →
+ * Tenancy).
+ *
+ * `forUpdate` locks the row for the caller's own transaction — the GAP-5a
+ * discipline, here closing the race between two concurrent `confirm`
+ * requests (or a confirm racing the synchronous/cron hold release) reading
+ * the same stale `status` before either has written. Defaults `false`;
+ * only `confirmTripHold`'s write path passes `true`.
+ */
 export async function findTripForBusiness(
   db: ReadDb,
   businessId: string,
   tripId: string,
+  forUpdate = false,
 ): Promise<TripRow | undefined> {
-  const rows = await db
+  const query = db
     .select(COLUMNS)
     .from(trip)
     .where(and(eq(trip.id, tripId), eq(trip.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as TripRow | undefined;
 }
 
@@ -298,12 +385,53 @@ export async function closeTripRow(
     .where(eq(trip.id, tripId));
 }
 
+/** GAP-7: confirming a hold turns its own reserved days into an ordinary booked allocation — the calendar's "T?" glyph stops applying without re-touching which days are reserved. */
+export async function clearHoldOnAllocationDaysForTrip(db: WriteDb, tripId: string): Promise<void> {
+  await db
+    .update(vehicleDayAllocation)
+    .set({ isHold: false })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "trip"),
+        eq(vehicleDayAllocation.sourceId, tripId),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+}
+
+/**
+ * GAP-7: `hold` → `booked` (ST-5) — `hold_expires_on` clears, since
+ * `trip_hold_expires_on_check` refuses a non-null value once the row leaves
+ * `hold`. `status = 'hold'` in the WHERE clause is a second guard alongside
+ * `confirmTripHold`'s own `forUpdate` read lock: a blind update here would
+ * silently resurrect a hold a concurrent release had already cancelled
+ * between the lock being taken and this write. Returns whether a row
+ * actually changed, so the caller can refuse rather than proceed as if it
+ * had.
+ */
+export async function confirmTripHoldRow(db: WriteDb, tripId: string): Promise<boolean> {
+  const updated = await db
+    .update(trip)
+    .set({ status: "booked", holdExpiresOn: null })
+    .where(and(eq(trip.id, tripId), eq(trip.status, "hold")))
+    .returning({ id: trip.id });
+  return updated.length > 0;
+}
+
 export interface CancelTripValues {
   cancelReason?: string;
   advanceDisposition?: "refunded" | "retained";
 }
 
 /** F-5.5/UC-45: "any advance refunded or retained as income — a choice, recorded" — the trip keeps which one was decided, not just that it was cancelled. */
+/**
+ * GAP-7/D-13: `holdExpiresOn` clears here too, the same way
+ * `confirmTripHoldRow` clears it on the other exit from `hold` —
+ * `trip_hold_expires_on_check` (migration `0020`) refuses any non-`hold`
+ * status with a non-null `hold_expires_on`, and cancelling a still-`hold`
+ * trip (F-5.5's "cancels a hold directly" path) would otherwise try to
+ * leave exactly that combination.
+ */
 export async function cancelTripRow(
   db: WriteDb,
   tripId: string,
@@ -315,6 +443,7 @@ export async function cancelTripRow(
       status: "cancelled",
       cancelReason: values.cancelReason,
       advanceDisposition: values.advanceDisposition,
+      holdExpiresOn: null,
     })
     .where(eq(trip.id, tripId));
 }

@@ -44,12 +44,16 @@ export const recordDepositMovementRoute = createRoute({
       description: "The deposit, after this movement",
     },
     400: {
-      description: "This movement would draw the deposit below zero, or it is no longer held",
+      description:
+        "This movement would draw the deposit below zero, it is no longer held, replacesId names a movement against a different deposit, or (GAP-6) the named obligation is voided, isn't owed to the business, belongs to a different party than the deposit, or the amount exceeds what's outstanding on it",
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a deposit movement" },
-    404: { description: "No such deposit in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such deposit, obligation, or replacesId movement in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a movement that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

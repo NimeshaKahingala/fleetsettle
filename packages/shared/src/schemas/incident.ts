@@ -65,6 +65,8 @@ export const incidentRecoveryResponseSchema = z.object({
   source: incidentRecoverySourceSchema,
   agreedAmountMinor: z.string(),
   receivedAmountMinor: z.string(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: z.string().uuid().nullable(),
 });
 export type IncidentRecoveryResponse = z.infer<typeof incidentRecoveryResponseSchema>;
 
@@ -73,6 +75,10 @@ export const recordCustomerContributionRequestSchema = z.object({
   agreedAmountMinor: moneyWireSchema,
   agreedOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
+  // GAP-60/D-16/F-8.5: set when this contribution is the corrected
+  // replacement for one already voided — the target must belong to this
+  // business and already be voided, checked server-side.
+  replacesId: uuidSchema.optional(),
 });
 export type RecordCustomerContributionRequest = z.infer<
   typeof recordCustomerContributionRequestSchema
@@ -98,6 +104,12 @@ export const submitInsuranceClaimRequestSchema = z.object({
   claimedAmountMinor: moneyWireSchema,
   excessBorneMinor: moneyWireSchema.optional(),
   claimedOn: businessDateSchema,
+  // GAP-60/D-16/F-8.5: set when the paired incident_recovery row (source
+  // 'insurer') this submission opens is the corrected replacement for one
+  // already voided — see recordCustomerContributionRequestSchema's own
+  // comment. Not echoed on this route's own response: it names the
+  // recovery row, and this response is the claim's own shape only.
+  replacesId: uuidSchema.optional(),
 });
 export type SubmitInsuranceClaimRequest = z.infer<typeof submitInsuranceClaimRequestSchema>;
 

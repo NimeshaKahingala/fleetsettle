@@ -398,3 +398,23 @@ export class VoidBlockedError extends AppError {
     super(409, "VOID_BLOCKED", message, { blocking });
   }
 }
+
+// GAP-60/D-16: "the replacement writes replaces_id, not the void" — these
+// two guard that write. Shared across all thirteen tables, unlike the
+// per-table AlreadyVoided classes above, because neither is a table-specific
+// fact: both describe the referenced row's own state, checked the same way
+// regardless of which table it lives in. Existence and tenancy for the
+// referenced row reuse the plain NotFoundError every other cross-id lookup
+// in this codebase already throws (CLAUDE.md → Tenancy: cross-tenant is 404,
+// not a table-specific code).
+export class ReplacesTargetNotVoidedError extends AppError {
+  constructor(message = "The record being replaced must be voided first") {
+    super(409, "REPLACES_TARGET_NOT_VOIDED", message);
+  }
+}
+
+export class ReplacesTargetAlreadyReplacedError extends AppError {
+  constructor(message = "That record has already been replaced by another") {
+    super(409, "REPLACES_TARGET_ALREADY_REPLACED", message);
+  }
+}

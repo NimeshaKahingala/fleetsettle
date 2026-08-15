@@ -14,6 +14,7 @@ const received: IncidentRecoveryResponse = {
   source: "customer",
   agreedAmountMinor: "2000000",
   receivedAmountMinor: "2000000",
+  replacesId: null,
 };
 
 test("pre-fills at the agreed amount when nothing has arrived yet, and saves it as a wire string", async () => {

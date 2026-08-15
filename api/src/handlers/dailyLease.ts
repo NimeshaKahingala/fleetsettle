@@ -68,6 +68,7 @@ export const startDailyLeaseHandler: RouteHandler<typeof startDailyLeaseRoute, E
     ...(body.effectiveTo !== undefined ? { effectiveTo: body.effectiveTo } : {}),
     dailyLeaseAmountMinor: body.dailyLeaseAmountMinor,
     today: businessToday(requireBusinessTimezone(c)),
+    userId: requireUserId(c),
   });
 
   return c.json(

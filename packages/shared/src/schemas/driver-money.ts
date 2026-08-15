@@ -11,6 +11,10 @@ export const issueAdvanceRequestSchema = z.object({
   tripId: uuidSchema.optional(),
   amountMinor: positiveMoneyWireSchema,
   issuedOn: businessDateSchema,
+  // GAP-60/D-16/F-8.5: set when this advance is the corrected replacement
+  // for one already voided — the target must belong to this business and
+  // already be voided, checked server-side.
+  replacesId: uuidSchema.optional(),
 });
 export type IssueAdvanceRequest = z.infer<typeof issueAdvanceRequestSchema>;
 
@@ -22,6 +26,8 @@ export const advanceResponseSchema = z.object({
   issuedOn: z.string(),
   status: z.enum(["open", "part_settled", "settled"]),
   settledMinor: z.string(),
+  // GAP-60/D-16/F-8.6: this advance's own "what corrected this?".
+  replacesId: z.string().uuid().nullable(),
 });
 export type AdvanceResponse = z.infer<typeof advanceResponseSchema>;
 
@@ -30,12 +36,18 @@ export const settleAdvanceRequestSchema = z.object({
   kind: z.enum(["spent", "returned", "kept_as_fee"]),
   amountMinor: positiveMoneyWireSchema,
   occurredOn: businessDateSchema,
+  // GAP-60/D-16/F-8.5: see issueAdvanceRequestSchema's own comment — this
+  // one names the settlement being replaced, not the advance.
+  replacesId: uuidSchema.optional(),
 });
 export type SettleAdvanceRequest = z.infer<typeof settleAdvanceRequestSchema>;
 
 /** GAP-12/W-61/INV-36 §3.5: the settlement this write just recorded — what a later void targets, the same reasoning `depositResponseSchema`'s own `movementId` carries. */
 export const settledAdvanceResponseSchema = advanceResponseSchema.extend({
   settlementId: uuidSchema,
+  // GAP-60/D-16/F-8.6: the settlement's own replacesId — distinct from the
+  // advance's own `replacesId` field this schema already inherited above.
+  settlementReplacesId: z.string().uuid().nullable(),
 });
 export type SettledAdvanceResponse = z.infer<typeof settledAdvanceResponseSchema>;
 
@@ -59,12 +71,23 @@ export const takeDriverDepositRequestSchema = z.object({
 });
 export type TakeDriverDepositRequest = z.infer<typeof takeDriverDepositRequestSchema>;
 
-export const depositMovementRequestSchema = z.object({
-  movementType: z.enum(["topped_up", "reduced", "applied", "refunded", "retained"]),
-  amountMinor: positiveMoneyWireSchema,
-  occurredOn: businessDateSchema,
-  reason: z.string().trim().max(500).optional(),
-});
+/** GAP-6/F-6.7/UC-58: "apply against arrears" needs `obligationId` — which of the driver's own `owed_to_us` obligations this movement settles — required exactly when `movementType` is `'applied'`. */
+export const depositMovementRequestSchema = z
+  .object({
+    movementType: z.enum(["topped_up", "reduced", "applied", "refunded", "retained"]),
+    amountMinor: positiveMoneyWireSchema,
+    occurredOn: businessDateSchema,
+    reason: z.string().trim().max(500).optional(),
+    obligationId: uuidSchema.optional(),
+    // GAP-60/D-16/F-8.5: set when this movement is the corrected replacement
+    // for one already voided — the target must belong to this business and
+    // already be voided, checked server-side.
+    replacesId: uuidSchema.optional(),
+  })
+  .refine((v) => (v.movementType === "applied") === (v.obligationId !== undefined), {
+    message: "obligationId is required when movementType is 'applied', and only then",
+    path: ["obligationId"],
+  });
 export type DepositMovementRequest = z.infer<typeof depositMovementRequestSchema>;
 
 export const depositResponseSchema = z.object({
@@ -74,6 +97,9 @@ export const depositResponseSchema = z.object({
   heldMinor: z.string(),
   /** GAP-12/W-61/INV-36 §3.3: the movement this write just recorded — what a later void targets. */
   movementId: uuidSchema,
+  // GAP-60/D-16/F-8.6: that movement's own "what corrected this?" — `deposit`
+  // itself carries no `replaces_id` column, only `deposit_movement` does.
+  movementReplacesId: z.string().uuid().nullable(),
 });
 export type DepositResponse = z.infer<typeof depositResponseSchema>;
 
@@ -81,7 +107,7 @@ export type DepositResponse = z.infer<typeof depositResponseSchema>;
 export const voidedDepositMovementResponseSchema = z.object({
   id: uuidSchema,
   voidedAt: z.string(),
-  deposit: depositResponseSchema.omit({ movementId: true }),
+  deposit: depositResponseSchema.omit({ movementId: true, movementReplacesId: true }),
 });
 export type VoidedDepositMovementResponse = z.infer<typeof voidedDepositMovementResponseSchema>;
 
@@ -95,6 +121,10 @@ export const createOffsetRequestSchema = z.object({
   amountMinor: positiveMoneyWireSchema,
   occurredOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
+  // GAP-60/D-16/F-8.5: set when this offset is the corrected replacement for
+  // one already voided — the target must belong to this business and
+  // already be voided, checked server-side.
+  replacesId: uuidSchema.optional(),
 });
 export type CreateOffsetRequest = z.infer<typeof createOffsetRequestSchema>;
 
@@ -104,6 +134,8 @@ export const offsetResponseSchema = z.object({
   amountMinor: z.string(),
   occurredOn: z.string(),
   note: z.string().nullable(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: z.string().uuid().nullable(),
 });
 export type OffsetResponse = z.infer<typeof offsetResponseSchema>;
 

@@ -32,6 +32,10 @@ export const createAdjustmentRequestSchema = z
     amountMinor: positiveMoneyWireSchema,
     sign: z.union([z.literal(-1), z.literal(1)]),
     reason: z.string().trim().max(500).optional(),
+    // GAP-60/D-16/F-8.5: set when this adjustment is the corrected
+    // replacement for one already voided — the target must belong to this
+    // business and already be voided, checked server-side.
+    replacesId: uuidSchema.optional(),
   })
   .refine(
     (v) =>
@@ -75,6 +79,8 @@ export type ObligationAfterAdjustment = z.infer<typeof obligationAfterAdjustment
  */
 export const createdAdjustmentResponseSchema = obligationAfterAdjustmentSchema.extend({
   adjustmentId: uuidSchema,
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: uuidSchema.nullable(),
 });
 export type CreatedAdjustmentResponse = z.infer<typeof createdAdjustmentResponseSchema>;
 

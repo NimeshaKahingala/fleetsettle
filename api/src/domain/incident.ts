@@ -7,12 +7,14 @@ import {
   type Minor,
 } from "@fleetsettle/shared";
 import type { Reader, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   IncidentRecoveryAlreadyVoidedError,
   InsuranceClaimAlreadyExistsError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
   VoidBlockedError,
 } from "../errors/app-error.js";
@@ -213,6 +215,7 @@ export interface RecordCustomerContributionInput {
   agreedAmountMinor: Minor;
   agreedOn: BusinessDate;
   note?: string;
+  replacesId?: string;
 }
 
 export interface RecordedCustomerContribution {
@@ -247,6 +250,22 @@ export async function recordCustomerContribution(
 
   const linkage = await resolvePeriodLinkage(writer, input.businessId, input.agreedOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  if (input.replacesId !== undefined) {
+    const target = await findIncidentRecoveryForBusiness(
+      writer,
+      input.businessId,
+      input.replacesId,
+    );
+    if (!target) throw new NotFoundError("No such recovery in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    // Found by Gitar's review of PR #45: without this, replacesId could name
+    // a voided recovery against a *different* incident, leaving F-8.6's
+    // "what corrected this?" pointing at an unrelated fact.
+    if (target.incidentId !== input.incidentId) {
+      throw new ValidationError("replacesId names a recovery against a different incident");
+    }
+  }
 
   const recoveryId = newId();
   const obligationId = newId();
@@ -288,6 +307,7 @@ export async function recordCustomerContribution(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         ...(input.note !== undefined ? { note: input.note } : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       // GAP-5b: a customer already carrying unapplied credit has this
@@ -305,6 +325,9 @@ export async function recordCustomerContribution(
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "incident_recovery_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
@@ -532,6 +555,7 @@ export interface SubmitInsuranceClaimInput {
   claimedAmountMinor: Minor;
   excessBorneMinor: Minor;
   claimedOn: BusinessDate;
+  replacesId?: string;
 }
 
 export interface SubmittedInsuranceClaim {
@@ -566,6 +590,16 @@ export async function submitInsuranceClaim(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.claimedOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    if (input.replacesId !== undefined) {
+      const target = await findIncidentRecoveryForBusiness(tx, input.businessId, input.replacesId);
+      if (!target) throw new NotFoundError("No such recovery in this business");
+      if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // See recordCustomerContribution's own comment (Gitar, PR #45).
+      if (target.incidentId !== input.incidentId) {
+        throw new ValidationError("replacesId names a recovery against a different incident");
+      }
+    }
+
     const agreedAmountMinor = (input.claimedAmountMinor - input.excessBorneMinor) as Minor;
     const claimId = newId();
     const recoveryId = newId();
@@ -590,9 +624,13 @@ export async function submitInsuranceClaim(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      if (isUniqueViolation(err, "incident_recovery_replaces_id_key")) {
+        throw new ReplacesTargetAlreadyReplacedError();
+      }
       throw err;
     }
 

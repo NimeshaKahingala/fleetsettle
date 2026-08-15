@@ -936,6 +936,15 @@ export class TestContext {
         await this.#db
           .delete(paymentAllocation)
           .where(inArray(paymentAllocation.obligationId, sourcedObligationIds));
+        // GAP-6: a deposit "applied" against one of these obligations leaves
+        // deposit_movement.obligation_id pointing at it — cleared here
+        // (the movement row itself still exists for the deposit's own
+        // cleanup below) rather than deleted, since `deposit_movement_obligation_id_fkey`
+        // otherwise blocks this delete.
+        await this.#db
+          .update(depositMovement)
+          .set({ obligationId: null })
+          .where(inArray(depositMovement.obligationId, sourcedObligationIds));
         await this.#db.delete(obligation).where(inArray(obligation.id, sourcedObligationIds));
       }
 
@@ -1158,10 +1167,18 @@ export class TestContext {
     });
   }
 
-  /** F-3.1/F-3.2/F-3.3: `POST /api/expense` writes a single row — this is that write's teardown. */
-  trackCreatedExpense(expenseId: string): void {
+  /**
+   * F-3.1/F-3.2/F-3.3: `POST /api/expense` writes the expense row, plus
+   * (GAP-30) an `odometer_reading` row when a fuel fill's own reading was
+   * given — pass the create response's `odometerReadingId` so both clear
+   * before a tracked vehicle's own teardown runs (LIFO order).
+   */
+  trackCreatedExpense(expenseId: string, odometerReadingId?: string | null): void {
     this.track(async () => {
       await this.#db.delete(expense).where(eq(expense.id, expenseId));
+      if (odometerReadingId) {
+        await this.#db.delete(odometerReading).where(eq(odometerReading.id, odometerReadingId));
+      }
     });
   }
 

@@ -17,13 +17,20 @@ import type {
 import type { Env } from "../types.js";
 
 /** `row.partyDriverId` is passed alongside rather than read off `row` — every deposit this API creates is `party_type='driver'`, but the column itself stays nullable for the `party_type='customer'` deposits DM §10.4 also allows. */
-function toResponse(row: DepositRow, partyDriverId: string, heldMinor: bigint, movementId: string) {
+function toResponse(
+  row: DepositRow,
+  partyDriverId: string,
+  heldMinor: bigint,
+  movementId: string,
+  movementReplacesId: string | null,
+) {
   return {
     id: row.id,
     partyDriverId,
     status: row.status,
     heldMinor: toWire(heldMinor as Minor),
     movementId,
+    movementReplacesId,
   };
 }
 
@@ -63,6 +70,7 @@ export const takeDriverDepositHandler: RouteHandler<typeof takeDriverDepositRout
       body.driverId,
       body.amountMinor,
       movementId,
+      null,
     ),
     201,
   );
@@ -85,7 +93,9 @@ export const recordDepositMovementHandler: RouteHandler<
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
     ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    ...(body.obligationId !== undefined ? { obligationId: body.obligationId } : {}),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   if (result.deposit.partyDriverId === null) {
@@ -94,7 +104,13 @@ export const recordDepositMovementHandler: RouteHandler<
     );
   }
   return c.json(
-    toResponse(result.deposit, result.deposit.partyDriverId, result.heldMinor, result.movementId),
+    toResponse(
+      result.deposit,
+      result.deposit.partyDriverId,
+      result.heldMinor,
+      result.movementId,
+      body.replacesId ?? null,
+    ),
     200,
   );
 };

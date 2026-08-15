@@ -55,4 +55,38 @@ describe("createExpenseRequestSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+
+  it("GAP-30: rejects odometerReadingKm with no odometerSource", () => {
+    const result = createExpenseRequestSchema.safeParse({
+      vehicleId: driverId,
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45000,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("GAP-30: rejects odometerReadingKm with no vehicleId — no vehicle for the reading to belong to", () => {
+    const result = createExpenseRequestSchema.safeParse({
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45000,
+      odometerSource: "reported",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("GAP-30: accepts odometerReadingKm + odometerSource given together, with a vehicle", () => {
+    const result = createExpenseRequestSchema.safeParse({
+      vehicleId: driverId,
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45000,
+      odometerSource: "reported",
+    });
+    expect(result.success).toBe(true);
+  });
 });

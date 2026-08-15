@@ -338,3 +338,39 @@ export async function listUnconfirmedDayRecordsForBusiness(
     .orderBy(asc(dayRecord.businessDate));
   return rows;
 }
+
+export interface VehicleWithPendingWork {
+  vehicleId: string;
+}
+
+/**
+ * GAP-34/U-3: "vehicle defaults to the one with something pending" — no
+ * last-touched-vehicle column exists in this schema, so this reuses the one
+ * concrete "pending" fact already tracked against a vehicle: the same
+ * unconfirmed-day definition `listUnconfirmedDayRecordsForBusiness` above
+ * uses for Home item 4, oldest first (the one that has waited longest is
+ * the one that most needs the tap). `undefined` when nothing is pending —
+ * the caller's own fallback ("first vehicle in the list") is unaffected.
+ */
+export async function findVehicleWithOldestUnconfirmedDay(
+  db: ReadDb,
+  businessId: string,
+  today: string,
+): Promise<VehicleWithPendingWork | undefined> {
+  const rows = await db
+    .select({ vehicleId: dayRecord.vehicleId })
+    .from(dayRecord)
+    .innerJoin(vehicle, eq(vehicle.id, dayRecord.vehicleId))
+    .where(
+      and(
+        eq(dayRecord.businessId, businessId),
+        eq(dayRecord.state, "open"),
+        lt(dayRecord.businessDate, today),
+        isNull(dayRecord.voidedAt),
+        eq(vehicle.lifecycle, "active"),
+      ),
+    )
+    .orderBy(asc(dayRecord.businessDate))
+    .limit(1);
+  return rows[0];
+}

@@ -1,10 +1,17 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
 import { applyCreditForward } from "./credit-forward.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { PeriodClosedError } from "../errors/app-error.js";
+import { deductFromDriverFeeTx } from "./offset.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
+import {
+  NotFoundError,
+  PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
+  ValidationError,
+} from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { insertObligation } from "../queries/obligation.js";
+import { findObligationPartyForReplacesCheck, insertObligation } from "../queries/obligation.js";
 
 export interface RecordPostClosureChargeInput {
   businessId: string;
@@ -17,11 +24,16 @@ export interface RecordPostClosureChargeInput {
   amountMinor: Minor;
   dueOn: BusinessDate;
   note?: string;
+  /** GAP-15/§6.7: settle what's left of this charge against the driver's own fee balance, in this same transaction. `partyType` must be `'driver'`. */
+  deductFromFee?: boolean;
+  userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedPostClosureCharge {
   obligationId: string;
   status: "pending" | "part_paid" | "paid" | "waived";
+  deductedFromFeeOffsetId: string | null;
 }
 
 /**
@@ -45,6 +57,26 @@ export async function recordPostClosureCharge(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findObligationPartyForReplacesCheck(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
+        if (!target) throw new NotFoundError("No such obligation in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Same class as Gitar's finding on PR #45 (adjustment/incident_recovery):
+        // without this, replacesId could name a voided obligation against a
+        // *different* party.
+        const sameParty =
+          target.partyType === input.partyType &&
+          (target.partyCustomerId ?? undefined) === input.partyCustomerId &&
+          (target.partyDriverId ?? undefined) === input.partyDriverId;
+        if (!sameParty) {
+          throw new ValidationError("replacesId names an obligation against a different party");
+        }
+      }
+
       const obligationId = newId();
       await insertObligation(tx, {
         id: obligationId,
@@ -67,6 +99,7 @@ export async function recordPostClosureCharge(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       // GAP-5b: a fine or toll landing on a party who already carries
@@ -83,10 +116,43 @@ export async function recordPostClosureCharge(
         input.dueOn,
       );
 
-      return { obligationId, status: credit.status };
+      // GAP-15/§6.7: the charter fine's one-tap "deduct from his fee" —
+      // whatever existing credit didn't already cover is settled directly
+      // against *this* obligation (never an oldest-first sweep on this
+      // side — the manager chose which charge to deduct) while the
+      // business's own owed-by-us side sweeps oldest-first, composed into
+      // this same transaction rather than a separate POST /api/offset
+      // call. `deductFromDriverFeeTx` throws (refusing the whole request,
+      // not just the deduction) when the driver's fee balance can't cover
+      // it — a one-tap action either does what it says or fails, it does
+      // not silently degrade into an ordinary receivable.
+      let status = credit.status;
+      let deductedFromFeeOffsetId: string | null = null;
+      const remaining = input.amountMinor - credit.settledMinor;
+      if (input.deductFromFee === true && remaining > 0n) {
+        const deduction = await deductFromDriverFeeTx(tx, {
+          businessId: input.businessId,
+          driverId: input.partyDriverId as string,
+          obligationId,
+          obligationAmountMinor: input.amountMinor,
+          obligationSettledMinor: credit.settledMinor,
+          obligationWaivedMinor: 0n,
+          amountMinor: remaining as Minor,
+          occurredOn: input.dueOn,
+          note: "Deducted from driver fee (post-closure charge)",
+          userId: input.userId,
+        });
+        status = deduction.obligationStatus;
+        deductedFromFeeOffsetId = deduction.offsetId;
+      }
+
+      return { obligationId, status, deductedFromFeeOffsetId };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "obligation_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 }

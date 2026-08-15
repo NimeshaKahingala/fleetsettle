@@ -1,10 +1,12 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
   OffsetRecordAlreadyVoidedError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -31,6 +33,7 @@ export interface CreateOffsetInput {
   occurredOn: BusinessDate;
   note?: string;
   userId: string;
+  replacesId?: string;
 }
 
 export interface CreatedOffset {
@@ -65,6 +68,17 @@ export async function createOffset(
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
     if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
 
+    if (input.replacesId !== undefined) {
+      const target = await findOffsetRecordForBusiness(tx, input.businessId, input.replacesId);
+      if (!target) throw new NotFoundError("No such offset in this business");
+      if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // Found by Gitar's review of PR #45: without this, replacesId could
+      // name a voided offset against a *different* driver.
+      if (target.driverId !== input.driverId) {
+        throw new ValidationError("replacesId names an offset against a different driver");
+      }
+    }
+
     const offsetId = newId();
     try {
       await insertOffsetRecord(tx, {
@@ -79,6 +93,7 @@ export async function createOffset(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.userId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       for (const direction of ["owed_to_us", "owed_by_us"] as const) {
@@ -93,11 +108,103 @@ export async function createOffset(
       }
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      if (isUniqueViolation(err, "offset_record_replaces_id_key")) {
+        throw new ReplacesTargetAlreadyReplacedError();
+      }
       throw err;
     }
 
     return { offsetId };
   });
+}
+
+export interface DeductFromDriverFeeInput {
+  businessId: string;
+  driverId: string;
+  /** The specific `owed_to_us` obligation this deduction settles — unlike `createOffset`, never an oldest-first sweep on this side, since the whole point is settling *this* charge, not whichever due happens to be oldest. */
+  obligationId: string;
+  obligationAmountMinor: bigint;
+  obligationSettledMinor: bigint;
+  obligationWaivedMinor: bigint;
+  amountMinor: Minor;
+  occurredOn: BusinessDate;
+  note?: string;
+  userId: string;
+}
+
+export interface DeductedFromDriverFee {
+  offsetId: string;
+  obligationSettledMinor: bigint;
+  obligationStatus: "pending" | "part_paid" | "paid" | "waived";
+}
+
+/**
+ * GAP-15/§6.7: arrangement C's "one tap to deduct from his fee" — an
+ * `offset_record` whose owed_to_us side is *this one* obligation (a
+ * targeted settle, not `createOffset`'s oldest-first sweep — the manager
+ * chose which charge to deduct, so an unrelated older due must not be the
+ * one that ends up cleared) and whose owed_by_us side sweeps oldest-first
+ * exactly as an ordinary offset does. `Tx`-only, not `Writer`-wrapped: this
+ * is always composed into `recordPostClosureCharge`'s own transaction,
+ * immediately after the obligation it settles is created, never called on
+ * its own.
+ */
+export async function deductFromDriverFeeTx(
+  tx: Tx,
+  input: DeductFromDriverFeeInput,
+): Promise<DeductedFromDriverFee> {
+  const outstanding = await sumOutstandingByDirectionForDriver(
+    tx,
+    input.businessId,
+    input.driverId,
+  );
+  if (input.amountMinor > outstanding.owedByUsMinor) {
+    throw new ValidationError("This deduction exceeds what the business currently owes the driver");
+  }
+
+  const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
+  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
+
+  const offsetId = newId();
+  await insertOffsetRecord(tx, {
+    id: offsetId,
+    businessId: input.businessId,
+    driverId: input.driverId,
+    amountMinor: input.amountMinor,
+    occurredOn: input.occurredOn,
+    ...(input.note !== undefined ? { note: input.note } : {}),
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+    createdBy: input.userId,
+  });
+
+  const obligationSettledMinor = input.obligationSettledMinor + input.amountMinor;
+  const obligationStatus = computeObligationStatus(
+    input.obligationAmountMinor,
+    obligationSettledMinor,
+    input.obligationWaivedMinor,
+  );
+  await updateObligationSettled(tx, input.obligationId, {
+    settledMinor: obligationSettledMinor,
+    status: obligationStatus,
+  });
+  await insertOffsetAllocation(tx, {
+    id: newId(),
+    offsetId,
+    obligationId: input.obligationId,
+    amountMinor: input.amountMinor,
+  });
+
+  await allocateAgainstOldest(
+    tx,
+    offsetId,
+    input.businessId,
+    input.driverId,
+    "owed_by_us",
+    input.amountMinor,
+  );
+
+  return { offsetId, obligationSettledMinor, obligationStatus };
 }
 
 async function allocateAgainstOldest(

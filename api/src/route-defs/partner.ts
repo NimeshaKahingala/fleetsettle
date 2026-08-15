@@ -76,8 +76,11 @@ export const recordCapitalContributionRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a capital contribution" },
-    404: { description: "No such vehicle or partner in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such vehicle, partner or replacesId contribution in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a contribution that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 
@@ -183,8 +186,11 @@ export const recordBankingEventRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a banking event" },
-    404: { description: "No such partner in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such partner or replacesId banking event in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a banking event that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 
@@ -237,8 +243,11 @@ export const recordPartnerPayoutRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a partner payout" },
-    404: { description: "No such partner in this business" },
-    409: { description: "That accounting period is closed" },
+    404: { description: "No such partner or replacesId payout in this business" },
+    409: {
+      description:
+        "That accounting period is closed, replacesId names a payout that isn't voided yet, or it has already been replaced (GAP-60)",
+    },
   },
 });
 

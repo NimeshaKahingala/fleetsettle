@@ -57,6 +57,13 @@ export const ERROR_CODES = [
   "INCIDENT_RECOVERY_ALREADY_VOIDED",
   "OFFSET_RECORD_ALREADY_VOIDED",
   "VOID_BLOCKED",
+  // GAP-60/D-16: the replacement writes `replaces_id`, not the void
+  // (§4's own rule). Two ways that write can be wrong, shared across all
+  // thirteen tables rather than duplicated per table like the codes above,
+  // because neither names a table-specific fact the way "already voided"
+  // does — both are about the referenced row's own state.
+  "REPLACES_TARGET_NOT_VOIDED",
+  "REPLACES_TARGET_ALREADY_REPLACED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

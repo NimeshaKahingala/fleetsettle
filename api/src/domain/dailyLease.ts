@@ -13,6 +13,8 @@ import {
   insertDailyLeaseRate,
   releaseDailyLeaseAllocationsAfter,
 } from "../queries/dailyLease.js";
+import { releaseExpiredHolds } from "../queries/trip.js";
+import { restoreDailyLeaseOccupancy } from "./trip.js";
 
 export interface StartDailyLeaseInput {
   businessId: string;
@@ -25,6 +27,8 @@ export interface StartDailyLeaseInput {
   dailyLeaseAmountMinor: Minor;
   /** Injected — `businessToday()` is the one sanctioned clock read, and it belongs to the handler (IG §4.5). Drives how far the synchronous materialisation below reaches. */
   today: BusinessDate;
+  /** GAP-7: attributed on this vehicle's own released expired holds, the same way any other void names who did it. */
+  userId: string;
 }
 
 export interface StartedDailyLease {
@@ -48,6 +52,22 @@ export async function startDailyLease(
 ): Promise<StartedDailyLease> {
   try {
     return await writer.transaction(async (tx) => {
+      // GAP-7: this vehicle's own expired holds release before the horizon
+      // below claims their dates — the same synchronous-ahead-of-conflict
+      // relationship `bookTrip` gives its own booking.
+      const releasedHolds = await releaseExpiredHolds(
+        tx,
+        input.today,
+        input.vehicleId,
+        input.userId,
+      );
+      // GAP-7: undo any calendar hole the just-released hold(s) left in
+      // whatever daily lease was current on this vehicle before this new one
+      // — the horizon materialised below only ever fills forward from
+      // `input.today`, so a hold whose dates fell before today is not
+      // otherwise re-covered.
+      await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
+
       const dailyLeaseId = newId();
       const effectiveTo = input.effectiveTo ?? null;
       await insertDailyLease(tx, {

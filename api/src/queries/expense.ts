@@ -19,10 +19,12 @@ export interface NewExpense {
   borneByCustomerId?: string;
   paidByUserId?: string;
   litres?: number;
+  odometerReadingId?: string;
   note?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** DM §9. `spent_on` is a real date, not the write's timestamp — an expense entered days late is still dated when it happened. */
@@ -63,10 +65,9 @@ export async function findExpenseForBusiness(
  * (migration 0008/GAP-35): `assert_period_open()` treats the resulting
  * `voided_at` transition as a post in its own right, on top of 0006's
  * "an update that never touches `posted_period_id` succeeds". "Replace" is
- * simply recording a fresh, correct expense afterward through the ordinary
- * create endpoint — this schema carries no `replaces_id` column to link the
- * two formally (DM §9's own DDL has none), so there is nothing further to
- * wire.
+ * recording a fresh, correct expense afterward through the ordinary create
+ * endpoint, `replacesId` set — GAP-60/D-16's `replaces_id` column links the
+ * two formally; the void itself never writes it (`createExpense` does).
  */
 export async function voidExpenseRow(
   db: WriteDb,
@@ -171,9 +172,11 @@ export interface BusinessExpenseRow {
   borneByCustomerId: string | null;
   paidByUserId: string | null;
   litres: number | null;
+  odometerReadingId: string | null;
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  replacesId: string | null;
 }
 
 export interface ExpenseFilters {
@@ -212,9 +215,11 @@ export async function listExpensesForBusiness(
       borneByCustomerId: expense.borneByCustomerId,
       paidByUserId: expense.paidByUserId,
       litres: expense.litres,
+      odometerReadingId: expense.odometerReadingId,
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
+      replacesId: expense.replacesId,
     })
     .from(expense)
     .where(

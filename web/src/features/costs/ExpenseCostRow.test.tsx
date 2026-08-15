@@ -25,6 +25,8 @@ const liveExpense: ExpenseListRow = {
   note: null,
   voidedAt: null,
   voidedReason: null,
+  odometerReadingId: null,
+  replacesId: null,
 };
 
 test("a live row is tappable and opens the void sheet", async () => {

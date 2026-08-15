@@ -49,6 +49,7 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
     ...(body.reason !== undefined ? { reason: body.reason } : {}),
     occurredOn: today,
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -59,6 +60,7 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
       waivedMinor: toWire(result.obligation.waivedMinor as Minor),
       status: result.obligation.status,
       adjustmentId: result.adjustmentId,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );

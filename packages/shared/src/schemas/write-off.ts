@@ -22,6 +22,10 @@ export const writeOffRequestSchema = z
     amountMinor: positiveMoneyWireSchema,
     reason: z.string().trim().min(1).max(500),
     writtenOffOn: businessDateSchema,
+    // GAP-60/D-16/F-8.5: set when this write-off is the corrected
+    // replacement for one already voided — the target must belong to this
+    // business and already be voided, checked server-side.
+    replacesId: uuidSchema.optional(),
   })
   .refine((v) => v.partyType !== "customer" || v.partyCustomerId !== undefined, {
     message: "partyCustomerId is required when partyType is 'customer'",
@@ -43,10 +47,12 @@ export const writeOffResponseSchema = z.object({
   amountMinor: z.string(),
   reason: z.string(),
   writtenOffOn: z.string(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: uuidSchema.nullable(),
 });
 export type WriteOffResponse = z.infer<typeof writeOffResponseSchema>;
 
-/** A3: `writeOffResponseSchema` plus the void fields — a voided write-off stays in the list, struck through with its reason, never removed (W-50), the same convention `expenseListRowSchema` already established. GAP-12 means nothing sets these yet, but the shape is ready for when it does. */
+/** A3: `writeOffResponseSchema` plus the void fields — a voided write-off stays in the list, struck through with its reason, never removed (W-50), the same convention `expenseListRowSchema` already established. */
 export const writeOffListRowSchema = writeOffResponseSchema.extend({
   voidedAt: z.string().nullable(),
   voidedReason: z.string().nullable(),
@@ -77,6 +83,8 @@ export type ListWriteOffsQuery = z.infer<typeof listWriteOffsQuerySchema>;
 export const recordWriteOffRecoveryRequestSchema = z.object({
   amountMinor: positiveMoneyWireSchema,
   occurredOn: businessDateSchema,
+  // GAP-60/D-16/F-8.5: see writeOffRequestSchema's own comment.
+  replacesId: uuidSchema.optional(),
 });
 export type RecordWriteOffRecoveryRequest = z.infer<typeof recordWriteOffRecoveryRequestSchema>;
 
@@ -85,5 +93,7 @@ export const writeOffRecoveryResponseSchema = z.object({
   writeOffId: uuidSchema,
   paymentId: uuidSchema,
   amountMinor: z.string(),
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: uuidSchema.nullable(),
 });
 export type WriteOffRecoveryResponse = z.infer<typeof writeOffRecoveryResponseSchema>;

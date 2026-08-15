@@ -42,6 +42,7 @@ export interface NewObligation {
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** DM §10.1: everything anyone owes anyone. `settledMinor`/`status` are supplied already-correct by the caller — this endpoint's writes never need a follow-up UPDATE (CLAUDE.md → Writes: one transaction). */
@@ -153,6 +154,83 @@ export async function findObligationForBusiness(
     .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
     .limit(1);
   return rows[0] as ObligationForAdjustment | undefined;
+}
+
+export interface ObligationForDepositApply {
+  id: string;
+  direction: "owed_to_us" | "owed_by_us";
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  amountMinor: bigint;
+  settledMinor: bigint;
+  waivedMinor: bigint;
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+  voidedAt: string | null;
+}
+
+/**
+ * GAP-6/F-2.7: `recordDepositMovement`'s own validation for an `applied`
+ * movement — needs both the money fields (to cap the application at what's
+ * outstanding) and the party fields (to refuse a deposit applying against a
+ * different party's obligation) in one read.
+ *
+ * `forUpdate` locks the row for the caller's own transaction — the same
+ * GAP-5a discipline `findOutstandingObligationsForDriver`/`ForParty` already
+ * use, closing the read-then-write race two concurrent `applied` movements
+ * against the same obligation would otherwise create. Defaults `false`;
+ * only `deposit.ts`'s write path passes `true`.
+ */
+export async function findObligationForDepositApply(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+  forUpdate = false,
+): Promise<ObligationForDepositApply | undefined> {
+  const query = db
+    .select({
+      id: obligation.id,
+      direction: obligation.direction,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+      status: obligation.status,
+      voidedAt: obligation.voidedAt,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
+  return rows[0] as ObligationForDepositApply | undefined;
+}
+
+export interface ObligationForReplacesCheck {
+  voidedAt: string | null;
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+}
+
+/** GAP-60/D-16: `post-closure-charge.ts`'s own `replacesId` lookup — a direct void only ever applies to `kind = 'post_closure_charge'` (INV-36 §3.10), so this needs nothing beyond party identity to check the target isn't a different party's charge. */
+export async function findObligationPartyForReplacesCheck(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<ObligationForReplacesCheck | undefined> {
+  const rows = await db
+    .select({
+      voidedAt: obligation.voidedAt,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  return rows[0] as ObligationForReplacesCheck | undefined;
 }
 
 /**

@@ -71,10 +71,15 @@ export const leaseClosureSummaryResponseSchema = z.object({
 });
 export type LeaseClosureSummaryResponse = z.infer<typeof leaseClosureSummaryResponseSchema>;
 
-/** F-2.6 step 6/W-29/W-44: "apply against what is owed" (F-8.4) is not one of these yet — TRACKER.md records why. */
+/**
+ * F-2.6 step 6/W-29/W-44. GAP-6: "apply" sweeps the held balance against
+ * the customer's own outstanding dues, oldest-due-first — no `amountMinor`
+ * to give, since it settles as much as it can rather than a manager-chosen
+ * figure (that is what "retain" is for).
+ */
 export const settleLeaseDepositRequestSchema = z
   .object({
-    action: z.enum(["refund", "retain", "hold"]),
+    action: z.enum(["refund", "retain", "hold", "apply"]),
     amountMinor: moneyWireSchema.optional(),
     reason: z.string().trim().max(500).optional(),
     occurredOn: businessDateSchema,

@@ -1,11 +1,13 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { AdjustmentType } from "@fleetsettle/shared/schemas";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   AdjustmentAlreadyVoidedError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
   ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
@@ -38,6 +40,7 @@ export interface ApplyAdjustmentInput {
   reason?: string;
   occurredOn: BusinessDate;
   userId: string;
+  replacesId?: string;
 }
 
 export interface AppliedAdjustment {
@@ -56,6 +59,11 @@ export interface AppliedAdjustment {
  * month can show both the charge and the waiver. Every other type is a real
  * change to what is owed and adjusts `amount_minor` by `sign * amountMinor`
  * directly.
+ *
+ * GAP-60/D-16: `replacesId` — see `createExpense`'s own comment for the
+ * shape. Only the user-facing create route ever sets it; `incident.ts`'s
+ * composed call never does, since that adjustment is minted by the same
+ * write, not a manager correcting an earlier one.
  */
 export async function applyAdjustmentTx(
   tx: Tx,
@@ -63,6 +71,18 @@ export async function applyAdjustmentTx(
 ): Promise<AppliedAdjustment> {
   const ob = await findObligationForBusiness(tx, input.businessId, input.obligationId);
   if (!ob || ob.voidedAt !== null) throw new NotFoundError("No such obligation in this business");
+
+  if (input.replacesId !== undefined) {
+    const target = await findAdjustmentForBusiness(tx, input.businessId, input.replacesId);
+    if (!target) throw new NotFoundError("No such adjustment in this business");
+    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    // Found by Gitar's review of PR #45: without this, replacesId could name
+    // a voided adjustment against a *different* obligation, leaving F-8.6's
+    // "what corrected this?" pointing at an unrelated fact.
+    if (target.obligationId !== input.obligationId) {
+      throw new ValidationError("replacesId names an adjustment against a different obligation");
+    }
+  }
 
   const isWaiver = WAIVER_TYPES.includes(input.adjustmentType);
   const newAmountMinor = isWaiver
@@ -100,6 +120,7 @@ export async function applyAdjustmentTx(
         ? { belongsToPeriodId: linkage.belongsToPeriodId }
         : {}),
       createdBy: input.userId,
+      ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
     });
     await applyAdjustmentToObligation(tx, input.obligationId, {
       amountMinor: newAmountMinor,
@@ -108,6 +129,9 @@ export async function applyAdjustmentTx(
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "adjustment_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 
