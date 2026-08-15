@@ -259,6 +259,12 @@ export async function recordCustomerContribution(
     );
     if (!target) throw new NotFoundError("No such recovery in this business");
     if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    // Found by Gitar's review of PR #45: without this, replacesId could name
+    // a voided recovery against a *different* incident, leaving F-8.6's
+    // "what corrected this?" pointing at an unrelated fact.
+    if (target.incidentId !== input.incidentId) {
+      throw new ValidationError("replacesId names a recovery against a different incident");
+    }
   }
 
   const recoveryId = newId();
@@ -588,6 +594,10 @@ export async function submitInsuranceClaim(
       const target = await findIncidentRecoveryForBusiness(tx, input.businessId, input.replacesId);
       if (!target) throw new NotFoundError("No such recovery in this business");
       if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // See recordCustomerContribution's own comment (Gitar, PR #45).
+      if (target.incidentId !== input.incidentId) {
+        throw new ValidationError("replacesId names a recovery against a different incident");
+      }
     }
 
     const agreedAmountMinor = (input.claimedAmountMinor - input.excessBorneMinor) as Minor;

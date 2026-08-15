@@ -28,6 +28,7 @@ export const issueAdvanceRoute = createRoute({
       content: { "application/json": { schema: advanceResponseSchema } },
       description: "The advance",
     },
+    400: { description: "replacesId names an advance against a different driver" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot issue an advance" },
     404: { description: "No such driver or replacesId advance in this business" },
@@ -51,7 +52,10 @@ export const settleAdvanceRoute = createRoute({
       content: { "application/json": { schema: settledAdvanceResponseSchema } },
       description: "The advance, after this settlement",
     },
-    400: { description: "This settlement would exceed the advance's original amount" },
+    400: {
+      description:
+        "This settlement would exceed the advance's original amount, or replacesId names a settlement against a different advance",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot settle an advance" },
     404: { description: "No such advance or replacesId settlement in this business" },

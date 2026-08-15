@@ -24,7 +24,10 @@ export const createOffsetRoute = createRoute({
       content: { "application/json": { schema: offsetResponseSchema } },
       description: "The offset",
     },
-    400: { description: "This offset exceeds what is outstanding on one side or the other" },
+    400: {
+      description:
+        "This offset exceeds what is outstanding on one side or the other, or replacesId names an offset against a different driver",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record an offset" },
     404: { description: "No such driver or replacesId offset in this business" },

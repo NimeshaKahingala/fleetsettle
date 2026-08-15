@@ -6,6 +6,7 @@ import {
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
+  ValidationError,
   VoidBlockedError,
   WriteOffAlreadyVoidedError,
   WriteOffRecoveryAlreadyVoidedError,
@@ -81,6 +82,16 @@ export async function recordWriteOff(
         const target = await findWriteOffForBusiness(tx, input.businessId, input.replacesId);
         if (!target) throw new NotFoundError("No such write-off in this business");
         if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Same class as Gitar's finding on PR #45 (adjustment/incident_recovery):
+        // without this, replacesId could name a voided write-off against a
+        // *different* party.
+        const sameParty =
+          target.partyType === input.partyType &&
+          (target.partyCustomerId ?? undefined) === input.partyCustomerId &&
+          (target.partyDriverId ?? undefined) === input.partyDriverId;
+        if (!sameParty) {
+          throw new ValidationError("replacesId names a write-off against a different party");
+        }
       }
 
       const writeOffId = newId();
@@ -163,6 +174,11 @@ export async function recordWriteOffRecovery(
         );
         if (!target) throw new NotFoundError("No such recovery in this business");
         if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Found by Gitar's review of PR #45: without this, replacesId could
+        // name a voided recovery against a *different* write-off.
+        if (target.writeOffId !== input.writeOffId) {
+          throw new ValidationError("replacesId names a recovery against a different write-off");
+        }
       }
 
       const paymentId = newId();

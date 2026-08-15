@@ -1432,3 +1432,350 @@ describe("replace a voided record (GAP-60/D-16)", () => {
     });
   });
 });
+
+/**
+ * Found by Gitar's review of PR #45: the replacesId checks above proved the
+ * target belongs to this business and is voided, but never that it belongs
+ * to the *same parent* as the new record — an adjustment could name a voided
+ * adjustment against a different obligation, a recovery a different
+ * incident, and so on, leaving F-8.6's "what corrected this?" pointing at an
+ * unrelated fact. Every table with a real single-parent shape now refuses
+ * (400) a replacesId that crosses parents; `expense` is deliberately exempt
+ * (F-8.5 names "wrong vehicle" as a legitimate correction).
+ */
+describe("replacesId across a different parent is refused (Gitar, PR #45)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("adjustment — replacesId naming an adjustment against a different obligation", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationA = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 10_000n,
+    });
+    const obligationB = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 10_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const voidedOnA = await post("/api/adjustment", token, {
+      obligationId: obligationA,
+      adjustmentType: "waiver",
+      amountMinor: "1000",
+      sign: -1,
+    });
+    const voidedOnABody: { adjustmentId: string } = await voidedOnA.json();
+    await post(`/api/adjustment/${voidedOnABody.adjustmentId}/void`, token, { reason: "x" });
+
+    const res = await post("/api/adjustment", token, {
+      obligationId: obligationB,
+      adjustmentType: "waiver",
+      amountMinor: "1000",
+      sign: -1,
+      replacesId: voidedOnABody.adjustmentId,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("incident_recovery — replacesId naming a recovery against a different incident", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const incidentA = await post("/api/incident", token, {
+      vehicleId,
+      leaseId,
+      occurredOn: "2026-07-08",
+    });
+    const { id: incidentAId }: { id: string } = await incidentA.json();
+    ctx.trackCreatedIncident(incidentAId);
+    const incidentB = await post("/api/incident", token, {
+      vehicleId,
+      leaseId,
+      occurredOn: "2026-07-09",
+    });
+    const { id: incidentBId }: { id: string } = await incidentB.json();
+    ctx.trackCreatedIncident(incidentBId);
+
+    const agreedOnA = await post(`/api/incident/${incidentAId}/customer-contribution`, token, {
+      agreedAmountMinor: "20000",
+      agreedOn: "2026-07-20",
+    });
+    const agreedOnABody: { id: string } = await agreedOnA.json();
+    await post(`/api/incident/${incidentAId}/recovery/${agreedOnABody.id}/void`, token, {
+      reason: "x",
+    });
+
+    const res = await post(`/api/incident/${incidentBId}/customer-contribution`, token, {
+      agreedAmountMinor: "20000",
+      agreedOn: "2026-07-20",
+      replacesId: agreedOnABody.id,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("offset_record — replacesId naming an offset against a different driver", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverA = await ctx.createDriver(businessId);
+    const driverB = await ctx.createDriver(businessId);
+    for (const driverId of [driverA, driverB]) {
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 5_000n,
+        dueOn: "2026-07-01",
+      });
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_by_us",
+        partyType: "driver",
+        driverId,
+        amountMinor: 5_000n,
+        dueOn: "2026-07-01",
+      });
+    }
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const onDriverA = await post("/api/offset", token, {
+      driverId: driverA,
+      amountMinor: "5000",
+      occurredOn: "2026-07-10",
+    });
+    const onDriverABody: { id: string } = await onDriverA.json();
+    ctx.trackCreatedOffset(onDriverABody.id);
+    await post(`/api/offset/${onDriverABody.id}/void`, token, { reason: "x" });
+
+    const res = await post("/api/offset", token, {
+      driverId: driverB,
+      amountMinor: "5000",
+      occurredOn: "2026-07-10",
+      replacesId: onDriverABody.id,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("deposit_movement — replacesId naming a movement against a different deposit", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverA = await ctx.createDriver(businessId);
+    const driverB = await ctx.createDriver(businessId);
+    const depositA = await ctx.createDeposit(businessId, {
+      partyType: "driver",
+      driverId: driverA,
+    });
+    const depositB = await ctx.createDeposit(businessId, {
+      partyType: "driver",
+      driverId: driverB,
+    });
+    await ctx.createDepositMovement(businessId, periodId, depositA, {
+      movementType: "taken",
+      amountMinor: 25_000n,
+    });
+    await ctx.createDepositMovement(businessId, periodId, depositB, {
+      movementType: "taken",
+      amountMinor: 25_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const onDepositA = await post(`/api/deposit/${depositA}/movement`, token, {
+      movementType: "reduced",
+      amountMinor: "5000",
+      occurredOn: "2026-07-12",
+      reason: "x",
+    });
+    const onDepositABody: { movementId: string } = await onDepositA.json();
+    await post(`/api/deposit/${depositA}/movement/${onDepositABody.movementId}/void`, token, {
+      reason: "x",
+    });
+
+    const res = await post(`/api/deposit/${depositB}/movement`, token, {
+      movementType: "reduced",
+      amountMinor: "5000",
+      occurredOn: "2026-07-12",
+      reason: "x",
+      replacesId: onDepositABody.movementId,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("advance — replacesId naming an advance against a different driver", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverA = await ctx.createDriver(businessId);
+    const driverB = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const onDriverA = await post("/api/advance", token, {
+      driverId: driverA,
+      amountMinor: "5000",
+      issuedOn: "2026-07-10",
+    });
+    const onDriverABody: { id: string } = await onDriverA.json();
+    ctx.trackCreatedAdvance(onDriverABody.id);
+    await post(`/api/advance/${onDriverABody.id}/void`, token, { reason: "x" });
+
+    const res = await post("/api/advance", token, {
+      driverId: driverB,
+      amountMinor: "5000",
+      issuedOn: "2026-07-10",
+      replacesId: onDriverABody.id,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("advance_settlement — replacesId naming a settlement against a different advance", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const advanceA = await post("/api/advance", token, {
+      driverId,
+      amountMinor: "5000",
+      issuedOn: "2026-07-10",
+    });
+    const advanceABody: { id: string } = await advanceA.json();
+    ctx.trackCreatedAdvance(advanceABody.id);
+    const advanceB = await post("/api/advance", token, {
+      driverId,
+      amountMinor: "5000",
+      issuedOn: "2026-07-10",
+    });
+    const advanceBBody: { id: string } = await advanceB.json();
+    ctx.trackCreatedAdvance(advanceBBody.id);
+
+    const settledOnA = await post(`/api/advance/${advanceABody.id}/settle`, token, {
+      kind: "spent",
+      amountMinor: "2000",
+      occurredOn: "2026-07-15",
+    });
+    const settledOnABody: { settlementId: string } = await settledOnA.json();
+    await post(
+      `/api/advance/${advanceABody.id}/settlement/${settledOnABody.settlementId}/void`,
+      token,
+      { reason: "x" },
+    );
+
+    const res = await post(`/api/advance/${advanceBBody.id}/settle`, token, {
+      kind: "spent",
+      amountMinor: "2000",
+      occurredOn: "2026-07-15",
+      replacesId: settledOnABody.settlementId,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("write_off — replacesId naming a write-off against a different party", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerA = await ctx.createCustomer(businessId);
+    const customerB = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const onCustomerA = await post("/api/write-off", token, {
+      partyType: "customer",
+      partyCustomerId: customerA,
+      amountMinor: "40000",
+      reason: "x",
+      writtenOffOn: "2026-07-01",
+    });
+    const onCustomerABody: { id: string } = await onCustomerA.json();
+    ctx.trackCreatedWriteOff(onCustomerABody.id);
+    await post(`/api/write-off/${onCustomerABody.id}/void`, token, { reason: "x" });
+
+    const res = await post("/api/write-off", token, {
+      partyType: "customer",
+      partyCustomerId: customerB,
+      amountMinor: "40000",
+      reason: "x",
+      writtenOffOn: "2026-07-01",
+      replacesId: onCustomerABody.id,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("write_off_recovery — replacesId naming a recovery against a different write-off", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const writeOffA = await post("/api/write-off", token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "40000",
+      reason: "x",
+      writtenOffOn: "2026-07-01",
+    });
+    const writeOffABody: { id: string } = await writeOffA.json();
+    ctx.trackCreatedWriteOff(writeOffABody.id);
+    const writeOffB = await post("/api/write-off", token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "40000",
+      reason: "x",
+      writtenOffOn: "2026-07-01",
+    });
+    const writeOffBBody: { id: string } = await writeOffB.json();
+    ctx.trackCreatedWriteOff(writeOffBBody.id);
+
+    const recoveredOnA = await post(`/api/write-off/${writeOffABody.id}/recovery`, token, {
+      amountMinor: "10000",
+      occurredOn: "2026-07-25",
+    });
+    const recoveredOnABody: { id: string } = await recoveredOnA.json();
+    await post(`/api/write-off/${writeOffABody.id}/recovery/${recoveredOnABody.id}/void`, token, {
+      reason: "x",
+    });
+
+    const res = await post(`/api/write-off/${writeOffBBody.id}/recovery`, token, {
+      amountMinor: "10000",
+      occurredOn: "2026-07-26",
+      replacesId: recoveredOnABody.id,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+});

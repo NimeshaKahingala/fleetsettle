@@ -57,6 +57,11 @@ export async function issueAdvance(
     const target = await findAdvanceForBusiness(writer, input.businessId, input.replacesId);
     if (!target) throw new NotFoundError("No such advance in this business");
     if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    // Found by Gitar's review of PR #45: without this, replacesId could
+    // name a voided advance against a *different* driver.
+    if (target.driverId !== input.driverId) {
+      throw new ValidationError("replacesId names an advance against a different driver");
+    }
   }
 
   const advanceId = newId();
@@ -134,6 +139,11 @@ export async function settleAdvance(
       const target = await findAdvanceSettlementForBusiness(tx, input.businessId, input.replacesId);
       if (!target) throw new NotFoundError("No such settlement in this business");
       if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // Found by Gitar's review of PR #45: without this, replacesId could
+      // name a voided settlement against a *different* advance.
+      if (target.advanceId !== input.advanceId) {
+        throw new ValidationError("replacesId names a settlement against a different advance");
+      }
     }
 
     const settlementId = newId();

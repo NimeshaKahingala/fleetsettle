@@ -156,6 +156,32 @@ export async function findObligationForBusiness(
   return rows[0] as ObligationForAdjustment | undefined;
 }
 
+export interface ObligationForReplacesCheck {
+  voidedAt: string | null;
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+}
+
+/** GAP-60/D-16: `post-closure-charge.ts`'s own `replacesId` lookup — a direct void only ever applies to `kind = 'post_closure_charge'` (INV-36 §3.10), so this needs nothing beyond party identity to check the target isn't a different party's charge. */
+export async function findObligationPartyForReplacesCheck(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<ObligationForReplacesCheck | undefined> {
+  const rows = await db
+    .select({
+      voidedAt: obligation.voidedAt,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  return rows[0] as ObligationForReplacesCheck | undefined;
+}
+
 /**
  * F-2.4/UC-15: a waiver raises `waived_minor` only — `amount_minor` stays
  * "the 340 charged" (DM §10.3's own example). Every other adjustment type

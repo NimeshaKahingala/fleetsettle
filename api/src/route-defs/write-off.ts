@@ -41,6 +41,7 @@ export const recordWriteOffRoute = createRoute({
       content: { "application/json": { schema: writeOffResponseSchema } },
       description: "The write-off",
     },
+    400: { description: "replacesId names a write-off against a different party" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot write off a balance" },
     404: {
@@ -66,6 +67,7 @@ export const recordWriteOffRecoveryRoute = createRoute({
       content: { "application/json": { schema: writeOffRecoveryResponseSchema } },
       description: "The recovery, and the payment it was recorded through",
     },
+    400: { description: "replacesId names a recovery against a different write-off" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a write-off recovery" },
     404: { description: "No such write-off or replacesId recovery in this business" },

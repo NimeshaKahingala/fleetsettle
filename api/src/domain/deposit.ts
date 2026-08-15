@@ -129,6 +129,11 @@ export async function recordDepositMovement(
       const target = await findDepositMovementForBusiness(tx, input.businessId, input.replacesId);
       if (!target) throw new NotFoundError("No such deposit movement in this business");
       if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // Found by Gitar's review of PR #45: without this, replacesId could
+      // name a voided movement against a *different* deposit.
+      if (target.depositId !== input.depositId) {
+        throw new ValidationError("replacesId names a movement against a different deposit");
+      }
     }
 
     const movementId = newId();

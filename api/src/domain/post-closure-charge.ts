@@ -7,9 +7,10 @@ import {
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
+  ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { findObligationForBusiness, insertObligation } from "../queries/obligation.js";
+import { findObligationPartyForReplacesCheck, insertObligation } from "../queries/obligation.js";
 
 export interface RecordPostClosureChargeInput {
   businessId: string;
@@ -52,9 +53,23 @@ export async function recordPostClosureCharge(
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
       if (input.replacesId !== undefined) {
-        const target = await findObligationForBusiness(tx, input.businessId, input.replacesId);
+        const target = await findObligationPartyForReplacesCheck(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
         if (!target) throw new NotFoundError("No such obligation in this business");
         if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Same class as Gitar's finding on PR #45 (adjustment/incident_recovery):
+        // without this, replacesId could name a voided obligation against a
+        // *different* party.
+        const sameParty =
+          target.partyType === input.partyType &&
+          (target.partyCustomerId ?? undefined) === input.partyCustomerId &&
+          (target.partyDriverId ?? undefined) === input.partyDriverId;
+        if (!sameParty) {
+          throw new ValidationError("replacesId names an obligation against a different party");
+        }
       }
 
       const obligationId = newId();

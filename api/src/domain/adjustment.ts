@@ -76,6 +76,12 @@ export async function applyAdjustmentTx(
     const target = await findAdjustmentForBusiness(tx, input.businessId, input.replacesId);
     if (!target) throw new NotFoundError("No such adjustment in this business");
     if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+    // Found by Gitar's review of PR #45: without this, replacesId could name
+    // a voided adjustment against a *different* obligation, leaving F-8.6's
+    // "what corrected this?" pointing at an unrelated fact.
+    if (target.obligationId !== input.obligationId) {
+      throw new ValidationError("replacesId names an adjustment against a different obligation");
+    }
   }
 
   const isWaiver = WAIVER_TYPES.includes(input.adjustmentType);

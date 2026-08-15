@@ -44,7 +44,8 @@ export const recordDepositMovementRoute = createRoute({
       description: "The deposit, after this movement",
     },
     400: {
-      description: "This movement would draw the deposit below zero, or it is no longer held",
+      description:
+        "This movement would draw the deposit below zero, it is no longer held, or replacesId names a movement against a different deposit",
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a deposit movement" },

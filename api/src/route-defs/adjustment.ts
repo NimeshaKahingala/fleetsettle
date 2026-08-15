@@ -28,7 +28,10 @@ export const createAdjustmentRoute = createRoute({
       content: { "application/json": { schema: createdAdjustmentResponseSchema } },
       description: "The obligation, after the adjustment, and the adjustment's own id",
     },
-    400: { description: "The adjustment would take the obligation below zero or over-waive it" },
+    400: {
+      description:
+        "The adjustment would take the obligation below zero or over-waive it, or replacesId names an adjustment against a different obligation",
+    },
     401: { description: "Missing or invalid access token" },
     // A manual waiver above the auto-waive threshold needs `writeOffOrWaiveAboveThreshold` (OWNERS).
     403: { description: "This role cannot make this adjustment" },

@@ -16,6 +16,10 @@ export const recordPostClosureChargeRoute = createRoute({
       content: { "application/json": { schema: postClosureChargeResponseSchema } },
       description: "The post-closure charge",
     },
+    400: {
+      description:
+        "vehicleId does not match the vehicle on the named lease or trip, or replacesId names an obligation against a different party",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a post-closure charge" },
     404: {

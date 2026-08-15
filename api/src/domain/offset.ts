@@ -72,6 +72,11 @@ export async function createOffset(
       const target = await findOffsetRecordForBusiness(tx, input.businessId, input.replacesId);
       if (!target) throw new NotFoundError("No such offset in this business");
       if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      // Found by Gitar's review of PR #45: without this, replacesId could
+      // name a voided offset against a *different* driver.
+      if (target.driverId !== input.driverId) {
+        throw new ValidationError("replacesId names an offset against a different driver");
+      }
     }
 
     const offsetId = newId();

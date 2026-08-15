@@ -106,7 +106,10 @@ export const recordCustomerContributionRoute = createRoute({
       content: { "application/json": { schema: incidentRecoveryResponseSchema } },
       description: "The customer's recovery row, agreed but not yet received",
     },
-    400: { description: "This incident has no lease, so there is no customer to bill" },
+    400: {
+      description:
+        "This incident has no lease, so there is no customer to bill, or replacesId names a recovery against a different incident",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a customer contribution" },
     404: { description: "No such incident or replacesId recovery in this business" },
@@ -175,7 +178,10 @@ export const submitInsuranceClaimRoute = createRoute({
       content: { "application/json": { schema: insuranceClaimResponseSchema } },
       description: "The submitted claim",
     },
-    400: { description: "The excess borne cannot exceed the amount claimed" },
+    400: {
+      description:
+        "The excess borne cannot exceed the amount claimed, or replacesId names a recovery against a different incident",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot submit an insurance claim" },
     404: { description: "No such incident or replacesId recovery in this business" },
