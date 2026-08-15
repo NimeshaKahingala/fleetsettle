@@ -95,6 +95,9 @@ export const vehicle = pgTable("vehicle", {
   registration: text("registration").notNull(),
   vehicleType: text("vehicle_type").notNull(),
   lifecycle: text("lifecycle").notNull().default("active"),
+  // F-3.5/UC-13/GAP-68: optional, kilometres, never required to save the
+  // vehicle (U-2) — with none set, the maintenance prompt never appears.
+  serviceIntervalKm: integer("service_interval_km"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 

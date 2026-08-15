@@ -50,6 +50,30 @@ export async function findLatestOdometerReadingForLease(
   return rows[0];
 }
 
+/**
+ * F-3.5/UC-13/GAP-68: the maintenance prompt's own "latest reading on
+ * file" — every reading against this vehicle regardless of source or which
+ * lease/trip (if any) it was taken under, unlike `findLatestOdometerReadingForLease`'s
+ * own lease scope. `undefined` means this vehicle has no odometer history
+ * at all yet.
+ */
+export async function findLatestOdometerReadingForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<OdometerReadingRow | undefined> {
+  const rows = await db
+    .select({
+      id: odometerReading.id,
+      readingKm: odometerReading.readingKm,
+      readOn: odometerReading.readOn,
+    })
+    .from(odometerReading)
+    .where(eq(odometerReading.vehicleId, vehicleId))
+    .orderBy(desc(odometerReading.readOn), desc(odometerReading.createdAt))
+    .limit(1);
+  return rows[0];
+}
+
 /** The idempotency read for `odometer_reading_lease_id_read_on_key` — a second submission for the same lease and date is a no-op, read back rather than re-inserted. */
 export async function findOdometerReadingByLeaseAndDate(
   db: ReadDb,

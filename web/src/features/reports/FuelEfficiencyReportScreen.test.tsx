@@ -9,7 +9,14 @@ import { FuelEfficiencyReportScreen, toChartData } from "./FuelEfficiencyReportS
 
 const today = asBusinessDate("2026-07-15");
 const vehicles: VehicleResponse[] = [
-  { id: "v1", registration: "NB-1234", vehicleType: "Bus", lifecycle: "active", arrangement: "B" },
+  {
+    id: "v1",
+    registration: "NB-1234",
+    vehicleType: "Bus",
+    lifecycle: "active",
+    serviceIntervalKm: null,
+    arrangement: "B",
+  },
 ];
 
 describe("toChartData (fuel efficiency)", () => {

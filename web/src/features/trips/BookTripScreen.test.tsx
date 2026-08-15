@@ -21,6 +21,7 @@ const vehicle: VehicleResponse = {
   registration: "NC-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 

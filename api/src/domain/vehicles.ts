@@ -1,5 +1,5 @@
 import { addDays, newId, type BusinessDate } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
+import type { Reader, Writer } from "../db/client.js";
 import { isExclusionViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
@@ -15,7 +15,9 @@ import {
   findCurrentDailyLeaseRowForVehicle,
   releaseDailyLeaseAllocationsAfter,
 } from "../queries/dailyLease.js";
+import { findLastMaintenanceOdometerKm } from "../queries/expense.js";
 import { findOpenLeaseForVehicle } from "../queries/lease.js";
+import { findLatestOdometerReadingForVehicle } from "../queries/odometer-reading.js";
 import { findOpenTripForVehicle } from "../queries/trip.js";
 import {
   endVehicleArrangementRow,
@@ -26,6 +28,7 @@ import {
   insertVehicleArrangement,
   insertVehicleUnavailability,
   setVehicleLifecycle,
+  setVehicleServiceInterval,
   upsertVehicleDocument,
   voidVehicleUnavailabilityRow,
 } from "../queries/vehicle.js";
@@ -234,6 +237,50 @@ export async function archiveVehicle(writer: Writer, vehicleId: string): Promise
 
 export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
   await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "active"));
+}
+
+/** F-3.5/UC-13/GAP-68. `null` clears the interval — the same "no interval, no prompt" reading the rest of this feature carries. */
+export async function changeVehicleServiceInterval(
+  writer: Writer,
+  vehicleId: string,
+  serviceIntervalKm: number | null,
+): Promise<void> {
+  await writer.transaction((tx) => setVehicleServiceInterval(tx, vehicleId, serviceIntervalKm));
+}
+
+export interface VehicleMaintenanceStatus {
+  /** Null whenever the figure isn't computable — no interval set, or no maintenance baseline recorded yet. Never a guessed 0 (W-56). */
+  kmSinceLastServiceKm: number | null;
+  due: boolean;
+}
+
+/**
+ * F-3.5/UC-13/GAP-68, read live on every vehicle-detail fetch — the same
+ * "a query the screen makes, not a job that writes anything" shape
+ * `getPaperworkWarnings` (domain/home.ts) already uses for its own prompt.
+ * **With no interval set, there is no prompt at all** — this function is
+ * never even called in that case (`getVehicleHandler` short-circuits it).
+ * With an interval set but no maintenance ever recorded through this
+ * system, there is nothing to compare the latest reading against —
+ * `kmSinceLastServiceKm` stays `null` rather than assuming the vehicle has
+ * never been serviced, which W-56 rules out as a guess this document
+ * cannot stand behind.
+ */
+export async function getVehicleMaintenanceStatus(
+  reader: Reader,
+  vehicleId: string,
+  serviceIntervalKm: number,
+): Promise<VehicleMaintenanceStatus> {
+  const [latest, lastMaintenanceKm] = await Promise.all([
+    findLatestOdometerReadingForVehicle(reader, vehicleId),
+    findLastMaintenanceOdometerKm(reader, vehicleId),
+  ]);
+  if (latest === undefined || lastMaintenanceKm === undefined) {
+    return { kmSinceLastServiceKm: null, due: false };
+  }
+
+  const kmSinceLastServiceKm = latest.readingKm - lastMaintenanceKm;
+  return { kmSinceLastServiceKm, due: kmSinceLastServiceKm >= serviceIntervalKm };
 }
 
 export interface MarkVehicleUnavailableInput {

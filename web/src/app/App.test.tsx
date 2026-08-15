@@ -26,6 +26,7 @@ test("owner_manager renders the operate shell at the deep-linked path, with no l
         registration: "CAB-1234",
         vehicleType: "Bus",
         lifecycle: "active",
+        serviceIntervalKm: null,
         arrangement: "B",
       } satisfies VehicleResponse);
     }
@@ -50,7 +51,13 @@ test("tapping a vehicle row navigates to its detail route", async () => {
     if (path === "/api/me") return Promise.resolve(ME_OPERATE);
     if (path === "/api/vehicle") {
       return Promise.resolve([
-        { id: "v1", registration: "CAB-1234", vehicleType: "Bus", lifecycle: "active" },
+        {
+          id: "v1",
+          registration: "CAB-1234",
+          vehicleType: "Bus",
+          lifecycle: "active",
+          serviceIntervalKm: null,
+        },
       ] satisfies VehicleResponse[]);
     }
     if (path === "/api/vehicle/v1") {
@@ -59,6 +66,7 @@ test("tapping a vehicle row navigates to its detail route", async () => {
         registration: "CAB-1234",
         vehicleType: "Bus",
         lifecycle: "active",
+        serviceIntervalKm: null,
       } satisfies VehicleResponse);
     }
     throw new Error(`unexpected path ${path}`);
@@ -83,6 +91,7 @@ test("Screen's back button from a vehicle detail returns to the list", async () 
         registration: "CAB-1234",
         vehicleType: "Bus",
         lifecycle: "active",
+        serviceIntervalKm: null,
       } satisfies VehicleResponse);
     }
     throw new Error(`unexpected path ${path}`);

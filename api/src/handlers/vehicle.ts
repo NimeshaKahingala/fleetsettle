@@ -10,7 +10,9 @@ import { deriveTripStatus } from "../domain/trip.js";
 import {
   archiveVehicle,
   changeVehicleArrangement,
+  changeVehicleServiceInterval,
   createVehicle,
+  getVehicleMaintenanceStatus,
   markVehicleUnavailable,
   unarchiveVehicle,
   voidVehicleUnavailability,
@@ -33,6 +35,7 @@ import {
 import type {
   archiveVehicleRoute,
   changeVehicleArrangementRoute,
+  changeVehicleServiceIntervalRoute,
   createVehicleRoute,
   getVehicleCalendarRoute,
   getVehicleRoute,
@@ -59,6 +62,7 @@ function toResponse(row: VehicleRow) {
     vehicleType: row.vehicleType,
     lifecycle: row.lifecycle,
     ...(row.arrangement ? { arrangement: row.arrangement } : {}),
+    serviceIntervalKm: row.serviceIntervalKm,
   };
 }
 
@@ -89,11 +93,13 @@ export const createVehicleHandler: RouteHandler<typeof createVehicleRoute, Env> 
       vehicleType: body.vehicleType,
       lifecycle: "active" as const,
       arrangement: body.defaultArrangement,
+      serviceIntervalKm: null,
     },
     201,
   );
 };
 
+/** F-1.1, and F-3.5/UC-13/GAP-68's own `maintenance` prompt — computed only here, never on the list (`toResponse` leaves the key undefined there). */
 export const getVehicleHandler: RouteHandler<typeof getVehicleRoute, Env> = async (c) => {
   requireCapability(c, "manageEntities");
 
@@ -103,7 +109,12 @@ export const getVehicleHandler: RouteHandler<typeof getVehicleRoute, Env> = asyn
   const row = await findVehicleForBusiness(c.get("reader"), businessId, id);
   if (!row) throw new NotFoundError();
 
-  return c.json(toResponse(row), 200);
+  const maintenance =
+    row.serviceIntervalKm !== null
+      ? await getVehicleMaintenanceStatus(c.get("reader"), id, row.serviceIntervalKm)
+      : null;
+
+  return c.json({ ...toResponse(row), maintenance }, 200);
 };
 
 export const listVehiclesHandler: RouteHandler<typeof listVehiclesRoute, Env> = async (c) => {
@@ -128,6 +139,25 @@ export const archiveVehicleHandler: RouteHandler<typeof archiveVehicleRoute, Env
 
   await archiveVehicle(c.get("writer"), id);
   return c.json(toResponse({ ...row, lifecycle: "archived" }), 200);
+};
+
+/** F-3.5/UC-13/GAP-68. `manageEntities` — same gate as `createVehicleRoute`; this is vehicle master data, not an operational fact. */
+export const changeVehicleServiceIntervalHandler: RouteHandler<
+  typeof changeVehicleServiceIntervalRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "manageEntities");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const reader = c.get("reader");
+
+  const row = await findVehicleForBusiness(reader, businessId, id);
+  if (!row) throw new NotFoundError();
+
+  await changeVehicleServiceInterval(c.get("writer"), id, body.serviceIntervalKm);
+  return c.json(toResponse({ ...row, serviceIntervalKm: body.serviceIntervalKm }), 200);
 };
 
 /** "Unarchive" alternate — same `manageEntities` gate. */

@@ -89,6 +89,7 @@ test("no vehicleId prop shows a vehicle picker, and leaving it blank is a valid 
       registration: "NC-1234",
       vehicleType: "bus",
       lifecycle: "active",
+      serviceIntervalKm: null,
       arrangement: "B",
     },
   ];

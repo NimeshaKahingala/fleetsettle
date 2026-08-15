@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { expense } from "../db/schema.js";
+import { expense, odometerReading } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -142,6 +142,33 @@ export async function listExpensesForVehicle(
     .where(and(eq(expense.businessId, businessId), eq(expense.vehicleId, vehicleId)))
     .orderBy(desc(expense.spentOn));
   return rows as VehicleExpenseRow[];
+}
+
+/**
+ * F-3.5/UC-13/GAP-68: the baseline the maintenance prompt compares the
+ * vehicle's latest odometer reading against — the reading linked to this
+ * vehicle's own most recent live `servicing` expense. `undefined` when none
+ * has ever been recorded with a reading attached — the prompt has nothing
+ * to compare against yet, and W-56 says that is "not available", not zero.
+ */
+export async function findLastMaintenanceOdometerKm(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<number | undefined> {
+  const rows = await db
+    .select({ readingKm: odometerReading.readingKm })
+    .from(expense)
+    .innerJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
+    .where(
+      and(
+        eq(expense.vehicleId, vehicleId),
+        eq(expense.category, "servicing"),
+        isNull(expense.voidedAt),
+      ),
+    )
+    .orderBy(desc(expense.spentOn), desc(expense.createdAt))
+    .limit(1);
+  return rows[0]?.readingKm;
 }
 
 export interface BusinessExpenseRow {

@@ -18,7 +18,14 @@ vi.mock("../../lib/photo-pipeline.js", () => ({
 const today = asBusinessDate("2026-08-04");
 
 const vehicles: VehicleResponse[] = [
-  { id: "v1", registration: "NC-1234", vehicleType: "bus", lifecycle: "active", arrangement: "B" },
+  {
+    id: "v1",
+    registration: "NC-1234",
+    vehicleType: "bus",
+    lifecycle: "active",
+    serviceIntervalKm: null,
+    arrangement: "B",
+  },
 ];
 
 const created: ExpenseResponse = {

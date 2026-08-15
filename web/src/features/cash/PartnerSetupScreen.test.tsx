@@ -23,6 +23,7 @@ const vehicles: VehicleResponse[] = [
     registration: "NB-1234",
     vehicleType: "Bus",
     lifecycle: "active",
+    serviceIntervalKm: null,
     arrangement: "B",
   },
   {
@@ -30,6 +31,7 @@ const vehicles: VehicleResponse[] = [
     registration: "CAR-4567",
     vehicleType: "Car",
     lifecycle: "active",
+    serviceIntervalKm: null,
     arrangement: "A",
   },
 ];

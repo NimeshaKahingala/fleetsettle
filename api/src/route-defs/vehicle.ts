@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   businessDateSchema,
   changeVehicleArrangementRequestSchema,
+  changeVehicleServiceIntervalRequestSchema,
   createVehicleRequestSchema,
   listExpensesResponseSchema,
   listIncidentsResponseSchema,
@@ -242,6 +243,30 @@ export const archiveVehicleRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot archive a vehicle" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/**
+ * F-3.5/UC-13/GAP-68: "editable on the vehicle's own page." `null` clears
+ * it — and clearing is exactly how a manager turns the prompt back off.
+ */
+export const changeVehicleServiceIntervalRoute = createRoute({
+  method: "patch",
+  path: "/{id}/service-interval",
+  request: {
+    params: vehicleIdParams,
+    body: {
+      content: { "application/json": { schema: changeVehicleServiceIntervalRequestSchema } },
+    },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleResponseSchema } },
+      description: "The vehicle, with its service interval set (or cleared)",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot change a vehicle's service interval" },
     404: { description: "No such vehicle in this business" },
   },
 });

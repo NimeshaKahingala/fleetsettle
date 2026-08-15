@@ -18,6 +18,7 @@ const vehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 

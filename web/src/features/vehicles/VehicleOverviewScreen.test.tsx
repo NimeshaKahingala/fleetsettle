@@ -18,6 +18,7 @@ const baseVehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 
@@ -50,6 +51,86 @@ test("renders the vehicle's fields once loaded", async () => {
   expect(await screen.findByText("Bus")).toBeInTheDocument();
   expect(screen.getByText("Daily lease")).toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/api/vehicle/v1");
+});
+
+test("F-3.5/GAP-68: the maintenance prompt shows only when due, informational only", async () => {
+  const get = baseGet({
+    "/api/vehicle/v1": {
+      ...baseVehicle,
+      serviceIntervalKm: 5000,
+      maintenance: { kmSinceLastServiceKm: 6200, due: true },
+    },
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(
+    await screen.findByText("Due for servicing — 6,200 km since the last one"),
+  ).toBeInTheDocument();
+});
+
+test("F-3.5/GAP-68: no prompt when not due, even with an interval set", async () => {
+  const get = baseGet({
+    "/api/vehicle/v1": {
+      ...baseVehicle,
+      serviceIntervalKm: 5000,
+      maintenance: { kmSinceLastServiceKm: 1200, due: false },
+    },
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Bus")).toBeInTheDocument();
+  expect(screen.queryByText(/Due for servicing/)).toBeNull();
+});
+
+test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sheet and saves", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({ ...baseVehicle, serviceIntervalKm: 8000 });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Service interval" }));
+  await user.type(screen.getByLabelText("Kilometres between services (optional)"), "8000");
+  await user.click(screen.getByRole("button", { name: "Save service interval" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
+      serviceIntervalKm: 8000,
+    }),
+  );
 });
 
 test("GAP-101: a failed vehicle read shows a failure notice, never an eternal spinner", async () => {

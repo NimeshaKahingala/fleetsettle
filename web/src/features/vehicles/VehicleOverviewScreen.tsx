@@ -19,8 +19,10 @@ import {
   Receipt,
   Route,
   TriangleAlert,
+  Wrench,
 } from "lucide-react";
 import { useState } from "react";
+import { AlertStrip } from "../../components/AlertStrip.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -43,6 +45,7 @@ import { useQueryState } from "../../lib/useQueryState.js";
 import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
 import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
 import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
+import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 
 export interface VehicleOverviewScreenProps {
@@ -127,6 +130,7 @@ export function VehicleOverviewScreen({
   const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
   const [endDailyLeaseOpen, setEndDailyLeaseOpen] = useState(false);
   const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
+  const [serviceIntervalOpen, setServiceIntervalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -253,6 +257,12 @@ export function VehicleOverviewScreen({
       onSelect: () => setRecordExpenseOpen(true),
     },
     {
+      key: "service-interval",
+      label: "Service interval",
+      icon: Wrench,
+      onSelect: () => setServiceIntervalOpen(true),
+    },
+    {
       key: "incident",
       label: "Report incident",
       icon: TriangleAlert,
@@ -296,6 +306,20 @@ export function VehicleOverviewScreen({
               )}
             </div>
           </Card>
+
+          {/* F-3.5/UC-13/GAP-68: informational only — never blocks or pre-fills
+              Record expense, per that flow's own Accept clause. Absent
+              entirely unless `maintenance.due`, itself only ever true when an
+              interval is set (CLAUDE.md → Numbers that go wrong quietly: no
+              interval, no guessed prompt). */}
+          {vehicle.maintenance?.due === true ? (
+            <AlertStrip severity="warning" icon={Wrench}>
+              Due for servicing
+              {vehicle.maintenance.kmSinceLastServiceKm !== null
+                ? ` — ${vehicle.maintenance.kmSinceLastServiceKm.toLocaleString("en-LK")} km since the last one`
+                : ""}
+            </AlertStrip>
+          ) : null}
 
           {documentsState.kind === "error" ? (
             <QueryStateFailure
@@ -467,6 +491,12 @@ export function VehicleOverviewScreen({
               today={today}
             />
           ) : null}
+          <SetServiceIntervalSheet
+            open={serviceIntervalOpen}
+            onOpenChange={setServiceIntervalOpen}
+            vehicleId={vehicleId}
+            currentServiceIntervalKm={vehicle.serviceIntervalKm}
+          />
           <ActionSheet
             open={actionsOpen}
             onOpenChange={setActionsOpen}

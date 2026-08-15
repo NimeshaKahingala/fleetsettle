@@ -71,6 +71,7 @@ export interface VehicleRow {
   vehicleType: string;
   lifecycle: "active" | "archived" | "disposed";
   arrangement: "A" | "B" | "C" | null;
+  serviceIntervalKm: number | null;
 }
 
 const CURRENT_ARRANGEMENT = and(
@@ -91,12 +92,27 @@ export async function findVehicleForBusiness(
       vehicleType: vehicle.vehicleType,
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
+      serviceIntervalKm: vehicle.serviceIntervalKm,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
     .where(and(eq(vehicle.id, vehicleId), eq(vehicle.businessId, businessId)))
     .limit(1);
   return rows[0] as VehicleRow | undefined;
+}
+
+/**
+ * F-3.5/UC-13/GAP-68: the vehicle's own optional service interval, in
+ * kilometres — editable on its own page, never required to save the
+ * vehicle (U-2). `null` clears it, the same "no interval, no prompt"
+ * reading `findLastMaintenanceOdometerKm`'s own doc comment gives W-56.
+ */
+export async function setVehicleServiceInterval(
+  db: WriteDb,
+  vehicleId: string,
+  serviceIntervalKm: number | null,
+): Promise<void> {
+  await db.update(vehicle).set({ serviceIntervalKm }).where(eq(vehicle.id, vehicleId));
 }
 
 /**
@@ -282,6 +298,7 @@ export async function listVehiclesForBusiness(
       vehicleType: vehicle.vehicleType,
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
+      serviceIntervalKm: vehicle.serviceIntervalKm,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
