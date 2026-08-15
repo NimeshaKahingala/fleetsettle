@@ -71,16 +71,23 @@ export const takeDriverDepositRequestSchema = z.object({
 });
 export type TakeDriverDepositRequest = z.infer<typeof takeDriverDepositRequestSchema>;
 
-export const depositMovementRequestSchema = z.object({
-  movementType: z.enum(["topped_up", "reduced", "applied", "refunded", "retained"]),
-  amountMinor: positiveMoneyWireSchema,
-  occurredOn: businessDateSchema,
-  reason: z.string().trim().max(500).optional(),
-  // GAP-60/D-16/F-8.5: set when this movement is the corrected replacement
-  // for one already voided — the target must belong to this business and
-  // already be voided, checked server-side.
-  replacesId: uuidSchema.optional(),
-});
+/** GAP-6/F-6.7/UC-58: "apply against arrears" needs `obligationId` — which of the driver's own `owed_to_us` obligations this movement settles — required exactly when `movementType` is `'applied'`. */
+export const depositMovementRequestSchema = z
+  .object({
+    movementType: z.enum(["topped_up", "reduced", "applied", "refunded", "retained"]),
+    amountMinor: positiveMoneyWireSchema,
+    occurredOn: businessDateSchema,
+    reason: z.string().trim().max(500).optional(),
+    obligationId: uuidSchema.optional(),
+    // GAP-60/D-16/F-8.5: set when this movement is the corrected replacement
+    // for one already voided — the target must belong to this business and
+    // already be voided, checked server-side.
+    replacesId: uuidSchema.optional(),
+  })
+  .refine((v) => (v.movementType === "applied") === (v.obligationId !== undefined), {
+    message: "obligationId is required when movementType is 'applied', and only then",
+    path: ["obligationId"],
+  });
 export type DepositMovementRequest = z.infer<typeof depositMovementRequestSchema>;
 
 export const depositResponseSchema = z.object({

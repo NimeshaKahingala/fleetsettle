@@ -93,6 +93,7 @@ export const recordDepositMovementHandler: RouteHandler<
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
     ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    ...(body.obligationId !== undefined ? { obligationId: body.obligationId } : {}),
     userId,
     ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });

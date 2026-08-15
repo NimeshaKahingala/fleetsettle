@@ -1,6 +1,6 @@
 import { asBusinessDate, toWire } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability } from "../auth/context.js";
+import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import { recordPostClosureCharge } from "../domain/post-closure-charge.js";
 import { NotFoundError, ValidationError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
@@ -18,6 +18,7 @@ export const recordPostClosureChargeHandler: RouteHandler<
 > = async (c) => {
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
   const body = c.req.valid("json");
   const reader = c.get("reader");
 
@@ -55,19 +56,24 @@ export const recordPostClosureChargeHandler: RouteHandler<
     }
   }
 
-  const { obligationId, status } = await recordPostClosureCharge(c.get("writer"), {
-    businessId,
-    partyType: body.partyType,
-    ...(body.partyCustomerId !== undefined ? { partyCustomerId: body.partyCustomerId } : {}),
-    ...(body.partyDriverId !== undefined ? { partyDriverId: body.partyDriverId } : {}),
-    ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
-    sourceType: body.sourceType,
-    sourceId: body.sourceId,
-    amountMinor: body.amountMinor,
-    dueOn: asBusinessDate(body.dueOn),
-    ...(body.note !== undefined ? { note: body.note } : {}),
-    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
-  });
+  const { obligationId, status, deductedFromFeeOffsetId } = await recordPostClosureCharge(
+    c.get("writer"),
+    {
+      businessId,
+      partyType: body.partyType,
+      ...(body.partyCustomerId !== undefined ? { partyCustomerId: body.partyCustomerId } : {}),
+      ...(body.partyDriverId !== undefined ? { partyDriverId: body.partyDriverId } : {}),
+      ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
+      sourceType: body.sourceType,
+      sourceId: body.sourceId,
+      amountMinor: body.amountMinor,
+      dueOn: asBusinessDate(body.dueOn),
+      ...(body.note !== undefined ? { note: body.note } : {}),
+      ...(body.deductFromFee !== undefined ? { deductFromFee: body.deductFromFee } : {}),
+      userId,
+      ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
+    },
+  );
 
   return c.json(
     {
@@ -81,6 +87,7 @@ export const recordPostClosureChargeHandler: RouteHandler<
       // wrong-number W-56 exists to prevent.
       status,
       replacesId: body.replacesId ?? null,
+      deductedFromFeeOffsetId,
     },
     201,
   );

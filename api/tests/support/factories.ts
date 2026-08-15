@@ -936,6 +936,15 @@ export class TestContext {
         await this.#db
           .delete(paymentAllocation)
           .where(inArray(paymentAllocation.obligationId, sourcedObligationIds));
+        // GAP-6: a deposit "applied" against one of these obligations leaves
+        // deposit_movement.obligation_id pointing at it — cleared here
+        // (the movement row itself still exists for the deposit's own
+        // cleanup below) rather than deleted, since `deposit_movement_obligation_id_fkey`
+        // otherwise blocks this delete.
+        await this.#db
+          .update(depositMovement)
+          .set({ obligationId: null })
+          .where(inArray(depositMovement.obligationId, sourcedObligationIds));
         await this.#db.delete(obligation).where(inArray(obligation.id, sourcedObligationIds));
       }
 

@@ -21,6 +21,8 @@ import {
   voidDepositMovementRow,
   type DepositRow,
 } from "../queries/driver-money.js";
+import { findObligationForDepositApply, updateObligationSettled } from "../queries/obligation.js";
+import { computeObligationStatus } from "./obligation-status.js";
 
 export interface TakeDriverDepositInput {
   businessId: string;
@@ -84,6 +86,8 @@ export interface RecordDepositMovementInput {
   reason?: string;
   userId: string;
   replacesId?: string;
+  /** GAP-6/F-2.7: which obligation this `applied` movement settles — required exactly when `movementType` is `'applied'`, refused otherwise. */
+  obligationId?: string;
 }
 
 export interface RecordedDepositMovement {
@@ -104,6 +108,20 @@ const TERMINAL: Partial<Record<RecordDepositMovementInput["movementType"], Depos
  * full, apply against arrears (deliberate, recorded, never automatic,
  * UC-58), or top up. §6.13/INV-4: the balance is the SUM of movements
  * (DM §10.4), never a stored figure this write has to keep in sync.
+ *
+ * GAP-6/F-2.7: `movementType: 'applied'` requires `obligationId` — the
+ * column `deposit_movement.obligation_id` has carried since `0001` ("when
+ * applied against what is owed") with nothing ever reading or writing it.
+ * Deliberately **not** `recordPayment`'s `allocateAgainstOldest`: this is
+ * money already held, not money arriving now, so applying it must never
+ * mint a `payment` row — it moves `obligation.settled_minor` directly, in
+ * the same transaction as the movement, the same "settle from money held
+ * elsewhere" shape `credit-forward.ts` already uses for a payment surplus.
+ * The named obligation must belong to this business, must not be voided,
+ * must be `owed_to_us` (a deposit can only offset what its own party owes
+ * *us*, never the reverse), must belong to the *same party* as the deposit,
+ * and the application must not exceed what remains outstanding on it —
+ * over-applying would manufacture settled money nobody actually owed.
  */
 export async function recordDepositMovement(
   writer: Writer,
@@ -120,6 +138,42 @@ export async function recordDepositMovement(
     const isDraw = !ADDS.has(input.movementType);
     if (isDraw && input.amountMinor > held) {
       throw new ValidationError("This movement would draw the deposit below zero");
+    }
+
+    if (input.movementType === "applied" && input.obligationId === undefined) {
+      throw new ValidationError("obligationId is required when movementType is 'applied'");
+    }
+    if (input.movementType !== "applied" && input.obligationId !== undefined) {
+      throw new ValidationError("obligationId is only valid when movementType is 'applied'");
+    }
+
+    let obligationSettlement: { id: string; settledMinor: bigint; status: string } | undefined;
+    if (input.obligationId !== undefined) {
+      const ob = await findObligationForDepositApply(tx, input.businessId, input.obligationId);
+      if (!ob) throw new NotFoundError("No such obligation in this business");
+      if (ob.voidedAt !== null) throw new ValidationError("This obligation has been voided");
+      if (ob.direction !== "owed_to_us") {
+        throw new ValidationError(
+          "A deposit can only be applied against money owed to the business",
+        );
+      }
+      const sameParty =
+        dep.partyType === ob.partyType &&
+        (dep.partyType === "customer"
+          ? dep.partyCustomerId === ob.partyCustomerId
+          : dep.partyDriverId === ob.partyDriverId);
+      if (!sameParty) {
+        throw new ValidationError("This obligation belongs to a different party than the deposit");
+      }
+      const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+      if (input.amountMinor > outstanding) {
+        throw new ValidationError(
+          "This application exceeds what is outstanding on this obligation",
+        );
+      }
+      const settledMinor = ob.settledMinor + input.amountMinor;
+      const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+      obligationSettlement = { id: input.obligationId, settledMinor, status };
     }
 
     const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
@@ -146,6 +200,7 @@ export async function recordDepositMovement(
         amountMinor: input.amountMinor,
         occurredOn: input.occurredOn,
         ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        ...(input.obligationId !== undefined ? { obligationId: input.obligationId } : {}),
         postedPeriodId: linkage.postedPeriodId,
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
@@ -159,6 +214,13 @@ export async function recordDepositMovement(
         throw new ReplacesTargetAlreadyReplacedError();
       }
       throw err;
+    }
+
+    if (obligationSettlement !== undefined) {
+      await updateObligationSettled(tx, obligationSettlement.id, {
+        settledMinor: obligationSettlement.settledMinor,
+        status: obligationSettlement.status,
+      });
     }
 
     const newHeld = ADDS.has(input.movementType)

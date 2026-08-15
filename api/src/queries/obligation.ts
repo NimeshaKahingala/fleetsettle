@@ -156,6 +156,44 @@ export async function findObligationForBusiness(
   return rows[0] as ObligationForAdjustment | undefined;
 }
 
+export interface ObligationForDepositApply {
+  id: string;
+  direction: "owed_to_us" | "owed_by_us";
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  amountMinor: bigint;
+  settledMinor: bigint;
+  waivedMinor: bigint;
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+  voidedAt: string | null;
+}
+
+/** GAP-6/F-2.7: `recordDepositMovement`'s own validation for an `applied` movement — needs both the money fields (to cap the application at what's outstanding) and the party fields (to refuse a deposit applying against a different party's obligation) in one read. */
+export async function findObligationForDepositApply(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<ObligationForDepositApply | undefined> {
+  const rows = await db
+    .select({
+      id: obligation.id,
+      direction: obligation.direction,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+      status: obligation.status,
+      voidedAt: obligation.voidedAt,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  return rows[0] as ObligationForDepositApply | undefined;
+}
+
 export interface ObligationForReplacesCheck {
   voidedAt: string | null;
   partyType: "customer" | "driver" | "partner";
