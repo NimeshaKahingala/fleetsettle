@@ -414,6 +414,8 @@ export interface DepositMovementRow {
   depositId: string;
   movementType: "taken" | "topped_up" | "reduced" | "applied" | "refunded" | "retained";
   amountMinor: bigint;
+  /** GAP-6/F-2.7: which obligation an `applied` movement settled — `voidDepositMovement` needs this to reverse `obligation.settled_minor` on void. */
+  obligationId: string | null;
   voidedAt: string | null;
 }
 
@@ -429,6 +431,7 @@ export async function findDepositMovementForBusiness(
       depositId: depositMovement.depositId,
       movementType: depositMovement.movementType,
       amountMinor: depositMovement.amountMinor,
+      obligationId: depositMovement.obligationId,
       voidedAt: depositMovement.voidedAt,
     })
     .from(depositMovement)

@@ -328,16 +328,19 @@ export async function settleLeaseDeposit(
   }
 
   if (input.action === "apply") {
-    const heldBefore = await sumDepositMovements(writer, dep.id);
-    if (heldBefore <= 0n) {
-      throw new ValidationError("Nothing is held on this deposit to apply");
-    }
-
     // The whole sweep is one transaction, obligations locked for its
     // duration (GAP-5a discipline) — a failure partway (period closed, a
     // concurrent write tripping the outstanding guard) must not leave some
-    // obligations settled and others not.
+    // obligations settled and others not. `heldBefore` is read inside the
+    // transaction too — reading it via `writer` beforehand would let a
+    // concurrent deposit movement make `remaining` stale by the time the
+    // loop below spends it.
     const lastResult = await writer.transaction(async (tx) => {
+      const heldBefore = await sumDepositMovements(tx, dep.id);
+      if (heldBefore <= 0n) {
+        throw new ValidationError("Nothing is held on this deposit to apply");
+      }
+
       const unpaidObligations = await findOutstandingObligationsForParty(
         tx,
         input.businessId,

@@ -9,6 +9,7 @@ import {
   offsetAllocation,
   payment,
 } from "../../src/db/schema.js";
+import { recordIncidentRecoveryReceived } from "../../src/queries/incident.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -300,6 +301,59 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
         { reason: "x" },
       );
       expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+
+    it("happy path — voiding an 'applied' movement (GAP-6) reverses the obligation it settled", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        driverId,
+        amountMinor: 50_000n,
+        dueOn: "2026-07-05",
+      });
+
+      const takeRes = await post("/api/deposit", token, {
+        driverId,
+        amountMinor: "30000",
+        occurredOn: "2026-07-01",
+      });
+      const taken: { id: string } = await takeRes.json();
+      ctx.trackCreatedDeposit(taken.id);
+
+      const applyRes = await post(`/api/deposit/${taken.id}/movement`, token, {
+        movementType: "applied",
+        amountMinor: "30000",
+        occurredOn: "2026-07-10",
+        obligationId,
+      });
+      expect(applyRes.status).toBe(200);
+      const applied: { movementId: string } = await applyRes.json();
+
+      const [beforeVoid] = await db
+        .select()
+        .from(obligation)
+        .where(eq(obligation.id, obligationId));
+      expect(beforeVoid).toMatchObject({ settledMinor: 30_000n, status: "part_paid" });
+
+      const voidRes = await post(
+        `/api/deposit/${taken.id}/movement/${applied.movementId}/void`,
+        token,
+        { reason: "applied against the wrong obligation" },
+      );
+      expect(voidRes.status).toBe(200);
+      const voidedBody: { deposit: { status: string; heldMinor: string } } = await voidRes.json();
+      expect(voidedBody.deposit).toMatchObject({ status: "held", heldMinor: "30000" });
+
+      const [afterVoid] = await db.select().from(obligation).where(eq(obligation.id, obligationId));
+      expect(afterVoid).toMatchObject({ settledMinor: 0n, status: "pending" });
 
       await ctx.cleanup();
     });
@@ -723,6 +777,64 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
         .from(obligation)
         .where(eq(obligation.sourceId, agreedBody.id));
       expect(rows[0]).toMatchObject({ settledMinor: 20_000n, status: "paid" });
+
+      await ctx.cleanup();
+    });
+
+    it("regression — recordIncidentRecoveryReceived's own UPDATE is a no-op once the recovery is voided", async () => {
+      // The domain function's own pre-transaction read means a sequential
+      // "void, then receive" HTTP call never reaches this — it 404s before
+      // ever touching the query. This is the race that pre-check can't
+      // catch: a concurrent voidIncidentRecovery commits between that read
+      // and this UPDATE. Exercised directly at the query layer, which is
+      // exactly what closes the race — the UPDATE's own `voided_at IS NULL`
+      // guard, not a second application-level check.
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      const agreedBody: { id: string } = await agreed.json();
+
+      const voided = await post(
+        `/api/incident/${incidentId}/recovery/${agreedBody.id}/void`,
+        token,
+        { reason: "the concurrent void this test simulates" },
+      );
+      expect(voided.status).toBe(200);
+
+      const updated = await recordIncidentRecoveryReceived(db, agreedBody.id, {
+        receivedAmountMinor: 20_000n,
+      });
+      expect(updated).toBeUndefined();
+
+      const [row] = await db
+        .select({ receivedAmountMinor: incidentRecovery.receivedAmountMinor })
+        .from(incidentRecovery)
+        .where(eq(incidentRecovery.id, agreedBody.id));
+      expect(row?.receivedAmountMinor).toBe(0n);
+
+      const payments = await db
+        .select({ id: payment.id })
+        .from(payment)
+        .where(eq(payment.partyCustomerId, customerId));
+      expect(payments).toHaveLength(0);
 
       await ctx.cleanup();
     });

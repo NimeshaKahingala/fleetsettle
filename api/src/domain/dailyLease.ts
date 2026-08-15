@@ -436,6 +436,15 @@ export interface CreateLeaseDayExceptionInput {
  * *confirmed* is a real event and refuses outright: an exception only ever
  * stops a card from being generated, never un-happens one (UC-96 owns that
  * correction instead).
+ *
+ * The card is read again inside the transaction rather than reusing a
+ * pre-transaction lookup — a concurrent `confirmDay` between the two would
+ * otherwise leave `voidOpenDayRecordForDate`'s `state = 'open'` guard
+ * matching nothing while the exception still got inserted, a day that is
+ * both confirmed and marked skipped (exactly what the lost-day denominator
+ * can't tolerate). `voidOpenDayRecordForDate` returning nothing here means
+ * exactly that race was lost, so the whole write is refused rather than
+ * inserting the exception half-anchored.
  */
 export async function createLeaseDayException(
   writer: Writer,
@@ -444,26 +453,23 @@ export async function createLeaseDayException(
   const lease = await findDailyLeaseForBusiness(writer, input.businessId, input.dailyLeaseId);
   if (!lease) throw new NotFoundError("No such daily lease in this business");
 
-  const existingCard = await findDayRecordByLeaseAndDate(
-    writer,
-    input.dailyLeaseId,
-    input.exceptionDate,
-  );
-  if (existingCard && existingCard.voidedAt === null && existingCard.state !== "open") {
-    throw new LeaseDayAlreadyConfirmedError();
-  }
-
   const id = newId();
   try {
     await writer.transaction(async (tx) => {
-      if (existingCard && existingCard.voidedAt === null && existingCard.state === "open") {
-        await voidOpenDayRecordForDate(
+      const card = await findDayRecordByLeaseAndDate(tx, input.dailyLeaseId, input.exceptionDate);
+      const live = card !== undefined && card.voidedAt === null;
+      if (live && card.state !== "open") {
+        throw new LeaseDayAlreadyConfirmedError();
+      }
+      if (live && card.state === "open") {
+        const voided = await voidOpenDayRecordForDate(
           tx,
           input.dailyLeaseId,
           input.exceptionDate,
           "Day individually skipped",
           input.userId,
         );
+        if (!voided) throw new LeaseDayAlreadyConfirmedError();
         await voidAllocationForDailyLeaseDate(
           tx,
           input.dailyLeaseId,

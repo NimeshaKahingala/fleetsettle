@@ -215,6 +215,43 @@ describe("GET /api/vehicle/{id} — the maintenance prompt (F-3.5/UC-13, GAP-68)
     await ctx.cleanup();
   });
 
+  it("regression — a later-dated reading below the servicing reading degrades to not available, never a negative figure (W-56)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    await patchServiceInterval(token, vehicleId, { serviceIntervalKm: 5000 });
+
+    const servicing = await postExpense(token, {
+      vehicleId,
+      category: "servicing",
+      amountMinor: "1000000",
+      spentOn: "2026-07-01",
+      odometerReadingKm: 10000,
+      odometerSource: "reported",
+    });
+    const servicingBody: { id: string; odometerReadingId: string } = await servicing.json();
+    ctx.trackCreatedExpense(servicingBody.id, servicingBody.odometerReadingId);
+    // Later by date, but a lower reading — a backdated correction, the exact
+    // shape that used to produce a negative kmSinceLastServiceKm.
+    const laterButLowerId = await ctx.createOdometerReading(
+      businessId,
+      vehicleId,
+      8000,
+      "2026-07-15",
+    );
+    void laterButLowerId;
+
+    const res = await getVehicle(token, vehicleId);
+    const body: VehicleBody = await res.json();
+    expect(body.maintenance).toEqual({ kmSinceLastServiceKm: null, due: false });
+
+    await ctx.cleanup();
+  });
+
   it("past the interval — due, and clearing the interval turns it back off", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

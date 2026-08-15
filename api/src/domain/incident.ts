@@ -397,10 +397,14 @@ export async function recordRecoveryReceived(
 
   try {
     await writer.transaction(async (tx) => {
-      await recordIncidentRecoveryReceived(tx, input.recoveryId, {
+      const updated = await recordIncidentRecoveryReceived(tx, input.recoveryId, {
         receivedAmountMinor: input.receivedAmountMinor,
         ...(receivedPeriod ? { receivedPeriodId: receivedPeriod.id } : {}),
       });
+      // Lost the race against a concurrent voidIncidentRecovery between the
+      // pre-transaction read above and here — never settle an obligation or
+      // mint a payment against a row that is no longer live.
+      if (!updated) throw new NotFoundError("No such recovery in this business");
 
       if (recovery.source === "customer" && recovery.obligationId !== null && customerId) {
         const status = computeObligationStatus(

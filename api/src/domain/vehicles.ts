@@ -280,6 +280,11 @@ export async function getVehicleMaintenanceStatus(
   }
 
   const kmSinceLastServiceKm = latest.readingKm - lastMaintenanceKm;
+  // `latest` (by readOn) and lastMaintenanceKm (by the servicing expense's
+  // own spentOn) are independent lookups — an out-of-order or backdated
+  // entry can make this negative. W-56: that's "not available", never a
+  // guessed (and here, nonsensical) figure.
+  if (kmSinceLastServiceKm < 0) return { kmSinceLastServiceKm: null, due: false };
   return { kmSinceLastServiceKm, due: kmSinceLastServiceKm >= serviceIntervalKm };
 }
 

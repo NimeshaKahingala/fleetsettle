@@ -1,8 +1,8 @@
 import { newId } from "@fleetsettle/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { dayRecord, vehicleDayAllocation } from "../../src/db/schema.js";
+import { dayRecord, leaseDayException, vehicleDayAllocation } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -12,6 +12,14 @@ const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}`
 
 async function postException(token: string, dailyLeaseId: string, body: unknown) {
   return request(`/api/daily-lease/${dailyLeaseId}/exception`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function confirmDay(token: string, body: unknown) {
+  return request("/api/day-record/confirm", {
     method: "POST",
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
@@ -141,6 +149,69 @@ describe("skippable individual daily-lease days (P2/P13, F-1.7/GAP-20)", () => {
       .from(vehicleDayAllocation)
       .where(eq(vehicleDayAllocation.id, allocationId));
     expect(allocation?.voidedAt).not.toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("regression — racing an exception against a concurrent confirm never leaves a day both confirmed and excepted", async () => {
+    // The bug: createLeaseDayException used to read the open card once,
+    // before its own transaction opened, then trust that stale read inside
+    // it. A concurrent confirmDay landing in between made the void a no-op
+    // (state no longer 'open') while the exception still got inserted — a
+    // day that is simultaneously confirmed and marked skipped, corrupting
+    // the lost-day denominator. Both real requests race for the same row;
+    // whichever's UPDATE commits first is authoritative for the other, so
+    // the bad combination must never survive regardless of which one wins.
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-15",
+    );
+
+    const [exceptionRes, confirmRes] = await Promise.all([
+      postException(token, dailyLeaseId, { exceptionDate: "2026-07-15" }),
+      confirmDay(token, { dailyLeaseId, businessDate: "2026-07-15", action: "paid_in_full" }),
+    ]);
+    if (exceptionRes.status === 201) {
+      const body: { id: string } = await exceptionRes.json();
+      ctx.trackCreatedLeaseDayException(body.id);
+    }
+    expect(confirmRes.status).not.toBe(500);
+
+    const [record] = await db
+      .select({ state: dayRecord.state, voidedAt: dayRecord.voidedAt })
+      .from(dayRecord)
+      .where(
+        and(eq(dayRecord.dailyLeaseId, dailyLeaseId), eq(dayRecord.businessDate, "2026-07-15")),
+      );
+    const isConfirmed = record !== undefined && record.voidedAt === null && record.state !== "open";
+
+    const liveExceptions = await db
+      .select({ id: leaseDayException.id })
+      .from(leaseDayException)
+      .where(
+        and(
+          eq(leaseDayException.dailyLeaseId, dailyLeaseId),
+          eq(leaseDayException.exceptionDate, "2026-07-15"),
+          isNull(leaseDayException.voidedAt),
+        ),
+      );
+
+    expect(isConfirmed && liveExceptions.length > 0).toBe(false);
 
     await ctx.cleanup();
   });
