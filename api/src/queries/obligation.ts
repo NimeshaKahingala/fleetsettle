@@ -169,13 +169,25 @@ export interface ObligationForDepositApply {
   voidedAt: string | null;
 }
 
-/** GAP-6/F-2.7: `recordDepositMovement`'s own validation for an `applied` movement — needs both the money fields (to cap the application at what's outstanding) and the party fields (to refuse a deposit applying against a different party's obligation) in one read. */
+/**
+ * GAP-6/F-2.7: `recordDepositMovement`'s own validation for an `applied`
+ * movement — needs both the money fields (to cap the application at what's
+ * outstanding) and the party fields (to refuse a deposit applying against a
+ * different party's obligation) in one read.
+ *
+ * `forUpdate` locks the row for the caller's own transaction — the same
+ * GAP-5a discipline `findOutstandingObligationsForDriver`/`ForParty` already
+ * use, closing the read-then-write race two concurrent `applied` movements
+ * against the same obligation would otherwise create. Defaults `false`;
+ * only `deposit.ts`'s write path passes `true`.
+ */
 export async function findObligationForDepositApply(
   db: ReadDb,
   businessId: string,
   obligationId: string,
+  forUpdate = false,
 ): Promise<ObligationForDepositApply | undefined> {
-  const rows = await db
+  const query = db
     .select({
       id: obligation.id,
       direction: obligation.direction,
@@ -191,6 +203,7 @@ export async function findObligationForDepositApply(
     .from(obligation)
     .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as ObligationForDepositApply | undefined;
 }
 

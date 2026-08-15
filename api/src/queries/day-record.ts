@@ -360,12 +360,14 @@ export async function findVehicleWithOldestUnconfirmedDay(
   const rows = await db
     .select({ vehicleId: dayRecord.vehicleId })
     .from(dayRecord)
+    .innerJoin(vehicle, eq(vehicle.id, dayRecord.vehicleId))
     .where(
       and(
         eq(dayRecord.businessId, businessId),
         eq(dayRecord.state, "open"),
         lt(dayRecord.businessDate, today),
         isNull(dayRecord.voidedAt),
+        eq(vehicle.lifecycle, "active"),
       ),
     )
     .orderBy(asc(dayRecord.businessDate))
