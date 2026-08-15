@@ -104,6 +104,19 @@ export async function releaseDailyLeaseAllocationsForRange(
     );
 }
 
+export interface ReleasedExpiredHolds {
+  released: number;
+  /**
+   * Distinct (businessId, vehicleId) pairs whose holds were released — the
+   * caller re-materialises each one's *current* daily-lease horizon
+   * afterward (GAP-7 calendar-hole fix), the same restore `cancelTrip`
+   * already does for GAP-119. `businessId` travels with each pair rather
+   * than being a single argument because the nightly cron calls this
+   * unscoped, across every business at once.
+   */
+  affected: { businessId: string; vehicleId: string }[];
+}
+
 /**
  * GAP-7/ST-5: release is synchronous, never only by cron — `bookTrip`,
  * `startDailyLease` and `startLease` each call this for their own vehicle
@@ -123,9 +136,9 @@ export async function releaseExpiredHolds(
   vehicleId?: string,
   /** Who caused the release — the user whose booking/lease-start triggered it. `undefined` for the nightly sweep, which has no actor. */
   voidedBy?: string,
-): Promise<number> {
+): Promise<ReleasedExpiredHolds> {
   const expired = await db
-    .select({ id: trip.id })
+    .select({ id: trip.id, vehicleId: trip.vehicleId, businessId: trip.businessId })
     .from(trip)
     .where(
       and(
@@ -134,8 +147,12 @@ export async function releaseExpiredHolds(
         ...(vehicleId !== undefined ? [eq(trip.vehicleId, vehicleId)] : []),
       ),
     );
-  if (expired.length === 0) return 0;
+  if (expired.length === 0) return { released: 0, affected: [] };
   const expiredIds = expired.map((r) => r.id);
+  const affected = [...new Map(expired.map((r) => [r.vehicleId, r])).values()].map((r) => ({
+    businessId: r.businessId,
+    vehicleId: r.vehicleId,
+  }));
 
   await db
     .update(vehicleDayAllocation)
@@ -153,7 +170,7 @@ export async function releaseExpiredHolds(
     .set({ status: "cancelled", cancelReason: "Hold expired", holdExpiresOn: null })
     .where(inArray(trip.id, expiredIds));
 
-  return expiredIds.length;
+  return { released: expiredIds.length, affected };
 }
 
 export interface TripRow {
@@ -201,17 +218,28 @@ const COLUMNS = {
   belongsToPeriodId: trip.belongsToPeriodId,
 };
 
-/** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md →
+ * Tenancy).
+ *
+ * `forUpdate` locks the row for the caller's own transaction — the GAP-5a
+ * discipline, here closing the race between two concurrent `confirm`
+ * requests (or a confirm racing the synchronous/cron hold release) reading
+ * the same stale `status` before either has written. Defaults `false`;
+ * only `confirmTripHold`'s write path passes `true`.
+ */
 export async function findTripForBusiness(
   db: ReadDb,
   businessId: string,
   tripId: string,
+  forUpdate = false,
 ): Promise<TripRow | undefined> {
-  const rows = await db
+  const query = db
     .select(COLUMNS)
     .from(trip)
     .where(and(eq(trip.id, tripId), eq(trip.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as TripRow | undefined;
 }
 
@@ -371,9 +399,23 @@ export async function clearHoldOnAllocationDaysForTrip(db: WriteDb, tripId: stri
     );
 }
 
-/** GAP-7: `hold` → `booked` (ST-5) — `hold_expires_on` clears, since `trip_hold_expires_on_check` refuses a non-null value once the row leaves `hold`. */
-export async function confirmTripHoldRow(db: WriteDb, tripId: string): Promise<void> {
-  await db.update(trip).set({ status: "booked", holdExpiresOn: null }).where(eq(trip.id, tripId));
+/**
+ * GAP-7: `hold` → `booked` (ST-5) — `hold_expires_on` clears, since
+ * `trip_hold_expires_on_check` refuses a non-null value once the row leaves
+ * `hold`. `status = 'hold'` in the WHERE clause is a second guard alongside
+ * `confirmTripHold`'s own `forUpdate` read lock: a blind update here would
+ * silently resurrect a hold a concurrent release had already cancelled
+ * between the lock being taken and this write. Returns whether a row
+ * actually changed, so the caller can refuse rather than proceed as if it
+ * had.
+ */
+export async function confirmTripHoldRow(db: WriteDb, tripId: string): Promise<boolean> {
+  const updated = await db
+    .update(trip)
+    .set({ status: "booked", holdExpiresOn: null })
+    .where(and(eq(trip.id, tripId), eq(trip.status, "hold")))
+    .returning({ id: trip.id });
+  return updated.length > 0;
 }
 
 export interface CancelTripValues {

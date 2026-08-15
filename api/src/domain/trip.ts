@@ -36,6 +36,7 @@ import {
   closeTripRow,
   confirmTripHoldRow,
   deleteAllocationDaysForTrip,
+  findTripForBusiness,
   insertAllocationDays,
   insertTrip,
   releaseDailyLeaseAllocationsForRange,
@@ -140,7 +141,11 @@ async function postTripFareObligation(
     input.dueOn,
   );
 
-  return { receivableId, receivableSettledMinor: credit.settledMinor, receivableStatus: credit.status };
+  return {
+    receivableId,
+    receivableSettledMinor: credit.settledMinor,
+    receivableStatus: credit.status,
+  };
 }
 
 /** Every day in `[start, end]`, inclusive of both ends (W-54) — never open-ended, unlike a lease's horizon. */
@@ -207,7 +212,17 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
       // just because the nightly sweep has not run yet — release is
       // synchronous, ahead of every conflict check below, the same
       // relationship D-9 already gives the daily-lease horizon and the cron.
-      await releaseExpiredHolds(tx, input.bookingDate, input.vehicleId, input.userId);
+      const releasedHolds = await releaseExpiredHolds(
+        tx,
+        input.bookingDate,
+        input.vehicleId,
+        input.userId,
+      );
+      // GAP-7: undo any hole the just-released hold(s) left in the vehicle's
+      // current daily-lease occupancy — the same GAP-119 restore `cancelTrip`
+      // already does. Runs before the carve-out below, which then voids
+      // whatever this booking's own range needs regardless.
+      await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.bookingDate);
 
       await releaseDailyLeaseAllocationsForRange(
         tx,
@@ -336,6 +351,17 @@ export interface ConfirmedTripHold {
  * records for this range finally pause, the reserved allocation stops
  * reading as tentative, and — only now — a `trip_fare` obligation is raised
  * if there is a customer and a nonzero agreed amount.
+ *
+ * `input.trip` is only used for the initial fast-path check below — the
+ * handler reads it outside any transaction, so by the time this runs it may
+ * already be stale. The transaction re-reads the row `forUpdate` and works
+ * from that locked copy for everything else: two concurrent confirms (two
+ * tabs, two devices) would otherwise both pass the outer check, both enter
+ * their own transaction, and both call `postTripFareObligation`, double-
+ * posting the receivable — and a confirm racing a concurrent hold release
+ * (synchronous or the nightly cron) could resurrect a hold that had already
+ * been cancelled. The second transaction in either race now finds
+ * `status !== 'hold'` on its locked read and refuses instead.
  */
 export async function confirmTripHold(
   writer: Writer,
@@ -348,29 +374,43 @@ export async function confirmTripHold(
 
   try {
     return await writer.transaction(async (tx) => {
-      await pauseDayRecordsForTrip(tx, trip.vehicleId, trip.startDate, trip.endDate, trip.id);
-      await clearHoldOnAllocationDaysForTrip(tx, trip.id);
-      await confirmTripHoldRow(tx, trip.id);
+      const live = await findTripForBusiness(tx, input.businessId, trip.id, true);
+      if (!live || live.status !== "hold") {
+        throw new ValidationError("Only a hold can be confirmed");
+      }
+
+      await pauseDayRecordsForTrip(tx, live.vehicleId, live.startDate, live.endDate, live.id);
+      await clearHoldOnAllocationDaysForTrip(tx, live.id);
+      const confirmed = await confirmTripHoldRow(tx, live.id);
+      if (!confirmed) {
+        throw new ValidationError("Only a hold can be confirmed");
+      }
 
       let receivableId: string | null = null;
       let receivableSettledMinor: bigint | null = null;
       let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
-      if (trip.customerId !== null && trip.agreedAmountMinor > 0n) {
+      if (live.customerId !== null && live.agreedAmountMinor > 0n) {
         const posted = await postTripFareObligation(tx, {
           businessId: input.businessId,
-          tripId: trip.id,
-          vehicleId: trip.vehicleId,
-          customerId: trip.customerId,
-          agreedAmountMinor: trip.agreedAmountMinor as Minor,
+          tripId: live.id,
+          vehicleId: live.vehicleId,
+          customerId: live.customerId,
+          agreedAmountMinor: live.agreedAmountMinor as Minor,
           postingDate: input.confirmedOn,
-          dueOn: trip.endDate as BusinessDate,
+          dueOn: live.endDate as BusinessDate,
         });
         receivableId = posted.receivableId;
         receivableSettledMinor = posted.receivableSettledMinor;
         receivableStatus = posted.receivableStatus;
       }
 
-      return { tripId: trip.id, status: "booked" as const, receivableId, receivableSettledMinor, receivableStatus };
+      return {
+        tripId: live.id,
+        status: "booked" as const,
+        receivableId,
+        receivableSettledMinor,
+        receivableStatus,
+      };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -601,6 +641,32 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
   }
 }
 
+/**
+ * GAP-119/GAP-7: the shared "undo whatever daily-lease occupancy a hold or
+ * charter released" step — `cancelTrip`'s own restore, factored out so
+ * `releaseExpiredHolds`'s callers (`bookTrip`, `startDailyLease`,
+ * `startLease`, the nightly `release-expired-holds` cron) can run the same
+ * fix for an *expired* hold. Voiding a hold's allocation without this left a
+ * still-active daily lease reading as free on the calendar for every date
+ * the hold covered — no current daily lease on a vehicle (never had one, or
+ * moved off it) means nothing to restore, and is a no-op for that vehicle.
+ */
+export async function restoreDailyLeaseOccupancy(
+  tx: Tx,
+  vehicles: { businessId: string; vehicleId: string }[],
+  today: BusinessDate,
+): Promise<void> {
+  for (const { businessId, vehicleId } of vehicles) {
+    const currentDailyLease = await findCurrentDailyLeaseRowForVehicle(tx, vehicleId);
+    if (!currentDailyLease) continue;
+    const fullLease = await findDailyLeaseForBusiness(tx, businessId, currentDailyLease.id);
+    if (!fullLease) continue;
+    const rates = await listDailyLeaseRatesForLease(tx, fullLease.id);
+    const openPeriod = (await findOpenPeriodRow(tx, businessId)) ?? null;
+    await materializeDailyLeaseHorizon(tx, { ...fullLease, businessId }, rates, openPeriod, today);
+  }
+}
+
 export interface CancelTripInput {
   businessId: string;
   trip: TripRow;
@@ -717,25 +783,11 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
 
       // GAP-119: restore whatever daily-lease occupancy bookTrip released
       // for this vehicle, if it is still on one.
-      const currentDailyLease = await findCurrentDailyLeaseRowForVehicle(tx, trip.vehicleId);
-      if (currentDailyLease) {
-        const fullLease = await findDailyLeaseForBusiness(
-          tx,
-          input.businessId,
-          currentDailyLease.id,
-        );
-        if (fullLease) {
-          const rates = await listDailyLeaseRatesForLease(tx, fullLease.id);
-          const openPeriod = (await findOpenPeriodRow(tx, input.businessId)) ?? null;
-          await materializeDailyLeaseHorizon(
-            tx,
-            { ...fullLease, businessId: input.businessId },
-            rates,
-            openPeriod,
-            input.today,
-          );
-        }
-      }
+      await restoreDailyLeaseOccupancy(
+        tx,
+        [{ businessId: input.businessId, vehicleId: trip.vehicleId }],
+        input.today,
+      );
 
       await cancelTripRow(tx, trip.id, {
         ...(input.cancelReason !== undefined ? { cancelReason: input.cancelReason } : {}),
@@ -769,6 +821,10 @@ export async function releaseAllExpiredHolds(
   writer: Writer,
   today: BusinessDate,
 ): Promise<{ released: number }> {
-  const released = await writer.transaction(async (tx) => releaseExpiredHolds(tx, today));
-  return { released };
+  const result = await writer.transaction(async (tx) => {
+    const released = await releaseExpiredHolds(tx, today);
+    await restoreDailyLeaseOccupancy(tx, released.affected, today);
+    return released;
+  });
+  return { released: result.released };
 }

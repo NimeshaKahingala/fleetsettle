@@ -14,6 +14,7 @@ import {
   releaseDailyLeaseAllocationsAfter,
 } from "../queries/dailyLease.js";
 import { releaseExpiredHolds } from "../queries/trip.js";
+import { restoreDailyLeaseOccupancy } from "./trip.js";
 
 export interface StartDailyLeaseInput {
   businessId: string;
@@ -54,7 +55,18 @@ export async function startDailyLease(
       // GAP-7: this vehicle's own expired holds release before the horizon
       // below claims their dates — the same synchronous-ahead-of-conflict
       // relationship `bookTrip` gives its own booking.
-      await releaseExpiredHolds(tx, input.today, input.vehicleId, input.userId);
+      const releasedHolds = await releaseExpiredHolds(
+        tx,
+        input.today,
+        input.vehicleId,
+        input.userId,
+      );
+      // GAP-7: undo any calendar hole the just-released hold(s) left in
+      // whatever daily lease was current on this vehicle before this new one
+      // — the horizon materialised below only ever fills forward from
+      // `input.today`, so a hold whose dates fell before today is not
+      // otherwise re-covered.
+      await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
 
       const dailyLeaseId = newId();
       const effectiveTo = input.effectiveTo ?? null;
