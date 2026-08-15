@@ -1,4 +1,4 @@
-import { inclusiveDays, splitInteger, type BusinessDate } from "@fleetsettle/shared";
+import { addDays, inclusiveDays, splitInteger, type BusinessDate } from "@fleetsettle/shared";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js";
 import {
@@ -18,6 +18,7 @@ import {
   listPartnerCashPositions,
   listReceivables,
   listUsBoughtFuelFills,
+  listVehicleUnavailabilityRangesForVehicle,
   sumDepositsHeld,
   sumGoodwillGiven,
   sumOverheadsForPeriod,
@@ -25,6 +26,7 @@ import {
   sumVehicleEarnedForPeriod,
   type AgeingRow,
   type GoodwillByTypeRow,
+  type OffRoadRangeRow,
   type ReceivableRow,
 } from "../queries/reports.js";
 import {
@@ -395,6 +397,28 @@ export async function getGoodwillReport(
 }
 
 /**
+ * GAP-26: UC-79's off-road bucket now has two independent sources — an
+ * incident's own `off_road_from`/`off_road_to` and a separately-logged
+ * `vehicle_unavailability` outage — and nothing stops a manager recording
+ * both for the same stretch (the accident that also gets tagged "in for
+ * service"). Summing each range's own length would double-count that
+ * overlap and overstate the bucket, the exact direction W-56 forbids, so
+ * this unions the two sources' actual days instead. Bounded by the report
+ * window's own length (a month, typically), never by row count.
+ */
+function countOffRoadDays(ranges: OffRoadRangeRow[], from: string, to: string): number {
+  const days = new Set<string>();
+  for (const range of ranges) {
+    const clippedFrom = range.offRoadFrom > from ? range.offRoadFrom : from;
+    const clippedTo = range.offRoadTo < to ? range.offRoadTo : to;
+    for (let d = clippedFrom as BusinessDate; d <= clippedTo; d = addDays(d, 1)) {
+      days.add(d);
+    }
+  }
+  return days.size;
+}
+
+/**
  * UC-79: day-based figures for one vehicle in a window (W-56: always
  * computable). A day is earning if it ran on its daily lease, was on a
  * lease (arrangement 'A'), or was on a trip (arrangement 'C') —
@@ -419,18 +443,20 @@ export async function getUtilisationReport(
 }> {
   await requireVehicle(db, businessId, vehicleId);
 
-  const [{ ranDays }, leaseDays, tripDays, offRoadRanges] = await Promise.all([
-    countEarningDaysForVehicle(db, businessId, vehicleId, from, to),
-    countAllocatedDaysForVehicle(db, businessId, vehicleId, "A", from, to),
-    countAllocatedDaysForVehicle(db, businessId, vehicleId, "C", from, to),
-    listOffRoadRangesForVehicle(db, businessId, vehicleId, from, to),
-  ]);
+  const [{ ranDays }, leaseDays, tripDays, incidentOffRoadRanges, unavailabilityRanges] =
+    await Promise.all([
+      countEarningDaysForVehicle(db, businessId, vehicleId, from, to),
+      countAllocatedDaysForVehicle(db, businessId, vehicleId, "A", from, to),
+      countAllocatedDaysForVehicle(db, businessId, vehicleId, "C", from, to),
+      listOffRoadRangesForVehicle(db, businessId, vehicleId, from, to),
+      listVehicleUnavailabilityRangesForVehicle(db, businessId, vehicleId, from, to),
+    ]);
 
-  const offRoadDays = offRoadRanges.reduce((sum, r) => {
-    const clippedFrom = r.offRoadFrom > from ? r.offRoadFrom : from;
-    const clippedTo = r.offRoadTo < to ? r.offRoadTo : to;
-    return sum + inclusiveDays(clippedFrom as BusinessDate, clippedTo as BusinessDate);
-  }, 0);
+  const offRoadDays = countOffRoadDays(
+    [...incidentOffRoadRanges, ...unavailabilityRanges],
+    from,
+    to,
+  );
 
   const totalDays = inclusiveDays(from as BusinessDate, to as BusinessDate);
   const earningDays = ranDays + leaseDays + tripDays;

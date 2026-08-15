@@ -5,7 +5,7 @@ import type {
   ExpenseListRow,
   TripResponse,
 } from "@fleetsettle/shared/schemas";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ban } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
@@ -112,8 +112,20 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     .filter((row) => row.voidedAt === null)
     .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
 
-  const canAct = trip?.status === "booked";
-  const canRecordAdvance = canAct && trip?.driverId !== null && trip?.driverId !== undefined;
+  // ST-5/GAP-7: hold → booked → in_progress → closed, cancelled from any of
+  // the first three. A hold can only be confirmed or cancelled — closing
+  // and recording an advance both wait for it to become real.
+  const canConfirm = trip?.status === "hold";
+  const canClose = trip?.status === "booked" || trip?.status === "in_progress";
+  const canCancel = canConfirm || canClose;
+  const canRecordAdvance = canClose && trip?.driverId !== null && trip?.driverId !== undefined;
+
+  const confirmMutation = useMutation({
+    mutationFn: () => api.post<TripResponse>(`/api/trip/${tripId}/confirm`, {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+    },
+  });
 
   // GAP-45: the title used to show a full year on both halves of the date
   // range unconditionally, clipping mid-digit at 360px next to the cancel
@@ -156,12 +168,20 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
           : "Trip"
       }
       onBack={onBack}
-      {...(canAct
+      {...(canCancel
         ? { action: { label: "Cancel trip", icon: Ban, onClick: () => setCancelOpen(true) } }
         : {})}
-      {...(canAct
-        ? { primaryAction: { label: "Close trip", onClick: () => setCloseOpen(true) } }
-        : {})}
+      {...(canConfirm
+        ? {
+            primaryAction: {
+              label: "Confirm",
+              onClick: () => confirmMutation.mutate(),
+              disabled: confirmMutation.isPending,
+            },
+          }
+        : canClose
+          ? { primaryAction: { label: "Close trip", onClick: () => setCloseOpen(true) } }
+          : {})}
     >
       {tripState.kind === "error" ? (
         <QueryStateFailure error={tripState.error} retry={tripState.retry} of="this trip" />
@@ -217,6 +237,18 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
                   <NotAvailable reason="shown on driver history" />
                 )}
               </div>
+            ) : null}
+            {trip.status === "hold" ? (
+              <p className="text-caption text-ink-muted">
+                Hold — reserves the calendar, but nothing is owed and the daily lease keeps running
+                until this is confirmed.
+                {trip.holdExpiresOn !== null
+                  ? ` Expires ${formatShortDate(trip.holdExpiresOn)} unless confirmed first.`
+                  : ""}
+              </p>
+            ) : null}
+            {confirmMutation.isError ? (
+              <p className="text-body-sm text-critical-ink">{confirmMutation.error.message}</p>
             ) : null}
             {trip.status === "closed" ? (
               <p className="text-caption text-ink-muted">

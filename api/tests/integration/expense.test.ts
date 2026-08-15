@@ -1,5 +1,7 @@
+import { addDays, businessToday } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { findOdometerReadingForBusiness } from "../../src/queries/odometer-reading.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -25,6 +27,14 @@ async function postVoidExpense(token: string, id: string, body: unknown) {
 
 async function getExpenses(token: string, query = "") {
   return request(`/api/expense${query}`, bearer(token));
+}
+
+async function getBorneByDefault(token: string, query: string) {
+  return request(`/api/expense/borne-by-default${query}`, bearer(token));
+}
+
+async function getPrefillVehicle(token: string) {
+  return request("/api/expense/prefill-vehicle", bearer(token));
 }
 
 /**
@@ -366,6 +376,152 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
 });
 
 /**
+ * GAP-30/F-3.3: a fuel fill's own odometer reading, written as a real
+ * `odometer_reading` row in the same transaction — `queries/reports.ts`'s
+ * `listUsBoughtFuelFills` (UC-72) is what dereferences it into a km/l figure.
+ */
+describe("a fuel fill writes its own odometer reading (GAP-30)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — odometerReadingKm + odometerSource write a real odometer_reading row", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-15",
+      litres: 20,
+      odometerReadingKm: 45000,
+      odometerSource: "reported",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; odometerReadingId: string | null } = await res.json();
+    expect(body.odometerReadingId).toBeTruthy();
+    ctx.trackCreatedExpense(body.id, body.odometerReadingId);
+
+    const reading = await findOdometerReadingForBusiness(db, businessId, body.odometerReadingId!);
+    expect(reading).toMatchObject({ readingKm: 45000, readOn: "2026-07-15" });
+
+    await ctx.cleanup();
+  });
+
+  it("no odometer fields given — odometerReadingId stays null, exactly as before", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-15",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; odometerReadingId: string | null } = await res.json();
+    expect(body.odometerReadingId).toBeNull();
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — odometerReadingKm without odometerSource", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45000,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — odometerReadingKm given with no vehicleId (no vehicle for the reading to belong to)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45000,
+      odometerSource: "reported",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("UC-72 end to end — the written reading is what the fuel-efficiency report reads back", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const first = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-05",
+      litres: 20,
+      odometerReadingKm: 1000,
+      odometerSource: "reported",
+    });
+    const firstBody: { id: string; odometerReadingId: string | null } = await first.json();
+    ctx.trackCreatedExpense(firstBody.id, firstBody.odometerReadingId);
+
+    const second = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "600000",
+      spentOn: "2026-07-15",
+      litres: 25,
+      odometerReadingKm: 1300,
+      odometerSource: "reported",
+    });
+    const secondBody: { id: string; odometerReadingId: string | null } = await second.json();
+    ctx.trackCreatedExpense(secondBody.id, secondBody.odometerReadingId);
+
+    const res = await request(
+      `/api/reports/fuel-efficiency?vehicleId=${vehicleId}&from=2026-07-01&to=2026-07-31`,
+      bearer(token),
+    );
+    expect(res.status).toBe(200);
+    const body: { points: { spentOn: string; kmPerLitre: number | null }[] } = await res.json();
+    expect(body.points).toHaveLength(2);
+    expect(body.points[0]?.kmPerLitre).toBeNull();
+    expect(body.points[1]?.kmPerLitre).toBe(12);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
  * F-8.5/UC-96/W-50. "Wrong vehicle... fuel logged against the wrong trip" —
  * voided, never deleted, and a fresh one recorded through the create
  * endpoint above.
@@ -504,6 +660,162 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
     expect(res.status).toBe(403);
 
     await ctx.cleanup();
+  });
+});
+
+/** GAP-60/D-16: "the replacement writes replaces_id, not the void" — F-8.5's replace half. */
+describe("replace a voided expense (GAP-60/D-16)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a fresh expense naming a voided one as replacesId links the two", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+    await postVoidExpense(token, createdBody.id, { reason: "wrong amount" });
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(createdBody.id);
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("a create with no replacesId still returns replacesId: null", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const body: { id: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBeNull();
+    ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — replacesId names an expense that has not been voided yet", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const live = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const liveBody: { id: string } = await live.json();
+    ctx.trackCreatedExpense(liveBody.id);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: liveBody.id,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — replacesId names an expense already replaced by another", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+    await postVoidExpense(token, createdBody.id, { reason: "wrong amount" });
+
+    const firstReplacement = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    const firstReplacementBody: { id: string } = await firstReplacement.json();
+    ctx.trackCreatedExpense(firstReplacementBody.id);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "56000",
+      spentOn: "2026-07-15",
+      replacesId: createdBody.id,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "REPLACES_TARGET_ALREADY_REPLACED" });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — replacesId names an expense in another business", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    await other.createOpenPeriod(otherBusinessId);
+    const otherOwner = await mintUser(db, other, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherExpense = await postExpense(otherToken, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const otherExpenseBody: { id: string } = await otherExpense.json();
+    other.trackCreatedExpense(otherExpenseBody.id);
+    await postVoidExpense(otherToken, otherExpenseBody.id, { reason: "wrong amount" });
+
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      replacesId: otherExpenseBody.id,
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+    await other.cleanup();
   });
 });
 
@@ -650,6 +962,230 @@ describe("list expenses (Web-P8b, F-3.1)", () => {
     const token = await signAccessToken(linked.asgardeoSub);
 
     const res = await getExpenses(token);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * GAP-32/§6.7: a live preview of the default-owner matrix — lets the client
+ * show who a cost would default to before offering an override to someone
+ * else, reusing `resolveBorneByDefault` (domain/expense.ts) rather than a
+ * second implementation of the matrix.
+ */
+describe("borne-by default preview (GAP-32)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — arrangement B fuel resolves to the current driver, same as the create endpoint's own default", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    await ctx.createDailyLease(businessId, vehicleId, driverId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getBorneByDefault(
+      token,
+      `?vehicleId=${vehicleId}&category=fuel&spentOn=2026-07-15`,
+    );
+    expect(res.status).toBe(200);
+    const body: { borneBy: string; borneByDriverId: string | null } = await res.json();
+    expect(body).toMatchObject({ borneBy: "driver", borneByDriverId: driverId });
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — arrangement C tolls resolve to us, no party named", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getBorneByDefault(
+      token,
+      `?vehicleId=${vehicleId}&category=tolls&spentOn=2026-07-15`,
+    );
+    expect(res.status).toBe(200);
+    const body: {
+      borneBy: string;
+      borneByDriverId: string | null;
+      borneByCustomerId: string | null;
+    } = await res.json();
+    expect(body).toMatchObject({ borneBy: "us", borneByDriverId: null, borneByCustomerId: null });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the vehicle belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await other.createVehicle(otherBusinessId);
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getBorneByDefault(
+      token,
+      `?vehicleId=${otherVehicleId}&category=fuel&spentOn=2026-07-15`,
+    );
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await getBorneByDefault(
+      "",
+      "?vehicleId=11111111-1111-4111-8111-111111111111&category=fuel&spentOn=2026-07-15",
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot preview borne-by", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getBorneByDefault(
+      token,
+      `?vehicleId=${vehicleId}&category=fuel&spentOn=2026-07-15`,
+    );
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * GAP-34/U-3: "vehicle defaults to the one with something pending" — reuses
+ * Home item 4's own unconfirmed-day definition (`findVehicleWithOldestUnconfirmedDay`,
+ * queries/day-record.ts), oldest first, since no last-touched-vehicle column
+ * exists in this schema.
+ */
+describe("expense prefill vehicle (GAP-34)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+  const today = businessToday();
+
+  it("happy path — the vehicle with the oldest unconfirmed day, not the newer one", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: addDays(today, -60),
+      periodEnd: addDays(today, 60),
+    });
+    const olderVehicleId = await ctx.createVehicle(businessId, { registration: "OLD-0001" });
+    const newerVehicleId = await ctx.createVehicle(businessId, { registration: "NEW-0001" });
+    const driverId = await ctx.createDriver(businessId);
+    const olderLeaseId = await ctx.createDailyLease(businessId, olderVehicleId, driverId);
+    const newerLeaseId = await ctx.createDailyLease(businessId, newerVehicleId, driverId);
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      newerLeaseId,
+      newerVehicleId,
+      driverId,
+      addDays(today, -2),
+    );
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      olderLeaseId,
+      olderVehicleId,
+      driverId,
+      addDays(today, -5),
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getPrefillVehicle(token);
+    expect(res.status).toBe(200);
+    const body: { vehicleId: string | null } = await res.json();
+    expect(body.vehicleId).toBe(olderVehicleId);
+
+    await ctx.cleanup();
+  });
+
+  it("nothing pending — vehicleId is null, the caller's own fallback is unaffected", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getPrefillVehicle(token);
+    expect(res.status).toBe(200);
+    const body: { vehicleId: string | null } = await res.json();
+    expect(body.vehicleId).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("tenant isolation — another business's pending vehicle never leaks", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    const otherPeriodId = await other.createOpenPeriod(otherBusinessId, {
+      periodStart: addDays(today, -60),
+      periodEnd: addDays(today, 60),
+    });
+    const otherVehicleId = await other.createVehicle(otherBusinessId);
+    const otherDriverId = await other.createDriver(otherBusinessId);
+    const otherLeaseId = await other.createDailyLease(
+      otherBusinessId,
+      otherVehicleId,
+      otherDriverId,
+    );
+    await other.createDayRecord(
+      otherBusinessId,
+      otherPeriodId,
+      otherLeaseId,
+      otherVehicleId,
+      otherDriverId,
+      addDays(today, -2),
+    );
+
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getPrefillVehicle(token);
+    expect(res.status).toBe(200);
+    const body: { vehicleId: string | null } = await res.json();
+    expect(body.vehicleId).toBeNull();
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await getPrefillVehicle("");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot read the prefill vehicle", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getPrefillVehicle(token);
     expect(res.status).toBe(403);
 
     await ctx.cleanup();

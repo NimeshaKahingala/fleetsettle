@@ -32,6 +32,10 @@ export const createAdjustmentRequestSchema = z
     amountMinor: positiveMoneyWireSchema,
     sign: z.union([z.literal(-1), z.literal(1)]),
     reason: z.string().trim().max(500).optional(),
+    // GAP-60/D-16/F-8.5: set when this adjustment is the corrected
+    // replacement for one already voided — the target must belong to this
+    // business and already be voided, checked server-side.
+    replacesId: uuidSchema.optional(),
   })
   .refine(
     (v) =>
@@ -62,3 +66,28 @@ export const obligationAfterAdjustmentSchema = z.object({
   status: z.enum(["pending", "part_paid", "paid", "waived", "written_off"]),
 });
 export type ObligationAfterAdjustment = z.infer<typeof obligationAfterAdjustmentSchema>;
+
+/**
+ * GAP-12/W-61/INV-36 §3.1: found wiring the adjustment void endpoint — the
+ * create response carried the obligation's own id as `id` (deliberately,
+ * "one round trip instead of two") but never the adjustment's own id
+ * anywhere, so nothing a client held after creating one could ever address
+ * it for a later void. `adjustmentId` alongside the obligation shape, not
+ * folded into `obligationAfterAdjustmentSchema` itself — that schema is
+ * reused by the void response's own `obligation` field, where a fresh
+ * `adjustmentId` would not describe anything real.
+ */
+export const createdAdjustmentResponseSchema = obligationAfterAdjustmentSchema.extend({
+  adjustmentId: uuidSchema,
+  // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
+  replacesId: uuidSchema.nullable(),
+});
+export type CreatedAdjustmentResponse = z.infer<typeof createdAdjustmentResponseSchema>;
+
+/** GAP-12/W-61/INV-36 §3.1: the voided adjustment plus the obligation it reversed, the same "one round trip" reasoning `createAdjustmentRoute` already uses. */
+export const voidedAdjustmentResponseSchema = z.object({
+  id: uuidSchema,
+  voidedAt: z.string(),
+  obligation: obligationAfterAdjustmentSchema,
+});
+export type VoidedAdjustmentResponse = z.infer<typeof voidedAdjustmentResponseSchema>;

@@ -1,5 +1,9 @@
 import { asBusinessDate } from "@fleetsettle/shared";
-import type { VehicleCalendarDay, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  VehicleCalendarDay,
+  VehicleResponse,
+  VehicleUnavailabilityListResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -14,16 +18,22 @@ const vehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 
 const leaseVehicle: VehicleResponse = { ...vehicle, arrangement: "A" };
 
-function baseGet(days: VehicleCalendarDay[], overrideVehicle: VehicleResponse = vehicle) {
+function baseGet(
+  days: VehicleCalendarDay[],
+  overrideVehicle: VehicleResponse = vehicle,
+  unavailability: VehicleUnavailabilityListResponse = [],
+) {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
     if (path === "/api/vehicle/v1") return Promise.resolve(overrideVehicle);
     if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve(days);
+    if (path.startsWith("/api/vehicle/v1/unavailability")) return Promise.resolve(unavailability);
     return Promise.resolve([]);
   });
   return get;
@@ -54,6 +64,46 @@ test("GAP-101/INV-1: a failed calendar read shows a failure notice, never every 
     await screen.findByText("Something went wrong loading this month's calendar."),
   ).toBeInTheDocument();
   expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
+});
+
+/**
+ * GAP-127: `byDate` used to be built from `days ?? []` with no gate on the
+ * fetch's own pending window, so every date read as `undefined` — free,
+ * startable, bookable — for the whole flight, exactly the shape GAP-101 was
+ * built to close on this screen's own error branch, missed on the pending
+ * one. The deferred `get` below keeps the query pending long enough to
+ * observe it, the same technique GAP-125's own regression test uses.
+ */
+test("GAP-127: shows a loading notice while the calendar is in flight, never every day rendered as free", async () => {
+  let resolveDays: ((value: VehicleCalendarDay[]) => void) | undefined;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path.startsWith("/api/vehicle/v1/calendar")) {
+      return new Promise<VehicleCalendarDay[]>((resolve) => {
+        resolveDays = resolve;
+      });
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDayForTrip={() => {}}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: `Book a trip from ${today}` }),
+  ).not.toBeInTheDocument();
+
+  resolveDays?.([]);
+  expect(await screen.findByTestId(`day-${today}`)).toBeInTheDocument();
+  expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
 });
 
 test("each of the seven day-states renders its own colour and glyph (UI §7.6)", async () => {
@@ -113,7 +163,9 @@ test("each of the seven day-states renders its own colour and glyph (UI §7.6)",
   });
 
   await screen.findByText("July 2026");
-  expect(await within(screen.getByTestId("day-2026-07-05")).findByText("L")).toBeInTheDocument();
+  expect(
+    await within(await screen.findByTestId("day-2026-07-05")).findByText("L"),
+  ).toBeInTheDocument();
   expect(within(screen.getByTestId("day-2026-07-10")).getByText("✓")).toBeInTheDocument();
   expect(within(screen.getByTestId("day-2026-07-11")).getByText("!")).toBeInTheDocument();
   expect(within(screen.getByTestId("day-2026-07-12")).getByText("B")).toBeInTheDocument();
@@ -185,7 +237,7 @@ test("GAP-46: every occupied cell names its own state to a screen reader, the sa
   // The month label renders synchronously; the grid's real content waits on
   // the calendar query. Warm up on the first cell's glyph, the same way the
   // neighbouring "seven day-states" test does, before asserting synchronously.
-  await within(screen.getByTestId("day-2026-07-05")).findByText("L");
+  await within(await screen.findByTestId("day-2026-07-05")).findByText("L");
   expect(screen.getByTestId("day-2026-07-05")).toHaveAttribute(
     "aria-label",
     "2026-07-05 — On a lease",
@@ -247,7 +299,7 @@ test("daily-lease ran and not-yet-confirmed no longer share a colour (UI-LF-07)"
   await screen.findByText("July 2026");
   // Wait for the calendar query itself, not just the (synchronous) month
   // label, before reading classes off cells it hasn't painted yet.
-  await within(screen.getByTestId("day-2026-07-10")).findByText("✓");
+  await within(await screen.findByTestId("day-2026-07-10")).findByText("✓");
   expect(screen.getByTestId("day-2026-07-10").className).toContain("bg-good/15");
   expect(screen.getByTestId("day-2026-07-12").className).toContain("bg-warning/15");
   expect(screen.getByTestId("day-2026-07-11").className).toContain("bg-critical/15");
@@ -260,7 +312,7 @@ test("the legend lists all six renderable states", async () => {
   });
 
   await screen.findByText("July 2026");
-  expect(screen.getByText("On a lease")).toBeInTheDocument();
+  expect(await screen.findByText("On a lease")).toBeInTheDocument();
   expect(screen.getByText("Daily lease, ran")).toBeInTheDocument();
   expect(screen.getByText("Daily lease, not yet confirmed")).toBeInTheDocument();
   expect(screen.getByText("Daily lease, lost")).toBeInTheDocument();
@@ -334,7 +386,7 @@ test("an already-occupied day is never tappable, even on an arrangement-A vehicl
   );
 
   await screen.findByText("July 2026");
-  const cell = await within(screen.getByTestId("day-2026-07-15")).findByText("L");
+  const cell = await within(await screen.findByTestId("day-2026-07-15")).findByText("L");
   expect(cell.closest("button")).toBeNull();
 });
 
@@ -351,5 +403,75 @@ test("a free day is not tappable on a non-arrangement-A vehicle (F-5.1 not built
   );
 
   await screen.findByText("July 2026");
-  expect(screen.getByTestId("day-2026-07-15").tagName).not.toBe("BUTTON");
+  expect((await screen.findByTestId("day-2026-07-15")).tagName).not.toBe("BUTTON");
+});
+
+test("GAP-26: a day inside a live outage renders its own glyph, and is never tappable — even on an arrangement-A vehicle's otherwise-free day", async () => {
+  const unavailability: VehicleUnavailabilityListResponse = [
+    {
+      id: "u1",
+      vehicleId: "v1",
+      reason: "service",
+      unavailableFrom: "2026-07-14",
+      unavailableTo: "2026-07-16",
+      note: null,
+    },
+  ];
+  const get = baseGet([], leaseVehicle, unavailability);
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDay={vi.fn()}
+    />,
+    { get },
+  );
+
+  await screen.findByText("July 2026");
+  const cell = await screen.findByTestId("day-2026-07-15");
+  expect(within(cell).getByText("R")).toBeInTheDocument();
+  expect(cell.tagName).not.toBe("BUTTON");
+  // A day outside the range, on the same otherwise-free vehicle, stays tappable.
+  const freeDay = await screen.findByTestId("day-2026-07-20");
+  expect(freeDay.tagName).toBe("BUTTON");
+});
+
+test("GAP-26: an open-ended outage (no unavailableTo yet) still covers a later date in the same month", async () => {
+  const unavailability: VehicleUnavailabilityListResponse = [
+    {
+      id: "u1",
+      vehicleId: "v1",
+      reason: "sale_preparation",
+      unavailableFrom: "2026-07-10",
+      unavailableTo: null,
+      note: null,
+    },
+  ];
+  const get = baseGet([], vehicle, unavailability);
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  await screen.findByText("July 2026");
+  expect(within(await screen.findByTestId("day-2026-07-25")).getByText("R")).toBeInTheDocument();
+});
+
+test("GAP-26: a failed outage read shows a failure notice, the same guard a failed calendar read already gets", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve([]);
+    if (path.startsWith("/api/vehicle/v1/unavailability")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading this month's calendar."),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
 });

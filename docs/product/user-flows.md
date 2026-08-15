@@ -1,7 +1,8 @@
 # Key User Flows
 
-**Status:** v1.1.9 — **INV-34** added: an owner-manager's ownership/capital scope is his `ownership_share` as of the write; a manager's UC-70 scope is the vehicles whose `management_fee_agreement` overlapped the *reported* period, never its status today or at period end. §2.3's matrix and §8's traceability updated to match. Closes the mechanism `use-cases.md` v1.2.8's **W-59** names; also records that UC-71/72/74/76/78 stay deliberately whole-business for a manager and UC-75 has no vehicle to scope by. Decided closing GAP-1's Wave 3 (tenancy) planning, 13 Aug 2026
-**Date:** 13 August 2026
+**Status:** v1.1.13 — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
+**v1.1.12** — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
+**Date:** 15 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -311,6 +312,9 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-32** | No record is ever hard-deleted at the database level. Every table is voided, never removed — not only the money-bearing ones W-50 already named | W-58 |
 | **INV-33** | A cost naming more than one of vehicle, trip and incident must name a mutually consistent set — a trip's own vehicle, an incident's own vehicle — never independently-valid but unrelated ids | §6.1, GAP-59 |
 | **INV-34** | An owner-manager's ownership/capital scope is exactly the vehicles his `ownership_share` names as of the write. A manager's UC-70 scope is exactly the vehicles whose `management_fee_agreement` overlapped the *reported* period — never the agreement's status today or at the period's end | §2.3, W-59, UC-02, UC-70 |
+| **INV-35** | Archiving a driver or customer is refused while any `obligation` (either direction), `deposit` or — driver only — `advance` tied to him is not fully settled. The refusal names every open figure separately; INV-3 still applies, so a driver's two balances are never netted into one | W-60, UC-100 |
+| **INV-36** | Voiding a record cascades only into a row the same write minted; a record entered separately, on its own, beneath the one being voided blocks the void and is named in the refusal. Per-table mechanics: F-8.5 | W-61 |
+| **INV-37** | Ending a daily-lease assignment never refuses on an open driver balance. Unlike INV-35's archive, nothing about the driver's visibility changes, so there is no report the debt could silently leave | W-62, UC-101 |
 
 ---
 
@@ -427,6 +431,25 @@ UC-79's own utilisation report already named an "off-road" bucket beside earning
 · The range shows on the calendar (F-1.5) as its own state, never as merely "free"
 · **Feeds UC-79's off-road bucket only** — it does not re-partition §4.1's `days_in_month` formula and does not touch UC-76's `lease_eligible_days`, both of which stay exhaustively defined by `day_record`'s own states for arrangement B. A vehicle marked off the road *while* it also carries an active daily lease still needs each affected day confirmed through F-4.4 in the ordinary way, picking `breakdown` there if that is the reason — this flow records the vehicle-level fact for reporting and the calendar; it is additive, not a replacement for the driver-facing one
 · An incident's own `off_road_from`/`off_road_to` already covers incident-caused downtime and is not duplicated here — UC-79's bucket reads both sources.
+
+#### F-1.11 Archive a driver or customer
+*Actor:* Manager · *Source:* UC-100, W-58, W-60 · *Phase:* 1 *(new, GAP-36, resolved 14 Aug 2026)*
+A9a proved the `voided_*` mechanism on `expense`; this is the entity-lifecycle half W-58 promised and never mechanised — `driver` and `customer` have carried the same void trio (INV-32) since migration `0023`, with no endpoint that ever sets it.
+**Pre** the check below — INV-35 — passes.
+**Steps** From the driver's or customer's own page, **Archive**, give a reason, confirm.
+**System** checks, live, for anything still open against him:
+· any `obligation` row naming him, of **either** `direction`, with `status IN ('pending','part_paid')`
+· any `deposit` row naming him with `status IN ('held','hold_window')` — money still on hand, not yet released, applied or retained
+· **driver only** — any `advance` row with `status IN ('open','part_settled')`
+Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was already taken off the books by its own correction, and counting it again would refuse an archive over money that no longer exists.
+**Writes** `voided_at`/`voided_reason`/`voided_by` on the driver or customer row — archived, not deleted, the same mechanism as every other W-58 table. **The reason is required, not optional** — migration `0023`'s own `CHECK` on both tables refuses `voided_at` set with `voided_reason` null or empty, the identical audit discipline W-50 already requires of a money void, matched at the API boundary rather than left to surface as a raw constraint failure.
+**Alternates** · **Refused** — none of the above is empty. The refusal lists each nonzero figure by kind (a due, an advance, a deposit held), never netted into one number (INV-3/INV-35) — a driver owing an unsettled advance while also owed unpaid fees sees both named, not the difference · **Unarchive** — clears `voided_at`; nothing about his history is touched by either direction.
+**Accept**
+· A party with every obligation, deposit and advance settled, waived, written off or voided archives cleanly
+· A party with even one `pending`/`part_paid` obligation, an unreleased deposit, or an unreconciled advance is refused, and the refusal names it
+· An archived driver or customer still resolves by id — a voided expense that names him, a closed month's rent that names him, keeps rendering exactly as before (W-58); archiving removes him from pickers and "new record" lists, it does not touch anything already written
+· A closed month's totals never move because someone archived a driver or customer afterward — nothing about archiving is a money write against any period
+· Archiving is never offered as "Delete" (U-6) — the interface says which one it means.
 
 ---
 
@@ -578,7 +601,11 @@ The incident is a **container** that stays open for weeks and gathers everything
 
 #### F-3.5 Scheduled maintenance
 *Actor:* Manager · *Source:* UC-13 · *Phase:* 1
-Vehicle cost, not tied to an incident, optional odometer. **System** uses history + odometer to prompt next time.
+**Steps** Same screen as F-3.1: amount, vehicle, category, date, odometer *(optional)*, not tied to an incident.
+**Writes** `Expense`, `OdometerReading?` when a reading is given — no separate mechanism from any other odometer entry (§6.9).
+**Accept** · A reading recorded here is ordinary odometer history, nothing special about it · the prompt below is informational only — it never blocks or pre-fills this form.
+
+**⚑ Decided 15 Aug 2026, closing GAP-68 for Wave 5 Track 5B — the prompt itself had never been specified.** The vehicle carries an optional **service interval, in kilometres**, editable on the vehicle's own page and never required to save the vehicle (U-2). With an interval set, the vehicle's page shows a prompt once the latest odometer reading on file exceeds the last maintenance reading by that interval; recording a new maintenance expense with a reading clears it. **With no interval set, there is no prompt at all** — never a guessed figure, the same reasoning W-56 already applies to a report going quiet instead of lying (§6.9). **Declined: deriving the interval from the gap between the vehicle's last two same-category services.** Predicts nothing until a vehicle has actually been serviced twice through this system — months of the feature staying dark for a business starting at zero rows. **Declined: surfacing the prompt on Home.** Not time-critical the way an unconfirmed day is, and Home's own item list (F-4.1, UI §3.2) is already at documented risk of becoming a wall nobody reads to the bottom of — it stays on the vehicle's own page instead.
 
 ---
 
@@ -649,6 +676,21 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 **Accept** · History stays attached to whoever was actually driving · **long downtime** needs no new machinery: assign him to a spare vehicle for a date range (a second arrangement while the first idles), or pay a retainer with no trip attached (F-6.1) · **the previous assignment's own future occupancy is freed in the same transaction the new one is opened, then re-materialised for the new driver** — the same rolling-horizon write D-9 already gives `startDailyLease`, applied to a close-and-reopen rather than a fresh start.
 
 **GAP-118, resolved 12 Aug 2026 — this Accept clause was previously silent on what happens to days already generated for the previous assignment.** F-2.6/UC-16 frees a closed lease's (arrangement A) future occupancy explicitly; F-5.5/UC-45 frees a cancelled trip's (arrangement C) explicitly; this flow never said the daily-lease (arrangement B) equivalent, and the omission meant a driver change inside the horizon left tomorrow's card carrying **yesterday's driver** — confirming it would have credited the wrong person. **Ending an assignment must free its own future allocation before the replacement opens**, symmetrically with the other two arrangements, and the freed rows are voided (W-58), not deleted, since a future day already generated once is itself worth a record of having been reassigned.
+
+#### F-4.8 End a daily lease
+*Actor:* Manager · *Source:* UC-101 · *Phase:* 1 *(new, GAP-25, resolved 15 Aug 2026)*
+F-4 has run F-4.1 through F-4.7 with no closure flow at all — arrangement A has F-2.6, arrangement C has its own cancellation (F-5.5), and arrangement B has had nothing symmetrical since this document was first written.
+
+**Distinct from F-4.7.** F-4.7 *replaces* the driver — a new assignment opens the same day the old one closes, so the vehicle never stops earning. F-4.8 is for when nothing replaces it: the vehicle goes idle, moves to a different arrangement (UC-94), or the driver relationship itself has ended.
+
+**Steps** From the assignment's own page, **End**, an end date, confirm.
+**Writes** `DailyLease.effective_to` — and, in the same transaction, voids (W-58) every future `VehicleDayAllocation` and open `DayRecord` this assignment had already generated past that date. This is the identical GAP-118 write F-4.7 already makes on its own close-and-reopen; F-4.8 is that same write with nothing reopening behind it.
+**Accept**
+· **INV-37** — ending an assignment never refuses on an open driver balance. Past days, their figures, and whatever the driver still owes or is owed stay exactly where they were, on his own page and in every report that already includes him
+· A future card or occupancy day already generated for a date past the end date is voided, never left standing to render a day that will now never happen
+· The driver's deposit (F-6.7), if any, is untouched — it belongs to him independent of any one assignment, and is settled on its own terms whenever that comes up separately.
+
+**Why this does not mirror F-1.11's refusal (INV-35).** The two look like the same guard from a distance and are not: archiving a driver or customer *hides* him — he drops out of every picker and every list — so a due left open behind him would silently leave a report. Ending an assignment hides nothing: the driver's own record stays exactly as reachable as before, on exactly the same pages, so there is no report that could go quiet. Refusing here would strand the single most ordinary reason an assignment ends — a driver who leaves still owing money — behind a check protecting against a risk that does not exist for this action (W-62).
 
 ---
 
@@ -849,6 +891,26 @@ Wrong vehicle, duplicate day confirm, fuel logged against the wrong trip, a day 
 · Non-money fields may be edited with the change captured in the audit trail (F-8.6)
 · A voided record never disappears from the audit trail.
 
+**INV-36 — cascade or refuse, per table** *(added v1.1.12, GAP-12)*. Voiding a parent record moves only what that same write minted — a row nobody ever entered on its own screen. A record entered separately, in its own right, beneath the one being voided blocks the parent's void instead, so the manager undoes what he actually did, in the order he did it:
+
+| Table | On void |
+|---|---|
+| `adjustment` | Reverses the effect exactly: a waiver lowers `waived_minor`; a `+1` type (`late_fee`, `extra_charge`) unwinds `payment_allocation` newest-first until the total fits, and the surplus becomes ordinary unallocated credit (§9.2/DM §10.2) — the receipt itself is never touched, because the cash genuinely arrived |
+| `offset_record` | Unwinds both allocation sides symmetrically — never one balance without the other (INV-3) — recomputing each affected `obligation`'s status |
+| `deposit_movement` | Voids; `deposit.status` recomputes from the newest surviving terminal movement, falling back to `hold_window` (if `hold_release_date` is set) or `held` when none remain — so INV-35's open-deposit check never reads a status the void left stale |
+| `advance` | **Refused** while any `advance_settlement` against it is live, naming each and their total — a settlement is its own entered act |
+| `advance_settlement` | Voids; `advance.status` recomputes from the live settlements, restoring INV-17's trip-close block against cash the driver still holds |
+| `write_off` | Restores the linked `obligation`'s prior status exactly — nothing is stored to replay, `status` is re-derived the same way it always is; **refused** while any `write_off_recovery` against it is live |
+| `write_off_recovery` | Cascades — the `payment` it minted is marked reversed with it (INV-15), because that receipt was never entered as a thing on its own |
+| `incident_recovery` | **Refused** once `received_amount_minor` is set — the receipt behind it is its own entered act, undone through its own correction (F-8.2), not through voiding the recovery it settled |
+| `obligation` | Direct void only where a person raised it directly with nothing else to correct instead — today, a post-closure charge (F-8.4). Every other source corrects at its source: close the lease, void the day, cancel the trip, so a figure never detaches from the event that caused it. `opening_balance` obligations are the one exception to *that* exception — they correct through their own batch reversal (F-0.2), not a direct void |
+
+Every refusal in this table names the blocking rows and their total, the same `details` shape `F-1.11`'s already uses — U-5's "every figure can be corrected later" has to stay true in the client's hand, not only in the API.
+
+**Two answers considered and declined.** Reversing a `+1` adjustment by voiding the receipt behind it, or by recording a waiver for the difference, were both considered and declined for the same reason: the cash genuinely arrived, so a reversed receipt misdescribes what happened and a waiver misrecords a typo as a chosen discount (INV-14/W-28) — unwinding the allocation is the only description that matches the event. And for `deposit_movement`, the equal-and-opposite `refunded` row that already corrects a mistaken opening-balance movement (its own path, separate from this flow) was considered and declined as the *general* fix: `movement_type` is a business fact, and a fake `refunded` row on an ordinary mistyped movement would make the history claim a refund that never happened. The opening-balance case is unaffected — reversing it genuinely is a giving-back.
+
+**Closed periods, stated explicitly rather than left implicit.** A void is refused once its own record's month has closed (INV-10/W-35, via the same check every other post to that record goes through) — a mistake found after close is corrected by an adjustment posting to the open period (F-8.1), not by reaching back into a settled one. Recomputing `obligation.settled_minor`/`status` from an unwound allocation **is** allowed even when the obligation itself posted to a now-closed period, because `listReceivables` and the ageing report (F-9.2) are as-of-now views, not period-scoped — unwinding current outstanding never rewrites what a closed month reported as income.
+
 #### F-8.6 See who changed what
 *Actor:* Owner / owner-manager · *Source:* UC-97, W-50 · *Phase:* 1
 Two partners share this ledger and one of them does all the entry. An edit history is not a nicety here — it is the thing that makes the arrangement in §2.1 workable.
@@ -994,6 +1056,9 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-7.6 | UC-67 | W-52, W-53 |
 | F-9.2 | UC-70…UC-79 | W-56 |
 | F-9.2 | UC-70 | W-59, INV-34 |
+| F-1.11 | UC-100 | W-60, INV-35 |
+| F-8.5 | UC-96 | W-61, INV-36 |
+| F-4.8 | UC-101 | W-62, INV-37 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.

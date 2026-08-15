@@ -1,11 +1,21 @@
 import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
-import { issueAdvance, settleAdvance } from "../domain/advance.js";
+import {
+  issueAdvance,
+  settleAdvance,
+  voidAdvance,
+  voidAdvanceSettlement,
+} from "../domain/advance.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import type { AdvanceRow } from "../queries/driver-money.js";
-import type { issueAdvanceRoute, settleAdvanceRoute } from "../route-defs/advance.js";
+import type {
+  issueAdvanceRoute,
+  settleAdvanceRoute,
+  voidAdvanceRoute,
+  voidAdvanceSettlementRoute,
+} from "../route-defs/advance.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: AdvanceRow, settledMinor: bigint) {
@@ -17,6 +27,7 @@ function toResponse(row: AdvanceRow, settledMinor: bigint) {
     issuedOn: row.issuedOn,
     status: row.status,
     settledMinor: toWire(settledMinor as Minor),
+    replacesId: row.replacesId,
   };
 }
 
@@ -38,6 +49,7 @@ export const issueAdvanceHandler: RouteHandler<typeof issueAdvanceRoute, Env> = 
     amountMinor: body.amountMinor,
     issuedOn: asBusinessDate(body.issuedOn),
     issuedByUserId: userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -51,6 +63,7 @@ export const issueAdvanceHandler: RouteHandler<typeof issueAdvanceRoute, Env> = 
         issuedOn: body.issuedOn,
         status: "open",
         voidedAt: null,
+        replacesId: body.replacesId ?? null,
       },
       0n,
     ),
@@ -70,7 +83,61 @@ export const settleAdvanceHandler: RouteHandler<typeof settleAdvanceRoute, Env> 
     kind: body.kind,
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
-  return c.json(toResponse(result.advance, result.settledMinor), 200);
+  return c.json(
+    {
+      ...toResponse(result.advance, result.settledMinor),
+      settlementId: result.settlementId,
+      settlementReplacesId: body.replacesId ?? null,
+    },
+    200,
+  );
+};
+
+/** GAP-12/W-61/INV-36 §3.5. `dailyOperations` — the same gate settling one uses. */
+export const voidAdvanceSettlementHandler: RouteHandler<
+  typeof voidAdvanceSettlementRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { settlementId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidAdvanceSettlement(c.get("writer"), {
+    businessId,
+    settlementId,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(
+    {
+      id: result.id,
+      voidedAt: result.voidedAt,
+      advance: toResponse(result.advance, result.settledMinor),
+    },
+    200,
+  );
+};
+
+/** GAP-12/W-61/INV-36 §3.6. `dailyOperations` — the same gate issuing one uses. */
+export const voidAdvanceHandler: RouteHandler<typeof voidAdvanceRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidAdvance(c.get("writer"), {
+    businessId,
+    advanceId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(result, 200);
 };

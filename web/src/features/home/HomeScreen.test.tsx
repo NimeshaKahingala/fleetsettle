@@ -203,6 +203,51 @@ test("earlier unconfirmed days render inside a collapsible section, each its own
   expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
 });
 
+test("F-4.6/GAP-2: two or more waiting days on one lease collapse into a single Confirm-all card, not one per day", async () => {
+  const user = userEvent.setup();
+  const rows: UnconfirmedDayRecordRow[] = [
+    {
+      id: "dr1",
+      dailyLeaseId: "dl1",
+      vehicleId: "v1",
+      vehicleRegistration: "CAB-1111",
+      driverId: "d1",
+      driverName: "Sunil",
+      businessDate: addDays(today, -3),
+      expectedMinor: "500000",
+    },
+    {
+      id: "dr2",
+      dailyLeaseId: "dl1",
+      vehicleId: "v1",
+      vehicleRegistration: "CAB-1111",
+      driverId: "d1",
+      driverName: "Sunil",
+      businessDate: addDays(today, -1),
+      expectedMinor: "500000",
+    },
+  ];
+  const post = vi.fn().mockResolvedValue({
+    confirmed: [],
+    totalReceivedMinor: "1000000",
+  });
+  const get = baseGet({ "/api/day-record": rows });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, {
+    get,
+    post,
+  });
+
+  expect(await screen.findByText("Earlier days · 2")).toBeInTheDocument();
+  expect(screen.getByText("CAB-1111 · Sunil")).toBeInTheDocument();
+  // Rs 10,000 total, not two separate Rs 5,000 cards.
+  expect(screen.getByText("Rs 10,000")).toBeInTheDocument();
+  expect(screen.queryByText("Expected from Sunil")).toBeNull();
+
+  await user.click(screen.getByRole("button", { name: "Confirm all 2 at expected amount" }));
+
+  expect(post).toHaveBeenCalledWith("/api/day-record/dl1/confirm-week", {});
+});
+
 test("rent due shows only customer obligations, never a driver's arrears (that's the driver's own two-balance screen)", async () => {
   const receivables: ReceivableRow[] = [
     {

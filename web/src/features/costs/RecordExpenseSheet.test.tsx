@@ -35,6 +35,8 @@ const created: ExpenseResponse = {
   paidByUserId: "u1",
   litres: null,
   note: null,
+  odometerReadingId: null,
+  replacesId: null,
 };
 
 const members: BusinessMemberResponse[] = [
@@ -87,6 +89,7 @@ test("no vehicleId prop shows a vehicle picker, and leaving it blank is a valid 
       registration: "NC-1234",
       vehicleType: "bus",
       lifecycle: "active",
+      serviceIntervalKm: null,
       arrangement: "B",
     },
   ];

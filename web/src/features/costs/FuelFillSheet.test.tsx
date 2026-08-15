@@ -18,7 +18,14 @@ vi.mock("../../lib/photo-pipeline.js", () => ({
 const today = asBusinessDate("2026-08-04");
 
 const vehicles: VehicleResponse[] = [
-  { id: "v1", registration: "NC-1234", vehicleType: "bus", lifecycle: "active", arrangement: "B" },
+  {
+    id: "v1",
+    registration: "NC-1234",
+    vehicleType: "bus",
+    lifecycle: "active",
+    serviceIntervalKm: null,
+    arrangement: "B",
+  },
 ];
 
 const created: ExpenseResponse = {
@@ -35,6 +42,8 @@ const created: ExpenseResponse = {
   paidByUserId: "u1",
   litres: null,
   note: null,
+  odometerReadingId: null,
+  replacesId: null,
 };
 
 test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone — litres stays optional (W-20)", async () => {

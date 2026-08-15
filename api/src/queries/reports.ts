@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
@@ -18,6 +18,7 @@ import {
   ownershipShare,
   payment,
   trip,
+  vehicleUnavailability,
 } from "../db/schema.js";
 import { sumDepositMovements } from "./driver-money.js";
 
@@ -815,6 +816,43 @@ export async function listOffRoadRangesForVehicle(
       ),
     );
   return rows as OffRoadRangeRow[];
+}
+
+/**
+ * F-1.10/GAP-26: UC-79's second off-road source — every live
+ * `vehicle_unavailability` range overlapping `[from, to]`, clipped to the
+ * window here (an open-ended outage has no far edge to clip in SQL, so a
+ * `NULL unavailable_to` reads as `to` — "still off the road at the end of
+ * this window," never further). Deliberately the same `OffRoadRangeRow`
+ * shape as `listOffRoadRangesForVehicle` so the domain layer can merge both
+ * sources' days without caring which table a range came from.
+ */
+export async function listVehicleUnavailabilityRangesForVehicle(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+  from: string,
+  to: string,
+): Promise<OffRoadRangeRow[]> {
+  const rows = await db
+    .select({
+      offRoadFrom: vehicleUnavailability.unavailableFrom,
+      offRoadTo: sql<string>`least(coalesce(${vehicleUnavailability.unavailableTo}, ${to}), ${to})`,
+    })
+    .from(vehicleUnavailability)
+    .where(
+      and(
+        eq(vehicleUnavailability.businessId, businessId),
+        eq(vehicleUnavailability.vehicleId, vehicleId),
+        isNull(vehicleUnavailability.voidedAt),
+        lte(vehicleUnavailability.unavailableFrom, to),
+        or(
+          isNull(vehicleUnavailability.unavailableTo),
+          gte(vehicleUnavailability.unavailableTo, from),
+        ),
+      ),
+    );
+  return rows;
 }
 
 /** For UC-74/76/78's own read: the customer/driver/partner name behind a receivable or ageing row — a convenience join the DM §15 queries themselves don't need, but a caller resolving a display list does. */

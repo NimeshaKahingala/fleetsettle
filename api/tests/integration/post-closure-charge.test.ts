@@ -265,6 +265,125 @@ describe("charge something after everything has closed (P10, F-8.4/UC-91)", () =
     await ctx.cleanup();
   });
 
+  it("GAP-15 — deductFromFee settles the charge against the driver's own unpaid fee, in one request", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const tripRes = await request("/api/trip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        vehicleId,
+        driverId,
+        startDate: "2026-07-10",
+        endDate: "2026-07-12",
+      }),
+    });
+    const tripBody: { id: string } = await tripRes.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    // feeObligationId itself is cleaned up by createObligation's own tracker.
+    await ctx.createObligation(businessId, periodId, {
+      direction: "owed_by_us",
+      partyType: "driver",
+      driverId,
+      kind: "driver_fee",
+      amountMinor: 500_000n,
+      dueOn: "2026-07-01",
+    });
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "driver",
+      partyDriverId: driverId,
+      vehicleId,
+      sourceType: "trip",
+      sourceId: tripBody.id,
+      amountMinor: "150000",
+      dueOn: "2026-08-01",
+      note: "camera fine, deducted from his fee",
+      deductFromFee: true,
+    });
+    expect(res.status).toBe(201);
+    const body: PostClosureChargeResponseBody & { deductedFromFeeOffsetId: string | null } =
+      await res.json();
+    expect(body.status).toBe("paid");
+    expect(body.deductedFromFeeOffsetId).toBeTruthy();
+    ctx.trackCreatedPostClosureCharge(body.obligationId);
+    ctx.trackCreatedOffset(body.deductedFromFeeOffsetId as string);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-15: deductFromFee exceeds what the business currently owes the driver", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const tripRes = await request("/api/trip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        vehicleId,
+        driverId,
+        startDate: "2026-07-10",
+        endDate: "2026-07-12",
+      }),
+    });
+    const tripBody: { id: string } = await tripRes.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "driver",
+      partyDriverId: driverId,
+      vehicleId,
+      sourceType: "trip",
+      sourceId: tripBody.id,
+      amountMinor: "150000",
+      dueOn: "2026-08-01",
+      deductFromFee: true,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-15: deductFromFee only applies to a driver party", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+      status: "closed",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "1000",
+      dueOn: "2026-08-01",
+      deductFromFee: true,
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("409 — a closed accounting period rejects the write", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
@@ -288,6 +407,135 @@ describe("charge something after everything has closed (P10, F-8.4/UC-91)", () =
     expect(res.status).toBe(409);
     const responseBody: { code: string } = await res.json();
     expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+async function postVoidObligation(token: string, id: string, body: unknown) {
+  return request(`/api/obligation/${id}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+/** GAP-60/D-16: "the replacement writes replaces_id, not the void" — obligation's own direct-void case (INV-36 §3.10), the one obligation kind this ever applies to. */
+describe("replace a voided post-closure charge (GAP-60/D-16)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — a fresh charge naming a voided one as replacesId links the two", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "closed" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "500000",
+      dueOn: "2026-08-05",
+    });
+    const createdBody: PostClosureChargeResponseBody = await created.json();
+    ctx.trackCreatedPostClosureCharge(createdBody.obligationId);
+    await postVoidObligation(token, createdBody.obligationId, { reason: "wrong customer" });
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "550000",
+      dueOn: "2026-08-05",
+      replacesId: createdBody.obligationId,
+    });
+    expect(res.status).toBe(201);
+    const body: PostClosureChargeResponseBody & { replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(createdBody.obligationId);
+    ctx.trackCreatedPostClosureCharge(body.obligationId);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — replacesId names an obligation that has not been voided yet", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "closed" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const live = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "500000",
+      dueOn: "2026-08-05",
+    });
+    const liveBody: PostClosureChargeResponseBody = await live.json();
+    ctx.trackCreatedPostClosureCharge(liveBody.obligationId);
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "550000",
+      dueOn: "2026-08-05",
+      replacesId: liveBody.obligationId,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("400 — replacesId names an obligation against a different party (Gitar, PR #45)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerA = await ctx.createCustomer(businessId);
+    const customerB = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerA, { status: "closed" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const onCustomerA = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerA,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "500000",
+      dueOn: "2026-08-05",
+    });
+    const onCustomerABody: PostClosureChargeResponseBody = await onCustomerA.json();
+    ctx.trackCreatedPostClosureCharge(onCustomerABody.obligationId);
+    await postVoidObligation(token, onCustomerABody.obligationId, { reason: "wrong customer" });
+
+    const res = await postPostClosureCharge(token, {
+      partyType: "customer",
+      partyCustomerId: customerB,
+      sourceType: "lease",
+      sourceId: leaseId,
+      amountMinor: "500000",
+      dueOn: "2026-08-05",
+      replacesId: onCustomerABody.obligationId,
+    });
+    expect(res.status).toBe(400);
 
     await ctx.cleanup();
   });

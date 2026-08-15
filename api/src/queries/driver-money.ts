@@ -22,6 +22,7 @@ export interface NewAdvance {
   issuedByUserId?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** UC-53. Not a cost — reconciled to zero, and INV-17 blocks trip closure until it is. */
@@ -44,6 +45,7 @@ export interface AdvanceRow {
   issuedOn: string;
   status: "open" | "part_settled" | "settled";
   voidedAt: string | null;
+  replacesId: string | null;
 }
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
@@ -62,6 +64,7 @@ export async function findAdvanceForBusiness(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(and(eq(advance.id, advanceId), eq(advance.businessId, businessId)))
@@ -84,6 +87,7 @@ export async function findUnsettledAdvancesForTrip(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(
@@ -110,6 +114,7 @@ export async function listAdvancesForDriver(
       issuedOn: advance.issuedOn,
       status: advance.status,
       voidedAt: advance.voidedAt,
+      replacesId: advance.replacesId,
     })
     .from(advance)
     .where(
@@ -133,6 +138,7 @@ export interface NewAdvanceSettlement {
   occurredOn: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 export async function insertAdvanceSettlement(
@@ -142,12 +148,63 @@ export async function insertAdvanceSettlement(
   await db.insert(advanceSettlement).values(values);
 }
 
-/** The advance closes at zero (UC-53) — the running total of every settlement recorded against it so far. */
+export interface AdvanceSettlementRow {
+  id: string;
+  advanceId: string;
+  kind: "spent" | "returned" | "kept_as_fee";
+  amountMinor: bigint;
+  voidedAt: string | null;
+  replacesId: string | null;
+}
+
+/** GAP-12/W-61/INV-36 §3.5. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+export async function findAdvanceSettlementForBusiness(
+  db: ReadDb,
+  businessId: string,
+  settlementId: string,
+): Promise<AdvanceSettlementRow | undefined> {
+  const rows = await db
+    .select({
+      id: advanceSettlement.id,
+      advanceId: advanceSettlement.advanceId,
+      kind: advanceSettlement.kind,
+      amountMinor: advanceSettlement.amountMinor,
+      voidedAt: advanceSettlement.voidedAt,
+      replacesId: advanceSettlement.replacesId,
+    })
+    .from(advanceSettlement)
+    .where(
+      and(eq(advanceSettlement.id, settlementId), eq(advanceSettlement.businessId, businessId)),
+    )
+    .limit(1);
+  return rows[0] as AdvanceSettlementRow | undefined;
+}
+
+/** GAP-12/W-61/INV-36 §3.5: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidAdvanceSettlementRow(
+  db: WriteDb,
+  settlementId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(advanceSettlement)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(advanceSettlement.id, settlementId), isNull(advanceSettlement.voidedAt)))
+    .returning({ voidedAt: advanceSettlement.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
+/**
+ * The advance closes at zero (UC-53) — the running total of every settlement
+ * recorded against it so far. GAP-12/INV-36: a voided settlement (§3.5)
+ * must not count, or `advance.status` recomputed from this sum would still
+ * read as settled while the driver holds cash again.
+ */
 export async function sumSettledForAdvance(db: ReadDb, advanceId: string): Promise<bigint> {
   const rows = await db
     .select({ amountMinor: advanceSettlement.amountMinor })
     .from(advanceSettlement)
-    .where(eq(advanceSettlement.advanceId, advanceId));
+    .where(and(eq(advanceSettlement.advanceId, advanceId), isNull(advanceSettlement.voidedAt)));
   return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
 }
 
@@ -157,6 +214,38 @@ export async function updateAdvanceStatus(
   status: "open" | "part_settled" | "settled",
 ): Promise<void> {
   await db.update(advance).set({ status }).where(eq(advance.id, advanceId));
+}
+
+/** GAP-12/W-61/INV-36 §3.6: `voidAdvance`'s own refuse-guard — every live settlement against this advance, each its own entered act, named in the refusal so the manager can void them first, in the order he entered them. */
+export async function findLiveSettlementsForAdvance(
+  db: ReadDb,
+  advanceId: string,
+): Promise<Array<{ id: string; amountMinor: bigint }>> {
+  const rows = await db
+    .select({ id: advanceSettlement.id, amountMinor: advanceSettlement.amountMinor })
+    .from(advanceSettlement)
+    .where(and(eq(advanceSettlement.advanceId, advanceId), isNull(advanceSettlement.voidedAt)));
+  return rows;
+}
+
+/** INV-35/F-1.11: the archive check's own read — every advance this driver still owes settlement on, never a voided one (a correction, not a fact he still owes against, the same convention `listAdvancesForDriver` already uses). */
+export async function findOpenAdvancesForDriver(
+  db: ReadDb,
+  businessId: string,
+  driverId: string,
+): Promise<Array<{ id: string; amountMinor: bigint }>> {
+  const rows = await db
+    .select({ id: advance.id, amountMinor: advance.amountMinor })
+    .from(advance)
+    .where(
+      and(
+        eq(advance.businessId, businessId),
+        eq(advance.driverId, driverId),
+        sql`${advance.status} IN ('open', 'part_settled')`,
+        isNull(advance.voidedAt),
+      ),
+    );
+  return rows;
 }
 
 /** GAP-103: an opening-balance correction voids the advance a prior commit posted, by id — `WHERE … voided_at IS NULL` keeps a second call a no-op. */
@@ -169,6 +258,20 @@ export async function voidAdvanceById(
     .update(advance)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
     .where(and(eq(advance.id, advanceId), isNull(advance.voidedAt)));
+}
+
+/** GAP-12/W-61/INV-36 §3.6: void, never delete — the same write as `voidAdvanceById`, but `.returning()` so a losing race against a concurrent void returns `undefined` rather than a clobbered row (the house pattern `voidCapitalContributionRow` established). */
+export async function voidAdvanceRow(
+  db: WriteDb,
+  advanceId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(advance)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(advance.id, advanceId), isNull(advance.voidedAt)))
+    .returning({ voidedAt: advance.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface NewDeposit {
@@ -235,6 +338,27 @@ export async function findHeldDepositForDriver(
   return rows[0] as DepositRow | undefined;
 }
 
+/** INV-35/F-1.11: the archive check's own read — every deposit still `held` or in `hold_window` for this party, either kind, not yet `released`/`applied`/`retained`. */
+export async function findOpenDepositsForParty(
+  db: ReadDb,
+  businessId: string,
+  partyType: "customer" | "driver",
+  partyId: string,
+): Promise<DepositRow[]> {
+  const partyColumn = partyType === "customer" ? deposit.partyCustomerId : deposit.partyDriverId;
+  const rows = await db
+    .select(DEPOSIT_COLUMNS)
+    .from(deposit)
+    .where(
+      and(
+        eq(deposit.businessId, businessId),
+        eq(partyColumn, partyId),
+        sql`${deposit.status} IN ('held', 'hold_window')`,
+      ),
+    );
+  return rows as DepositRow[];
+}
+
 export async function findDepositForBusiness(
   db: ReadDb,
   businessId: string,
@@ -275,6 +399,7 @@ export interface NewDepositMovement {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 export async function insertDepositMovement(
@@ -282,6 +407,71 @@ export async function insertDepositMovement(
   values: NewDepositMovement,
 ): Promise<void> {
   await db.insert(depositMovement).values(values);
+}
+
+export interface DepositMovementRow {
+  id: string;
+  depositId: string;
+  movementType: "taken" | "topped_up" | "reduced" | "applied" | "refunded" | "retained";
+  amountMinor: bigint;
+  /** GAP-6/F-2.7: which obligation an `applied` movement settled — `voidDepositMovement` needs this to reverse `obligation.settled_minor` on void. */
+  obligationId: string | null;
+  voidedAt: string | null;
+}
+
+/** GAP-12/W-61/INV-36 §3.3. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+export async function findDepositMovementForBusiness(
+  db: ReadDb,
+  businessId: string,
+  movementId: string,
+): Promise<DepositMovementRow | undefined> {
+  const rows = await db
+    .select({
+      id: depositMovement.id,
+      depositId: depositMovement.depositId,
+      movementType: depositMovement.movementType,
+      amountMinor: depositMovement.amountMinor,
+      obligationId: depositMovement.obligationId,
+      voidedAt: depositMovement.voidedAt,
+    })
+    .from(depositMovement)
+    .where(and(eq(depositMovement.id, movementId), eq(depositMovement.businessId, businessId)))
+    .limit(1);
+  return rows[0] as DepositMovementRow | undefined;
+}
+
+/** GAP-12/W-61/INV-36 §3.3: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidDepositMovementRow(
+  db: WriteDb,
+  movementId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(depositMovement)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(depositMovement.id, movementId), isNull(depositMovement.voidedAt)))
+    .returning({ voidedAt: depositMovement.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
+/** GAP-12/W-61/INV-36 §3.4: `deposit.status`'s own recompute after a void — the newest surviving terminal (`refunded`/`retained`) movement, if any. `deposit.status` recomputes from this, falling back to `hold_window`/`held` when none remain (INV-35's archive guard depends on this never reading a status the void left stale). */
+export async function findNewestLiveTerminalMovement(
+  db: ReadDb,
+  depositId: string,
+): Promise<{ movementType: "refunded" | "retained" } | undefined> {
+  const rows = await db
+    .select({ movementType: depositMovement.movementType })
+    .from(depositMovement)
+    .where(
+      and(
+        eq(depositMovement.depositId, depositId),
+        sql`${depositMovement.movementType} IN ('refunded', 'retained')`,
+        isNull(depositMovement.voidedAt),
+      ),
+    )
+    .orderBy(desc(depositMovement.id))
+    .limit(1);
+  return rows[0] as { movementType: "refunded" | "retained" } | undefined;
 }
 
 /** GAP-103: one `INSERT` for a whole opening-balance batch's `deposit_held` entries (IG §3.1) — each row's `depositId` already resolved by the caller before this runs, so the two bulk inserts (`insertDeposits`, this one) need no round trip between them. */
@@ -293,7 +483,12 @@ export async function insertDepositMovements(
   await db.insert(depositMovement).values(values);
 }
 
-/** INV-4: money you hold, never income — the SUM of movements is the held balance, so a taken/topped_up adds and a refunded/retained/applied draws down. */
+/**
+ * INV-4: money you hold, never income — the SUM of movements is the held
+ * balance, so a taken/topped_up adds and a refunded/retained/applied draws
+ * down. GAP-12/INV-36: `isNull(voidedAt)` — a voided movement (§3.3) must not
+ * count, or the held balance stays wrong after the correction it was for.
+ */
 export async function sumDepositMovements(db: ReadDb, depositId: string): Promise<bigint> {
   const rows = await db
     .select({
@@ -301,7 +496,7 @@ export async function sumDepositMovements(db: ReadDb, depositId: string): Promis
       amountMinor: depositMovement.amountMinor,
     })
     .from(depositMovement)
-    .where(eq(depositMovement.depositId, depositId));
+    .where(and(eq(depositMovement.depositId, depositId), isNull(depositMovement.voidedAt)));
 
   const ADDS = new Set(["taken", "topped_up"]);
   return rows.reduce(
@@ -310,7 +505,7 @@ export async function sumDepositMovements(db: ReadDb, depositId: string): Promis
   );
 }
 
-/** GAP-103: a correction needs the original opening-balance movement's own amount to post an equal, opposite one — `sumDepositMovements` above never consults `voided_*`, so reversing a movement is always a real offsetting entry, never a flag. */
+/** GAP-103: a correction needs the original opening-balance movement's own amount to post an equal, opposite one — read by id directly, unfiltered by `voided_*`, since the caller already knows which exact row it means to reverse. */
 export async function findDepositMovementAmount(
   db: ReadDb,
   movementId: string,
@@ -345,6 +540,7 @@ export interface NewOffsetRecord {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy: string;
+  replacesId?: string;
 }
 
 /** W-2/UC-56: the ONLY thing that moves both driver balances (INV-3). */
@@ -397,4 +593,72 @@ export async function insertOffsetAllocation(
   values: NewOffsetAllocation,
 ): Promise<void> {
   await db.insert(offsetAllocation).values(values);
+}
+
+export interface OffsetRecordForVoid {
+  id: string;
+  driverId: string;
+  amountMinor: bigint;
+  voidedAt: string | null;
+}
+
+/** GAP-12/W-61/INV-36 §3.2. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+export async function findOffsetRecordForBusiness(
+  db: ReadDb,
+  businessId: string,
+  offsetId: string,
+): Promise<OffsetRecordForVoid | undefined> {
+  const rows = await db
+    .select({
+      id: offsetRecord.id,
+      driverId: offsetRecord.driverId,
+      amountMinor: offsetRecord.amountMinor,
+      voidedAt: offsetRecord.voidedAt,
+    })
+    .from(offsetRecord)
+    .where(and(eq(offsetRecord.id, offsetId), eq(offsetRecord.businessId, businessId)))
+    .limit(1);
+  return rows[0];
+}
+
+/** GAP-12/W-61/INV-36 §3.2: `voidOffset`'s own read — every live allocation this offset made, on either side, migration 0024's void trio now makes reversible. */
+export async function findLiveOffsetAllocations(
+  db: ReadDb,
+  offsetId: string,
+): Promise<Array<{ id: string; obligationId: string; amountMinor: bigint }>> {
+  const rows = await db
+    .select({
+      id: offsetAllocation.id,
+      obligationId: offsetAllocation.obligationId,
+      amountMinor: offsetAllocation.amountMinor,
+    })
+    .from(offsetAllocation)
+    .where(and(eq(offsetAllocation.offsetId, offsetId), isNull(offsetAllocation.voidedAt)));
+  return rows;
+}
+
+/** GAP-12/W-61/INV-36 §3.2, migration 0024: void, never delete — `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber, the same house pattern every other void in this codebase carries. */
+export async function voidOffsetAllocationRow(
+  db: WriteDb,
+  allocationId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<void> {
+  await db
+    .update(offsetAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(offsetAllocation.id, allocationId), isNull(offsetAllocation.voidedAt)));
+}
+
+/** GAP-12/W-61/INV-36 §3.2: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */
+export async function voidOffsetRecordRow(
+  db: WriteDb,
+  offsetId: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(offsetRecord)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(offsetRecord.id, offsetId), isNull(offsetRecord.voidedAt)))
+    .returning({ voidedAt: offsetRecord.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }

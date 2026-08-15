@@ -15,6 +15,9 @@ import {
   recordPartnerPayout,
   revokeManagement,
   setOwnershipShares,
+  voidBankingEvent,
+  voidCapitalContribution,
+  voidPartnerPayout,
 } from "../domain/partner.js";
 import { ForbiddenCapabilityError, NotFoundError, ValidationError } from "../errors/app-error.js";
 import {
@@ -47,6 +50,9 @@ import type {
   recordPartnerPayoutRoute,
   revokeManagementRoute,
   setOwnershipSharesRoute,
+  voidBankingEventRoute,
+  voidCapitalContributionRoute,
+  voidPartnerPayoutRoute,
 } from "../route-defs/partner.js";
 import type { Env } from "../types.js";
 
@@ -152,6 +158,7 @@ function contributionToResponse(row: CapitalContributionRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     contributedOn: row.contributedOn,
     note: row.note,
+    replacesId: row.replacesId,
   };
 }
 
@@ -181,6 +188,7 @@ export const recordCapitalContributionHandler: RouteHandler<
     amountMinor: body.amountMinor,
     contributedOn: body.contributedOn,
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -192,9 +200,32 @@ export const recordCapitalContributionHandler: RouteHandler<
       amountMinor: body.amountMinor,
       contributedOn: body.contributedOn,
       note: body.note ?? null,
+      voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
+};
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50. `managePartnerCapital` — same gate as recording one. */
+export const voidCapitalContributionHandler: RouteHandler<
+  typeof voidCapitalContributionRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidCapitalContribution(c.get("writer"), {
+    businessId,
+    contributionId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json({ id, voidedAt: result.voidedAt }, 200);
 };
 
 /**
@@ -344,6 +375,7 @@ function bankingEventToResponse(row: BankingEventRow) {
     // allows 'attributed_to_receipt'.
     discrepancyBearer:
       row.discrepancyBearer === "attributed_to_receipt" ? null : row.discrepancyBearer,
+    replacesId: row.replacesId,
   };
 }
 
@@ -371,6 +403,7 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
     ...(body.reference !== undefined ? { reference: body.reference } : {}),
     ...(body.discrepancyBearer !== undefined ? { discrepancyBearer: body.discrepancyBearer } : {}),
     createdBy: userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -385,6 +418,8 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
       reference: body.reference ?? null,
       discrepancyMinor,
       discrepancyBearer: body.discrepancyBearer ?? null,
+      voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -404,6 +439,26 @@ export const listBankingEventsHandler: RouteHandler<typeof listBankingEventsRout
   return c.json(rows.map(bankingEventToResponse), 200);
 };
 
+/** GAP-12/A9b/F-8.5/UC-96/W-50. `dailyOperations` — same gate as recording one. */
+export const voidBankingEventHandler: RouteHandler<typeof voidBankingEventRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidBankingEvent(c.get("writer"), {
+    businessId,
+    bankingEventId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json({ id, voidedAt: result.voidedAt }, 200);
+};
+
 function payoutToResponse(row: PartnerPayoutRow) {
   return {
     id: row.id,
@@ -411,6 +466,7 @@ function payoutToResponse(row: PartnerPayoutRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     kind: row.kind,
     occurredOn: row.occurredOn,
+    replacesId: row.replacesId,
   };
 }
 
@@ -435,6 +491,7 @@ export const recordPartnerPayoutHandler: RouteHandler<
     amountMinor: body.amountMinor,
     kind: body.kind,
     occurredOn: body.occurredOn,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -445,6 +502,8 @@ export const recordPartnerPayoutHandler: RouteHandler<
       amountMinor: body.amountMinor,
       kind: body.kind,
       occurredOn: body.occurredOn,
+      voidedAt: null,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -463,6 +522,26 @@ export const listPartnerPayoutsHandler: RouteHandler<typeof listPartnerPayoutsRo
     ...(query.kind !== undefined ? { kind: query.kind } : {}),
   });
   return c.json(rows.map(payoutToResponse), 200);
+};
+
+/** GAP-12/A9b/F-8.5/UC-96/W-50. `managePartnerCapital` — same gate as recording one. */
+export const voidPartnerPayoutHandler: RouteHandler<typeof voidPartnerPayoutRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "managePartnerCapital");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidPartnerPayout(c.get("writer"), {
+    businessId,
+    payoutId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json({ id, voidedAt: result.voidedAt }, 200);
 };
 
 /** A2/GAP-9/GAP-4/UC-67/W-52/W-53. `managePartnerCapital` (OWNERS) — one page per partner, same gate as every other read on this file. */

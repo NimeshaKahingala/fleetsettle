@@ -468,6 +468,80 @@ describe("close a lease (F-2.6/UC-16)", () => {
       await ctx.cleanup();
     });
 
+    it("apply — sweeps the held balance against the final period charge, oldest-due-first (GAP-6)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-12-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const started = await startAndCloseWithDeposit(token, vehicleId, customerId);
+      ctx.trackCreatedLease(started.id);
+
+      const before: { totalUnpaidMinor: string } = await (
+        await get(`/api/lease/${started.id}/closure-summary`, token)
+      ).json();
+      expect(before.totalUnpaidMinor).toBe("3100000");
+
+      const res = await post(`/api/lease/${started.id}/settle-deposit`, token, {
+        action: "apply",
+        occurredOn: "2026-01-21",
+      });
+      expect(res.status).toBe(200);
+      const body: { status: string; heldMinor: string; holdReleaseDate: string | null } =
+        await res.json();
+      // 'applied' is deliberately not a terminal deposit status (unlike
+      // refunded/retained) — the whole point is a partial apply can still
+      // be followed by a refund of whatever is left, and here it drained
+      // the deposit to zero without fully covering the charge.
+      expect(body).toMatchObject({ status: "held", heldMinor: "0", holdReleaseDate: null });
+
+      const after: { totalUnpaidMinor: string } = await (
+        await get(`/api/lease/${started.id}/closure-summary`, token)
+      ).json();
+      expect(after.totalUnpaidMinor).toBe("3080000"); // 3100000 - the 20000 deposit applied
+
+      await ctx.cleanup();
+    });
+
+    it("400 — apply with nothing held on the deposit (status stays 'held' at zero, so a second apply reaches this specific guard)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-12-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const started = await startAndCloseWithDeposit(token, vehicleId, customerId);
+      ctx.trackCreatedLease(started.id);
+
+      const firstApply = await post(`/api/lease/${started.id}/settle-deposit`, token, {
+        action: "apply",
+        occurredOn: "2026-01-21",
+      });
+      expect(firstApply.status).toBe(200);
+      expect(await firstApply.json()).toMatchObject({ status: "held", heldMinor: "0" });
+
+      const res = await post(`/api/lease/${started.id}/settle-deposit`, token, {
+        action: "apply",
+        occurredOn: "2026-01-22",
+      });
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
+
     it("400 — a still-active lease cannot have its deposit settled (step 1 must run first)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

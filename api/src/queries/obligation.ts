@@ -1,6 +1,13 @@
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { billingPeriod, mileageAssessment, obligation } from "../db/schema.js";
+import {
+  adjustment,
+  billingPeriod,
+  mileageAssessment,
+  obligation,
+  offsetAllocation,
+  paymentAllocation,
+} from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -35,6 +42,7 @@ export interface NewObligation {
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** DM §10.1: everything anyone owes anyone. `settledMinor`/`status` are supplied already-correct by the caller — this endpoint's writes never need a follow-up UPDATE (CLAUDE.md → Writes: one transaction). */
@@ -146,6 +154,83 @@ export async function findObligationForBusiness(
     .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
     .limit(1);
   return rows[0] as ObligationForAdjustment | undefined;
+}
+
+export interface ObligationForDepositApply {
+  id: string;
+  direction: "owed_to_us" | "owed_by_us";
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+  amountMinor: bigint;
+  settledMinor: bigint;
+  waivedMinor: bigint;
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+  voidedAt: string | null;
+}
+
+/**
+ * GAP-6/F-2.7: `recordDepositMovement`'s own validation for an `applied`
+ * movement — needs both the money fields (to cap the application at what's
+ * outstanding) and the party fields (to refuse a deposit applying against a
+ * different party's obligation) in one read.
+ *
+ * `forUpdate` locks the row for the caller's own transaction — the same
+ * GAP-5a discipline `findOutstandingObligationsForDriver`/`ForParty` already
+ * use, closing the read-then-write race two concurrent `applied` movements
+ * against the same obligation would otherwise create. Defaults `false`;
+ * only `deposit.ts`'s write path passes `true`.
+ */
+export async function findObligationForDepositApply(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+  forUpdate = false,
+): Promise<ObligationForDepositApply | undefined> {
+  const query = db
+    .select({
+      id: obligation.id,
+      direction: obligation.direction,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+      status: obligation.status,
+      voidedAt: obligation.voidedAt,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
+  return rows[0] as ObligationForDepositApply | undefined;
+}
+
+export interface ObligationForReplacesCheck {
+  voidedAt: string | null;
+  partyType: "customer" | "driver" | "partner";
+  partyCustomerId: string | null;
+  partyDriverId: string | null;
+}
+
+/** GAP-60/D-16: `post-closure-charge.ts`'s own `replacesId` lookup — a direct void only ever applies to `kind = 'post_closure_charge'` (INV-36 §3.10), so this needs nothing beyond party identity to check the target isn't a different party's charge. */
+export async function findObligationPartyForReplacesCheck(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<ObligationForReplacesCheck | undefined> {
+  const rows = await db
+    .select({
+      voidedAt: obligation.voidedAt,
+      partyType: obligation.partyType,
+      partyCustomerId: obligation.partyCustomerId,
+      partyDriverId: obligation.partyDriverId,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  return rows[0] as ObligationForReplacesCheck | undefined;
 }
 
 /**
@@ -274,6 +359,29 @@ export async function findOutstandingObligationsForParty(
   return rows;
 }
 
+/**
+ * GAP-12/W-61/INV-36 §3.1: `voidAdjustment`'s own write — a waiver reversal
+ * touches only `waivedMinor`/`status`, a `+1`-type reversal can touch
+ * `amountMinor`/`settledMinor`/`status` together (the unwound excess moves
+ * both), so this takes all four rather than composing two separate updates
+ * that would otherwise both land on the same row.
+ */
+export async function reverseAdjustmentOnObligation(
+  db: WriteDb,
+  obligationId: string,
+  values: { amountMinor: bigint; settledMinor: bigint; waivedMinor: bigint; status: string },
+): Promise<void> {
+  await db
+    .update(obligation)
+    .set({
+      amountMinor: values.amountMinor,
+      settledMinor: values.settledMinor,
+      waivedMinor: values.waivedMinor,
+      status: values.status,
+    })
+    .where(eq(obligation.id, obligationId));
+}
+
 /** Settling further against an obligation an offset (or a payment) already touched — never a fresh row. */
 export async function updateObligationSettled(
   db: WriteDb,
@@ -284,6 +392,94 @@ export async function updateObligationSettled(
     .update(obligation)
     .set({ settledMinor: values.settledMinor, status: values.status })
     .where(eq(obligation.id, obligationId));
+}
+
+export interface ObligationForVoid {
+  id: string;
+  kind: string;
+  amountMinor: bigint;
+  settledMinor: bigint;
+  waivedMinor: bigint;
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
+  voidedAt: string | null;
+}
+
+/** GAP-12/W-61/INV-36 §3.10: the direct-void endpoint's own read — needs `kind` on top of what `findObligationForBusiness` already returns, to gate which obligations may be voided directly. */
+export async function findObligationForVoid(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<ObligationForVoid | undefined> {
+  const rows = await db
+    .select({
+      id: obligation.id,
+      kind: obligation.kind,
+      amountMinor: obligation.amountMinor,
+      settledMinor: obligation.settledMinor,
+      waivedMinor: obligation.waivedMinor,
+      status: obligation.status,
+      voidedAt: obligation.voidedAt,
+    })
+    .from(obligation)
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .limit(1);
+  return rows[0] as ObligationForVoid | undefined;
+}
+
+export interface ObligationBlocker {
+  kind: "payment_allocation" | "offset_allocation" | "adjustment";
+  id: string;
+  amountMinor: bigint;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.10: the direct-void guard — "refuse when live
+ * allocations or adjustments sit against it." Every one of these is a
+ * separately-entered fact (§2's governing principle): a payment someone
+ * collected, an offset someone recorded, an adjustment someone applied.
+ * Voiding the obligation underneath any of them would leave that row
+ * pointing at a receivable that no longer exists.
+ */
+export async function findLiveBlockersForObligation(
+  db: ReadDb,
+  obligationId: string,
+): Promise<ObligationBlocker[]> {
+  const [payments, offsets, adjustments] = await Promise.all([
+    db
+      .select({ id: paymentAllocation.id, amountMinor: paymentAllocation.amountMinor })
+      .from(paymentAllocation)
+      .where(
+        and(eq(paymentAllocation.obligationId, obligationId), isNull(paymentAllocation.voidedAt)),
+      ),
+    db
+      .select({ id: offsetAllocation.id, amountMinor: offsetAllocation.amountMinor })
+      .from(offsetAllocation)
+      .where(
+        and(eq(offsetAllocation.obligationId, obligationId), isNull(offsetAllocation.voidedAt)),
+      ),
+    db
+      .select({ id: adjustment.id, amountMinor: adjustment.amountMinor })
+      .from(adjustment)
+      .where(and(eq(adjustment.obligationId, obligationId), isNull(adjustment.voidedAt))),
+  ]);
+
+  return [
+    ...payments.map((r) => ({
+      kind: "payment_allocation" as const,
+      id: r.id,
+      amountMinor: r.amountMinor,
+    })),
+    ...offsets.map((r) => ({
+      kind: "offset_allocation" as const,
+      id: r.id,
+      amountMinor: r.amountMinor,
+    })),
+    ...adjustments.map((r) => ({
+      kind: "adjustment" as const,
+      id: r.id,
+      amountMinor: r.amountMinor,
+    })),
+  ];
 }
 
 /**

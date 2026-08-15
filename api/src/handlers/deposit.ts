@@ -1,20 +1,36 @@
 import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
-import { recordDepositMovement, takeDriverDeposit } from "../domain/deposit.js";
+import {
+  recordDepositMovement,
+  takeDriverDeposit,
+  voidDepositMovement,
+} from "../domain/deposit.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import type { DepositRow } from "../queries/driver-money.js";
-import type { recordDepositMovementRoute, takeDriverDepositRoute } from "../route-defs/deposit.js";
+import type {
+  recordDepositMovementRoute,
+  takeDriverDepositRoute,
+  voidDepositMovementRoute,
+} from "../route-defs/deposit.js";
 import type { Env } from "../types.js";
 
 /** `row.partyDriverId` is passed alongside rather than read off `row` — every deposit this API creates is `party_type='driver'`, but the column itself stays nullable for the `party_type='customer'` deposits DM §10.4 also allows. */
-function toResponse(row: DepositRow, partyDriverId: string, heldMinor: bigint) {
+function toResponse(
+  row: DepositRow,
+  partyDriverId: string,
+  heldMinor: bigint,
+  movementId: string,
+  movementReplacesId: string | null,
+) {
   return {
     id: row.id,
     partyDriverId,
     status: row.status,
     heldMinor: toWire(heldMinor as Minor),
+    movementId,
+    movementReplacesId,
   };
 }
 
@@ -31,7 +47,7 @@ export const takeDriverDepositHandler: RouteHandler<typeof takeDriverDepositRout
   const driver = await findDriverForBusiness(reader, businessId, body.driverId);
   if (!driver) throw new NotFoundError("No such driver in this business");
 
-  const { depositId } = await takeDriverDeposit(c.get("writer"), {
+  const { depositId, movementId } = await takeDriverDeposit(c.get("writer"), {
     businessId,
     driverId: body.driverId,
     amountMinor: body.amountMinor,
@@ -53,6 +69,8 @@ export const takeDriverDepositHandler: RouteHandler<typeof takeDriverDepositRout
       },
       body.driverId,
       body.amountMinor,
+      movementId,
+      null,
     ),
     201,
   );
@@ -75,6 +93,43 @@ export const recordDepositMovementHandler: RouteHandler<
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
     ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    ...(body.obligationId !== undefined ? { obligationId: body.obligationId } : {}),
+    userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
+  });
+
+  if (result.deposit.partyDriverId === null) {
+    throw new Error(
+      "deposit has no party_driver_id — every deposit this API creates is a driver's",
+    );
+  }
+  return c.json(
+    toResponse(
+      result.deposit,
+      result.deposit.partyDriverId,
+      result.heldMinor,
+      result.movementId,
+      body.replacesId ?? null,
+    ),
+    200,
+  );
+};
+
+/** GAP-12/W-61/INV-36 §3.3/§3.4. `dailyOperations` — the same gate recording a movement uses. */
+export const voidDepositMovementHandler: RouteHandler<
+  typeof voidDepositMovementRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { movementId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidDepositMovement(c.get("writer"), {
+    businessId,
+    movementId,
+    reason: body.reason,
     userId,
   });
 
@@ -83,5 +138,18 @@ export const recordDepositMovementHandler: RouteHandler<
       "deposit has no party_driver_id — every deposit this API creates is a driver's",
     );
   }
-  return c.json(toResponse(result.deposit, result.deposit.partyDriverId, result.heldMinor), 200);
+
+  return c.json(
+    {
+      id: result.id,
+      voidedAt: result.voidedAt,
+      deposit: {
+        id: result.deposit.id,
+        partyDriverId: result.deposit.partyDriverId,
+        status: result.deposit.status,
+        heldMinor: toWire(result.heldMinor),
+      },
+    },
+    200,
+  );
 };

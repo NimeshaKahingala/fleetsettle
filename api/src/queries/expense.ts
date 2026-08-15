@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { expense } from "../db/schema.js";
+import { expense, odometerReading } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -19,10 +19,12 @@ export interface NewExpense {
   borneByCustomerId?: string;
   paidByUserId?: string;
   litres?: number;
+  odometerReadingId?: string;
   note?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** DM §9. `spent_on` is a real date, not the write's timestamp — an expense entered days late is still dated when it happened. */
@@ -63,10 +65,9 @@ export async function findExpenseForBusiness(
  * (migration 0008/GAP-35): `assert_period_open()` treats the resulting
  * `voided_at` transition as a post in its own right, on top of 0006's
  * "an update that never touches `posted_period_id` succeeds". "Replace" is
- * simply recording a fresh, correct expense afterward through the ordinary
- * create endpoint — this schema carries no `replaces_id` column to link the
- * two formally (DM §9's own DDL has none), so there is nothing further to
- * wire.
+ * recording a fresh, correct expense afterward through the ordinary create
+ * endpoint, `replacesId` set — GAP-60/D-16's `replaces_id` column links the
+ * two formally; the void itself never writes it (`createExpense` does).
  */
 export async function voidExpenseRow(
   db: WriteDb,
@@ -143,6 +144,33 @@ export async function listExpensesForVehicle(
   return rows as VehicleExpenseRow[];
 }
 
+/**
+ * F-3.5/UC-13/GAP-68: the baseline the maintenance prompt compares the
+ * vehicle's latest odometer reading against — the reading linked to this
+ * vehicle's own most recent live `servicing` expense. `undefined` when none
+ * has ever been recorded with a reading attached — the prompt has nothing
+ * to compare against yet, and W-56 says that is "not available", not zero.
+ */
+export async function findLastMaintenanceOdometerKm(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<number | undefined> {
+  const rows = await db
+    .select({ readingKm: odometerReading.readingKm })
+    .from(expense)
+    .innerJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
+    .where(
+      and(
+        eq(expense.vehicleId, vehicleId),
+        eq(expense.category, "servicing"),
+        isNull(expense.voidedAt),
+      ),
+    )
+    .orderBy(desc(expense.spentOn), desc(expense.createdAt))
+    .limit(1);
+  return rows[0]?.readingKm;
+}
+
 export interface BusinessExpenseRow {
   id: string;
   vehicleId: string | null;
@@ -171,9 +199,11 @@ export interface BusinessExpenseRow {
   borneByCustomerId: string | null;
   paidByUserId: string | null;
   litres: number | null;
+  odometerReadingId: string | null;
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  replacesId: string | null;
 }
 
 export interface ExpenseFilters {
@@ -212,9 +242,11 @@ export async function listExpensesForBusiness(
       borneByCustomerId: expense.borneByCustomerId,
       paidByUserId: expense.paidByUserId,
       litres: expense.litres,
+      odometerReadingId: expense.odometerReadingId,
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
+      replacesId: expense.replacesId,
     })
     .from(expense)
     .where(

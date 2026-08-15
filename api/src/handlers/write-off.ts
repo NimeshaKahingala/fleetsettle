@@ -1,7 +1,12 @@
 import { asBusinessDate, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
-import { recordWriteOff, recordWriteOffRecovery } from "../domain/write-off.js";
+import {
+  recordWriteOff,
+  recordWriteOffRecovery,
+  voidWriteOff,
+  voidWriteOffRecovery,
+} from "../domain/write-off.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
@@ -15,6 +20,8 @@ import type {
   listWriteOffsRoute,
   recordWriteOffRecoveryRoute,
   recordWriteOffRoute,
+  voidWriteOffRecoveryRoute,
+  voidWriteOffRoute,
 } from "../route-defs/write-off.js";
 import type { Env } from "../types.js";
 
@@ -31,6 +38,7 @@ function toListRow(row: WriteOffListRow) {
     writtenOffOn: row.writtenOffOn,
     voidedAt: row.voidedAt,
     voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
   };
 }
 
@@ -85,6 +93,7 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
     reason: body.reason,
     writtenOffOn: asBusinessDate(body.writtenOffOn),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -98,6 +107,7 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
       amountMinor: toWire(body.amountMinor),
       reason: body.reason,
       writtenOffOn: body.writtenOffOn,
+      replacesId: body.replacesId ?? null,
     },
     201,
   );
@@ -120,6 +130,7 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
     amountMinor: body.amountMinor,
     occurredOn: asBusinessDate(body.occurredOn),
     userId,
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -128,7 +139,47 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
       writeOffId: id,
       paymentId,
       amountMinor: toWire(body.amountMinor),
+      replacesId: body.replacesId ?? null,
     },
     201,
   );
+};
+
+/** GAP-12/W-61/INV-36 §3.7. `writeOffOrWaiveAboveThreshold` — the same gate creating one uses. */
+export const voidWriteOffHandler: RouteHandler<typeof voidWriteOffRoute, Env> = async (c) => {
+  requireCapability(c, "writeOffOrWaiveAboveThreshold");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidWriteOff(c.get("writer"), {
+    businessId,
+    writeOffId: id,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(result, 200);
+};
+
+/** GAP-12/W-61/INV-36 §3.8. `dailyOperations` — the same gate recording one uses. */
+export const voidWriteOffRecoveryHandler: RouteHandler<
+  typeof voidWriteOffRecoveryRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { recoveryId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidWriteOffRecovery(c.get("writer"), {
+    businessId,
+    recoveryId,
+    reason: body.reason,
+    userId,
+  });
+
+  return c.json(result, 200);
 };

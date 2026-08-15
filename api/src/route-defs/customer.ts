@@ -1,5 +1,6 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  archiveCustomerRequestSchema,
   createCustomerRequestSchema,
   customerResponseSchema,
   listCustomerObligationsResponseSchema,
@@ -87,6 +88,42 @@ export const listCustomerPaymentsRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read a customer's payments" },
     // Cross-tenant is 404, never 403 (CLAUDE.md → Tenancy).
+    404: { description: "No such customer in this business" },
+  },
+});
+
+/** F-1.11/UC-100/W-60/INV-35: refused (409) while any due, payable, held deposit is still open — the refusal names every open figure separately. */
+export const archiveCustomerRoute = createRoute({
+  method: "post",
+  path: "/{id}/archive",
+  request: {
+    params: customerIdParams,
+    body: { content: { "application/json": { schema: archiveCustomerRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: customerResponseSchema } },
+      description: "The customer, archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot archive a customer" },
+    404: { description: "No such customer in this business" },
+    409: { description: "Already archived, or still carrying open money (INV-35)" },
+  },
+});
+
+/** F-1.11's "Unarchive" alternate: back in every picker, history untouched either way. */
+export const unarchiveCustomerRoute = createRoute({
+  method: "post",
+  path: "/{id}/unarchive",
+  request: { params: customerIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: customerResponseSchema } },
+      description: "The customer, no longer archived",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot unarchive a customer" },
     404: { description: "No such customer in this business" },
   },
 });

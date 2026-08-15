@@ -198,7 +198,7 @@ export const getLeaseDepositRoute = createRoute({
   },
 });
 
-/** F-2.6 step 6/W-29/W-44: refund in full, retain a portion, or hold for the configured window. */
+/** F-2.6 step 6/W-29/W-44: refund in full, retain a portion, apply against what is owed (GAP-6), or hold for the configured window. */
 export const settleLeaseDepositRoute = createRoute({
   method: "post",
   path: "/{id}/settle-deposit",
@@ -211,7 +211,10 @@ export const settleLeaseDepositRoute = createRoute({
       content: { "application/json": { schema: settleLeaseDepositResponseSchema } },
       description: "The deposit's new status and its held balance",
     },
-    400: { description: "The lease has not been stopped yet, or this deposit is not held" },
+    400: {
+      description:
+        "The lease has not been stopped yet, this deposit is not held, or (action: apply) there is nothing held or nothing currently owed to apply it against",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot settle a deposit" },
     404: { description: "No such lease in this business, or no deposit was taken on it" },

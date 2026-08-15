@@ -129,6 +129,7 @@ test("a customer recovery not yet fully received is tappable, opening Mark recei
         source: "customer",
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "0",
+        replacesId: null,
       },
     ],
   };
@@ -152,6 +153,7 @@ test("a fully received customer recovery is a plain row, not a button", async ()
         source: "customer",
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "2000000",
+        replacesId: null,
       },
     ],
   };
@@ -231,6 +233,8 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       note: null,
       voidedAt: null,
       voidedReason: null,
+      odometerReadingId: null,
+      replacesId: null,
     },
     {
       id: "e2",
@@ -248,6 +252,8 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       note: null,
       voidedAt: "2026-08-06T00:00:00.000Z",
       voidedReason: "wrong invoice",
+      odometerReadingId: null,
+      replacesId: null,
     },
   ];
   const get = baseGet({ "/api/incident/inc1/expense": expenses });

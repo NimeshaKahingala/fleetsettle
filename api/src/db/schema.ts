@@ -95,6 +95,9 @@ export const vehicle = pgTable("vehicle", {
   registration: text("registration").notNull(),
   vehicleType: text("vehicle_type").notNull(),
   lifecycle: text("lifecycle").notNull().default("active"),
+  // F-3.5/UC-13/GAP-68: optional, kilometres, never required to save the
+  // vehicle (U-2) — with none set, the maintenance prompt never appears.
+  serviceIntervalKm: integer("service_interval_km"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
@@ -527,6 +530,11 @@ export const offsetAllocation = pgTable("offset_allocation", {
   offsetId: uuid("offset_id").notNull(),
   obligationId: uuid("obligation_id").notNull(),
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  // GAP-12/W-58, migration 0024: structurally identical to payment_allocation
+  // (§10.2), which got this trio in 0022 — this table never had.
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
 });
 
 export const deposit = pgTable("deposit", {

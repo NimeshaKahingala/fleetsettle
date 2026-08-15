@@ -3,6 +3,7 @@ import { writer } from "./db/client.js";
 import { rollDueBillingPeriods } from "./domain/billing-period.js";
 import { generateDayCards } from "./domain/day-card-generation.js";
 import { generateManagementFeeObligationsForAllOpenPeriods } from "./domain/management-fee.js";
+import { releaseAllExpiredHolds } from "./domain/trip.js";
 import type { Bindings } from "./types.js";
 
 function log(entry: Record<string, unknown>): void {
@@ -65,6 +66,21 @@ export async function scheduled(
     log({
       level: "error",
       job: "generate-billing-periods",
+      today,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  // GAP-7/ST-5: the optimisation, not the mechanism — a hold's own release
+  // is already synchronous inside bookTrip/startDailyLease/startLease. This
+  // only tidies up holds nobody happened to book around.
+  try {
+    const result = await releaseAllExpiredHolds(db, today);
+    log({ level: "info", job: "release-expired-holds", today, released: result.released });
+  } catch (err) {
+    log({
+      level: "error",
+      job: "release-expired-holds",
       today,
       error: err instanceof Error ? err.message : String(err),
     });

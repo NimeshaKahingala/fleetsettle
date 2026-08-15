@@ -72,12 +72,52 @@ export const changeDailyLeaseDriverRequestSchema = z.object({
 });
 export type ChangeDailyLeaseDriverRequest = z.infer<typeof changeDailyLeaseDriverRequestSchema>;
 
+/** F-4.3/UC-32/GAP-2: "make this the new daily amount from …" — `effectiveFrom` is a field, not defaulted to today, since a catch-up week's own rate change usually took effect days ago. */
+export const changeDailyLeaseRateRequestSchema = z.object({
+  dailyLeaseAmountMinor: moneyWireSchema,
+  effectiveFrom: businessDateSchema,
+});
+export type ChangeDailyLeaseRateRequest = z.infer<typeof changeDailyLeaseRateRequestSchema>;
+
+/** F-4.3's response — only what actually changed; driver/pattern/vehicle are untouched by a rate change and stay on `dailyLeaseResponseSchema` alone. */
+export const dailyLeaseRateResponseSchema = z.object({
+  dailyLeaseId: z.string().uuid(),
+  dailyLeaseAmountMinor: z.string(),
+  effectiveFrom: z.string(),
+});
+export type DailyLeaseRateResponse = z.infer<typeof dailyLeaseRateResponseSchema>;
+
+/** F-4.8/UC-101/GAP-25: "nothing replaces it" — distinct from F-4.7's change-driver, which carries a new driver in the same request. Only the end date is given. */
+export const endDailyLeaseRequestSchema = z.object({
+  effectiveTo: businessDateSchema,
+});
+export type EndDailyLeaseRequest = z.infer<typeof endDailyLeaseRequestSchema>;
+
+/** F-1.7/GAP-20: skipping an individual date — it behaves exactly like an off-pattern one, no `day_record` ever generated for it. */
+export const createLeaseDayExceptionRequestSchema = z.object({
+  exceptionDate: businessDateSchema,
+  reason: z.string().trim().max(500).optional(),
+});
+export type CreateLeaseDayExceptionRequest = z.infer<typeof createLeaseDayExceptionRequestSchema>;
+
+/** F-1.7/GAP-20: the exception row itself. */
+export const leaseDayExceptionResponseSchema = z.object({
+  id: z.string().uuid(),
+  dailyLeaseId: z.string().uuid(),
+  exceptionDate: z.string(),
+  reason: z.string().nullable(),
+});
+export type LeaseDayExceptionResponse = z.infer<typeof leaseDayExceptionResponseSchema>;
+
+/** F-1.7/GAP-20: every date currently skipped on this lease — the setup screen's own "what's excepted" list. */
+export const leaseDayExceptionsResponseSchema = z.array(leaseDayExceptionResponseSchema);
+export type LeaseDayExceptionsResponse = z.infer<typeof leaseDayExceptionsResponseSchema>;
+
 /**
  * UC-20: starting arrangement C — bus charter and short car hire, one flow
- * (DM §8's comment on `trip`). `status` defaults to 'booked': P2 books a
- * trip outright rather than modelling the separate 'hold' (tentative,
- * non-occupying, ST-5) state, which is a UI affordance this phase does not
- * build a screen for yet.
+ * (DM §8's comment on `trip`). F-5.1 step 4: "Confirm → `booked`, or `hold`
+ * (ST-5) if the enquiry is tentative" — `asHold` defaults to `false`, so an
+ * old client that predates GAP-7 keeps booking outright.
  */
 export const bookTripRequestSchema = z
   .object({
@@ -95,6 +135,7 @@ export const bookTripRequestSchema = z
     // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
     openingOdometerKm: z.number().int().nonnegative().optional(),
     openingOdometerSource: odometerSourceSchema.optional(),
+    asHold: z.boolean().optional().default(false),
   })
   .refine((value) => value.endDate >= value.startDate, {
     message: "endDate must not be before startDate",
@@ -175,6 +216,7 @@ export const tripResponseSchema = z.object({
   vehicleId: z.string().uuid(),
   customerId: z.string().uuid().nullable(),
   driverId: z.string().uuid().nullable(),
+  /** ST-5/GAP-7: `in_progress` is derived server-side from `startDate`/`today`, never a stored value — a `booked` trip whose range has started reads as this without a write ever happening. */
   status: z.enum(["hold", "booked", "in_progress", "closed", "cancelled"]),
   startDate: z.string(),
   endDate: z.string(),
@@ -184,6 +226,8 @@ export const tripResponseSchema = z.object({
   closingDate: z.string().nullable(),
   cancelReason: z.string().nullable(),
   advanceDisposition: z.enum(["refunded", "retained"]).nullable(),
+  /** GAP-7/D-13: `null` once the trip is `booked` (or later) — the only source of truth for when a hold releases. */
+  holdExpiresOn: z.string().nullable(),
   /**
    * GAP-57: the `trip_fare` obligation A6 raises when there's a customer
    * and a nonzero agreed amount — `null` for a charter with no customer
@@ -197,11 +241,12 @@ export const tripResponseSchema = z.object({
 export type TripResponse = z.infer<typeof tripResponseSchema>;
 
 /**
- * Home item 7 (UI §3.2): every trip still open. `status: "booked"` is the
- * whole population right now — `dailyLeaseResponseSchema`'s neighbour
- * `tripResponseSchema` allows `hold`/`in_progress` at the schema level, but
- * booking (F-5.1) writes `booked` outright and no path has ever produced the
- * other two, so this list means "booked, not yet closed or cancelled."
+ * Home item 7 (UI §3.2): every trip still open, occupying or about to
+ * occupy the vehicle — the DB filter is `status = 'booked'`, which by
+ * construction excludes a `hold` (ST-5/GAP-7: tentative, not yet real) and
+ * reads as `in_progress` client-side once its own `startDate` arrives
+ * (`tripResponseSchema`'s own derivation), so this list means "booked, not
+ * yet closed or cancelled" whether or not it has started.
  */
 export const inProgressTripRowSchema = z.object({
   id: z.string().uuid(),

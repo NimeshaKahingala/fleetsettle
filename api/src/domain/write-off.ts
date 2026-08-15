@@ -1,14 +1,29 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
-import { NotFoundError, PeriodClosedError } from "../errors/app-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
+import {
+  NotFoundError,
+  PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
+  ValidationError,
+  VoidBlockedError,
+  WriteOffAlreadyVoidedError,
+  WriteOffRecoveryAlreadyVoidedError,
+  type VoidBlockingItem,
+} from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findObligationForBusiness, updateObligationSettled } from "../queries/obligation.js";
-import { insertPayment } from "../queries/payment.js";
+import { insertPayment, markPaymentReversed } from "../queries/payment.js";
+import { computeObligationStatus } from "./obligation-status.js";
 import {
+  findLiveRecoveriesForWriteOff,
   findWriteOffForBusiness,
+  findWriteOffRecoveryForBusiness,
   insertWriteOff,
   insertWriteOffRecovery,
+  voidWriteOffRecoveryRow,
+  voidWriteOffRow,
 } from "../queries/write-off.js";
 
 export interface RecordWriteOffInput {
@@ -22,6 +37,7 @@ export interface RecordWriteOffInput {
   reason: string;
   writtenOffOn: BusinessDate;
   userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedWriteOff {
@@ -62,6 +78,22 @@ export async function recordWriteOff(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findWriteOffForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such write-off in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Same class as Gitar's finding on PR #45 (adjustment/incident_recovery):
+        // without this, replacesId could name a voided write-off against a
+        // *different* party.
+        const sameParty =
+          target.partyType === input.partyType &&
+          (target.partyCustomerId ?? undefined) === input.partyCustomerId &&
+          (target.partyDriverId ?? undefined) === input.partyDriverId;
+        if (!sameParty) {
+          throw new ValidationError("replacesId names a write-off against a different party");
+        }
+      }
+
       const writeOffId = newId();
       await insertWriteOff(tx, {
         id: writeOffId,
@@ -79,12 +111,16 @@ export async function recordWriteOff(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         createdBy: input.userId,
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       return { writeOffId };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "write_off_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
 }
@@ -95,6 +131,7 @@ export interface RecordWriteOffRecoveryInput {
   amountMinor: Minor;
   occurredOn: BusinessDate;
   userId: string;
+  replacesId?: string;
 }
 
 export interface RecordedWriteOffRecovery {
@@ -129,6 +166,21 @@ export async function recordWriteOffRecovery(
       if (!linkage)
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
+      if (input.replacesId !== undefined) {
+        const target = await findWriteOffRecoveryForBusiness(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
+        if (!target) throw new NotFoundError("No such recovery in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Found by Gitar's review of PR #45: without this, replacesId could
+        // name a voided recovery against a *different* write-off.
+        if (target.writeOffId !== input.writeOffId) {
+          throw new ValidationError("replacesId names a recovery against a different write-off");
+        }
+      }
+
       const paymentId = newId();
       await insertPayment(tx, {
         id: paymentId,
@@ -162,9 +214,132 @@ export async function recordWriteOffRecovery(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
+        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
 
       return { recoveryId, paymentId };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "write_off_recovery_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
+    throw err;
+  }
+}
+
+export interface VoidWriteOffInput {
+  businessId: string;
+  writeOffId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedWriteOff {
+  id: string;
+  voidedAt: string;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.7: refuses while any recovery against this write-off
+ * is still live — a recovery is its own entered act (§2). Clear, this
+ * restores the linked obligation's prior status exactly: `recordWriteOff`
+ * never touched `settled_minor`/`waived_minor`, only flipped `status` to
+ * `written_off`, so `computeObligationStatus` on the unchanged figures
+ * re-derives precisely what it was before, no stored history needed.
+ */
+export async function voidWriteOff(
+  writer: Writer,
+  input: VoidWriteOffInput,
+): Promise<VoidedWriteOff> {
+  const wo = await findWriteOffForBusiness(writer, input.businessId, input.writeOffId);
+  if (!wo) throw new NotFoundError("No such write-off in this business");
+  if (wo.voidedAt !== null) throw new WriteOffAlreadyVoidedError();
+
+  const live = await findLiveRecoveriesForWriteOff(writer, input.writeOffId);
+  if (live.length > 0) {
+    const items: VoidBlockingItem[] = live.map((r) => ({
+      kind: "recovery",
+      id: r.id,
+      amountMinor: r.amountMinor.toString(),
+    }));
+    const totalMinor = live.reduce((sum, r) => sum + r.amountMinor, 0n);
+    throw new VoidBlockedError(
+      `Cannot void — ${live.length.toString()} recovery/recoveries totalling ` +
+        `${totalMinor.toString()} are still against it. Void those first, each with its own reason`,
+      items,
+    );
+  }
+
+  try {
+    return await writer.transaction(async (tx) => {
+      if (wo.obligationId !== null) {
+        const ob = await findObligationForBusiness(tx, input.businessId, wo.obligationId);
+        if (ob && ob.voidedAt === null) {
+          const status = computeObligationStatus(ob.amountMinor, ob.settledMinor, ob.waivedMinor);
+          await updateObligationSettled(tx, wo.obligationId, {
+            settledMinor: ob.settledMinor,
+            status,
+          });
+        }
+      }
+
+      const voided = await voidWriteOffRow(tx, input.writeOffId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+      if (!voided) throw new WriteOffAlreadyVoidedError();
+      return { id: input.writeOffId, voidedAt: voided.voidedAt };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
+}
+
+export interface VoidWriteOffRecoveryInput {
+  businessId: string;
+  recoveryId: string;
+  reason: string;
+  userId: string;
+}
+
+export interface VoidedWriteOffRecovery {
+  id: string;
+  voidedAt: string;
+}
+
+/**
+ * GAP-12/W-61/INV-36 §3.8: cascades — the `payment` `recordWriteOffRecovery`
+ * minted alongside this row was never entered on its own (§2's exception),
+ * so it is marked reversed in the same transaction. Left active and
+ * unallocated, it would surface as spendable customer credit (DM §10.2's
+ * credit query), turning a recovered bad debt into money he can apply to a
+ * future due — against INV-15.
+ */
+export async function voidWriteOffRecovery(
+  writer: Writer,
+  input: VoidWriteOffRecoveryInput,
+): Promise<VoidedWriteOffRecovery> {
+  try {
+    return await writer.transaction(async (tx) => {
+      const recovery = await findWriteOffRecoveryForBusiness(
+        tx,
+        input.businessId,
+        input.recoveryId,
+      );
+      if (!recovery) throw new NotFoundError("No such recovery in this business");
+      if (recovery.voidedAt !== null) throw new WriteOffRecoveryAlreadyVoidedError();
+
+      const voided = await voidWriteOffRecoveryRow(tx, input.recoveryId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+      if (!voided) throw new WriteOffRecoveryAlreadyVoidedError();
+
+      await markPaymentReversed(tx, recovery.paymentId);
+
+      return { id: input.recoveryId, voidedAt: voided.voidedAt };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();

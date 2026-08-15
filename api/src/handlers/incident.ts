@@ -15,6 +15,7 @@ import {
   recordRecoveryReceived,
   settleInsuranceClaim,
   submitInsuranceClaim,
+  voidIncidentRecovery,
   type IncidentBottomLine,
 } from "../domain/incident.js";
 import { NotFoundError } from "../errors/app-error.js";
@@ -41,6 +42,7 @@ import type {
   recordRecoveryReceivedRoute,
   settleInsuranceClaimRoute,
   submitInsuranceClaimRoute,
+  voidIncidentRecoveryRoute,
 } from "../route-defs/incident.js";
 import type { Env } from "../types.js";
 
@@ -85,7 +87,7 @@ async function incidentDetailToResponse(reader: Reader, row: IncidentRow) {
 
 type RecoveryResponseRow = Pick<
   IncidentRecoveryRow,
-  "id" | "incidentId" | "source" | "agreedAmountMinor" | "receivedAmountMinor"
+  "id" | "incidentId" | "source" | "agreedAmountMinor" | "receivedAmountMinor" | "replacesId"
 >;
 
 function recoveryToResponse(row: RecoveryResponseRow) {
@@ -95,6 +97,7 @@ function recoveryToResponse(row: RecoveryResponseRow) {
     source: row.source,
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     receivedAmountMinor: toWire(row.receivedAmountMinor as Minor),
+    replacesId: row.replacesId,
   };
 }
 
@@ -262,6 +265,7 @@ export const recordCustomerContributionHandler: RouteHandler<
     agreedAmountMinor: body.agreedAmountMinor,
     agreedOn: asBusinessDate(body.agreedOn),
     ...(body.note !== undefined ? { note: body.note } : {}),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -271,6 +275,7 @@ export const recordCustomerContributionHandler: RouteHandler<
       source: "customer",
       agreedAmountMinor: body.agreedAmountMinor,
       receivedAmountMinor: 0n,
+      replacesId: body.replacesId ?? null,
     }),
     201,
   );
@@ -323,6 +328,7 @@ export const submitInsuranceClaimHandler: RouteHandler<
     claimedAmountMinor: body.claimedAmountMinor,
     excessBorneMinor,
     claimedOn: asBusinessDate(body.claimedOn),
+    ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
   return c.json(
@@ -379,4 +385,25 @@ export const closeIncidentHandler: RouteHandler<typeof closeIncidentRoute, Env> 
   const row = await closeIncident(c.get("writer"), businessId, id, today);
 
   return c.json(await incidentDetailToResponse(reader, row), 200);
+};
+
+/** GAP-12/W-61/INV-36 §3.9. `dailyOperations` — the same gate recording one uses. */
+export const voidIncidentRecoveryHandler: RouteHandler<
+  typeof voidIncidentRecoveryRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { recoveryId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await voidIncidentRecovery(c.get("writer"), {
+    businessId,
+    recoveryId,
+    reason: body.reason,
+    userId: requireUserId(c),
+  });
+
+  return c.json(result, 200);
 };

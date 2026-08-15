@@ -1,14 +1,21 @@
-import { asBusinessDate } from "@fleetsettle/shared";
+import { asBusinessDate, newId } from "@fleetsettle/shared";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { dayRecord, obligation, vehicleDayAllocation } from "../../src/db/schema.js";
+import {
+  dayRecord,
+  leaseDayException,
+  obligation,
+  trip,
+  vehicleDayAllocation,
+} from "../../src/db/schema.js";
 import { rollDueBillingPeriods } from "../../src/domain/billing-period.js";
 import { generateDayCards } from "../../src/domain/day-card-generation.js";
 import {
   generateManagementFeeObligationsForAllOpenPeriods,
   generateManagementFeeObligationsTx,
 } from "../../src/domain/management-fee.js";
+import { releaseAllExpiredHolds } from "../../src/domain/trip.js";
 import { mintUser } from "../support/auth.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -92,6 +99,60 @@ describe("scheduled jobs (P13)", () => {
         .from(dayRecord)
         .where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
       expect(recordsAfterSecondRun).toHaveLength(5);
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-20: a live lease_day_exception is skipped exactly like an off-pattern day — no allocation, no day_record", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-09-01",
+        periodEnd: "2026-09-05",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+        patternType: "every_day",
+        effectiveFrom: "2026-09-01",
+        dailyLeaseAmountMinor: 6_000_00n,
+      });
+      ctx.trackGeneratedDailyLeaseCards(dailyLeaseId);
+
+      const exceptionId = newId();
+      await db.insert(leaseDayException).values({
+        id: exceptionId,
+        businessId,
+        dailyLeaseId,
+        exceptionDate: "2026-09-03",
+        reason: "Driver on leave",
+      });
+      ctx.trackCreatedLeaseDayException(exceptionId);
+
+      const today = asBusinessDate("2026-09-01");
+      await generateDayCards(db, today, 5); // 2026-09-01 .. 2026-09-05
+
+      const allocations = await db
+        .select({ businessDate: vehicleDayAllocation.businessDate })
+        .from(vehicleDayAllocation)
+        .where(eq(vehicleDayAllocation.sourceId, dailyLeaseId));
+      expect(allocations.map((r) => r.businessDate).sort()).toEqual([
+        "2026-09-01",
+        "2026-09-02",
+        "2026-09-04",
+        "2026-09-05",
+      ]);
+
+      const records = await db
+        .select({ businessDate: dayRecord.businessDate })
+        .from(dayRecord)
+        .where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
+      expect(records.map((r) => r.businessDate).sort()).toEqual([
+        "2026-09-01",
+        "2026-09-02",
+        "2026-09-04",
+        "2026-09-05",
+      ]);
 
       await ctx.cleanup();
     });
@@ -440,5 +501,85 @@ describe("scheduled jobs (P13)", () => {
 
       await ctx.cleanup();
     }, 60_000); // unscoped across every business's own open period on this shared branch — see the identical note on generate-billing-periods above
+  });
+
+  /**
+   * GAP-7/ST-5: the optimisation, not the mechanism — `bookTrip`/
+   * `startDailyLease`/`startLease` already release a vehicle's own expired
+   * holds synchronously. This is only "tidies up what nobody happened to
+   * book around," unscoped by `business_id` like every other unit above.
+   */
+  describe("release-expired-holds", () => {
+    it("cancels an expired hold and voids its own allocation, and leaves an unexpired hold untouched", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const vehicleId = await ctx.createVehicle(businessId);
+      const stillGoodVehicleId = await ctx.createVehicle(businessId, { registration: "H-9999" });
+
+      const expiredHoldId = newId();
+      await db.insert(trip).values({
+        id: expiredHoldId,
+        businessId,
+        vehicleId,
+        status: "hold",
+        startDate: "2026-09-01",
+        endDate: "2026-09-02",
+        holdExpiresOn: "2020-01-01",
+      });
+      ctx.trackCreatedTrip(expiredHoldId);
+      const expiredAllocationId = newId();
+      await db.insert(vehicleDayAllocation).values({
+        id: expiredAllocationId,
+        businessId,
+        vehicleId,
+        businessDate: "2026-09-01",
+        arrangement: "C",
+        sourceType: "trip",
+        sourceId: expiredHoldId,
+        isHold: true,
+      });
+
+      const stillGoodHoldId = newId();
+      await db.insert(trip).values({
+        id: stillGoodHoldId,
+        businessId,
+        vehicleId: stillGoodVehicleId,
+        status: "hold",
+        startDate: "2026-09-01",
+        endDate: "2026-09-02",
+        holdExpiresOn: "2099-01-01",
+      });
+      ctx.trackCreatedTrip(stillGoodHoldId);
+
+      await releaseAllExpiredHolds(db, asBusinessDate("2026-08-01"));
+
+      const [expiredRow] = await db
+        .select({
+          status: trip.status,
+          cancelReason: trip.cancelReason,
+          holdExpiresOn: trip.holdExpiresOn,
+        })
+        .from(trip)
+        .where(eq(trip.id, expiredHoldId));
+      expect(expiredRow).toMatchObject({
+        status: "cancelled",
+        cancelReason: "Hold expired",
+        holdExpiresOn: null,
+      });
+
+      const [expiredAllocation] = await db
+        .select({ voidedAt: vehicleDayAllocation.voidedAt })
+        .from(vehicleDayAllocation)
+        .where(eq(vehicleDayAllocation.id, expiredAllocationId));
+      expect(expiredAllocation?.voidedAt).not.toBeNull();
+
+      const [stillGoodRow] = await db
+        .select({ status: trip.status })
+        .from(trip)
+        .where(eq(trip.id, stillGoodHoldId));
+      expect(stillGoodRow?.status).toBe("hold");
+
+      await ctx.cleanup();
+    });
   });
 });

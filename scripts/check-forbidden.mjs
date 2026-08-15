@@ -321,19 +321,34 @@ function checkQueryErrorHandling(paths) {
  * `<table>.voidedAt` reference anywhere in it is missing the filter, not
  * just one call site of it.
  *
- * Deliberately NOT every void-trio table (there are eighteen more) — most of
- * those have no live void endpoint yet (GAP-12/GAP-36/A9b is Wave 5's own
- * job) or a void path this rule hasn't been checked against, and widening it
- * today would fail the gate on pre-existing reads this task never touched
- * rather than the ones Wave 2 actually put a live void behind. Widen the
- * list deliberately, table by table, as each one's own void path ships —
- * not by relaxing this comment.
+ * Widened GAP-12/W-61/INV-36 (14 Aug 2026): the nine remaining void-cascade
+ * tables now carry a live void endpoint too (`adjustment`, `offsetRecord`,
+ * `offsetAllocation` — migration 0024 gave it the trio, `depositMovement`,
+ * `advance`, `advanceSettlement`, `writeOff`, `writeOffRecovery`,
+ * `incidentRecovery`) — every file that reads or updates one of them already
+ * references `<table>.voidedAt` somewhere, checked table by table before
+ * adding each. `capitalContribution`/`bankingEvent`/`partnerPayout` (GAP-12's
+ * first three, landed earlier the same wave) and `obligation` (voidable
+ * since P3, not new here) are deliberately still not in this list — none of
+ * them is ever summed across rows the way GAP-120's four originals were, so
+ * there is no unfiltered-sum bug this rule exists to catch. Widen the list
+ * deliberately, table by table, as each one's own void path ships — not by
+ * relaxing this comment.
  */
 const VOID_FILTERED_TABLES = [
   "vehicleDayAllocation",
   "paymentAllocation",
   "dayRecord",
   "openingBalanceEntry",
+  "adjustment",
+  "offsetRecord",
+  "offsetAllocation",
+  "depositMovement",
+  "advance",
+  "advanceSettlement",
+  "writeOff",
+  "writeOffRecovery",
+  "incidentRecovery",
 ];
 
 function checkVoidTableFilter(paths) {

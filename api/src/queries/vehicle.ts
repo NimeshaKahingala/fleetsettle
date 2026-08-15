@@ -6,6 +6,7 @@ import {
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
+  vehicleUnavailability,
 } from "../db/schema.js";
 import type { DayRecordRow } from "./day-record.js";
 
@@ -70,6 +71,7 @@ export interface VehicleRow {
   vehicleType: string;
   lifecycle: "active" | "archived" | "disposed";
   arrangement: "A" | "B" | "C" | null;
+  serviceIntervalKm: number | null;
 }
 
 const CURRENT_ARRANGEMENT = and(
@@ -90,12 +92,46 @@ export async function findVehicleForBusiness(
       vehicleType: vehicle.vehicleType,
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
+      serviceIntervalKm: vehicle.serviceIntervalKm,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
     .where(and(eq(vehicle.id, vehicleId), eq(vehicle.businessId, businessId)))
     .limit(1);
   return rows[0] as VehicleRow | undefined;
+}
+
+/**
+ * F-3.5/UC-13/GAP-68: the vehicle's own optional service interval, in
+ * kilometres — editable on its own page, never required to save the
+ * vehicle (U-2). `null` clears it, the same "no interval, no prompt"
+ * reading `findLastMaintenanceOdometerKm`'s own doc comment gives W-56.
+ */
+export async function setVehicleServiceInterval(
+  db: WriteDb,
+  vehicleId: string,
+  serviceIntervalKm: number | null,
+): Promise<void> {
+  await db.update(vehicle).set({ serviceIntervalKm }).where(eq(vehicle.id, vehicleId));
+}
+
+/**
+ * GAP-36/A9b item 2: the `lifecycle` column DM §4 has carried since `0001`,
+ * with no endpoint ever moving it off `'active'`. `mileage_package`'s
+ * `archived_at` is the reference pattern for entity archiving, but this
+ * table already has its own three-state column — archiving is a plain
+ * transition on it, not a second mechanism. Unconditional, the same as
+ * `mileage_package`: no domain code reads `lifecycle` at booking time
+ * today, so an active lease survives an archive untouched, and the archive
+ * itself is not a claim that nothing is using this vehicle right now — only
+ * that nothing new should start.
+ */
+export async function setVehicleLifecycle(
+  db: WriteDb,
+  vehicleId: string,
+  lifecycle: "active" | "archived",
+): Promise<void> {
+  await db.update(vehicle).set({ lifecycle }).where(eq(vehicle.id, vehicleId));
 }
 
 export interface CurrentVehicleArrangementRow {
@@ -262,10 +298,113 @@ export async function listVehiclesForBusiness(
       vehicleType: vehicle.vehicleType,
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
+      serviceIntervalKm: vehicle.serviceIntervalKm,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
     .where(eq(vehicle.businessId, businessId))
     .orderBy(vehicle.createdAt);
   return rows as VehicleRow[];
+}
+
+export interface NewVehicleUnavailability {
+  id: string;
+  businessId: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: string;
+  unavailableTo?: string;
+  note?: string;
+  createdBy: string;
+}
+
+export async function insertVehicleUnavailability(
+  db: WriteDb,
+  values: NewVehicleUnavailability,
+): Promise<void> {
+  await db.insert(vehicleUnavailability).values(values);
+}
+
+export interface VehicleUnavailabilityRow {
+  id: string;
+  businessId: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: string;
+  unavailableTo: string | null;
+  note: string | null;
+  voidedAt: string | null;
+}
+
+const UNAVAILABILITY_COLUMNS = {
+  id: vehicleUnavailability.id,
+  businessId: vehicleUnavailability.businessId,
+  vehicleId: vehicleUnavailability.vehicleId,
+  reason: vehicleUnavailability.reason,
+  unavailableFrom: vehicleUnavailability.unavailableFrom,
+  unavailableTo: vehicleUnavailability.unavailableTo,
+  note: vehicleUnavailability.note,
+  voidedAt: vehicleUnavailability.voidedAt,
+};
+
+/** GAP-26's void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
+export async function findVehicleUnavailabilityForBusiness(
+  db: ReadDb,
+  businessId: string,
+  id: string,
+): Promise<VehicleUnavailabilityRow | undefined> {
+  const rows = await db
+    .select(UNAVAILABILITY_COLUMNS)
+    .from(vehicleUnavailability)
+    .where(and(eq(vehicleUnavailability.id, id), eq(vehicleUnavailability.businessId, businessId)))
+    .limit(1);
+  return rows[0] as VehicleUnavailabilityRow | undefined;
+}
+
+/**
+ * F-1.10/GAP-26: void, never delete — the `voidExpense` shape. Migration
+ * 0019's `WHERE (voided_at IS NULL)` exclusion guard is what makes a losing
+ * race here return `undefined` rather than clobber, the same shape
+ * `voidCapitalContributionRow` already uses.
+ */
+export async function voidVehicleUnavailabilityRow(
+  db: WriteDb,
+  id: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(vehicleUnavailability)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(vehicleUnavailability.id, id), isNull(vehicleUnavailability.voidedAt)))
+    .returning({ voidedAt: vehicleUnavailability.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
+/**
+ * F-1.5's own calendar (UI §7.6): every live outage overlapping [from, to] —
+ * an open-ended one (`unavailable_to IS NULL`) always overlaps, since it
+ * has no far edge yet.
+ */
+export async function listVehicleUnavailabilityForVehicle(
+  db: ReadDb,
+  vehicleId: string,
+  fromDate: string,
+  toDate: string,
+): Promise<VehicleUnavailabilityRow[]> {
+  const rows = await db
+    .select(UNAVAILABILITY_COLUMNS)
+    .from(vehicleUnavailability)
+    .where(
+      and(
+        eq(vehicleUnavailability.vehicleId, vehicleId),
+        isNull(vehicleUnavailability.voidedAt),
+        lte(vehicleUnavailability.unavailableFrom, toDate),
+        or(
+          isNull(vehicleUnavailability.unavailableTo),
+          gte(vehicleUnavailability.unavailableTo, fromDate),
+        ),
+      ),
+    )
+    .orderBy(asc(vehicleUnavailability.unavailableFrom));
+  return rows as VehicleUnavailabilityRow[];
 }

@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   bankingEvent,
@@ -82,6 +82,7 @@ export interface NewCapitalContribution {
   note?: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** UC-02/W-52: what he PAID — a claim against `ownership_share` (what he OWNS), never a bigger slice. */
@@ -100,6 +101,48 @@ export interface CapitalContributionRow {
   amountMinor: bigint;
   contributedOn: string;
   note: string | null;
+  voidedAt: string | null;
+  replacesId: string | null;
+}
+
+const CAPITAL_CONTRIBUTION_COLUMNS = {
+  id: capitalContribution.id,
+  businessId: capitalContribution.businessId,
+  vehicleId: capitalContribution.vehicleId,
+  userId: capitalContribution.userId,
+  amountMinor: capitalContribution.amountMinor,
+  contributedOn: capitalContribution.contributedOn,
+  note: capitalContribution.note,
+  voidedAt: capitalContribution.voidedAt,
+  replacesId: capitalContribution.replacesId,
+};
+
+/** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
+export async function findCapitalContributionForBusiness(
+  db: ReadDb,
+  businessId: string,
+  id: string,
+): Promise<CapitalContributionRow | undefined> {
+  const rows = await db
+    .select(CAPITAL_CONTRIBUTION_COLUMNS)
+    .from(capitalContribution)
+    .where(and(eq(capitalContribution.id, id), eq(capitalContribution.businessId, businessId)))
+    .limit(1);
+  return rows[0];
+}
+
+/** F-8.5/UC-96/W-50: void, never delete — the `voidExpense` shape (`domain/expense.ts`). No child rows to unwind: a capital contribution is a standalone fact about what a partner paid in, nothing else derives from it. */
+export async function voidCapitalContributionRow(
+  db: WriteDb,
+  id: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(capitalContribution)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(capitalContribution.id, id), isNull(capitalContribution.voidedAt)))
+    .returning({ voidedAt: capitalContribution.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface NewManagementFeeAgreement {
@@ -176,6 +219,7 @@ export interface NewBankingEvent {
   postedPeriodId: string;
   belongsToPeriodId?: string;
   createdBy?: string;
+  replacesId?: string;
 }
 
 /** F-7.4/UC-65/INV-23: banking is the same money in a different place — not income, not an expense, not a payout (§1.5). */
@@ -194,6 +238,51 @@ export interface BankingEventRow {
   reference: string | null;
   discrepancyMinor: bigint;
   discrepancyBearer: "absorbed" | "unattributed" | "attributed_to_receipt" | null;
+  voidedAt: string | null;
+  replacesId: string | null;
+}
+
+const BANKING_EVENT_COLUMNS = {
+  id: bankingEvent.id,
+  businessId: bankingEvent.businessId,
+  fromUserId: bankingEvent.fromUserId,
+  amountRecordedMinor: bankingEvent.amountRecordedMinor,
+  amountCountedMinor: bankingEvent.amountCountedMinor,
+  bankedOn: bankingEvent.bankedOn,
+  destination: bankingEvent.destination,
+  reference: bankingEvent.reference,
+  discrepancyMinor: bankingEvent.discrepancyMinor,
+  discrepancyBearer: bankingEvent.discrepancyBearer,
+  voidedAt: bankingEvent.voidedAt,
+  replacesId: bankingEvent.replacesId,
+};
+
+/** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
+export async function findBankingEventForBusiness(
+  db: ReadDb,
+  businessId: string,
+  id: string,
+): Promise<BankingEventRow | undefined> {
+  const rows = await db
+    .select(BANKING_EVENT_COLUMNS)
+    .from(bankingEvent)
+    .where(and(eq(bankingEvent.id, id), eq(bankingEvent.businessId, businessId)))
+    .limit(1);
+  return rows[0] as BankingEventRow | undefined;
+}
+
+/** F-8.5/UC-96/W-50: void, never delete. No child rows to unwind — INV-23's unattributable shortfall attaches here directly, and voiding removes the whole event, shortfall included. */
+export async function voidBankingEventRow(
+  db: WriteDb,
+  id: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(bankingEvent)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(bankingEvent.id, id), isNull(bankingEvent.voidedAt)))
+    .returning({ voidedAt: bankingEvent.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface NewPartnerPayout {
@@ -205,6 +294,7 @@ export interface NewPartnerPayout {
   occurredOn: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
+  replacesId?: string;
 }
 
 /** F-7.2/UC-63: never a cost of the vehicle — a payout, or a settlement between partners that moves the current account, not the P&L. */
@@ -219,6 +309,47 @@ export interface PartnerPayoutRow {
   amountMinor: bigint;
   kind: "payout" | "partner_settlement";
   occurredOn: string;
+  voidedAt: string | null;
+  replacesId: string | null;
+}
+
+const PARTNER_PAYOUT_COLUMNS = {
+  id: partnerPayout.id,
+  businessId: partnerPayout.businessId,
+  userId: partnerPayout.userId,
+  amountMinor: partnerPayout.amountMinor,
+  kind: partnerPayout.kind,
+  occurredOn: partnerPayout.occurredOn,
+  voidedAt: partnerPayout.voidedAt,
+  replacesId: partnerPayout.replacesId,
+};
+
+/** GAP-12/A9b: the void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
+export async function findPartnerPayoutForBusiness(
+  db: ReadDb,
+  businessId: string,
+  id: string,
+): Promise<PartnerPayoutRow | undefined> {
+  const rows = await db
+    .select(PARTNER_PAYOUT_COLUMNS)
+    .from(partnerPayout)
+    .where(and(eq(partnerPayout.id, id), eq(partnerPayout.businessId, businessId)))
+    .limit(1);
+  return rows[0] as PartnerPayoutRow | undefined;
+}
+
+/** F-8.5/UC-96/W-50: void, never delete. No child rows to unwind — a payout or partner settlement is a standalone fact about cash that moved. */
+export async function voidPartnerPayoutRow(
+  db: WriteDb,
+  id: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(partnerPayout)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(partnerPayout.id, id), isNull(partnerPayout.voidedAt)))
+    .returning({ voidedAt: partnerPayout.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +425,8 @@ export async function listCapitalContributions(
       amountMinor: capitalContribution.amountMinor,
       contributedOn: capitalContribution.contributedOn,
       note: capitalContribution.note,
+      voidedAt: capitalContribution.voidedAt,
+      replacesId: capitalContribution.replacesId,
     })
     .from(capitalContribution)
     .where(
@@ -341,7 +474,16 @@ export interface BankingEventListFilters {
   userId?: string;
 }
 
-/** A2: newest-banked-first. Voided rows are not filtered here — no void endpoint exists yet for `banking_event` (GAP-12/A9), so `voided_at` is always `NULL` today; when A9 adds one, the response schema and this query's treatment of a voided row need deciding together, not guessed at now. */
+/**
+ * A2: newest-banked-first. Voided rows are not filtered here, deliberately —
+ * W-50's convention is a voided record stays visible, struck through, with
+ * its reason, the same treatment `listExpensesForVehicle` already gives a
+ * voided expense. **Not yet returning `voidedAt`/`voidedReason` on the wire**
+ * — this query and `voidBankingEventRow` (GAP-12/A9b) landed together, but
+ * teaching this list's response schema and the client to render the strike-
+ * through is its own item, the same shape GAP-81 already is for `voidExpense`
+ * (a working backend with no caller yet).
+ */
 export async function listBankingEvents(
   db: ReadDb,
   businessId: string,
@@ -358,6 +500,8 @@ export async function listBankingEvents(
       destination: bankingEvent.destination,
       reference: bankingEvent.reference,
       discrepancyBearer: bankingEvent.discrepancyBearer,
+      voidedAt: bankingEvent.voidedAt,
+      replacesId: bankingEvent.replacesId,
     })
     .from(bankingEvent)
     .where(
@@ -384,7 +528,7 @@ export interface PartnerPayoutListFilters {
   kind?: "payout" | "partner_settlement";
 }
 
-/** A2: newest-occurred-first. Same voided-row note as `listBankingEvents` above — `partner_payout` carries the trio but nothing sets it yet. */
+/** A2: newest-occurred-first. Same voided-row note as `listBankingEvents` above. */
 export async function listPartnerPayouts(
   db: ReadDb,
   businessId: string,
@@ -398,6 +542,8 @@ export async function listPartnerPayouts(
       amountMinor: partnerPayout.amountMinor,
       kind: partnerPayout.kind,
       occurredOn: partnerPayout.occurredOn,
+      voidedAt: partnerPayout.voidedAt,
+      replacesId: partnerPayout.replacesId,
     })
     .from(partnerPayout)
     .where(

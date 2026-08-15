@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   createOffsetRequestSchema,
+  depositMovementRequestSchema,
   issueAdvanceRequestSchema,
   takeDriverDepositRequestSchema,
 } from "./driver-money.js";
 
 const driverId = "11111111-1111-4111-8111-111111111111";
+const obligationId = "33333333-3333-4333-8333-333333333333";
 
 describe("issueAdvanceRequestSchema", () => {
   it("accepts an advance with no trip attached", () => {
@@ -34,6 +36,37 @@ describe("takeDriverDepositRequestSchema", () => {
       driverId,
       amountMinor: "500000",
       occurredOn: "2026-07-15",
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("depositMovementRequestSchema", () => {
+  it("GAP-6: rejects 'applied' with no obligationId", () => {
+    const result = depositMovementRequestSchema.safeParse({
+      movementType: "applied",
+      amountMinor: "30000",
+      occurredOn: "2026-07-15",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("GAP-6: rejects obligationId given for a non-'applied' movement", () => {
+    const result = depositMovementRequestSchema.safeParse({
+      movementType: "topped_up",
+      amountMinor: "30000",
+      occurredOn: "2026-07-15",
+      obligationId,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("GAP-6: accepts 'applied' with an obligationId", () => {
+    const result = depositMovementRequestSchema.safeParse({
+      movementType: "applied",
+      amountMinor: "30000",
+      occurredOn: "2026-07-15",
+      obligationId,
     });
     expect(result.success).toBe(true);
   });

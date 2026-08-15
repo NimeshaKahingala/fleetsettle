@@ -6,9 +6,14 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { confirmDay } from "../domain/confirmDay.js";
-import { NotFoundError } from "../errors/app-error.js";
-import { findDailyLeaseForBusiness, findDailyLeaseRateForDate } from "../queries/dailyLease.js";
+import { confirmDay, confirmDaysBulk } from "../domain/confirmDay.js";
+import { isPatternDay } from "../domain/day-card-generation.js";
+import { NotFoundError, ValidationError } from "../errors/app-error.js";
+import {
+  findDailyLeaseForBusiness,
+  findDailyLeaseRateForDate,
+  listLiveExceptionDatesForLease,
+} from "../queries/dailyLease.js";
 import {
   findDayRecordByLeaseAndDate,
   listUnconfirmedDayRecordsForBusiness,
@@ -16,6 +21,7 @@ import {
 } from "../queries/day-record.js";
 import { findObligationBySource } from "../queries/obligation.js";
 import type {
+  confirmDaysBulkRoute,
   confirmDayRoute,
   getDayRecordRoute,
   listUnconfirmedDayRecordsRoute,
@@ -49,6 +55,27 @@ export const confirmDayHandler: RouteHandler<typeof confirmDayRoute, Env> = asyn
   const lease = await findDailyLeaseForBusiness(reader, businessId, body.dailyLeaseId);
   if (!lease) throw new NotFoundError("No such daily lease in this business");
 
+  // GAP-20/pre-existing bug: this on-demand path (F-4.2's "confirming
+  // creates it") had no pattern gate at all, let alone an exception one —
+  // it would materialize a day_record for an off-pattern or individually
+  // skipped date as happily as a real one, the exact class of confident
+  // wrong number CLAUDE.md warns against. `materializeDailyLeaseHorizon`
+  // (domain/day-card-generation.ts) has always checked `isPatternDay`; this
+  // is the one caller that never did.
+  const businessDate = asBusinessDate(body.businessDate);
+  if (!isPatternDay(businessDate, lease)) {
+    throw new ValidationError("This date is not one this daily lease operates on");
+  }
+  const excepted = await listLiveExceptionDatesForLease(
+    reader,
+    body.dailyLeaseId,
+    body.businessDate,
+    body.businessDate,
+  );
+  if (excepted.has(body.businessDate)) {
+    throw new ValidationError("This date has been individually skipped on this daily lease");
+  }
+
   const rate = await findDailyLeaseRateForDate(reader, body.dailyLeaseId, body.businessDate);
   if (!rate) throw new NotFoundError("No rate is in force for this daily lease on this date");
 
@@ -68,7 +95,7 @@ export const confirmDayHandler: RouteHandler<typeof confirmDayRoute, Env> = asyn
     dailyLeaseId: body.dailyLeaseId,
     vehicleId: lease.vehicleId,
     driverId: lease.driverId,
-    businessDate: asBusinessDate(body.businessDate),
+    businessDate,
     expectedMinor: rate.dailyLeaseAmountMinor as Minor,
     userId,
     ...(body.note !== undefined ? { note: body.note } : {}),
@@ -76,6 +103,40 @@ export const confirmDayHandler: RouteHandler<typeof confirmDayRoute, Env> = asyn
   });
 
   return c.json(toResponse(result.dayRecord, result.receivedMinor), result.created ? 201 : 200);
+};
+
+/**
+ * F-4.6/UC-38/GAP-2. `dailyOperations` (STAFF) — the same gate as F-4.2's
+ * own confirm. `expectedMinor` for each day is read off its own `day_record`
+ * row by `confirmDaysBulk` rather than re-resolved here, so this handler
+ * needs nothing from `daily_lease_rate` at all.
+ */
+export const confirmDaysBulkHandler: RouteHandler<typeof confirmDaysBulkRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { dailyLeaseId } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const lease = await findDailyLeaseForBusiness(reader, businessId, dailyLeaseId);
+  if (!lease) throw new NotFoundError("No such daily lease in this business");
+
+  const result = await confirmDaysBulk(c.get("writer"), {
+    businessId,
+    dailyLeaseId,
+    vehicleId: lease.vehicleId,
+    driverId: lease.driverId,
+    today: businessToday(requireBusinessTimezone(c)),
+    userId,
+  });
+
+  const confirmed = result.confirmed.map((r) => toResponse(r.dayRecord, r.receivedMinor));
+  const totalReceivedMinor = result.confirmed.reduce(
+    (sum, r) => sum + (r.receivedMinor as bigint),
+    0n,
+  );
+
+  return c.json({ confirmed, totalReceivedMinor: toWire(totalReceivedMinor as Minor) }, 200);
 };
 
 /** F-4.1. `dailyOperations` (STAFF). A 404 means "not yet confirmed", never "gone" (day_record rows are never deleted). */

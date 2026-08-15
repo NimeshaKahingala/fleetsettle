@@ -1,11 +1,13 @@
 import { addDays, newId, type BusinessDate } from "@fleetsettle/shared";
-import type { Writer } from "../db/client.js";
-import { isUniqueViolation } from "../db/pg-error.js";
+import type { Reader, Writer } from "../db/client.js";
+import { isExclusionViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
   ValidationError,
   VehicleAlreadyExistsError,
   VehicleArrangementChangeBlockedError,
+  VehicleUnavailabilityAlreadyVoidedError,
+  VehicleUnavailabilityOverlapsError,
 } from "../errors/app-error.js";
 import { voidFutureOpenDayRecordsForLease } from "../queries/day-record.js";
 import {
@@ -13,14 +15,22 @@ import {
   findCurrentDailyLeaseRowForVehicle,
   releaseDailyLeaseAllocationsAfter,
 } from "../queries/dailyLease.js";
+import { findLastMaintenanceOdometerKm } from "../queries/expense.js";
 import { findOpenLeaseForVehicle } from "../queries/lease.js";
+import { findLatestOdometerReadingForVehicle } from "../queries/odometer-reading.js";
 import { findOpenTripForVehicle } from "../queries/trip.js";
 import {
   endVehicleArrangementRow,
   findCurrentVehicleArrangementRow,
+  findVehicleForBusiness,
+  findVehicleUnavailabilityForBusiness,
   insertVehicle,
   insertVehicleArrangement,
+  insertVehicleUnavailability,
+  setVehicleLifecycle,
+  setVehicleServiceInterval,
   upsertVehicleDocument,
+  voidVehicleUnavailabilityRow,
 } from "../queries/vehicle.js";
 
 export interface CreateVehicleInput {
@@ -209,4 +219,172 @@ export async function changeVehicleArrangement(
       effectiveTo: null,
     };
   });
+}
+
+/**
+ * GAP-36/A9b item 2: `lifecycle` moves off `'active'` for the first time.
+ * Transaction-wrapped for consistency with every other write in this
+ * codebase (found by review) — `vehicle` carries no `posted_period_id`
+ * (DM §13), so migration 0002's audit trigger never attaches to it and
+ * there is no `audit_log` attribution at stake either way. Unconditional,
+ * matching `mileage_package`'s own archive: no domain code reads
+ * `lifecycle` at booking time, so there is no already-archived state to
+ * race against.
+ */
+export async function archiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
+  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "archived"));
+}
+
+export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
+  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "active"));
+}
+
+/** F-3.5/UC-13/GAP-68. `null` clears the interval — the same "no interval, no prompt" reading the rest of this feature carries. */
+export async function changeVehicleServiceInterval(
+  writer: Writer,
+  vehicleId: string,
+  serviceIntervalKm: number | null,
+): Promise<void> {
+  await writer.transaction((tx) => setVehicleServiceInterval(tx, vehicleId, serviceIntervalKm));
+}
+
+export interface VehicleMaintenanceStatus {
+  /** Null whenever the figure isn't computable — no interval set, or no maintenance baseline recorded yet. Never a guessed 0 (W-56). */
+  kmSinceLastServiceKm: number | null;
+  due: boolean;
+}
+
+/**
+ * F-3.5/UC-13/GAP-68, read live on every vehicle-detail fetch — the same
+ * "a query the screen makes, not a job that writes anything" shape
+ * `getPaperworkWarnings` (domain/home.ts) already uses for its own prompt.
+ * **With no interval set, there is no prompt at all** — this function is
+ * never even called in that case (`getVehicleHandler` short-circuits it).
+ * With an interval set but no maintenance ever recorded through this
+ * system, there is nothing to compare the latest reading against —
+ * `kmSinceLastServiceKm` stays `null` rather than assuming the vehicle has
+ * never been serviced, which W-56 rules out as a guess this document
+ * cannot stand behind.
+ */
+export async function getVehicleMaintenanceStatus(
+  reader: Reader,
+  vehicleId: string,
+  serviceIntervalKm: number,
+): Promise<VehicleMaintenanceStatus> {
+  const [latest, lastMaintenanceKm] = await Promise.all([
+    findLatestOdometerReadingForVehicle(reader, vehicleId),
+    findLastMaintenanceOdometerKm(reader, vehicleId),
+  ]);
+  if (latest === undefined || lastMaintenanceKm === undefined) {
+    return { kmSinceLastServiceKm: null, due: false };
+  }
+
+  const kmSinceLastServiceKm = latest.readingKm - lastMaintenanceKm;
+  // `latest` (by readOn) and lastMaintenanceKm (by the servicing expense's
+  // own spentOn) are independent lookups — an out-of-order or backdated
+  // entry can make this negative. W-56: that's "not available", never a
+  // guessed (and here, nonsensical) figure.
+  if (kmSinceLastServiceKm < 0) return { kmSinceLastServiceKm: null, due: false };
+  return { kmSinceLastServiceKm, due: kmSinceLastServiceKm >= serviceIntervalKm };
+}
+
+export interface MarkVehicleUnavailableInput {
+  businessId: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: BusinessDate;
+  unavailableTo?: BusinessDate;
+  note?: string;
+  userId: string;
+}
+
+export interface VehicleUnavailability {
+  id: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: string;
+  unavailableTo: string | null;
+  note: string | null;
+}
+
+/**
+ * F-1.10/GAP-26: "works regardless of the vehicle's current arrangement" —
+ * no arrangement check, unlike `startLease`/`startDailyLease` (GAP-84). A
+ * single insert; the exclusion constraint (migration 0019) is the truth for
+ * overlap, never a pre-check (CLAUDE.md → Writes) — a second live outage
+ * over any of the same dates on this vehicle is caught below, not guessed
+ * at in application code.
+ */
+export async function markVehicleUnavailable(
+  writer: Writer,
+  input: MarkVehicleUnavailableInput,
+): Promise<VehicleUnavailability> {
+  const vehicle = await findVehicleForBusiness(writer, input.businessId, input.vehicleId);
+  if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+
+  const id = newId();
+  try {
+    await writer.transaction((tx) =>
+      insertVehicleUnavailability(tx, {
+        id,
+        businessId: input.businessId,
+        vehicleId: input.vehicleId,
+        reason: input.reason,
+        unavailableFrom: input.unavailableFrom,
+        ...(input.unavailableTo !== undefined ? { unavailableTo: input.unavailableTo } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        createdBy: input.userId,
+      }),
+    );
+  } catch (err) {
+    if (isExclusionViolation(err, "vehicle_unavailability_vehicle_id_daterange_excl")) {
+      throw new VehicleUnavailabilityOverlapsError();
+    }
+    throw err;
+  }
+
+  return {
+    id,
+    vehicleId: input.vehicleId,
+    reason: input.reason,
+    unavailableFrom: input.unavailableFrom,
+    unavailableTo: input.unavailableTo ?? null,
+    note: input.note ?? null,
+  };
+}
+
+export interface VoidVehicleUnavailabilityInput {
+  businessId: string;
+  vehicleId: string;
+  unavailabilityId: string;
+  reason: string;
+  userId: string;
+}
+
+/** F-1.10/GAP-26: void, never delete — the same correction shape every other outage-style fact in this document uses (W-58). No "end early" endpoint: the row that guessed wrong is voided, and a fresh one covers the corrected range if one is still needed. */
+export async function voidVehicleUnavailability(
+  writer: Writer,
+  input: VoidVehicleUnavailabilityInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findVehicleUnavailabilityForBusiness(
+    writer,
+    input.businessId,
+    input.unavailabilityId,
+  );
+  if (!existing || existing.vehicleId !== input.vehicleId) {
+    throw new NotFoundError("No such outage on this vehicle");
+  }
+  if (existing.voidedAt !== null) throw new VehicleUnavailabilityAlreadyVoidedError();
+
+  // The WHERE guard in voidVehicleUnavailabilityRow makes a losing race
+  // against a concurrent void return undefined here rather than clobbering
+  // the winner's own reason/actor — the same shape voidCapitalContribution uses.
+  const voided = await writer.transaction((tx) =>
+    voidVehicleUnavailabilityRow(tx, input.unavailabilityId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+  if (!voided) throw new VehicleUnavailabilityAlreadyVoidedError();
+  return voided;
 }

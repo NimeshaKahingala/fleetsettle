@@ -21,6 +21,7 @@ const vehicle: VehicleResponse = {
   registration: "NC-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 
@@ -69,7 +70,33 @@ test("saves with just the vehicle and default dates — every other field is ski
       vehicleId: "v1",
       startDate: today,
       endDate: today,
+      asHold: false,
     }),
+  );
+  expect(onBooked).toHaveBeenCalledWith("t1");
+});
+
+test("GAP-7/ST-5: 'Hold instead' books the same trip as a tentative hold", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi
+    .fn()
+    .mockResolvedValue({ id: "t1", status: "hold" } satisfies Partial<TripResponse>);
+  const onBooked = vi.fn();
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={onBooked} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Hold instead" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/trip",
+      expect.objectContaining({ vehicleId: "v1", asHold: true }),
+    ),
   );
   expect(onBooked).toHaveBeenCalledWith("t1");
 });

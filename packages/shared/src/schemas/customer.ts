@@ -47,8 +47,18 @@ export const customerResponseSchema = z.object({
   contactPerson: z.string().nullable(),
   mobile: z.string().nullable(),
   address: z.string().nullable(),
+  // Optional, not just nullable: every screen built before F-1.11 mocks this
+  // response with no knowledge of archiving at all, and none of them needs
+  // to be taught the field just to keep compiling.
+  archivedAt: z.string().nullable().optional(),
 });
 export type CustomerResponse = z.infer<typeof customerResponseSchema>;
+
+/** F-1.11/UC-100/W-50: a reason is required — migration 0023's own CHECK on `customer` refuses `voided_at` with an empty or absent `voided_reason`, the same audit requirement every other void table in this schema carries. */
+export const archiveCustomerRequestSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
+});
+export type ArchiveCustomerRequest = z.infer<typeof archiveCustomerRequestSchema>;
 
 /**
  * A4/GAP-22: the same row shape as a lease's obligation hub — `obligation`
