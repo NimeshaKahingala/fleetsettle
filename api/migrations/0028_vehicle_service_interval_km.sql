@@ -1,0 +1,12 @@
+-- 0028_vehicle_service_interval_km.sql
+--
+-- F-3.5/UC-13/GAP-68, decided 15 Aug 2026: the predictive maintenance
+-- prompt's own mechanism, specified for the first time in this document
+-- pair's revision that day (user-flows.md v1.1.13, use-cases.md v1.2.12).
+-- An optional per-vehicle service interval in kilometres — editable on the
+-- vehicle's own page, never required to save the vehicle (U-2). With no
+-- interval set there is no prompt at all, never a guessed figure (W-56).
+-- Not money, not a money table: no `posted_period_id`/`belongs_to_period_id`/
+-- void trio, the same reasoning `mileage_daily_limit_km` (lease) already
+-- carries — a kilometre figure, not an amount.
+ALTER TABLE vehicle ADD COLUMN service_interval_km int CHECK (service_interval_km > 0);

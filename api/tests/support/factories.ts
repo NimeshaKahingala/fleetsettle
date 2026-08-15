@@ -28,6 +28,7 @@ import {
   incidentRecovery,
   insuranceClaim,
   lease,
+  leaseDayException,
   leaseExtension,
   managementFeeAgreement,
   mileageAssessment,
@@ -50,6 +51,7 @@ import {
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
+  vehicleUnavailability,
   writeOff,
   writeOffRecovery,
 } from "../../src/db/schema.js";
@@ -834,6 +836,15 @@ export class TestContext {
     });
   }
 
+  /** F-1.10/GAP-26: `POST /api/vehicle/{id}/unavailability` writes a single row with an FK to `vehicle` and no cascade — track before the vehicle's own teardown so this unwinds first. */
+  trackCreatedVehicleUnavailability(unavailabilityId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(vehicleUnavailability)
+        .where(eq(vehicleUnavailability.id, unavailabilityId));
+    });
+  }
+
   /** F-1.6: `POST /api/driver` writes a single row — this is that write's teardown, for tests that go through the endpoint rather than `createDriver()` above. */
   trackCreatedDriver(driverId: string): void {
     this.track(async () => {
@@ -1002,12 +1013,25 @@ export class TestContext {
   /** F-1.7: `POST /api/daily-lease` writes `daily_lease`, its first `daily_lease_rate`, and — since D-9/GAP-88 — the synchronous `vehicle_day_allocation`/`day_record` horizon (domain/dailyLease.ts) — this is that write's teardown, children before the `daily_lease` row `day_record`'s own FK requires. */
   trackCreatedDailyLease(dailyLeaseId: string): void {
     this.track(async () => {
+      // GAP-20: lease_day_exception FKs to daily_lease and has no cascade —
+      // cleared before the parent row, the same ordering every other child
+      // here already follows.
+      await this.#db
+        .delete(leaseDayException)
+        .where(eq(leaseDayException.dailyLeaseId, dailyLeaseId));
       await this.#db.delete(dayRecord).where(eq(dayRecord.dailyLeaseId, dailyLeaseId));
       await this.#db
         .delete(vehicleDayAllocation)
         .where(eq(vehicleDayAllocation.sourceId, dailyLeaseId));
       await this.#db.delete(dailyLeaseRate).where(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId));
       await this.#db.delete(dailyLease).where(eq(dailyLease.id, dailyLeaseId));
+    });
+  }
+
+  /** F-1.7/GAP-20: `POST /api/daily-lease/{id}/exception` — a test that creates one directly against `createDailyLease()`'s bare lease (not `trackCreatedDailyLease`'s own API-driven teardown) tracks it separately, before the lease itself. */
+  trackCreatedLeaseDayException(exceptionId: string): void {
+    this.track(async () => {
+      await this.#db.delete(leaseDayException).where(eq(leaseDayException.id, exceptionId));
     });
   }
 

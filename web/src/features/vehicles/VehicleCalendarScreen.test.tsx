@@ -1,5 +1,9 @@
 import { asBusinessDate } from "@fleetsettle/shared";
-import type { VehicleCalendarDay, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  VehicleCalendarDay,
+  VehicleResponse,
+  VehicleUnavailabilityListResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -14,16 +18,22 @@ const vehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 
 const leaseVehicle: VehicleResponse = { ...vehicle, arrangement: "A" };
 
-function baseGet(days: VehicleCalendarDay[], overrideVehicle: VehicleResponse = vehicle) {
+function baseGet(
+  days: VehicleCalendarDay[],
+  overrideVehicle: VehicleResponse = vehicle,
+  unavailability: VehicleUnavailabilityListResponse = [],
+) {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
     if (path === "/api/vehicle/v1") return Promise.resolve(overrideVehicle);
     if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve(days);
+    if (path.startsWith("/api/vehicle/v1/unavailability")) return Promise.resolve(unavailability);
     return Promise.resolve([]);
   });
   return get;
@@ -394,4 +404,74 @@ test("a free day is not tappable on a non-arrangement-A vehicle (F-5.1 not built
 
   await screen.findByText("July 2026");
   expect((await screen.findByTestId("day-2026-07-15")).tagName).not.toBe("BUTTON");
+});
+
+test("GAP-26: a day inside a live outage renders its own glyph, and is never tappable — even on an arrangement-A vehicle's otherwise-free day", async () => {
+  const unavailability: VehicleUnavailabilityListResponse = [
+    {
+      id: "u1",
+      vehicleId: "v1",
+      reason: "service",
+      unavailableFrom: "2026-07-14",
+      unavailableTo: "2026-07-16",
+      note: null,
+    },
+  ];
+  const get = baseGet([], leaseVehicle, unavailability);
+  renderWithProviders(
+    <VehicleCalendarScreen
+      vehicleId="v1"
+      today={today}
+      onBack={() => {}}
+      onSelectFreeDay={vi.fn()}
+    />,
+    { get },
+  );
+
+  await screen.findByText("July 2026");
+  const cell = await screen.findByTestId("day-2026-07-15");
+  expect(within(cell).getByText("R")).toBeInTheDocument();
+  expect(cell.tagName).not.toBe("BUTTON");
+  // A day outside the range, on the same otherwise-free vehicle, stays tappable.
+  const freeDay = await screen.findByTestId("day-2026-07-20");
+  expect(freeDay.tagName).toBe("BUTTON");
+});
+
+test("GAP-26: an open-ended outage (no unavailableTo yet) still covers a later date in the same month", async () => {
+  const unavailability: VehicleUnavailabilityListResponse = [
+    {
+      id: "u1",
+      vehicleId: "v1",
+      reason: "sale_preparation",
+      unavailableFrom: "2026-07-10",
+      unavailableTo: null,
+      note: null,
+    },
+  ];
+  const get = baseGet([], vehicle, unavailability);
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  await screen.findByText("July 2026");
+  expect(within(await screen.findByTestId("day-2026-07-25")).getByText("R")).toBeInTheDocument();
+});
+
+test("GAP-26: a failed outage read shows a failure notice, the same guard a failed calendar read already gets", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/vehicle/v1") return Promise.resolve(vehicle);
+    if (path.startsWith("/api/vehicle/v1/calendar")) return Promise.resolve([]);
+    if (path.startsWith("/api/vehicle/v1/unavailability")) {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(
+    await screen.findByText("Something went wrong loading this month's calendar."),
+  ).toBeInTheDocument();
+  expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
 });

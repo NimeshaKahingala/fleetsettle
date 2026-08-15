@@ -269,6 +269,14 @@ export interface VoidedDepositMovement {
  * re-deriving is always correct (a non-terminal movement's void changes
  * nothing about it; the newest live terminal one, if unaffected, wins
  * again unchanged).
+ *
+ * GAP-6 follow-up: an `applied` movement also settled an obligation
+ * directly (`recordDepositMovementTx`'s own `obligationSettlement`, never
+ * a `payment` row) — voiding it must undo that too, or the held balance
+ * comes back *and* the obligation still reads settled, the same double
+ * count `voidOffset`/`voidWriteOff` already guard against for their own
+ * obligation touches. Obligation locked FOR UPDATE before the movement
+ * itself is voided, same lock order `recordDepositMovementTx` takes.
  */
 export async function voidDepositMovement(
   writer: Writer,
@@ -282,6 +290,20 @@ export async function voidDepositMovement(
 
       const dep = await findDepositForBusiness(tx, input.businessId, movement.depositId);
       if (!dep) throw new NotFoundError("No such deposit in this business");
+
+      if (movement.obligationId !== null) {
+        const ob = await findObligationForDepositApply(
+          tx,
+          input.businessId,
+          movement.obligationId,
+          true,
+        );
+        if (ob && ob.voidedAt === null) {
+          const settledMinor = ob.settledMinor - movement.amountMinor;
+          const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+          await updateObligationSettled(tx, ob.id, { settledMinor, status });
+        }
+      }
 
       const voided = await voidDepositMovementRow(tx, input.movementId, {
         voidedReason: input.reason,

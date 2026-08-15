@@ -345,13 +345,20 @@ export async function voidIncidentRecoveryRow(
   return rows[0] as { voidedAt: string } | undefined;
 }
 
-/** F-3.4 steps 4/5: the same update serves both a customer contribution and an insurer settlement — see migration 0006 for why this UPDATE remains legal once `posted_period_id`'s own month has closed. */
+/**
+ * F-3.4 steps 4/5: the same update serves both a customer contribution and
+ * an insurer settlement — see migration 0006 for why this UPDATE remains
+ * legal once `posted_period_id`'s own month has closed. `voided_at IS NULL`
+ * makes a race against a concurrent `voidIncidentRecovery` a no-op here
+ * (returns `undefined`) rather than settling an obligation and minting a
+ * payment against a row the caller just voided.
+ */
 export async function recordIncidentRecoveryReceived(
   db: WriteDb,
   recoveryId: string,
   values: { receivedAmountMinor: bigint; receivedPeriodId?: string },
-): Promise<void> {
-  await db
+): Promise<{ id: string } | undefined> {
+  const rows = await db
     .update(incidentRecovery)
     .set({
       receivedAmountMinor: values.receivedAmountMinor,
@@ -359,5 +366,7 @@ export async function recordIncidentRecoveryReceived(
         ? { receivedPeriodId: values.receivedPeriodId }
         : {}),
     })
-    .where(eq(incidentRecovery.id, recoveryId));
+    .where(and(eq(incidentRecovery.id, recoveryId), isNull(incidentRecovery.voidedAt)))
+    .returning({ id: incidentRecovery.id });
+  return rows[0];
 }

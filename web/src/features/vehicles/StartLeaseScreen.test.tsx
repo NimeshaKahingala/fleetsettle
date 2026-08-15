@@ -20,6 +20,7 @@ const vehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Car",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "A",
 };
 
@@ -367,6 +368,7 @@ test("GAP-84 — a vehicle with no current arrangement also refuses (never treat
       registration: "CAB-1234",
       vehicleType: "Car",
       lifecycle: "active",
+      serviceIntervalKm: null,
     } satisfies VehicleResponse,
   });
   renderWithProviders(

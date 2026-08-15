@@ -26,6 +26,7 @@ import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ConfirmDayCard } from "../daily/ConfirmDayCard.js";
+import { ConfirmWeekGroupCard } from "../daily/ConfirmWeekGroupCard.js";
 
 export interface HomeScreenProps {
   onSelectVehicle: (vehicleId: string) => void;
@@ -39,6 +40,39 @@ function formatHomeDate(date: string): string {
     day: "numeric",
     month: "short",
   }).format(new Date(`${date}T00:00:00`));
+}
+
+interface UnconfirmedGroup {
+  dailyLeaseId: string;
+  vehicleRegistration: string;
+  driverName: string;
+  /** Oldest first, inherited from the source list's own ordering. */
+  days: UnconfirmedDayRecordRow[];
+}
+
+/**
+ * F-4.6/GAP-2: groups the flat, business-wide oldest-first list by lease so
+ * a driver with several days waiting gets one `ConfirmWeekGroupCard`
+ * instead of one `ConfirmDayCard` each. A `Map`'s insertion order is a
+ * lease's own first appearance in the (already oldest-first) source array,
+ * so the groups themselves come out oldest-first too, with no separate sort.
+ */
+function groupUnconfirmedByLease(rows: UnconfirmedDayRecordRow[]): UnconfirmedGroup[] {
+  const groups = new Map<string, UnconfirmedGroup>();
+  for (const row of rows) {
+    const existing = groups.get(row.dailyLeaseId);
+    if (existing) {
+      existing.days.push(row);
+    } else {
+      groups.set(row.dailyLeaseId, {
+        dailyLeaseId: row.dailyLeaseId,
+        vehicleRegistration: row.vehicleRegistration,
+        driverName: row.driverName,
+        days: [row],
+      });
+    }
+  }
+  return [...groups.values()];
 }
 
 function paperworkMessage(row: PaperworkWarningRow): string {
@@ -214,15 +248,17 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
         ) : null}
         {activeLeases.length > 0 ? <TodayCards leases={activeLeases} today={today} /> : null}
 
-        {/* Reuses ConfirmDayCard verbatim for a past date: it derives its
-            displayed "expected" amount from the daily lease's CURRENT rate,
-            not the rate in force on that specific day (F-4.3's own
-            effective-dated rates aren't built yet, so no daily lease can
-            actually have more than one rate today — this is unreachable
-            until F-4.3 lands, at which point ConfirmDayCard needs a
-            date-aware rate lookup for this call site specifically). The
-            backend write itself is already date-correct regardless
-            (handlers/day-record.ts uses findDailyLeaseRateForDate). */}
+        {/* Reuses ConfirmDayCard verbatim for a past date. F-4.3/GAP-2 landed
+            a daily lease's own effective-dated rate history, so a date here
+            can now genuinely differ from the lease's CURRENT rate — but
+            ConfirmDayCard's own `expectedMinor` derivation already prefers
+            the already-materialised `open` row's own figure over the
+            lease's current rate, and every row this section lists is
+            already `state = 'open'` by definition (`listUnconfirmedDayRecordsForBusiness`'s
+            own filter). `changeDailyLeaseRate`'s own `repriceFutureOpenDayRecords`
+            keeps that figure correct across a rate change, so no
+            date-aware lookup was needed here after all — only the write
+            side (domain/dailyLease.ts) had to change. */}
         {unconfirmedState.kind === "error" ? (
           <QueryStateFailure
             error={unconfirmedState.error}
@@ -234,17 +270,32 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
           <Section
             title="Earlier days"
             count={unconfirmedDays.length}
-            items={unconfirmedDays.map((row) => (
-              <ConfirmDayCard
-                key={row.id}
-                dailyLeaseId={row.dailyLeaseId}
-                vehicleLabel={row.vehicleRegistration}
-                driverLabel={row.driverName}
-                dateLabel={formatHomeDate(row.businessDate)}
-                today={asBusinessDate(row.businessDate)}
-                elevated={false}
-              />
-            ))}
+            items={groupUnconfirmedByLease(unconfirmedDays).flatMap((group) => {
+              if (group.days.length >= 2) {
+                return [
+                  <ConfirmWeekGroupCard
+                    key={group.dailyLeaseId}
+                    dailyLeaseId={group.dailyLeaseId}
+                    vehicleLabel={group.vehicleRegistration}
+                    driverLabel={group.driverName}
+                    days={group.days}
+                  />,
+                ];
+              }
+              const [only] = group.days;
+              if (only === undefined) return [];
+              return [
+                <ConfirmDayCard
+                  key={only.id}
+                  dailyLeaseId={group.dailyLeaseId}
+                  vehicleLabel={group.vehicleRegistration}
+                  driverLabel={group.driverName}
+                  dateLabel={formatHomeDate(only.businessDate)}
+                  today={asBusinessDate(only.businessDate)}
+                  elevated={false}
+                />,
+              ];
+            })}
           />
         ) : null}
 

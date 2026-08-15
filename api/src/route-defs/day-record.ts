@@ -1,6 +1,7 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
   confirmDayRequestSchema,
+  confirmDaysBulkResponseSchema,
   dayRecordResponseSchema,
   unconfirmedDayRecordsResponseSchema,
 } from "@fleetsettle/shared/schemas";
@@ -10,6 +11,8 @@ const dayRecordParams = z.object({
   dailyLeaseId: z.string().uuid(),
   businessDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
 });
+
+const confirmDaysBulkParams = z.object({ dailyLeaseId: z.string().uuid() });
 
 /** Home item 4 (UI §3.2): days scheduled but never confirmed, strictly before today, oldest first. */
 export const listUnconfirmedDayRecordsRoute = createRoute({
@@ -55,6 +58,29 @@ export const confirmDayRoute = createRoute({
       description:
         "That accounting period is closed, or this day was voided by a driver/arrangement change (DAY_RECORD_VOIDED, GAP-118) — refresh and try again",
     },
+  },
+});
+
+/**
+ * F-4.6/UC-38/GAP-2, one transaction: "the stack shows every open day,
+ * oldest first … Confirm all". Every open, unconfirmed day strictly before
+ * today on this lease, confirmed at its own current expected amount — days
+ * already individually adjusted are untouched (they are no longer `open`),
+ * and a `did_not_run` day is never reachable from here (W-4).
+ */
+export const confirmDaysBulkRoute = createRoute({
+  method: "post",
+  path: "/{dailyLeaseId}/confirm-week",
+  request: { params: confirmDaysBulkParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: confirmDaysBulkResponseSchema } },
+      description: "Every open day before today on this lease, now confirmed",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot confirm a day" },
+    404: { description: "No such daily lease in this business" },
+    409: { description: "That accounting period is closed (PERIOD_CLOSED)" },
   },
 });
 

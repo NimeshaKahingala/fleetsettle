@@ -10,8 +10,22 @@ import { VehicleListScreen } from "./VehicleListScreen.js";
 const today = asBusinessDate("2026-07-30");
 
 const vehicles: VehicleResponse[] = [
-  { id: "v1", registration: "CAB-1234", vehicleType: "Bus", lifecycle: "active", arrangement: "B" },
-  { id: "v2", registration: "CAR-5678", vehicleType: "Car", lifecycle: "active", arrangement: "A" },
+  {
+    id: "v1",
+    registration: "CAB-1234",
+    vehicleType: "Bus",
+    lifecycle: "active",
+    serviceIntervalKm: null,
+    arrangement: "B",
+  },
+  {
+    id: "v2",
+    registration: "CAR-5678",
+    vehicleType: "Car",
+    lifecycle: "active",
+    serviceIntervalKm: null,
+    arrangement: "A",
+  },
 ];
 
 test("lists every vehicle with its arrangement label", async () => {

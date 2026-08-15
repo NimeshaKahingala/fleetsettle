@@ -1,7 +1,8 @@
 # Key User Flows
 
-**Status:** v1.1.12 — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
-**Date:** 14 August 2026
+**Status:** v1.1.13 — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
+**v1.1.12** — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
+**Date:** 15 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -313,6 +314,7 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-34** | An owner-manager's ownership/capital scope is exactly the vehicles his `ownership_share` names as of the write. A manager's UC-70 scope is exactly the vehicles whose `management_fee_agreement` overlapped the *reported* period — never the agreement's status today or at the period's end | §2.3, W-59, UC-02, UC-70 |
 | **INV-35** | Archiving a driver or customer is refused while any `obligation` (either direction), `deposit` or — driver only — `advance` tied to him is not fully settled. The refusal names every open figure separately; INV-3 still applies, so a driver's two balances are never netted into one | W-60, UC-100 |
 | **INV-36** | Voiding a record cascades only into a row the same write minted; a record entered separately, on its own, beneath the one being voided blocks the void and is named in the refusal. Per-table mechanics: F-8.5 | W-61 |
+| **INV-37** | Ending a daily-lease assignment never refuses on an open driver balance. Unlike INV-35's archive, nothing about the driver's visibility changes, so there is no report the debt could silently leave | W-62, UC-101 |
 
 ---
 
@@ -599,7 +601,11 @@ The incident is a **container** that stays open for weeks and gathers everything
 
 #### F-3.5 Scheduled maintenance
 *Actor:* Manager · *Source:* UC-13 · *Phase:* 1
-Vehicle cost, not tied to an incident, optional odometer. **System** uses history + odometer to prompt next time.
+**Steps** Same screen as F-3.1: amount, vehicle, category, date, odometer *(optional)*, not tied to an incident.
+**Writes** `Expense`, `OdometerReading?` when a reading is given — no separate mechanism from any other odometer entry (§6.9).
+**Accept** · A reading recorded here is ordinary odometer history, nothing special about it · the prompt below is informational only — it never blocks or pre-fills this form.
+
+**⚑ Decided 15 Aug 2026, closing GAP-68 for Wave 5 Track 5B — the prompt itself had never been specified.** The vehicle carries an optional **service interval, in kilometres**, editable on the vehicle's own page and never required to save the vehicle (U-2). With an interval set, the vehicle's page shows a prompt once the latest odometer reading on file exceeds the last maintenance reading by that interval; recording a new maintenance expense with a reading clears it. **With no interval set, there is no prompt at all** — never a guessed figure, the same reasoning W-56 already applies to a report going quiet instead of lying (§6.9). **Declined: deriving the interval from the gap between the vehicle's last two same-category services.** Predicts nothing until a vehicle has actually been serviced twice through this system — months of the feature staying dark for a business starting at zero rows. **Declined: surfacing the prompt on Home.** Not time-critical the way an unconfirmed day is, and Home's own item list (F-4.1, UI §3.2) is already at documented risk of becoming a wall nobody reads to the bottom of — it stays on the vehicle's own page instead.
 
 ---
 
@@ -670,6 +676,21 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 **Accept** · History stays attached to whoever was actually driving · **long downtime** needs no new machinery: assign him to a spare vehicle for a date range (a second arrangement while the first idles), or pay a retainer with no trip attached (F-6.1) · **the previous assignment's own future occupancy is freed in the same transaction the new one is opened, then re-materialised for the new driver** — the same rolling-horizon write D-9 already gives `startDailyLease`, applied to a close-and-reopen rather than a fresh start.
 
 **GAP-118, resolved 12 Aug 2026 — this Accept clause was previously silent on what happens to days already generated for the previous assignment.** F-2.6/UC-16 frees a closed lease's (arrangement A) future occupancy explicitly; F-5.5/UC-45 frees a cancelled trip's (arrangement C) explicitly; this flow never said the daily-lease (arrangement B) equivalent, and the omission meant a driver change inside the horizon left tomorrow's card carrying **yesterday's driver** — confirming it would have credited the wrong person. **Ending an assignment must free its own future allocation before the replacement opens**, symmetrically with the other two arrangements, and the freed rows are voided (W-58), not deleted, since a future day already generated once is itself worth a record of having been reassigned.
+
+#### F-4.8 End a daily lease
+*Actor:* Manager · *Source:* UC-101 · *Phase:* 1 *(new, GAP-25, resolved 15 Aug 2026)*
+F-4 has run F-4.1 through F-4.7 with no closure flow at all — arrangement A has F-2.6, arrangement C has its own cancellation (F-5.5), and arrangement B has had nothing symmetrical since this document was first written.
+
+**Distinct from F-4.7.** F-4.7 *replaces* the driver — a new assignment opens the same day the old one closes, so the vehicle never stops earning. F-4.8 is for when nothing replaces it: the vehicle goes idle, moves to a different arrangement (UC-94), or the driver relationship itself has ended.
+
+**Steps** From the assignment's own page, **End**, an end date, confirm.
+**Writes** `DailyLease.effective_to` — and, in the same transaction, voids (W-58) every future `VehicleDayAllocation` and open `DayRecord` this assignment had already generated past that date. This is the identical GAP-118 write F-4.7 already makes on its own close-and-reopen; F-4.8 is that same write with nothing reopening behind it.
+**Accept**
+· **INV-37** — ending an assignment never refuses on an open driver balance. Past days, their figures, and whatever the driver still owes or is owed stay exactly where they were, on his own page and in every report that already includes him
+· A future card or occupancy day already generated for a date past the end date is voided, never left standing to render a day that will now never happen
+· The driver's deposit (F-6.7), if any, is untouched — it belongs to him independent of any one assignment, and is settled on its own terms whenever that comes up separately.
+
+**Why this does not mirror F-1.11's refusal (INV-35).** The two look like the same guard from a distance and are not: archiving a driver or customer *hides* him — he drops out of every picker and every list — so a due left open behind him would silently leave a report. Ending an assignment hides nothing: the driver's own record stays exactly as reachable as before, on exactly the same pages, so there is no report that could go quiet. Refusing here would strand the single most ordinary reason an assignment ends — a driver who leaves still owing money — behind a check protecting against a risk that does not exist for this action (W-62).
 
 ---
 
@@ -1037,6 +1058,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-9.2 | UC-70 | W-59, INV-34 |
 | F-1.11 | UC-100 | W-60, INV-35 |
 | F-8.5 | UC-96 | W-61, INV-36 |
+| F-4.8 | UC-101 | W-62, INV-37 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.

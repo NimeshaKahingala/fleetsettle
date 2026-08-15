@@ -6,21 +6,35 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { changeDailyLeaseDriver, startDailyLease } from "../domain/dailyLease.js";
+import {
+  changeDailyLeaseDriver,
+  changeDailyLeaseRate,
+  createLeaseDayException,
+  endDailyLease,
+  startDailyLease,
+  voidLeaseDayException,
+} from "../domain/dailyLease.js";
 import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
 import {
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
   listActiveDailyLeasesForBusiness,
+  listLeaseDayExceptionsForLease,
   type DailyLeaseRow,
+  type LeaseDayExceptionRow,
 } from "../queries/dailyLease.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
   changeDailyLeaseDriverRoute,
+  changeDailyLeaseRateRoute,
+  createLeaseDayExceptionRoute,
+  endDailyLeaseRoute,
   getDailyLeaseRoute,
   listActiveDailyLeasesRoute,
+  listLeaseDayExceptionsRoute,
   startDailyLeaseRoute,
+  voidLeaseDayExceptionRoute,
 } from "../route-defs/dailyLease.js";
 import type { Env } from "../types.js";
 
@@ -127,6 +141,123 @@ export const changeDailyLeaseDriverHandler: RouteHandler<
   });
 
   return c.json(toResponse(result, result.dailyLeaseAmountMinor), 201);
+};
+
+/** F-4.8/UC-101/GAP-25. `leaseAndTripLifecycle` — the same gate as every other daily-lease write. */
+export const endDailyLeaseHandler: RouteHandler<typeof endDailyLeaseRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await endDailyLease(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    effectiveTo: body.effectiveTo,
+    userId: requireUserId(c),
+  });
+
+  return c.json(toResponse(result, result.dailyLeaseAmountMinor), 200);
+};
+
+/** F-4.3/UC-32/GAP-2. `leaseAndTripLifecycle` — the same gate as every other daily-lease write. */
+export const changeDailyLeaseRateHandler: RouteHandler<
+  typeof changeDailyLeaseRateRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await changeDailyLeaseRate(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    dailyLeaseAmountMinor: body.dailyLeaseAmountMinor,
+    effectiveFrom: body.effectiveFrom,
+  });
+
+  return c.json(
+    {
+      dailyLeaseId: result.dailyLeaseId,
+      dailyLeaseAmountMinor: toWire(result.dailyLeaseAmountMinor as Minor),
+      effectiveFrom: result.effectiveFrom,
+    },
+    201,
+  );
+};
+
+function toExceptionResponse(row: LeaseDayExceptionRow) {
+  return {
+    id: row.id,
+    dailyLeaseId: row.dailyLeaseId,
+    exceptionDate: row.exceptionDate,
+    reason: row.reason,
+  };
+}
+
+/** F-1.7/GAP-20. `leaseAndTripLifecycle` — the same gate as every other daily-lease write. */
+export const createLeaseDayExceptionHandler: RouteHandler<
+  typeof createLeaseDayExceptionRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const row = await createLeaseDayException(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    exceptionDate: body.exceptionDate,
+    ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    userId: requireUserId(c),
+  });
+
+  return c.json(toExceptionResponse(row), 201);
+};
+
+/** F-1.7/GAP-20's own "what's currently skipped" list. Same gate as reading the lease itself. */
+export const listLeaseDayExceptionsHandler: RouteHandler<
+  typeof listLeaseDayExceptionsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const lease = await findDailyLeaseForBusiness(reader, businessId, id);
+  if (!lease) throw new NotFoundError("No such daily lease in this business");
+
+  const rows = await listLeaseDayExceptionsForLease(reader, id);
+  return c.json(rows.map(toExceptionResponse), 200);
+};
+
+/** F-1.7/GAP-20: un-skip. Same gate as creating one. */
+export const voidLeaseDayExceptionHandler: RouteHandler<
+  typeof voidLeaseDayExceptionRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id, exceptionId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const voided = await voidLeaseDayException(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    exceptionId,
+    reason: body.reason,
+    userId: requireUserId(c),
+  });
+
+  return c.json({ id: exceptionId, voidedAt: voided.voidedAt }, 200);
 };
 
 /** Home item 3 (UI §3.2). Same `leaseAndTripLifecycle` gate as this resource's other endpoints. */

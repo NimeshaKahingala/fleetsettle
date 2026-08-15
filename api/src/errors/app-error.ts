@@ -418,3 +418,43 @@ export class ReplacesTargetAlreadyReplacedError extends AppError {
     super(409, "REPLACES_TARGET_ALREADY_REPLACED", message);
   }
 }
+
+// GAP-20: skippable individual daily-lease days. Migration 0027's partial
+// unique index (WHERE voided_at IS NULL) is what makes this a real conflict
+// rather than a silent duplicate — a date can carry at most one live
+// exception at a time.
+export class LeaseDayAlreadyExceptedError extends AppError {
+  constructor(message = "This date is already skipped on this daily lease") {
+    super(409, "LEASE_DAY_ALREADY_EXCEPTED", message);
+  }
+}
+
+export class LeaseDayExceptionAlreadyVoidedError extends AppError {
+  constructor(message = "This exception has already been undone") {
+    super(409, "LEASE_DAY_EXCEPTION_ALREADY_VOIDED", message);
+  }
+}
+
+// A day already confirmed is a real event, not erasable by a later
+// decision to skip it — that needs UC-96's ordinary void-and-correct path,
+// not this mechanism (F-1.7/GAP-20's own note: an exception only ever
+// stops a card from being generated in the first place).
+export class LeaseDayAlreadyConfirmedError extends AppError {
+  constructor(message = "This day has already been confirmed and cannot be skipped retroactively") {
+    super(409, "LEASE_DAY_ALREADY_CONFIRMED", message);
+  }
+}
+
+// GAP-26: migration 0019's `vehicle_unavailability_vehicle_id_daterange_excl`
+// — a second live outage for the same vehicle over an overlapping range.
+export class VehicleUnavailabilityOverlapsError extends AppError {
+  constructor(message = "This vehicle already has a live outage over one or more of these dates") {
+    super(409, "VEHICLE_UNAVAILABILITY_OVERLAPS", message);
+  }
+}
+
+export class VehicleUnavailabilityAlreadyVoidedError extends AppError {
+  constructor(message = "This outage has already been undone") {
+    super(409, "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED", message);
+  }
+}

@@ -64,6 +64,13 @@ export const ERROR_CODES = [
   // does — both are about the referenced row's own state.
   "REPLACES_TARGET_NOT_VOIDED",
   "REPLACES_TARGET_ALREADY_REPLACED",
+  // GAP-20: skippable individual daily-lease days.
+  "LEASE_DAY_ALREADY_EXCEPTED",
+  "LEASE_DAY_EXCEPTION_ALREADY_VOIDED",
+  "LEASE_DAY_ALREADY_CONFIRMED",
+  // GAP-26: off the road.
+  "VEHICLE_UNAVAILABILITY_OVERLAPS",
+  "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

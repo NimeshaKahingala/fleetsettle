@@ -7,6 +7,7 @@ import {
   confirmOpenDayRecord,
   findDayRecordByLeaseAndDate,
   insertDayRecord,
+  listOpenDayRecordsForLeaseBeforeDate,
   type DayRecordRow,
 } from "../queries/day-record.js";
 import { findObligationBySource, insertObligation } from "../queries/obligation.js";
@@ -81,225 +82,229 @@ async function asNoOpResult(
  * cron captured at generation time, in case the day sat unconfirmed long
  * enough for that period to have since closed.
  */
+/**
+ * The transaction body proper, factored out so `confirmDaysBulk`
+ * (F-4.6/GAP-2) can run several of these against one shared `tx` — a
+ * Postgres savepoint per day rather than a new top-level transaction, so
+ * the outer "one transaction, a partial failure confirms nothing" still
+ * holds across the whole batch. `confirmDay` below is just this plus the
+ * single-call transaction wrapper and its own race-recovery catch.
+ */
+async function confirmDayInTx(tx: Tx, input: ConfirmDayInput): Promise<ConfirmDayResult> {
+  const existing = await findDayRecordByLeaseAndDate(tx, input.dailyLeaseId, input.businessDate);
+
+  // GAP-118: a driver/arrangement change voids a stale future card
+  // rather than mutating it (migration 0022) — this can only be reached
+  // by a client still holding the superseded lease id (a calendar/
+  // unconfirmed-list fetch from before the change; both now exclude
+  // voided rows, so a fresh fetch never offers this id again). Checked
+  // ahead of the `state !== "open"` no-op branch below: a voided row's
+  // `state` is untouched by voiding, so it would otherwise read as an
+  // ordinary already-confirmed no-op and this fact would never surface.
+  if (existing?.voidedAt) {
+    throw new DayRecordVoidedError();
+  }
+
+  if (existing && existing.state !== "open") {
+    const obligationRow = await findObligationBySource(tx, "day_record", existing.id);
+    return {
+      dayRecord: existing,
+      // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
+      receivedMinor: (obligationRow?.settledMinor ?? 0n) as Minor,
+      created: false,
+    };
+  }
+
+  const linkage = await resolvePeriodLinkage(tx, input.businessId, input.businessDate);
+  if (!linkage) {
+    throw new PeriodClosedError("No accounting period covers this business date yet");
+  }
+
+  const dayRecordId = existing?.id ?? newId();
+
+  if (input.action.kind === "did_not_run") {
+    if (existing) {
+      const updated = await confirmOpenDayRecord(tx, existing.id, {
+        state: "did_not_run",
+        earnedMinor: 0n,
+        expectedMinor: input.expectedMinor,
+        lostReason: input.action.lostReason,
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        postedPeriodId: linkage.postedPeriodId,
+        belongsToPeriodId: linkage.belongsToPeriodId,
+      });
+      if (!updated) return await asNoOpResult(tx, input.dailyLeaseId, input.businessDate);
+    } else {
+      await insertDayRecord(tx, {
+        id: dayRecordId,
+        businessId: input.businessId,
+        dailyLeaseId: input.dailyLeaseId,
+        vehicleId: input.vehicleId,
+        driverId: input.driverId,
+        businessDate: input.businessDate,
+        state: "did_not_run",
+        earnedMinor: 0n,
+        expectedMinor: input.expectedMinor,
+        lostReason: input.action.lostReason,
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        postedPeriodId: linkage.postedPeriodId,
+        ...(linkage.belongsToPeriodId !== null
+          ? { belongsToPeriodId: linkage.belongsToPeriodId }
+          : {}),
+      });
+    }
+    return {
+      dayRecord: {
+        id: dayRecordId,
+        dailyLeaseId: input.dailyLeaseId,
+        vehicleId: input.vehicleId,
+        driverId: input.driverId,
+        businessDate: input.businessDate,
+        state: "did_not_run",
+        earnedMinor: 0n,
+        expectedMinor: input.expectedMinor,
+        lostReason: input.action.lostReason,
+        note: input.note ?? null,
+        voidedAt: null,
+      },
+      receivedMinor: 0n as Minor,
+      created: true,
+    };
+  }
+
+  const earnedMinor =
+    input.action.kind === "paid_in_full" ? input.expectedMinor : input.action.earnedMinor;
+  const receivedMinor =
+    input.action.kind === "paid_in_full" ? input.expectedMinor : input.action.receivedMinor;
+
+  const state: DayRecordRow["state"] =
+    receivedMinor === 0n
+      ? "ran_unpaid"
+      : receivedMinor < earnedMinor
+        ? "ran_paid_short"
+        : "ran_paid_full";
+  const obligationStatus = computeObligationStatus(earnedMinor, receivedMinor, 0n);
+
+  if (existing) {
+    const updated = await confirmOpenDayRecord(tx, existing.id, {
+      state,
+      earnedMinor,
+      expectedMinor: input.expectedMinor,
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      postedPeriodId: linkage.postedPeriodId,
+      belongsToPeriodId: linkage.belongsToPeriodId,
+    });
+    if (!updated) return await asNoOpResult(tx, input.dailyLeaseId, input.businessDate);
+  } else {
+    await insertDayRecord(tx, {
+      id: dayRecordId,
+      businessId: input.businessId,
+      dailyLeaseId: input.dailyLeaseId,
+      vehicleId: input.vehicleId,
+      driverId: input.driverId,
+      businessDate: input.businessDate,
+      state,
+      earnedMinor,
+      expectedMinor: input.expectedMinor,
+      ...(input.note !== undefined ? { note: input.note } : {}),
+      postedPeriodId: linkage.postedPeriodId,
+      ...(linkage.belongsToPeriodId !== null
+        ? { belongsToPeriodId: linkage.belongsToPeriodId }
+        : {}),
+    });
+  }
+
+  const obligationId = newId();
+  const periodFields = {
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+  };
+  await insertObligation(tx, {
+    id: obligationId,
+    businessId: input.businessId,
+    direction: "owed_to_us",
+    partyType: "driver",
+    partyDriverId: input.driverId,
+    kind: "daily_amount",
+    sourceType: "day_record",
+    sourceId: dayRecordId,
+    vehicleId: input.vehicleId,
+    amountMinor: earnedMinor,
+    settledMinor: receivedMinor,
+    waivedMinor: 0n,
+    dueOn: input.businessDate,
+    effectiveDueOn: input.businessDate,
+    status: obligationStatus,
+    ...periodFields,
+  });
+
+  if (receivedMinor > 0n) {
+    const paymentId = newId();
+    await insertPayment(tx, {
+      id: paymentId,
+      businessId: input.businessId,
+      direction: "received",
+      partyType: "driver",
+      partyDriverId: input.driverId,
+      amountMinor: receivedMinor,
+      occurredOn: input.businessDate,
+      handledByUserId: input.userId,
+      createdBy: input.userId,
+      ...periodFields,
+    });
+    await insertPaymentAllocation(tx, {
+      id: newId(),
+      paymentId,
+      obligationId,
+      amountMinor: receivedMinor,
+      allocatedOn: input.businessDate,
+    });
+  }
+
+  // GAP-5b: whatever today's own cash-on-the-spot payment above didn't
+  // cover, this driver's own unapplied credit (an earlier overpayment)
+  // settles the rest — the remainder, not earnedMinor itself, since
+  // settledMinor already carries receivedMinor from creation.
+  const stillOutstanding = earnedMinor - receivedMinor;
+  if (stillOutstanding > 0n) {
+    await applyCreditForward(
+      tx,
+      input.businessId,
+      "driver",
+      input.driverId,
+      "owed_to_us",
+      obligationId,
+      stillOutstanding,
+      input.businessDate,
+      receivedMinor,
+    );
+  }
+
+  return {
+    dayRecord: {
+      id: dayRecordId,
+      dailyLeaseId: input.dailyLeaseId,
+      vehicleId: input.vehicleId,
+      driverId: input.driverId,
+      businessDate: input.businessDate,
+      state,
+      earnedMinor,
+      expectedMinor: input.expectedMinor,
+      lostReason: null,
+      note: input.note ?? null,
+      voidedAt: null,
+    },
+    receivedMinor,
+    created: true,
+  };
+}
+
 export async function confirmDay(
   writer: Writer,
   input: ConfirmDayInput,
 ): Promise<ConfirmDayResult> {
   try {
-    return await writer.transaction(async (tx) => {
-      const existing = await findDayRecordByLeaseAndDate(
-        tx,
-        input.dailyLeaseId,
-        input.businessDate,
-      );
-
-      // GAP-118: a driver/arrangement change voids a stale future card
-      // rather than mutating it (migration 0022) — this can only be reached
-      // by a client still holding the superseded lease id (a calendar/
-      // unconfirmed-list fetch from before the change; both now exclude
-      // voided rows, so a fresh fetch never offers this id again). Checked
-      // ahead of the `state !== "open"` no-op branch below: a voided row's
-      // `state` is untouched by voiding, so it would otherwise read as an
-      // ordinary already-confirmed no-op and this fact would never surface.
-      if (existing?.voidedAt) {
-        throw new DayRecordVoidedError();
-      }
-
-      if (existing && existing.state !== "open") {
-        const obligationRow = await findObligationBySource(tx, "day_record", existing.id);
-        return {
-          dayRecord: existing,
-          // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
-          receivedMinor: (obligationRow?.settledMinor ?? 0n) as Minor,
-          created: false,
-        };
-      }
-
-      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.businessDate);
-      if (!linkage) {
-        throw new PeriodClosedError("No accounting period covers this business date yet");
-      }
-
-      const dayRecordId = existing?.id ?? newId();
-
-      if (input.action.kind === "did_not_run") {
-        if (existing) {
-          const updated = await confirmOpenDayRecord(tx, existing.id, {
-            state: "did_not_run",
-            earnedMinor: 0n,
-            expectedMinor: input.expectedMinor,
-            lostReason: input.action.lostReason,
-            ...(input.note !== undefined ? { note: input.note } : {}),
-            postedPeriodId: linkage.postedPeriodId,
-            belongsToPeriodId: linkage.belongsToPeriodId,
-          });
-          if (!updated) return await asNoOpResult(tx, input.dailyLeaseId, input.businessDate);
-        } else {
-          await insertDayRecord(tx, {
-            id: dayRecordId,
-            businessId: input.businessId,
-            dailyLeaseId: input.dailyLeaseId,
-            vehicleId: input.vehicleId,
-            driverId: input.driverId,
-            businessDate: input.businessDate,
-            state: "did_not_run",
-            earnedMinor: 0n,
-            expectedMinor: input.expectedMinor,
-            lostReason: input.action.lostReason,
-            ...(input.note !== undefined ? { note: input.note } : {}),
-            postedPeriodId: linkage.postedPeriodId,
-            ...(linkage.belongsToPeriodId !== null
-              ? { belongsToPeriodId: linkage.belongsToPeriodId }
-              : {}),
-          });
-        }
-        return {
-          dayRecord: {
-            id: dayRecordId,
-            dailyLeaseId: input.dailyLeaseId,
-            vehicleId: input.vehicleId,
-            driverId: input.driverId,
-            businessDate: input.businessDate,
-            state: "did_not_run",
-            earnedMinor: 0n,
-            expectedMinor: input.expectedMinor,
-            lostReason: input.action.lostReason,
-            note: input.note ?? null,
-            voidedAt: null,
-          },
-          receivedMinor: 0n as Minor,
-          created: true,
-        };
-      }
-
-      const earnedMinor =
-        input.action.kind === "paid_in_full" ? input.expectedMinor : input.action.earnedMinor;
-      const receivedMinor =
-        input.action.kind === "paid_in_full" ? input.expectedMinor : input.action.receivedMinor;
-
-      const state: DayRecordRow["state"] =
-        receivedMinor === 0n
-          ? "ran_unpaid"
-          : receivedMinor < earnedMinor
-            ? "ran_paid_short"
-            : "ran_paid_full";
-      const obligationStatus = computeObligationStatus(earnedMinor, receivedMinor, 0n);
-
-      if (existing) {
-        const updated = await confirmOpenDayRecord(tx, existing.id, {
-          state,
-          earnedMinor,
-          expectedMinor: input.expectedMinor,
-          ...(input.note !== undefined ? { note: input.note } : {}),
-          postedPeriodId: linkage.postedPeriodId,
-          belongsToPeriodId: linkage.belongsToPeriodId,
-        });
-        if (!updated) return await asNoOpResult(tx, input.dailyLeaseId, input.businessDate);
-      } else {
-        await insertDayRecord(tx, {
-          id: dayRecordId,
-          businessId: input.businessId,
-          dailyLeaseId: input.dailyLeaseId,
-          vehicleId: input.vehicleId,
-          driverId: input.driverId,
-          businessDate: input.businessDate,
-          state,
-          earnedMinor,
-          expectedMinor: input.expectedMinor,
-          ...(input.note !== undefined ? { note: input.note } : {}),
-          postedPeriodId: linkage.postedPeriodId,
-          ...(linkage.belongsToPeriodId !== null
-            ? { belongsToPeriodId: linkage.belongsToPeriodId }
-            : {}),
-        });
-      }
-
-      const obligationId = newId();
-      const periodFields = {
-        postedPeriodId: linkage.postedPeriodId,
-        ...(linkage.belongsToPeriodId !== null
-          ? { belongsToPeriodId: linkage.belongsToPeriodId }
-          : {}),
-      };
-      await insertObligation(tx, {
-        id: obligationId,
-        businessId: input.businessId,
-        direction: "owed_to_us",
-        partyType: "driver",
-        partyDriverId: input.driverId,
-        kind: "daily_amount",
-        sourceType: "day_record",
-        sourceId: dayRecordId,
-        vehicleId: input.vehicleId,
-        amountMinor: earnedMinor,
-        settledMinor: receivedMinor,
-        waivedMinor: 0n,
-        dueOn: input.businessDate,
-        effectiveDueOn: input.businessDate,
-        status: obligationStatus,
-        ...periodFields,
-      });
-
-      if (receivedMinor > 0n) {
-        const paymentId = newId();
-        await insertPayment(tx, {
-          id: paymentId,
-          businessId: input.businessId,
-          direction: "received",
-          partyType: "driver",
-          partyDriverId: input.driverId,
-          amountMinor: receivedMinor,
-          occurredOn: input.businessDate,
-          handledByUserId: input.userId,
-          createdBy: input.userId,
-          ...periodFields,
-        });
-        await insertPaymentAllocation(tx, {
-          id: newId(),
-          paymentId,
-          obligationId,
-          amountMinor: receivedMinor,
-          allocatedOn: input.businessDate,
-        });
-      }
-
-      // GAP-5b: whatever today's own cash-on-the-spot payment above didn't
-      // cover, this driver's own unapplied credit (an earlier overpayment)
-      // settles the rest — the remainder, not earnedMinor itself, since
-      // settledMinor already carries receivedMinor from creation.
-      const stillOutstanding = earnedMinor - receivedMinor;
-      if (stillOutstanding > 0n) {
-        await applyCreditForward(
-          tx,
-          input.businessId,
-          "driver",
-          input.driverId,
-          "owed_to_us",
-          obligationId,
-          stillOutstanding,
-          input.businessDate,
-          receivedMinor,
-        );
-      }
-
-      return {
-        dayRecord: {
-          id: dayRecordId,
-          dailyLeaseId: input.dailyLeaseId,
-          vehicleId: input.vehicleId,
-          driverId: input.driverId,
-          businessDate: input.businessDate,
-          state,
-          earnedMinor,
-          expectedMinor: input.expectedMinor,
-          lostReason: null,
-          note: input.note ?? null,
-          voidedAt: null,
-        },
-        receivedMinor,
-        created: true,
-      };
-    });
+    return await writer.transaction((tx) => confirmDayInTx(tx, input));
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     // A concurrent confirm of a day with *no* pre-generated row landed
@@ -320,6 +325,70 @@ export async function confirmDay(
         };
       }
     }
+    throw err;
+  }
+}
+
+export interface ConfirmDaysBulkInput {
+  businessId: string;
+  dailyLeaseId: string;
+  vehicleId: string;
+  driverId: string;
+  today: BusinessDate;
+  userId: string;
+}
+
+export interface ConfirmDaysBulkResult {
+  confirmed: ConfirmDayResult[];
+}
+
+/**
+ * F-4.6/UC-38/GAP-2, one transaction: "the stack shows every open day,
+ * oldest first … Confirm all — one action." Every currently-open,
+ * unconfirmed day strictly before `today` on this lease is confirmed at its
+ * own already-current `expected_minor` (§6.5's `paid_in_full` — the one-tap
+ * case, here applied per day rather than once) via `confirmDayInTx`, oldest
+ * first, sharing this one outer transaction as a Postgres savepoint each —
+ * a partial failure rolls every day in the batch back, not just the one
+ * that failed. **Days already adjusted are not overwritten**: an already-
+ * confirmed day is no longer `state = 'open'`, so `listOpenDayRecordsForLeaseBeforeDate`
+ * never offers it here in the first place — the same no-op branch
+ * `confirmDayInTx` gives a second tap on any single day covers this for
+ * free. **A `did_not_run` day cannot be bulk-confirmed** (W-4): this never
+ * calls that action, so a day needing a reason simply stays open and is
+ * left for F-4.4 to handle individually.
+ */
+export async function confirmDaysBulk(
+  writer: Writer,
+  input: ConfirmDaysBulkInput,
+): Promise<ConfirmDaysBulkResult> {
+  try {
+    return await writer.transaction(async (tx) => {
+      const openDays = await listOpenDayRecordsForLeaseBeforeDate(
+        tx,
+        input.dailyLeaseId,
+        input.today,
+      );
+
+      const confirmed: ConfirmDayResult[] = [];
+      for (const day of openDays) {
+        confirmed.push(
+          await confirmDayInTx(tx, {
+            businessId: input.businessId,
+            dailyLeaseId: input.dailyLeaseId,
+            vehicleId: input.vehicleId,
+            driverId: input.driverId,
+            businessDate: day.businessDate as BusinessDate,
+            expectedMinor: day.expectedMinor as Minor,
+            userId: input.userId,
+            action: { kind: "paid_in_full" },
+          }),
+        );
+      }
+      return { confirmed };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
   }
 }

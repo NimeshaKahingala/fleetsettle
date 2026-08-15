@@ -3,6 +3,7 @@ import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
   archiveVehicleHandler,
   changeVehicleArrangementHandler,
+  changeVehicleServiceIntervalHandler,
   createVehicleHandler,
   getVehicleCalendarHandler,
   getVehicleHandler,
@@ -12,13 +13,17 @@ import {
   listVehicleIncidentsHandler,
   listVehicleLeaseHistoryHandler,
   listVehicleTripsHandler,
+  listVehicleUnavailabilityHandler,
   listVehiclesHandler,
+  markVehicleUnavailableHandler,
   unarchiveVehicleHandler,
   upsertVehicleDocumentHandler,
+  voidVehicleUnavailabilityHandler,
 } from "../handlers/vehicle.js";
 import {
   archiveVehicleRoute,
   changeVehicleArrangementRoute,
+  changeVehicleServiceIntervalRoute,
   createVehicleRoute,
   getVehicleCalendarRoute,
   getVehicleRoute,
@@ -28,9 +33,12 @@ import {
   listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
   listVehicleTripsRoute,
+  listVehicleUnavailabilityRoute,
   listVehiclesRoute,
+  markVehicleUnavailableRoute,
   unarchiveVehicleRoute,
   upsertVehicleDocumentRoute,
+  voidVehicleUnavailabilityRoute,
 } from "../route-defs/vehicle.js";
 import type { Env } from "../types.js";
 
@@ -48,5 +56,9 @@ export const vehicle = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(listVehicleDailyLeaseHistoryRoute, listVehicleDailyLeaseHistoryHandler)
   .openapi(listVehicleTripsRoute, listVehicleTripsHandler)
   .openapi(changeVehicleArrangementRoute, changeVehicleArrangementHandler)
+  .openapi(changeVehicleServiceIntervalRoute, changeVehicleServiceIntervalHandler)
   .openapi(archiveVehicleRoute, archiveVehicleHandler)
-  .openapi(unarchiveVehicleRoute, unarchiveVehicleHandler);
+  .openapi(unarchiveVehicleRoute, unarchiveVehicleHandler)
+  .openapi(markVehicleUnavailableRoute, markVehicleUnavailableHandler)
+  .openapi(listVehicleUnavailabilityRoute, listVehicleUnavailabilityHandler)
+  .openapi(voidVehicleUnavailabilityRoute, voidVehicleUnavailabilityHandler);

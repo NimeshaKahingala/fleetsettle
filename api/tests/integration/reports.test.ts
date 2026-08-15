@@ -1174,6 +1174,51 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-26 — an incident's own off-road window and a separately-logged vehicle_unavailability outage never double-count an overlapping day", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const incidentId = await openIncident(token, vehicleId);
+      ctx.trackCreatedIncident(incidentId);
+      // Incident: 07-11..07-12 (2 days). Separately-logged outage: 07-12..07-13
+      // (2 days). They share 07-12 — the union is 3 days (11, 12, 13), never
+      // the naive sum of 4.
+      const offRoadRes = await recordOffRoad(token, incidentId, "2026-07-11", "2026-07-12");
+      expect(offRoadRes.status).toBe(200);
+
+      const unavailRes = await request(`/api/vehicle/${vehicleId}/unavailability`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(token).headers },
+        body: JSON.stringify({
+          reason: "service",
+          unavailableFrom: "2026-07-12",
+          unavailableTo: "2026-07-13",
+        }),
+      });
+      expect(unavailRes.status).toBe(201);
+      const unavailBody: { id: string } = await unavailRes.json();
+      ctx.trackCreatedVehicleUnavailability(unavailBody.id);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${vehicleId}&from=2026-07-01&to=2026-07-14`,
+        token,
+      );
+      expect(res.status).toBe(200);
+      const body: {
+        earningDays: number;
+        idleDays: number;
+        offRoadDays: number;
+        totalDays: number;
+      } = await res.json();
+      expect(body.offRoadDays).toBe(3);
+      expect(body).toMatchObject({ earningDays: 0, idleDays: 11, offRoadDays: 3, totalDays: 14 });
+
+      await ctx.cleanup();
+    });
+
     it("404 — the vehicle belongs to another business", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

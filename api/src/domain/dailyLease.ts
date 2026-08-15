@@ -1,17 +1,40 @@
 import { addDays, newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { isExclusionViolation } from "../db/pg-error.js";
+import {
+  isExclusionViolation,
+  isPeriodClosedViolation,
+  isUniqueViolation,
+} from "../db/pg-error.js";
 import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import { findOpenPeriodRow } from "../queries/accounting-period.js";
-import { DailyLeaseOverlapsError, NotFoundError, ValidationError } from "../errors/app-error.js";
-import { voidFutureOpenDayRecordsForLease } from "../queries/day-record.js";
 import {
+  DailyLeaseOverlapsError,
+  LeaseDayAlreadyConfirmedError,
+  LeaseDayAlreadyExceptedError,
+  LeaseDayExceptionAlreadyVoidedError,
+  NotFoundError,
+  PeriodClosedError,
+  ValidationError,
+} from "../errors/app-error.js";
+import {
+  findDayRecordByLeaseAndDate,
+  repriceFutureOpenDayRecords,
+  voidFutureOpenDayRecordsForLease,
+  voidOpenDayRecordForDate,
+} from "../queries/day-record.js";
+import {
+  endDailyLeaseRateRow,
   endDailyLeaseRow,
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
+  findLeaseDayExceptionForBusiness,
   insertDailyLease,
   insertDailyLeaseRate,
+  insertLeaseDayException,
   releaseDailyLeaseAllocationsAfter,
+  voidAllocationForDailyLeaseDate,
+  voidLeaseDayExceptionRow,
+  type LeaseDayExceptionRow,
 } from "../queries/dailyLease.js";
 import { releaseExpiredHolds } from "../queries/trip.js";
 import { restoreDailyLeaseOccupancy } from "./trip.js";
@@ -254,4 +277,266 @@ export async function changeDailyLeaseDriver(
     }
     throw err;
   }
+}
+
+export interface EndDailyLeaseInput {
+  businessId: string;
+  dailyLeaseId: string;
+  effectiveTo: BusinessDate;
+  /** GAP-118's own actor, on this close's own void trio (CLAUDE.md → Writes: append-only, an actor recorded). */
+  userId: string;
+}
+
+export type EndedDailyLease = ChangedDailyLeaseDriver;
+
+/**
+ * F-4.8/UC-101/GAP-25, one transaction: **distinct from F-4.7** — nothing
+ * replaces this assignment, so there is no new `daily_lease` row to open
+ * behind it, only the same GAP-118 close-out `changeDailyLeaseDriver` and
+ * `changeVehicleArrangement` already both make on their own way off B.
+ * **INV-37**: no check against the driver's own balance — F-1.11's archive
+ * refusal (INV-35) protects against a driver dropping out of every list
+ * with a due left open behind him; ending an assignment hides nothing, so
+ * there is nothing that guard would be protecting here (W-62).
+ */
+export async function endDailyLease(
+  writer: Writer,
+  input: EndDailyLeaseInput,
+): Promise<EndedDailyLease> {
+  return await writer.transaction(async (tx) => {
+    const current = await findDailyLeaseForBusiness(tx, input.businessId, input.dailyLeaseId);
+    if (!current) throw new NotFoundError("No such daily lease in this business");
+    if (current.effectiveTo !== null) {
+      throw new ValidationError("This daily lease has already ended");
+    }
+    if (input.effectiveTo < current.effectiveFrom) {
+      throw new ValidationError("effectiveTo must not be before this assignment's own start date");
+    }
+
+    const rate = await findCurrentDailyLeaseRate(tx, input.dailyLeaseId);
+    if (!rate) throw new NotFoundError("No current rate for this daily lease");
+
+    await endDailyLeaseRow(tx, input.dailyLeaseId, input.effectiveTo);
+
+    // GAP-118: the same freeing `changeDailyLeaseDriver` makes on its own
+    // close-and-reopen, here with nothing reopening behind it — an idle
+    // vehicle's own future occupancy and cards must not stand for a lease
+    // that no longer runs.
+    await releaseDailyLeaseAllocationsAfter(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveTo,
+      "Daily lease ended",
+      input.userId,
+    );
+    await voidFutureOpenDayRecordsForLease(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveTo,
+      "Daily lease ended",
+      input.userId,
+    );
+
+    return {
+      id: current.id,
+      vehicleId: current.vehicleId,
+      driverId: current.driverId,
+      patternType: current.patternType,
+      patternWeekdays: current.patternWeekdays,
+      effectiveFrom: current.effectiveFrom,
+      effectiveTo: input.effectiveTo,
+      dailyLeaseAmountMinor: rate.dailyLeaseAmountMinor,
+    };
+  });
+}
+
+export interface ChangeDailyLeaseRateInput {
+  businessId: string;
+  dailyLeaseId: string;
+  dailyLeaseAmountMinor: Minor;
+  /** UC-32: editable, not defaulted to today — a catch-up week's own rate change usually took effect days ago. */
+  effectiveFrom: BusinessDate;
+}
+
+export interface ChangedDailyLeaseRate {
+  dailyLeaseId: string;
+  dailyLeaseAmountMinor: bigint;
+  effectiveFrom: string;
+}
+
+/**
+ * F-4.3/UC-32/GAP-2, one transaction: the `daily_lease_rate` sibling of
+ * `changeDailyLeaseDriver` — closes the currently open rate the day before
+ * and opens a new one from `effectiveFrom`, the identical close-then-insert
+ * shape applied to DM §7's other exclusion constraint. Past days keep their
+ * own figure (`day_record.expected_minor` is a snapshot, and `confirmDay`
+ * only ever reads today's `daily_lease_rate` state going forward from here);
+ * **future cards use the new one** re-prices every already-materialised but
+ * unconfirmed card in the same transaction — without it, a card generated
+ * under the old rate would sit showing a stale expected amount until
+ * `confirmDay`'s own per-date resolution quietly corrected it at the moment
+ * of confirming, which is exactly the "confident wrong number" CLAUDE.md
+ * warns against.
+ */
+export async function changeDailyLeaseRate(
+  writer: Writer,
+  input: ChangeDailyLeaseRateInput,
+): Promise<ChangedDailyLeaseRate> {
+  return await writer.transaction(async (tx) => {
+    const lease = await findDailyLeaseForBusiness(tx, input.businessId, input.dailyLeaseId);
+    if (!lease) throw new NotFoundError("No such daily lease in this business");
+    if (lease.effectiveTo !== null) {
+      throw new ValidationError("This daily lease has already ended");
+    }
+
+    const currentRate = await findCurrentDailyLeaseRate(tx, input.dailyLeaseId);
+    if (!currentRate) throw new NotFoundError("No current rate for this daily lease");
+    if (input.effectiveFrom <= currentRate.effectiveFrom) {
+      throw new ValidationError("effectiveFrom must be after the current rate's own start date");
+    }
+
+    const closesOn = addDays(input.effectiveFrom, -1);
+    await endDailyLeaseRateRow(tx, input.dailyLeaseId, closesOn);
+    await insertDailyLeaseRate(tx, {
+      id: newId(),
+      dailyLeaseId: input.dailyLeaseId,
+      dailyLeaseAmountMinor: input.dailyLeaseAmountMinor,
+      effectiveFrom: input.effectiveFrom,
+    });
+    await repriceFutureOpenDayRecords(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveFrom,
+      input.dailyLeaseAmountMinor,
+    );
+
+    return {
+      dailyLeaseId: input.dailyLeaseId,
+      dailyLeaseAmountMinor: input.dailyLeaseAmountMinor,
+      effectiveFrom: input.effectiveFrom,
+    };
+  });
+}
+
+export interface CreateLeaseDayExceptionInput {
+  businessId: string;
+  dailyLeaseId: string;
+  exceptionDate: BusinessDate;
+  reason?: string;
+  userId: string;
+}
+
+/**
+ * F-1.7/GAP-20: skip an individual date. If a card was already generated
+ * for it (P13's rolling horizon runs ahead of any single day's own skip
+ * decision), voids that card and its allocation in the same transaction —
+ * the same GAP-118 reasoning that a fact changing frees what was
+ * materialised on the old one, applied here to "this date turned out not
+ * to be worked" rather than "the assignment ended." A day already
+ * *confirmed* is a real event and refuses outright: an exception only ever
+ * stops a card from being generated, never un-happens one (UC-96 owns that
+ * correction instead).
+ *
+ * The card is read again inside the transaction rather than reusing a
+ * pre-transaction lookup — a concurrent `confirmDay` between the two would
+ * otherwise leave `voidOpenDayRecordForDate`'s `state = 'open'` guard
+ * matching nothing while the exception still got inserted, a day that is
+ * both confirmed and marked skipped (exactly what the lost-day denominator
+ * can't tolerate). `voidOpenDayRecordForDate` returning nothing here means
+ * exactly that race was lost, so the whole write is refused rather than
+ * inserting the exception half-anchored.
+ */
+export async function createLeaseDayException(
+  writer: Writer,
+  input: CreateLeaseDayExceptionInput,
+): Promise<LeaseDayExceptionRow> {
+  const lease = await findDailyLeaseForBusiness(writer, input.businessId, input.dailyLeaseId);
+  if (!lease) throw new NotFoundError("No such daily lease in this business");
+
+  const id = newId();
+  try {
+    await writer.transaction(async (tx) => {
+      const card = await findDayRecordByLeaseAndDate(tx, input.dailyLeaseId, input.exceptionDate);
+      const live = card !== undefined && card.voidedAt === null;
+      if (live && card.state !== "open") {
+        throw new LeaseDayAlreadyConfirmedError();
+      }
+      if (live && card.state === "open") {
+        const voided = await voidOpenDayRecordForDate(
+          tx,
+          input.dailyLeaseId,
+          input.exceptionDate,
+          "Day individually skipped",
+          input.userId,
+        );
+        if (!voided) throw new LeaseDayAlreadyConfirmedError();
+        await voidAllocationForDailyLeaseDate(
+          tx,
+          input.dailyLeaseId,
+          input.exceptionDate,
+          "Day individually skipped",
+          input.userId,
+        );
+      }
+      await insertLeaseDayException(tx, {
+        id,
+        businessId: input.businessId,
+        dailyLeaseId: input.dailyLeaseId,
+        exceptionDate: input.exceptionDate,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        createdBy: input.userId,
+      });
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "lease_day_exception_daily_lease_id_exception_date_key")) {
+      throw new LeaseDayAlreadyExceptedError();
+    }
+    throw err;
+  }
+
+  return {
+    id,
+    businessId: input.businessId,
+    dailyLeaseId: input.dailyLeaseId,
+    exceptionDate: input.exceptionDate,
+    reason: input.reason ?? null,
+    voidedAt: null,
+  };
+}
+
+export interface VoidLeaseDayExceptionInput {
+  businessId: string;
+  dailyLeaseId: string;
+  exceptionId: string;
+  reason: string;
+  userId: string;
+}
+
+/** F-1.7/GAP-20: un-skip. Nothing re-materialises the freed date here — the next `materializeDailyLeaseHorizon` pass (or a direct confirm, once the handler's own gate no longer sees a live exception) picks it back up naturally, the same "derivable, not dependent on a cron" property F-4.2 already relies on. */
+export async function voidLeaseDayException(
+  writer: Writer,
+  input: VoidLeaseDayExceptionInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findLeaseDayExceptionForBusiness(
+    writer,
+    input.businessId,
+    input.exceptionId,
+  );
+  if (!existing || existing.dailyLeaseId !== input.dailyLeaseId) {
+    throw new NotFoundError("No such exception on this daily lease");
+  }
+  if (existing.voidedAt !== null) throw new LeaseDayExceptionAlreadyVoidedError();
+
+  // The WHERE guard in voidLeaseDayExceptionRow makes a losing race against
+  // a concurrent void return undefined here rather than clobbering the
+  // winner's own reason/actor — the same shape voidCapitalContribution uses.
+  const voided = await writer.transaction((tx) =>
+    voidLeaseDayExceptionRow(tx, input.exceptionId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+  if (!voided) throw new LeaseDayExceptionAlreadyVoidedError();
+  return voided;
 }

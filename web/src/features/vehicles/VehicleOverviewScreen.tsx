@@ -10,15 +10,19 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays,
+  CalendarOff,
   CalendarPlus,
   ChevronRight,
   FileText,
   MoreVertical,
+  PiggyBank,
   Receipt,
   Route,
   TriangleAlert,
+  Wrench,
 } from "lucide-react";
 import { useState } from "react";
+import { AlertStrip } from "../../components/AlertStrip.js";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -39,6 +43,9 @@ import {
 } from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
+import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
+import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
+import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 
 export interface VehicleOverviewScreenProps {
@@ -121,6 +128,9 @@ export function VehicleOverviewScreen({
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
   const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
+  const [endDailyLeaseOpen, setEndDailyLeaseOpen] = useState(false);
+  const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
+  const [serviceIntervalOpen, setServiceIntervalOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -186,6 +196,12 @@ export function VehicleOverviewScreen({
   // GAP-97: the same gate `bookTrip` itself enforces server-side and
   // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
   const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
+  // F-4.8/GAP-25: offered only when a daily lease is actually running — the
+  // history entry with no `effectiveTo` yet is exactly that one, the same
+  // "ongoing" reading `buildHistoryEntries` above already gives it.
+  const activeDailyLease = (dailyLeaseHistoryQuery.data ?? []).find(
+    (row) => row.effectiveTo === null,
+  );
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
@@ -218,11 +234,33 @@ export function VehicleOverviewScreen({
           },
         ]
       : []),
+    ...(activeDailyLease !== undefined
+      ? [
+          {
+            key: "change-daily-lease-rate",
+            label: "Change the daily lease amount",
+            icon: PiggyBank,
+            onSelect: () => setChangeDailyLeaseRateOpen(true),
+          },
+          {
+            key: "end-daily-lease",
+            label: "End daily lease",
+            icon: CalendarOff,
+            onSelect: () => setEndDailyLeaseOpen(true),
+          },
+        ]
+      : []),
     {
       key: "expense",
       label: "Record expense",
       icon: Receipt,
       onSelect: () => setRecordExpenseOpen(true),
+    },
+    {
+      key: "service-interval",
+      label: "Service interval",
+      icon: Wrench,
+      onSelect: () => setServiceIntervalOpen(true),
     },
     {
       key: "incident",
@@ -268,6 +306,20 @@ export function VehicleOverviewScreen({
               )}
             </div>
           </Card>
+
+          {/* F-3.5/UC-13/GAP-68: informational only — never blocks or pre-fills
+              Record expense, per that flow's own Accept clause. Absent
+              entirely unless `maintenance.due`, itself only ever true when an
+              interval is set (CLAUDE.md → Numbers that go wrong quietly: no
+              interval, no guessed prompt). */}
+          {vehicle.maintenance?.due === true ? (
+            <AlertStrip severity="warning" icon={Wrench}>
+              Due for servicing
+              {vehicle.maintenance.kmSinceLastServiceKm !== null
+                ? ` — ${vehicle.maintenance.kmSinceLastServiceKm.toLocaleString("en-LK")} km since the last one`
+                : ""}
+            </AlertStrip>
+          ) : null}
 
           {documentsState.kind === "error" ? (
             <QueryStateFailure
@@ -420,6 +472,30 @@ export function VehicleOverviewScreen({
             vehicleId={vehicleId}
             today={today}
             {...(selectedDocument !== null ? { initialDocument: selectedDocument } : {})}
+          />
+          {activeDailyLease !== undefined ? (
+            <EndDailyLeaseSheet
+              open={endDailyLeaseOpen}
+              onOpenChange={setEndDailyLeaseOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              today={today}
+            />
+          ) : null}
+          {activeDailyLease !== undefined ? (
+            <ChangeDailyLeaseRateSheet
+              open={changeDailyLeaseRateOpen}
+              onOpenChange={setChangeDailyLeaseRateOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              today={today}
+            />
+          ) : null}
+          <SetServiceIntervalSheet
+            open={serviceIntervalOpen}
+            onOpenChange={setServiceIntervalOpen}
+            vehicleId={vehicleId}
+            currentServiceIntervalKm={vehicle.serviceIntervalKm}
           />
           <ActionSheet
             open={actionsOpen}

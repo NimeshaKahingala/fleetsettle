@@ -18,6 +18,7 @@ const vehicle: VehicleResponse = {
   registration: "CAB-1234",
   vehicleType: "Bus",
   lifecycle: "active",
+  serviceIntervalKm: null,
   arrangement: "B",
 };
 
@@ -169,6 +170,7 @@ test("GAP-84 — a vehicle with no current arrangement is accepted, not refused"
       registration: "CAB-1234",
       vehicleType: "Bus",
       lifecycle: "active",
+      serviceIntervalKm: null,
     } satisfies VehicleResponse,
   });
   renderWithProviders(
