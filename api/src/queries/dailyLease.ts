@@ -1,6 +1,13 @@
 import { and, asc, desc, eq, gt, isNull, lte, or, gte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { dailyLease, dailyLeaseRate, driver, vehicle, vehicleDayAllocation } from "../db/schema.js";
+import {
+  dailyLease,
+  dailyLeaseRate,
+  driver,
+  leaseDayException,
+  vehicle,
+  vehicleDayAllocation,
+} from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -120,6 +127,140 @@ export async function releaseDailyLeaseAllocationsAfter(
         isNull(vehicleDayAllocation.voidedAt),
       ),
     );
+}
+
+/**
+ * GAP-20: the single-date sibling of `releaseDailyLeaseAllocationsAfter` —
+ * used when a manager skips a date that already has an allocation reserved
+ * ahead of it. `vehicle_day_allocation` carries no `posted_period_id`, so
+ * unlike the paired `day_record` void this never risks `PERIOD_CLOSED`.
+ */
+export async function voidAllocationForDailyLeaseDate(
+  db: WriteDb,
+  dailyLeaseId: string,
+  businessDate: string,
+  voidedReason: string,
+  voidedBy: string,
+): Promise<void> {
+  await db
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason, voidedBy })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "daily_lease"),
+        eq(vehicleDayAllocation.sourceId, dailyLeaseId),
+        eq(vehicleDayAllocation.businessDate, businessDate),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+}
+
+export interface NewLeaseDayException {
+  id: string;
+  businessId: string;
+  dailyLeaseId: string;
+  exceptionDate: string;
+  reason?: string;
+  createdBy: string;
+}
+
+export async function insertLeaseDayException(
+  db: WriteDb,
+  values: NewLeaseDayException,
+): Promise<void> {
+  await db.insert(leaseDayException).values(values);
+}
+
+export interface LeaseDayExceptionRow {
+  id: string;
+  businessId: string;
+  dailyLeaseId: string;
+  exceptionDate: string;
+  reason: string | null;
+  voidedAt: string | null;
+}
+
+const LEASE_DAY_EXCEPTION_COLUMNS = {
+  id: leaseDayException.id,
+  businessId: leaseDayException.businessId,
+  dailyLeaseId: leaseDayException.dailyLeaseId,
+  exceptionDate: leaseDayException.exceptionDate,
+  reason: leaseDayException.reason,
+  voidedAt: leaseDayException.voidedAt,
+};
+
+/** GAP-20's void endpoint's own lookup — scoped by `businessId` (CLAUDE.md → Tenancy). */
+export async function findLeaseDayExceptionForBusiness(
+  db: ReadDb,
+  businessId: string,
+  id: string,
+): Promise<LeaseDayExceptionRow | undefined> {
+  const rows = await db
+    .select(LEASE_DAY_EXCEPTION_COLUMNS)
+    .from(leaseDayException)
+    .where(and(eq(leaseDayException.id, id), eq(leaseDayException.businessId, businessId)))
+    .limit(1);
+  return rows[0];
+}
+
+/**
+ * F-1.7/GAP-20: un-skip, never delete — the `voidExpense` shape. Migration
+ * 0027's partial unique index (`WHERE voided_at IS NULL`) is what makes a
+ * losing race here return `undefined` rather than clobber the winner's own
+ * reason/actor, the same shape `voidCapitalContributionRow` already uses.
+ */
+export async function voidLeaseDayExceptionRow(
+  db: WriteDb,
+  id: string,
+  values: { voidedReason: string; voidedBy: string },
+): Promise<{ voidedAt: string } | undefined> {
+  const rows = await db
+    .update(leaseDayException)
+    .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
+    .where(and(eq(leaseDayException.id, id), isNull(leaseDayException.voidedAt)))
+    .returning({ voidedAt: leaseDayException.voidedAt });
+  return rows[0] as { voidedAt: string } | undefined;
+}
+
+/**
+ * P13's day-card generator (`materializeDailyLeaseHorizon`) and GAP-20's own
+ * confirm-day gate (`handlers/day-record.ts`) both need "every live
+ * exception in this range," fetched once rather than once per candidate
+ * date (IG §2: bulk, not N+1).
+ */
+export async function listLiveExceptionDatesForLease(
+  db: ReadDb,
+  dailyLeaseId: string,
+  from: string,
+  to: string,
+): Promise<Set<string>> {
+  const rows = await db
+    .select({ exceptionDate: leaseDayException.exceptionDate })
+    .from(leaseDayException)
+    .where(
+      and(
+        eq(leaseDayException.dailyLeaseId, dailyLeaseId),
+        isNull(leaseDayException.voidedAt),
+        gte(leaseDayException.exceptionDate, from),
+        lte(leaseDayException.exceptionDate, to),
+      ),
+    );
+  return new Set(rows.map((r) => r.exceptionDate));
+}
+
+/** The setup screen's own "what's currently skipped" list — every live exception for this lease, newest first. */
+export async function listLeaseDayExceptionsForLease(
+  db: ReadDb,
+  dailyLeaseId: string,
+): Promise<LeaseDayExceptionRow[]> {
+  const rows = await db
+    .select(LEASE_DAY_EXCEPTION_COLUMNS)
+    .from(leaseDayException)
+    .where(
+      and(eq(leaseDayException.dailyLeaseId, dailyLeaseId), isNull(leaseDayException.voidedAt)),
+    )
+    .orderBy(desc(leaseDayException.exceptionDate));
+  return rows;
 }
 
 /** F-1.2/GAP-54: the vehicle's currently open `daily_lease` row (id + own start date), so an arrangement change moving off B can close it — distinct from `findCurrentDailyLeaseForVehicle` above, which resolves a borne-by default "as of" a date and returns only the driver. */

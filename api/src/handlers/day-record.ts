@@ -7,8 +7,13 @@ import {
   requireUserId,
 } from "../auth/context.js";
 import { confirmDay } from "../domain/confirmDay.js";
-import { NotFoundError } from "../errors/app-error.js";
-import { findDailyLeaseForBusiness, findDailyLeaseRateForDate } from "../queries/dailyLease.js";
+import { isPatternDay } from "../domain/day-card-generation.js";
+import { NotFoundError, ValidationError } from "../errors/app-error.js";
+import {
+  findDailyLeaseForBusiness,
+  findDailyLeaseRateForDate,
+  listLiveExceptionDatesForLease,
+} from "../queries/dailyLease.js";
 import {
   findDayRecordByLeaseAndDate,
   listUnconfirmedDayRecordsForBusiness,
@@ -49,6 +54,27 @@ export const confirmDayHandler: RouteHandler<typeof confirmDayRoute, Env> = asyn
   const lease = await findDailyLeaseForBusiness(reader, businessId, body.dailyLeaseId);
   if (!lease) throw new NotFoundError("No such daily lease in this business");
 
+  // GAP-20/pre-existing bug: this on-demand path (F-4.2's "confirming
+  // creates it") had no pattern gate at all, let alone an exception one —
+  // it would materialize a day_record for an off-pattern or individually
+  // skipped date as happily as a real one, the exact class of confident
+  // wrong number CLAUDE.md warns against. `materializeDailyLeaseHorizon`
+  // (domain/day-card-generation.ts) has always checked `isPatternDay`; this
+  // is the one caller that never did.
+  const businessDate = asBusinessDate(body.businessDate);
+  if (!isPatternDay(businessDate, lease)) {
+    throw new ValidationError("This date is not one this daily lease operates on");
+  }
+  const excepted = await listLiveExceptionDatesForLease(
+    reader,
+    body.dailyLeaseId,
+    body.businessDate,
+    body.businessDate,
+  );
+  if (excepted.has(body.businessDate)) {
+    throw new ValidationError("This date has been individually skipped on this daily lease");
+  }
+
   const rate = await findDailyLeaseRateForDate(reader, body.dailyLeaseId, body.businessDate);
   if (!rate) throw new NotFoundError("No rate is in force for this daily lease on this date");
 
@@ -68,7 +94,7 @@ export const confirmDayHandler: RouteHandler<typeof confirmDayRoute, Env> = asyn
     dailyLeaseId: body.dailyLeaseId,
     vehicleId: lease.vehicleId,
     driverId: lease.driverId,
-    businessDate: asBusinessDate(body.businessDate),
+    businessDate,
     expectedMinor: rate.dailyLeaseAmountMinor as Minor,
     userId,
     ...(body.note !== undefined ? { note: body.note } : {}),

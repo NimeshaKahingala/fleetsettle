@@ -1,7 +1,11 @@
 import { addDays, inclusiveDays, newId, weekdayOf, type BusinessDate } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { findOpenPeriodRow } from "../queries/accounting-period.js";
-import { listDailyLeaseRatesForLease, type DailyLeaseRateRow } from "../queries/dailyLease.js";
+import {
+  listDailyLeaseRatesForLease,
+  listLiveExceptionDatesForLease,
+  type DailyLeaseRateRow,
+} from "../queries/dailyLease.js";
 import {
   insertAllocationDaysIdempotent,
   insertDayRecordsIdempotent,
@@ -16,15 +20,19 @@ import type { NewAllocationDay } from "../queries/trip.js";
 const HORIZON_DAYS = 90;
 
 /**
- * §4.2/F-1.7: whether `date` is one this daily lease actually operates on.
- * "Alternate" has no reference point stated anywhere in the docs beyond
+ * §4.2/F-1.7: whether `date` is one this daily lease's own pattern operates
+ * on. "Alternate" has no reference point stated anywhere in the docs beyond
  * "alternate days" — this treats the lease's own `effective_from` as day
  * zero (always "on"), which is deterministic and reproducible but is a
- * judgment call, not a documented rule; F-1.7's "individual days skippable"
- * clause has no column to hold an exception and is not implemented here,
- * recorded rather than guessed at (TRACKER.md).
+ * judgment call, not a documented rule.
+ *
+ * **Deliberately blind to `lease_day_exception` (GAP-20)** — a skipped date
+ * is not a pattern fact, it is a correction layered on top of one, so every
+ * caller checks the two separately (`materializeDailyLeaseHorizon` below,
+ * and `confirmDayHandler`, api/src/handlers/day-record.ts) rather than this
+ * function silently absorbing a second concern.
  */
-function isPatternDay(
+export function isPatternDay(
   date: BusinessDate,
   dailyLease: Pick<
     ActiveDailyLeaseForCalendar,
@@ -99,12 +107,15 @@ export async function materializeDailyLeaseHorizon(
     today,
     rangeEnd,
   );
+  // GAP-20: fetched once for the whole range (IG §2: bulk, not per-day) —
+  // an excepted date behaves exactly like an off-pattern one, no row ever.
+  const excepted = await listLiveExceptionDatesForLease(writer, dailyLease.id, today, rangeEnd);
 
   const allocations: NewAllocationDay[] = [];
   const dayRecords: NewDayRecordForCron[] = [];
 
   for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
-    if (existing.has(d) || !isPatternDay(d, dailyLease)) continue;
+    if (existing.has(d) || excepted.has(d) || !isPatternDay(d, dailyLease)) continue;
 
     allocations.push({
       id: newId(),

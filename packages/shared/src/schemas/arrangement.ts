@@ -72,6 +72,26 @@ export const changeDailyLeaseDriverRequestSchema = z.object({
 });
 export type ChangeDailyLeaseDriverRequest = z.infer<typeof changeDailyLeaseDriverRequestSchema>;
 
+/** F-1.7/GAP-20: skipping an individual date — it behaves exactly like an off-pattern one, no `day_record` ever generated for it. */
+export const createLeaseDayExceptionRequestSchema = z.object({
+  exceptionDate: businessDateSchema,
+  reason: z.string().trim().max(500).optional(),
+});
+export type CreateLeaseDayExceptionRequest = z.infer<typeof createLeaseDayExceptionRequestSchema>;
+
+/** F-1.7/GAP-20: the exception row itself. */
+export const leaseDayExceptionResponseSchema = z.object({
+  id: z.string().uuid(),
+  dailyLeaseId: z.string().uuid(),
+  exceptionDate: z.string(),
+  reason: z.string().nullable(),
+});
+export type LeaseDayExceptionResponse = z.infer<typeof leaseDayExceptionResponseSchema>;
+
+/** F-1.7/GAP-20: every date currently skipped on this lease — the setup screen's own "what's excepted" list. */
+export const leaseDayExceptionsResponseSchema = z.array(leaseDayExceptionResponseSchema);
+export type LeaseDayExceptionsResponse = z.infer<typeof leaseDayExceptionsResponseSchema>;
+
 /**
  * UC-20: starting arrangement C — bus charter and short car hire, one flow
  * (DM §8's comment on `trip`). F-5.1 step 4: "Confirm → `booked`, or `hold`

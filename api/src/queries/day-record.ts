@@ -219,6 +219,38 @@ export async function voidFutureOpenDayRecordsForLease(
     );
 }
 
+/**
+ * GAP-20: the single-date sibling of `voidFutureOpenDayRecordsForLease` —
+ * used when a manager skips a date that already has a card generated ahead
+ * of it (P13's rolling horizon). `state = 'open'` only, the same narrowing
+ * that function already documents: a day already confirmed is a real event
+ * and stays exactly as confirmed (the domain layer refuses the exception
+ * outright in that case, never reaching this). Returns the voided row's id
+ * so the caller can tell "nothing to void" from "voided" without a second
+ * read.
+ */
+export async function voidOpenDayRecordForDate(
+  db: WriteDb,
+  dailyLeaseId: string,
+  businessDate: string,
+  voidedReason: string,
+  voidedBy: string,
+): Promise<{ id: string } | undefined> {
+  const rows = await db
+    .update(dayRecord)
+    .set({ voidedAt: sql`now()`, voidedReason, voidedBy })
+    .where(
+      and(
+        eq(dayRecord.dailyLeaseId, dailyLeaseId),
+        eq(dayRecord.businessDate, businessDate),
+        eq(dayRecord.state, "open"),
+        isNull(dayRecord.voidedAt),
+      ),
+    )
+    .returning({ id: dayRecord.id });
+  return rows[0];
+}
+
 export interface DriverViewDayRow {
   businessDate: string;
   state: DayRecordRow["state"];

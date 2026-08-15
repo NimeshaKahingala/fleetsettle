@@ -347,6 +347,63 @@ describe("confirm the day (P3, F-4.2/F-4.4)", () => {
     await ctx.cleanup();
   });
 
+  it("400 GAP-20 — an off-pattern date cannot be confirmed on demand (the pre-existing hole this item closes: materializeDailyLeaseHorizon has always checked isPatternDay, this on-demand path never did)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    // alternate: on on effectiveFrom (day zero), off the next day — 2026-07-02 is off-pattern.
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      patternType: "alternate",
+      effectiveFrom: "2026-07-01",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-02",
+      action: "paid_in_full",
+    });
+    expect(res.status).toBe(400);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
+  it("400 GAP-20 — an individually-skipped date cannot be confirmed on demand", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const exceptionRes = await request(`/api/daily-lease/${dailyLeaseId}/exception`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({ exceptionDate: "2026-07-15", reason: "Driver on leave" }),
+    });
+    expect(exceptionRes.status).toBe(201);
+    const exceptionBody: { id: string } = await exceptionRes.json();
+    ctx.trackCreatedLeaseDayException(exceptionBody.id);
+
+    const res = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-15",
+      action: "paid_in_full",
+    });
+    expect(res.status).toBe(400);
+    const responseBody: { code: string } = await res.json();
+    expect(responseBody).toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await ctx.cleanup();
+  });
+
   it("409 — GAP-118 (Wave 2 prerequisite): a card voided off a superseded lease cannot be confirmed, even by a client still holding its stale id", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
