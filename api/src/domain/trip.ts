@@ -1,6 +1,6 @@
 import { addDays, newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { OdometerSource } from "@fleetsettle/shared/schemas";
-import type { Writer } from "../db/client.js";
+import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   PeriodClosedError,
@@ -9,6 +9,7 @@ import {
   VehicleDoubleBookedError,
 } from "../errors/app-error.js";
 import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { findBusinessSettings } from "../queries/business.js";
 import { applyCreditForward } from "./credit-forward.js";
 import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import {
@@ -31,11 +32,14 @@ import {
 } from "../queries/odometer-reading.js";
 import {
   cancelTripRow,
+  clearHoldOnAllocationDaysForTrip,
   closeTripRow,
+  confirmTripHoldRow,
   deleteAllocationDaysForTrip,
   insertAllocationDays,
   insertTrip,
   releaseDailyLeaseAllocationsForRange,
+  releaseExpiredHolds,
   type TripRow,
 } from "../queries/trip.js";
 
@@ -55,15 +59,88 @@ export interface BookTripInput {
   openingOdometerSource?: OdometerSource;
   /** GAP-119: attributed on the daily lease's released allocations the same way any other void names who did it. */
   userId: string;
+  /** F-5.1 step 4/ST-5: "Confirm → booked, or hold if the enquiry is tentative." Defaults to `false` — a hold is an explicit choice, never the fallback, so an old client that has never heard of holds keeps booking outright. */
+  asHold?: boolean;
 }
 
 export interface BookedTrip {
   tripId: string;
-  /** GAP-57: the `trip_fare` obligation's own id, when one was raised — `null` for a charter with no customer or a zero agreed amount, the same guard that decides whether to write one at all. */
+  status: "hold" | "booked";
+  /** GAP-7/D-13: the hold's own expiry, `null` for a booked trip. */
+  holdExpiresOn: string | null;
+  /** GAP-57: the `trip_fare` obligation's own id, when one was raised — `null` for a charter with no customer or a zero agreed amount, the same guard that decides whether to write one at all, and always `null` for a hold (F-5.1's Accept: tentative, nothing owed yet). */
   receivableId: string | null;
   /** GAP-5b: the receivable's real settled amount and status after credit-forward — `null` alongside `receivableId` when none was raised. `0n`/`"pending"` when raised but the customer carried no credit to draw on. */
   receivableSettledMinor: bigint | null;
   receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
+}
+
+interface TripFareObligationInput {
+  businessId: string;
+  tripId: string;
+  vehicleId: string;
+  customerId: string;
+  agreedAmountMinor: Minor;
+  /** W-35: the date the fact is posted, not the trip's own dates — the booking date for a booked trip, the confirmation date for a just-confirmed hold. */
+  postingDate: BusinessDate;
+  dueOn: BusinessDate;
+}
+
+interface TripFareObligationResult {
+  receivableId: string;
+  receivableSettledMinor: bigint;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived";
+}
+
+/**
+ * GAP-23/A6's `trip_fare` obligation plus GAP-5b's credit-forward, shared by
+ * `bookTrip`'s own booked path and `confirmTripHold` below — a hold's
+ * "nothing owed yet" (F-5.1 Accept) means this fires exactly once per trip,
+ * whichever of the two writes it, and the two must never diverge on how a
+ * fare becomes a receivable.
+ */
+async function postTripFareObligation(
+  tx: Tx,
+  input: TripFareObligationInput,
+): Promise<TripFareObligationResult> {
+  const linkage = await resolvePeriodLinkage(tx, input.businessId, input.postingDate);
+  if (!linkage) {
+    throw new PeriodClosedError("No accounting period covers this business date yet");
+  }
+
+  const receivableId = newId();
+  await insertObligation(tx, {
+    id: receivableId,
+    businessId: input.businessId,
+    direction: "owed_to_us",
+    partyType: "customer",
+    partyCustomerId: input.customerId,
+    kind: "trip_fare",
+    sourceType: "trip",
+    sourceId: input.tripId,
+    vehicleId: input.vehicleId,
+    amountMinor: input.agreedAmountMinor,
+    settledMinor: 0n,
+    waivedMinor: 0n,
+    dueOn: input.dueOn,
+    effectiveDueOn: input.dueOn,
+    status: "pending",
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+  });
+
+  const credit = await applyCreditForward(
+    tx,
+    input.businessId,
+    "customer",
+    input.customerId,
+    "owed_to_us",
+    receivableId,
+    input.agreedAmountMinor,
+    input.dueOn,
+  );
+
+  return { receivableId, receivableSettledMinor: credit.settledMinor, receivableStatus: credit.status };
 }
 
 /** Every day in `[start, end]`, inclusive of both ends (W-54) — never open-ended, unlike a lease's horizon. */
@@ -112,11 +189,25 @@ function dateRange(start: BusinessDate, end: BusinessDate): BusinessDate[] {
  * `one_arrangement_per_vehicle_day` in the first place; `cancelTrip`
  * re-materialises whatever the vehicle's current daily lease would have
  * occupied, undoing this release rather than leaving a permanent hole.
+ *
+ * GAP-7/ST-5: `input.asHold` reserves the calendar (the same allocation
+ * write, with `isHold: true`) but takes neither of the two "this is real now"
+ * steps above — the day-record pause and the `trip_fare` obligation both
+ * wait for `confirmTripHold`, per F-5.1's own Accept clause ("a hold…does
+ * not suppress daily cards"). Before either branch runs, this vehicle's own
+ * expired holds are released synchronously, never only by the nightly sweep.
  */
 export async function bookTrip(writer: Writer, input: BookTripInput): Promise<BookedTrip> {
+  const asHold = input.asHold ?? false;
   try {
     return await writer.transaction(async (tx) => {
       const tripId = newId();
+
+      // GAP-7: a stale hold on this vehicle must not block a real booking
+      // just because the nightly sweep has not run yet — release is
+      // synchronous, ahead of every conflict check below, the same
+      // relationship D-9 already gives the daily-lease horizon and the cron.
+      await releaseExpiredHolds(tx, input.bookingDate, input.vehicleId, input.userId);
 
       await releaseDailyLeaseAllocationsForRange(
         tx,
@@ -140,19 +231,26 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
         });
       }
 
+      let holdExpiresOn: string | null = null;
+      if (asHold) {
+        const settings = await findBusinessSettings(tx, input.businessId);
+        holdExpiresOn = addDays(input.bookingDate, settings?.holdExpiryDays ?? 7);
+      }
+
       await insertTrip(tx, {
         id: tripId,
         businessId: input.businessId,
         vehicleId: input.vehicleId,
         ...(input.customerId !== undefined ? { customerId: input.customerId } : {}),
         ...(input.driverId !== undefined ? { driverId: input.driverId } : {}),
-        status: "booked",
+        status: asHold ? "hold" : "booked",
         startDate: input.startDate,
         endDate: input.endDate,
         ...(input.destination !== undefined ? { destination: input.destination } : {}),
         agreedAmountMinor: input.agreedAmountMinor,
         driverFeeMinor: input.driverFeeMinor,
         ...(openingOdometerId !== undefined ? { openingOdometerId } : {}),
+        ...(holdExpiresOn !== null ? { holdExpiresOn } : {}),
       });
 
       const days = dateRange(input.startDate, input.endDate).map((businessDate) => ({
@@ -163,61 +261,46 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
         arrangement: "C" as const,
         sourceType: "trip" as const,
         sourceId: tripId,
+        isHold: asHold,
       }));
       await insertAllocationDays(tx, days);
 
-      await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
-
+      // ST-5/F-5.1 Accept: "a hold reserves the calendar but does not
+      // suppress daily cards" — the daily lease's own already-generated
+      // day_record rows must stay exactly as they were, only its future
+      // occupancy moved above. Pausing them, and raising a receivable for
+      // money nobody has agreed to yet, are both deferred to
+      // `confirmTripHold`.
       let receivableId: string | null = null;
       let receivableSettledMinor: bigint | null = null;
       let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
-      if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
-        const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bookingDate);
-        if (!linkage) {
-          throw new PeriodClosedError("No accounting period covers this business date yet");
+      if (!asHold) {
+        await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
+
+        if (input.customerId !== undefined && input.agreedAmountMinor > 0n) {
+          const posted = await postTripFareObligation(tx, {
+            businessId: input.businessId,
+            tripId,
+            vehicleId: input.vehicleId,
+            customerId: input.customerId,
+            agreedAmountMinor: input.agreedAmountMinor,
+            postingDate: input.bookingDate,
+            dueOn: input.endDate,
+          });
+          receivableId = posted.receivableId;
+          receivableSettledMinor = posted.receivableSettledMinor;
+          receivableStatus = posted.receivableStatus;
         }
-
-        receivableId = newId();
-        await insertObligation(tx, {
-          id: receivableId,
-          businessId: input.businessId,
-          direction: "owed_to_us",
-          partyType: "customer",
-          partyCustomerId: input.customerId,
-          kind: "trip_fare",
-          sourceType: "trip",
-          sourceId: tripId,
-          vehicleId: input.vehicleId,
-          amountMinor: input.agreedAmountMinor,
-          settledMinor: 0n,
-          waivedMinor: 0n,
-          dueOn: input.endDate,
-          effectiveDueOn: input.endDate,
-          status: "pending",
-          postedPeriodId: linkage.postedPeriodId,
-          ...(linkage.belongsToPeriodId !== null
-            ? { belongsToPeriodId: linkage.belongsToPeriodId }
-            : {}),
-        });
-
-        // GAP-5b: the customer's own unapplied credit settles this trip's
-        // fare on the spot, same as every other obligation this business
-        // raises.
-        const credit = await applyCreditForward(
-          tx,
-          input.businessId,
-          "customer",
-          input.customerId,
-          "owed_to_us",
-          receivableId,
-          input.agreedAmountMinor,
-          input.endDate,
-        );
-        receivableSettledMinor = credit.settledMinor;
-        receivableStatus = credit.status;
       }
 
-      return { tripId, receivableId, receivableSettledMinor, receivableStatus };
+      return {
+        tripId,
+        status: asHold ? "hold" : "booked",
+        holdExpiresOn,
+        receivableId,
+        receivableSettledMinor,
+        receivableStatus,
+      };
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -226,6 +309,90 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
     }
     throw err;
   }
+}
+
+export interface ConfirmTripHoldInput {
+  businessId: string;
+  trip: TripRow;
+  /** Injected — `businessToday()` (IG §4.5). Also the obligation's own posting date (W-35): the fare becomes a real receivable the moment it is confirmed, not when the hold was first taken. */
+  confirmedOn: BusinessDate;
+}
+
+export interface ConfirmedTripHold {
+  tripId: string;
+  status: "booked";
+  receivableId: string | null;
+  receivableSettledMinor: bigint | null;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
+}
+
+/**
+ * ST-5/GAP-7: `hold` → `booked`, the confirm half of "it expires or is
+ * confirmed." Deliberately does not check `holdExpiresOn` against today —
+ * confirming is itself a user action overriding a stale expiry, and
+ * `releaseExpiredHolds` will have already cancelled anything genuinely
+ * abandoned before this row could still be found in `hold`. What a hold
+ * deferred at booking happens here instead: the daily lease's own day
+ * records for this range finally pause, the reserved allocation stops
+ * reading as tentative, and — only now — a `trip_fare` obligation is raised
+ * if there is a customer and a nonzero agreed amount.
+ */
+export async function confirmTripHold(
+  writer: Writer,
+  input: ConfirmTripHoldInput,
+): Promise<ConfirmedTripHold> {
+  const { trip } = input;
+  if (trip.status !== "hold") {
+    throw new ValidationError("Only a hold can be confirmed");
+  }
+
+  try {
+    return await writer.transaction(async (tx) => {
+      await pauseDayRecordsForTrip(tx, trip.vehicleId, trip.startDate, trip.endDate, trip.id);
+      await clearHoldOnAllocationDaysForTrip(tx, trip.id);
+      await confirmTripHoldRow(tx, trip.id);
+
+      let receivableId: string | null = null;
+      let receivableSettledMinor: bigint | null = null;
+      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
+      if (trip.customerId !== null && trip.agreedAmountMinor > 0n) {
+        const posted = await postTripFareObligation(tx, {
+          businessId: input.businessId,
+          tripId: trip.id,
+          vehicleId: trip.vehicleId,
+          customerId: trip.customerId,
+          agreedAmountMinor: trip.agreedAmountMinor as Minor,
+          postingDate: input.confirmedOn,
+          dueOn: trip.endDate as BusinessDate,
+        });
+        receivableId = posted.receivableId;
+        receivableSettledMinor = posted.receivableSettledMinor;
+        receivableStatus = posted.receivableStatus;
+      }
+
+      return { tripId: trip.id, status: "booked" as const, receivableId, receivableSettledMinor, receivableStatus };
+    });
+  } catch (err) {
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    throw err;
+  }
+}
+
+/**
+ * ST-5/GAP-7: "`in_progress` is derived, not written." A `booked` trip whose
+ * range has started reads as `in_progress` wherever status is shown;
+ * `closed`/`cancelled` are already terminal and never reinterpreted, and a
+ * `hold` stays a `hold` regardless of its own dates — it is not occupying
+ * anything until confirmed.
+ */
+export function deriveTripStatus(
+  row: Pick<TripRow, "status" | "startDate" | "endDate">,
+  today: BusinessDate,
+): TripRow["status"] {
+  if (row.status === "booked" && today >= row.startDate && today <= row.endDate) {
+    return "in_progress";
+  }
+  return row.status;
 }
 
 export interface CloseTripInput {
@@ -329,6 +496,13 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
 
   if (trip.status === "cancelled") {
     throw new ValidationError("A cancelled trip cannot be closed");
+  }
+
+  // GAP-7/ST-5: `hold` → `booked` → `in_progress` → `closed` — a hold must
+  // be confirmed first (never raised a receivable or paused the daily
+  // lease, both of which this write assumes already happened).
+  if (trip.status === "hold") {
+    throw new ValidationError("A hold must be confirmed before it can be closed");
   }
 
   if (trip.status === "closed") {
@@ -581,4 +755,20 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
   }
+}
+
+/**
+ * GAP-7/ST-5's nightly sweep — the optimisation, not the mechanism (the
+ * mechanism is the synchronous release inside `bookTrip`/`startDailyLease`/
+ * `startLease`). Unscoped by `business_id`, the same shape every other cron
+ * unit in this system uses (TS §4) — a hold nobody happened to book around
+ * releases on its own rather than waiting for the next booking attempt on
+ * that exact vehicle.
+ */
+export async function releaseAllExpiredHolds(
+  writer: Writer,
+  today: BusinessDate,
+): Promise<{ released: number }> {
+  const released = await writer.transaction(async (tx) => releaseExpiredHolds(tx, today));
+  return { released };
 }

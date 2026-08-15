@@ -38,6 +38,7 @@ const bookedTrip: TripResponse = {
   closingDate: null,
   cancelReason: null,
   advanceDisposition: null,
+  holdExpiresOn: null,
   receivable: pendingReceivable,
 };
 
@@ -304,6 +305,49 @@ test("a cancelled trip shows its reason and the advance's disposition", async ()
   expect(
     await screen.findByText(/Cancelled: customer changed plans · advance refunded/),
   ).toBeInTheDocument();
+});
+
+test("GAP-7/ST-5: a hold offers Confirm and Cancel trip, but never Close trip, and shows its own expiry", async () => {
+  const holdTrip: TripResponse = {
+    ...bookedTrip,
+    status: "hold",
+    receivable: null,
+    holdExpiresOn: "2026-07-22",
+  };
+  const get = baseGet({ "/api/trip/t1": holdTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });
+
+  expect(await screen.findByRole("button", { name: "Confirm" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Cancel trip" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Close trip" })).not.toBeInTheDocument();
+  expect(screen.getByText(/Expires 22 Jul 2026 unless confirmed first/)).toBeInTheDocument();
+  expect(screen.getByText("shown on driver history")).toBeInTheDocument(); // advance blocked until confirmed
+});
+
+test("GAP-7/ST-5: Confirm posts to /confirm and the trip re-reads as booked", async () => {
+  const user = userEvent.setup();
+  const holdTrip: TripResponse = { ...bookedTrip, status: "hold", holdExpiresOn: "2026-07-22" };
+  let confirmed = false;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/trip/t1") return Promise.resolve(confirmed ? bookedTrip : holdTrip);
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/driver/d1") return Promise.resolve(driver);
+    if (path === "/api/trip/t1/expense") return Promise.resolve([]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  const post = vi.fn().mockImplementation(() => {
+    confirmed = true;
+    return Promise.resolve(bookedTrip);
+  });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/trip/t1/confirm", {}));
+  expect(await screen.findByRole("button", { name: "Close trip" })).toBeInTheDocument();
 });
 
 test("Close trip opens the close sheet", async () => {

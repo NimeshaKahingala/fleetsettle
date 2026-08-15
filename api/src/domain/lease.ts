@@ -5,6 +5,7 @@ import { generateNextBillingPeriodTx, type GeneratedBillingPeriod } from "./bill
 import { takeCustomerDepositTx } from "./deposit.js";
 import { insertLease, updateLeaseTerms, type LeaseRow } from "../queries/lease.js";
 import { insertOdometerReading } from "../queries/odometer-reading.js";
+import { releaseExpiredHolds } from "../queries/trip.js";
 
 export interface StartLeaseInput {
   businessId: string;
@@ -21,6 +22,8 @@ export interface StartLeaseInput {
   odometerSource?: OdometerSource;
   depositAmountMinor?: Minor;
   userId: string;
+  /** Injected — `businessToday()` (IG §4.5). GAP-7: drives which of this vehicle's own holds count as expired before arrangement A starts occupying its dates. */
+  today: BusinessDate;
 }
 
 export interface StartedLease {
@@ -44,6 +47,12 @@ export interface StartedLease {
  */
 export async function startLease(writer: Writer, input: StartLeaseInput): Promise<StartedLease> {
   return writer.transaction(async (tx) => {
+    // GAP-7: released synchronously, ahead of this vehicle's own future
+    // occupancy — the same relationship `bookTrip`/`startDailyLease` give
+    // their own start, even though arrangement A's own allocation rows are
+    // written by the cron rather than here (P13).
+    await releaseExpiredHolds(tx, input.today, input.vehicleId, input.userId);
+
     const leaseId = newId();
     await insertLease(tx, {
       id: leaseId,

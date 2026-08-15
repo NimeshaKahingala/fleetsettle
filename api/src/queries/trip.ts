@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer, driver, trip, vehicle, vehicleDayAllocation } from "../db/schema.js";
 
@@ -11,13 +11,15 @@ export interface NewTrip {
   vehicleId: string;
   customerId?: string;
   driverId?: string;
-  status: "booked";
+  status: "hold" | "booked";
   startDate: string;
   endDate: string;
   destination?: string;
   agreedAmountMinor: bigint;
   driverFeeMinor: bigint;
   openingOdometerId?: string;
+  /** GAP-7/D-13: set only when `status` is `'hold'` — `trip_hold_expires_on_check` refuses the other combination. */
+  holdExpiresOn?: string;
 }
 
 export async function insertTrip(db: WriteDb, values: NewTrip): Promise<void> {
@@ -32,6 +34,8 @@ export interface NewAllocationDay {
   arrangement: "A" | "B" | "C";
   sourceType: "lease" | "daily_lease" | "trip";
   sourceId: string;
+  /** GAP-7: set only by a hold's own allocation rows — `false`/omitted for every other caller (booked trips, leases, daily leases), which is the column's own default. */
+  isHold?: boolean;
 }
 
 /**
@@ -100,6 +104,58 @@ export async function releaseDailyLeaseAllocationsForRange(
     );
 }
 
+/**
+ * GAP-7/ST-5: release is synchronous, never only by cron — `bookTrip`,
+ * `startDailyLease` and `startLease` each call this for their own vehicle
+ * before checking for a conflict, so a stale hold nobody confirmed cannot
+ * block a real booking just because the nightly sweep has not run yet
+ * (CLAUDE.md → Writes: no cron is a prerequisite for a user action). Two
+ * bulk statements bounded by however many holds this vehicle actually has
+ * outstanding — never a per-row loop. Omitting `vehicleId` is the nightly
+ * cron's own shape (`generate-day-cards`'s siblings are deliberately
+ * unscoped by business, TS §4); voiding twice is a no-op both times, since
+ * the second pass's `WHERE status = 'hold'` matches nothing already
+ * cancelled.
+ */
+export async function releaseExpiredHolds(
+  db: WriteDb,
+  today: string,
+  vehicleId?: string,
+  /** Who caused the release — the user whose booking/lease-start triggered it. `undefined` for the nightly sweep, which has no actor. */
+  voidedBy?: string,
+): Promise<number> {
+  const expired = await db
+    .select({ id: trip.id })
+    .from(trip)
+    .where(
+      and(
+        eq(trip.status, "hold"),
+        lt(trip.holdExpiresOn, today),
+        ...(vehicleId !== undefined ? [eq(trip.vehicleId, vehicleId)] : []),
+      ),
+    );
+  if (expired.length === 0) return 0;
+  const expiredIds = expired.map((r) => r.id);
+
+  await db
+    .update(vehicleDayAllocation)
+    .set({ voidedAt: sql`now()`, voidedReason: "Hold expired", voidedBy })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "trip"),
+        inArray(vehicleDayAllocation.sourceId, expiredIds),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+
+  await db
+    .update(trip)
+    .set({ status: "cancelled", cancelReason: "Hold expired", holdExpiresOn: null })
+    .where(inArray(trip.id, expiredIds));
+
+  return expiredIds.length;
+}
+
 export interface TripRow {
   id: string;
   businessId: string;
@@ -117,6 +173,8 @@ export interface TripRow {
   closingDate: string | null;
   cancelReason: string | null;
   advanceDisposition: "refunded" | "retained" | null;
+  /** GAP-7/D-13: the only source of truth for when a hold releases — `null` once confirmed or cancelled. */
+  holdExpiresOn: string | null;
   postedPeriodId: string | null;
   belongsToPeriodId: string | null;
 }
@@ -138,6 +196,7 @@ const COLUMNS = {
   closingDate: trip.closingDate,
   cancelReason: trip.cancelReason,
   advanceDisposition: trip.advanceDisposition,
+  holdExpiresOn: trip.holdExpiresOn,
   postedPeriodId: trip.postedPeriodId,
   belongsToPeriodId: trip.belongsToPeriodId,
 };
@@ -296,6 +355,25 @@ export async function closeTripRow(
       belongsToPeriodId: values.belongsToPeriodId,
     })
     .where(eq(trip.id, tripId));
+}
+
+/** GAP-7: confirming a hold turns its own reserved days into an ordinary booked allocation — the calendar's "T?" glyph stops applying without re-touching which days are reserved. */
+export async function clearHoldOnAllocationDaysForTrip(db: WriteDb, tripId: string): Promise<void> {
+  await db
+    .update(vehicleDayAllocation)
+    .set({ isHold: false })
+    .where(
+      and(
+        eq(vehicleDayAllocation.sourceType, "trip"),
+        eq(vehicleDayAllocation.sourceId, tripId),
+        isNull(vehicleDayAllocation.voidedAt),
+      ),
+    );
+}
+
+/** GAP-7: `hold` → `booked` (ST-5) — `hold_expires_on` clears, since `trip_hold_expires_on_check` refuses a non-null value once the row leaves `hold`. */
+export async function confirmTripHoldRow(db: WriteDb, tripId: string): Promise<void> {
+  await db.update(trip).set({ status: "booked", holdExpiresOn: null }).where(eq(trip.id, tripId));
 }
 
 export interface CancelTripValues {
