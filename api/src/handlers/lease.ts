@@ -1,6 +1,11 @@
-import { toWire, type Minor } from "@fleetsettle/shared";
+import { businessToday, toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
+import {
+  requireBusinessId,
+  requireBusinessTimezone,
+  requireCapability,
+  requireUserId,
+} from "../auth/context.js";
 import { generateNextBillingPeriod } from "../domain/billing-period.js";
 import {
   closeLease,
@@ -115,6 +120,7 @@ export const startLeaseHandler: RouteHandler<typeof startLeaseRoute, Env> = asyn
       ? { depositAmountMinor: body.depositAmountMinor }
       : {}),
     userId,
+    today: businessToday(requireBusinessTimezone(c)),
   });
 
   return c.json({ ...toResponse(lease), depositId }, 201);

@@ -19,6 +19,7 @@ import { EntityPicker, type EntityOption } from "../../components/EntityPicker.j
 import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Screen } from "../../design/primitives/Screen.js";
@@ -50,11 +51,13 @@ const STEP_LABELS = ["Trip", "Driver", "Confirm"];
  * every one of them is skippable (U-2), mirroring `StartLeaseScreen`'s own
  * multi-step shape rather than inventing a second one.
  *
- * **Not built: the `hold` (ST-5) state.** `bookTripRequestSchema` has
- * nowhere to carry it and `domain/trip.ts`'s `bookTrip` writes `booked`
- * outright — the same gap `VehicleCalendarScreen`'s own `T?` glyph already
- * records as currently unreachable in production. Offering a "Hold" button
- * here would be UI for a state this backend cannot persist.
+ * F-5.1 step 4/ST-5 (GAP-7): the confirm step's own sticky action is
+ * "Book trip" — a real commitment, never the fallback — with "Hold instead"
+ * as an ordinary in-content button beside it, the same one-sticky-CTA shape
+ * `OpeningBalanceScreen` already uses for two real actions on one screen
+ * (F5/GAP-110). A hold reserves the calendar's `T?` cell without pausing the
+ * daily lease or raising a receivable — nothing here computes that; the
+ * server decides what a hold does and does not do.
  */
 export function BookTripScreen({
   vehicleId,
@@ -149,7 +152,7 @@ export function BookTripScreen({
   );
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (asHold: boolean) =>
       api.post<TripResponse>("/api/trip", {
         vehicleId,
         startDate,
@@ -159,6 +162,7 @@ export function BookTripScreen({
         ...(destination.trim() !== "" ? { destination: destination.trim() } : {}),
         ...(agreedAmountMinor !== null ? { agreedAmountMinor: toWire(agreedAmountMinor) } : {}),
         ...(driverFeeMinor !== null ? { driverFeeMinor: toWire(driverFeeMinor) } : {}),
+        asHold,
       } satisfies BookTripWireRequest),
     onSuccess: (trip) => {
       void queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
@@ -179,7 +183,7 @@ export function BookTripScreen({
     step === STEP_LABELS.length - 1
       ? {
           label: "Book trip",
-          onClick: () => mutation.mutate(),
+          onClick: () => mutation.mutate(false),
           disabled: mutation.isPending,
         }
       : { label: "Next", onClick: goNext };
@@ -344,6 +348,14 @@ export function BookTripScreen({
             {mutation.isError ? (
               <p className="text-body-sm text-critical-ink">{mutation.error.message}</p>
             ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => mutation.mutate(true)}
+              disabled={mutation.isPending}
+            >
+              Hold instead
+            </Button>
           </div>
         ) : null}
 

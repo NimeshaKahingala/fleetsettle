@@ -6,6 +6,7 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
+import { deriveTripStatus } from "../domain/trip.js";
 import {
   archiveVehicle,
   changeVehicleArrangement,
@@ -367,11 +368,12 @@ export const listVehicleTripsHandler: RouteHandler<typeof listVehicleTripsRoute,
   const vehicleRow = await findVehicleForBusiness(c.get("reader"), businessId, id);
   if (!vehicleRow) throw new NotFoundError();
 
+  const today = businessToday(requireBusinessTimezone(c));
   const rows = await listTripsForVehicle(c.get("reader"), businessId, id);
   return c.json(
     rows.map((row) => ({
       id: row.id,
-      status: row.status,
+      status: deriveTripStatus(row, today),
       startDate: row.startDate,
       endDate: row.endDate,
       destination: row.destination,

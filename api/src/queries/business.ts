@@ -77,12 +77,17 @@ export async function insertBusinessSettings(db: Db, businessId: string): Promis
   await db.insert(businessSettings).values({ businessId });
 }
 
-/** OQ-3: a blank threshold means zero (waive nothing), never unbounded — `businessSettings.autoWaiveThresholdMinor` defaults to `0n`, never null. `paperworkWarnDays` is UC-92's own warning window (default 30); `depositHoldDays` is W-29's (default 30, DM §3). */
+/** OQ-3: a blank threshold means zero (waive nothing), never unbounded — `businessSettings.autoWaiveThresholdMinor` defaults to `0n`, never null. `paperworkWarnDays` is UC-92's own warning window (default 30); `depositHoldDays` is W-29's (default 30, DM §3); `holdExpiryDays` is ST-5/GAP-7's (default 7, migration 0020). */
 export async function findBusinessSettings(
   db: ReadDb,
   businessId: string,
 ): Promise<
-  | { autoWaiveThresholdMinor: bigint; paperworkWarnDays: number; depositHoldDays: number }
+  | {
+      autoWaiveThresholdMinor: bigint;
+      paperworkWarnDays: number;
+      depositHoldDays: number;
+      holdExpiryDays: number;
+    }
   | undefined
 > {
   const rows = await db
@@ -90,6 +95,7 @@ export async function findBusinessSettings(
       autoWaiveThresholdMinor: businessSettings.autoWaiveThresholdMinor,
       paperworkWarnDays: businessSettings.paperworkWarnDays,
       depositHoldDays: businessSettings.depositHoldDays,
+      holdExpiryDays: businessSettings.holdExpiryDays,
     })
     .from(businessSettings)
     .where(eq(businessSettings.businessId, businessId))

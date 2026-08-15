@@ -77,6 +77,29 @@ export const getTripRoute = createRoute({
 });
 
 /**
+ * ST-5/GAP-7: the confirm half of "it expires or is confirmed" — `hold` →
+ * `booked`. No body: nothing about the trip changes except its own status,
+ * the daily lease's day records finally pausing, and — only now — a
+ * `trip_fare` obligation if there is a customer and a nonzero agreed amount.
+ */
+export const confirmTripHoldRoute = createRoute({
+  method: "post",
+  path: "/{id}/confirm",
+  request: { params: tripIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: tripResponseSchema } },
+      description: "The confirmed trip, now booked",
+    },
+    400: { description: "This trip is not a hold" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot confirm a trip" },
+    404: { description: "No such trip in this business" },
+    409: { description: "PERIOD_CLOSED — no accounting period covers today yet" },
+  },
+});
+
+/**
  * Web-P7: every cost logged against this trip so far — the open-trip
  * screen's own "Costs so far" (UI §7.5), read fresh rather than waiting for
  * `POST /{id}/close`'s own P&L, which only exists once the trip is already
@@ -114,7 +137,10 @@ export const closeTripRoute = createRoute({
       content: { "application/json": { schema: closedTripResponseSchema } },
       description: "The closed trip, with its P&L",
     },
-    400: { description: "The trip is cancelled, or the request is malformed" },
+    400: {
+      description:
+        "The trip is cancelled, is still a hold (GAP-7 — confirm it first), or the request is malformed",
+    },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot close a trip" },
     404: { description: "No such trip in this business" },

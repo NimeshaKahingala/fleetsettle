@@ -1,4 +1,4 @@
-import { businessToday, toWire, ZERO, type Minor } from "@fleetsettle/shared";
+import { businessToday, toWire, ZERO, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import {
   requireBusinessId,
@@ -10,6 +10,8 @@ import {
   bookTrip,
   cancelTrip,
   closeTrip,
+  confirmTripHold,
+  deriveTripStatus,
   type CancelledTrip,
   type ClosedTrip,
 } from "../domain/trip.js";
@@ -28,6 +30,7 @@ import type {
   bookTripRoute,
   cancelTripRoute,
   closeTripRoute,
+  confirmTripHoldRoute,
   getTripRoute,
   listInProgressTripsRoute,
   listTripExpensesRoute,
@@ -49,6 +52,7 @@ type TripResponseRow = Pick<
   | "closingDate"
   | "cancelReason"
   | "advanceDisposition"
+  | "holdExpiresOn"
 >;
 
 /** GAP-57: `null` for a charter with no customer, no agreed amount, or a cancelled trip (`findObligationBySource` excludes a voided one). */
@@ -65,13 +69,18 @@ function toReceivable(row: ObligationRow | null | undefined) {
   };
 }
 
-function toResponse(row: TripResponseRow, receivable: ObligationRow | null) {
+/** GAP-7/ST-5: `status` is derived against `today` here, at the one seam every trip read passes through — a stored `booked` row reads as `in_progress` once its own dates have started, never written that way. */
+function toResponse(
+  row: TripResponseRow,
+  receivable: ObligationRow | null,
+  today: BusinessDate,
+) {
   return {
     id: row.id,
     vehicleId: row.vehicleId,
     customerId: row.customerId,
     driverId: row.driverId,
-    status: row.status,
+    status: deriveTripStatus(row, today),
     startDate: row.startDate,
     endDate: row.endDate,
     destination: row.destination,
@@ -80,6 +89,7 @@ function toResponse(row: TripResponseRow, receivable: ObligationRow | null) {
     closingDate: row.closingDate,
     cancelReason: row.cancelReason,
     advanceDisposition: row.advanceDisposition,
+    holdExpiresOn: row.holdExpiresOn,
     receivable: toReceivable(receivable),
   };
 }
@@ -147,28 +157,31 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
   const agreedAmountMinor = body.agreedAmountMinor ?? ZERO;
   const driverFeeMinor = body.driverFeeMinor ?? ZERO;
 
-  const { tripId, receivableId, receivableSettledMinor, receivableStatus } = await bookTrip(
-    c.get("writer"),
-    {
-      businessId,
-      vehicleId: body.vehicleId,
-      ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
-      ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
-      startDate: body.startDate,
-      endDate: body.endDate,
-      bookingDate,
-      ...(body.destination !== undefined ? { destination: body.destination } : {}),
-      agreedAmountMinor,
-      driverFeeMinor,
-      ...(body.openingOdometerKm !== undefined
-        ? { openingOdometerKm: body.openingOdometerKm }
-        : {}),
-      ...(body.openingOdometerSource !== undefined
-        ? { openingOdometerSource: body.openingOdometerSource }
-        : {}),
-      userId: requireUserId(c),
-    },
-  );
+  const {
+    tripId,
+    status,
+    holdExpiresOn,
+    receivableId,
+    receivableSettledMinor,
+    receivableStatus,
+  } = await bookTrip(c.get("writer"), {
+    businessId,
+    vehicleId: body.vehicleId,
+    ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+    ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
+    startDate: body.startDate,
+    endDate: body.endDate,
+    bookingDate,
+    ...(body.destination !== undefined ? { destination: body.destination } : {}),
+    agreedAmountMinor,
+    driverFeeMinor,
+    ...(body.openingOdometerKm !== undefined ? { openingOdometerKm: body.openingOdometerKm } : {}),
+    ...(body.openingOdometerSource !== undefined
+      ? { openingOdometerSource: body.openingOdometerSource }
+      : {}),
+    userId: requireUserId(c),
+    asHold: body.asHold,
+  });
 
   // GAP-57: mirrors exactly what `bookTrip` just wrote in the same
   // transaction — never re-derived from a second guard that could drift
@@ -197,7 +210,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
         vehicleId: body.vehicleId,
         customerId: body.customerId ?? null,
         driverId: body.driverId ?? null,
-        status: "booked",
+        status,
         startDate: body.startDate,
         endDate: body.endDate,
         destination: body.destination ?? null,
@@ -206,8 +219,10 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
         closingDate: null,
         cancelReason: null,
         advanceDisposition: null,
+        holdExpiresOn,
       },
       receivable,
+      bookingDate,
     ),
     201,
   );
@@ -224,7 +239,48 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
 
   const receivable = (await findObligationBySource(c.get("reader"), "trip", id)) ?? null;
 
-  return c.json(toResponse(row, receivable), 200);
+  return c.json(toResponse(row, receivable, businessToday(requireBusinessTimezone(c))), 200);
+};
+
+/** ST-5/GAP-7. `confirmTripHold` (domain/trip.ts) is the write; this is validation and translation only. */
+export const confirmTripHoldHandler: RouteHandler<typeof confirmTripHoldRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const confirmedOn = businessToday(requireBusinessTimezone(c));
+
+  const trip = await findTripForBusiness(c.get("reader"), businessId, id);
+  if (!trip) throw new NotFoundError();
+
+  const { receivableId, receivableSettledMinor, receivableStatus } = await confirmTripHold(
+    c.get("writer"),
+    { businessId, trip, confirmedOn },
+  );
+
+  const receivable: ObligationRow | null =
+    receivableId !== null
+      ? {
+          id: receivableId,
+          kind: "trip_fare",
+          dueOn: trip.endDate,
+          amountMinor: trip.agreedAmountMinor,
+          settledMinor: receivableSettledMinor ?? 0n,
+          waivedMinor: 0n,
+          status: receivableStatus ?? "pending",
+        }
+      : null;
+
+  return c.json(
+    toResponse(
+      { ...trip, status: "booked", holdExpiresOn: null },
+      receivable,
+      confirmedOn,
+    ),
+    200,
+  );
 };
 
 /** Web-P7: the open-trip screen's own "Costs so far" — same `leaseAndTripLifecycle` gate as this resource's other reads. */

@@ -173,6 +173,13 @@ export function VehicleCalendarScreen({
             retry={daysState.retry}
             of="this month's calendar"
           />
+        ) : daysState.kind !== "ready" ? (
+          // GAP-127: `byDate` is built from `days ?? []` below — rendering
+          // the grid while the fetch is still in flight would read every
+          // date as free on the one screen whose job is stopping a
+          // double-booking (INV-1), the same false-empty shape the error
+          // branch above already guards against.
+          <p className="text-body text-ink-muted">Loading…</p>
         ) : (
           <>
             <div className="grid grid-cols-7 gap-1">
