@@ -494,7 +494,11 @@ describe("scheduled jobs (P13)", () => {
       await releaseAllExpiredHolds(db, asBusinessDate("2026-08-01"));
 
       const [expiredRow] = await db
-        .select({ status: trip.status, cancelReason: trip.cancelReason, holdExpiresOn: trip.holdExpiresOn })
+        .select({
+          status: trip.status,
+          cancelReason: trip.cancelReason,
+          holdExpiresOn: trip.holdExpiresOn,
+        })
         .from(trip)
         .where(eq(trip.id, expiredHoldId));
       expect(expiredRow).toMatchObject({

@@ -424,6 +424,14 @@ export interface CancelTripValues {
 }
 
 /** F-5.5/UC-45: "any advance refunded or retained as income — a choice, recorded" — the trip keeps which one was decided, not just that it was cancelled. */
+/**
+ * GAP-7/D-13: `holdExpiresOn` clears here too, the same way
+ * `confirmTripHoldRow` clears it on the other exit from `hold` —
+ * `trip_hold_expires_on_check` (migration `0020`) refuses any non-`hold`
+ * status with a non-null `hold_expires_on`, and cancelling a still-`hold`
+ * trip (F-5.5's "cancels a hold directly" path) would otherwise try to
+ * leave exactly that combination.
+ */
 export async function cancelTripRow(
   db: WriteDb,
   tripId: string,
@@ -435,6 +443,7 @@ export async function cancelTripRow(
       status: "cancelled",
       cancelReason: values.cancelReason,
       advanceDisposition: values.advanceDisposition,
+      holdExpiresOn: null,
     })
     .where(eq(trip.id, tripId));
 }

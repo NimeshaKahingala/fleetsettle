@@ -17,7 +17,7 @@
 -- always recorded ("Hold expired"); "who", for a cron sweep, has no one to
 -- name. Every other table's own void trio is untouched — this is the one
 -- table where a non-human actor was ever a real possibility.
-ALTER TABLE vehicle_day_allocation DROP CONSTRAINT vehicle_day_allocation_void_check;
+ALTER TABLE vehicle_day_allocation DROP CONSTRAINT vehicle_day_allocation_void_check; -- allow: relaxing a CHECK is additive — every existing voided row already has voided_by set, so it still satisfies the new, looser constraint; same drop-and-readd pattern 0014 used for obligation_kind_check
 ALTER TABLE vehicle_day_allocation ADD CONSTRAINT vehicle_day_allocation_void_check CHECK (
   (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
   OR (voided_at IS NOT NULL AND voided_reason IS NOT NULL AND length(voided_reason) > 0)

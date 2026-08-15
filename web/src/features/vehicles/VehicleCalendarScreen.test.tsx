@@ -87,7 +87,9 @@ test("GAP-127: shows a loading notice while the calendar is in flight, never eve
 
   expect(await screen.findByText("Loading…")).toBeInTheDocument();
   expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: `Book a trip from ${today}` })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: `Book a trip from ${today}` }),
+  ).not.toBeInTheDocument();
 
   resolveDays?.([]);
   expect(await screen.findByTestId(`day-${today}`)).toBeInTheDocument();

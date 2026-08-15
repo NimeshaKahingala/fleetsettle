@@ -240,8 +240,8 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             ) : null}
             {trip.status === "hold" ? (
               <p className="text-caption text-ink-muted">
-                Hold — reserves the calendar, but nothing is owed and the daily lease keeps
-                running until this is confirmed.
+                Hold — reserves the calendar, but nothing is owed and the daily lease keeps running
+                until this is confirmed.
                 {trip.holdExpiresOn !== null
                   ? ` Expires ${formatShortDate(trip.holdExpiresOn)} unless confirmed first.`
                   : ""}

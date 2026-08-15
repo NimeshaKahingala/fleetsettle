@@ -647,7 +647,10 @@ describe("book a trip as a hold (GAP-7/ST-5)", () => {
       .select()
       .from(vehicleDayAllocation)
       .where(
-        and(eq(vehicleDayAllocation.sourceType, "trip"), eq(vehicleDayAllocation.sourceId, body.id)),
+        and(
+          eq(vehicleDayAllocation.sourceType, "trip"),
+          eq(vehicleDayAllocation.sourceId, body.id),
+        ),
       );
     expect(allocationRows).toHaveLength(2);
     expect(allocationRows.every((r) => r.arrangement === "C" && r.isHold)).toBe(true);
@@ -690,7 +693,8 @@ describe("book a trip as a hold (GAP-7/ST-5)", () => {
       endDate: "2026-04-01",
     });
     expect(res.status).toBe(201);
-    const body: { status: string; holdExpiresOn: string | null } = await res.json();
+    const body: { id: string; status: string; holdExpiresOn: string | null } = await res.json();
+    ctx.trackCreatedTrip(body.id);
     expect(body.status).toBe("booked");
     expect(body.holdExpiresOn).toBeNull();
 
@@ -916,7 +920,10 @@ describe("expired holds release synchronously, never only by cron (GAP-7)", () =
     expect(staleHoldBody).toMatchObject({ status: "cancelled", cancelReason: "Hold expired" });
 
     const staleAllocations = await db
-      .select({ voidedAt: vehicleDayAllocation.voidedAt, voidedReason: vehicleDayAllocation.voidedReason })
+      .select({
+        voidedAt: vehicleDayAllocation.voidedAt,
+        voidedReason: vehicleDayAllocation.voidedReason,
+      })
       .from(vehicleDayAllocation)
       .where(
         and(
@@ -925,9 +932,9 @@ describe("expired holds release synchronously, never only by cron (GAP-7)", () =
         ),
       );
     expect(staleAllocations).toHaveLength(2);
-    expect(staleAllocations.every((r) => r.voidedAt !== null && r.voidedReason === "Hold expired")).toBe(
-      true,
-    );
+    expect(
+      staleAllocations.every((r) => r.voidedAt !== null && r.voidedReason === "Hold expired"),
+    ).toBe(true);
 
     await ctx.cleanup();
   });
@@ -937,6 +944,11 @@ describe("expired holds release synchronously, never only by cron (GAP-7)", () =
     const businessId = await ctx.createBusiness();
     const today = businessToday();
     const vehicleId = await ctx.createVehicle(businessId);
+    // GAP-84/GAP-87: booking a trip needs B or C, starting a daily lease
+    // needs B or null — B is the only arrangement this test's own sequence
+    // (hold, then a daily lease on the same vehicle) can pass both gates
+    // with, the same choice the sibling GAP-119 test above makes.
+    await ctx.setVehicleArrangement(vehicleId, "B");
     const driverId = await ctx.createDriver(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
@@ -947,9 +959,13 @@ describe("expired holds release synchronously, never only by cron (GAP-7)", () =
       endDate: addDays(today, 1),
       asHold: true,
     });
+    expect(holdRes.status).toBe(201);
     const holdBody: { id: string } = await holdRes.json();
     ctx.trackCreatedTrip(holdBody.id);
-    await db.update(tripTable).set({ holdExpiresOn: "2020-01-01" }).where(eq(tripTable.id, holdBody.id));
+    await db
+      .update(tripTable)
+      .set({ holdExpiresOn: "2020-01-01" })
+      .where(eq(tripTable.id, holdBody.id));
 
     const leaseRes = await postDailyLease(token, {
       vehicleId,

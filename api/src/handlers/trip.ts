@@ -70,11 +70,7 @@ function toReceivable(row: ObligationRow | null | undefined) {
 }
 
 /** GAP-7/ST-5: `status` is derived against `today` here, at the one seam every trip read passes through — a stored `booked` row reads as `in_progress` once its own dates have started, never written that way. */
-function toResponse(
-  row: TripResponseRow,
-  receivable: ObligationRow | null,
-  today: BusinessDate,
-) {
+function toResponse(row: TripResponseRow, receivable: ObligationRow | null, today: BusinessDate) {
   return {
     id: row.id,
     vehicleId: row.vehicleId,
@@ -157,31 +153,27 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
   const agreedAmountMinor = body.agreedAmountMinor ?? ZERO;
   const driverFeeMinor = body.driverFeeMinor ?? ZERO;
 
-  const {
-    tripId,
-    status,
-    holdExpiresOn,
-    receivableId,
-    receivableSettledMinor,
-    receivableStatus,
-  } = await bookTrip(c.get("writer"), {
-    businessId,
-    vehicleId: body.vehicleId,
-    ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
-    ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
-    startDate: body.startDate,
-    endDate: body.endDate,
-    bookingDate,
-    ...(body.destination !== undefined ? { destination: body.destination } : {}),
-    agreedAmountMinor,
-    driverFeeMinor,
-    ...(body.openingOdometerKm !== undefined ? { openingOdometerKm: body.openingOdometerKm } : {}),
-    ...(body.openingOdometerSource !== undefined
-      ? { openingOdometerSource: body.openingOdometerSource }
-      : {}),
-    userId: requireUserId(c),
-    asHold: body.asHold,
-  });
+  const { tripId, status, holdExpiresOn, receivableId, receivableSettledMinor, receivableStatus } =
+    await bookTrip(c.get("writer"), {
+      businessId,
+      vehicleId: body.vehicleId,
+      ...(body.customerId !== undefined ? { customerId: body.customerId } : {}),
+      ...(body.driverId !== undefined ? { driverId: body.driverId } : {}),
+      startDate: body.startDate,
+      endDate: body.endDate,
+      bookingDate,
+      ...(body.destination !== undefined ? { destination: body.destination } : {}),
+      agreedAmountMinor,
+      driverFeeMinor,
+      ...(body.openingOdometerKm !== undefined
+        ? { openingOdometerKm: body.openingOdometerKm }
+        : {}),
+      ...(body.openingOdometerSource !== undefined
+        ? { openingOdometerSource: body.openingOdometerSource }
+        : {}),
+      userId: requireUserId(c),
+      asHold: body.asHold,
+    });
 
   // GAP-57: mirrors exactly what `bookTrip` just wrote in the same
   // transaction — never re-derived from a second guard that could drift
@@ -243,9 +235,7 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
 };
 
 /** ST-5/GAP-7. `confirmTripHold` (domain/trip.ts) is the write; this is validation and translation only. */
-export const confirmTripHoldHandler: RouteHandler<typeof confirmTripHoldRoute, Env> = async (
-  c,
-) => {
+export const confirmTripHoldHandler: RouteHandler<typeof confirmTripHoldRoute, Env> = async (c) => {
   requireCapability(c, "leaseAndTripLifecycle");
 
   const businessId = requireBusinessId(c);
@@ -274,11 +264,7 @@ export const confirmTripHoldHandler: RouteHandler<typeof confirmTripHoldRoute, E
       : null;
 
   return c.json(
-    toResponse(
-      { ...trip, status: "booked", holdExpiresOn: null },
-      receivable,
-      confirmedOn,
-    ),
+    toResponse({ ...trip, status: "booked", holdExpiresOn: null }, receivable, confirmedOn),
     200,
   );
 };
