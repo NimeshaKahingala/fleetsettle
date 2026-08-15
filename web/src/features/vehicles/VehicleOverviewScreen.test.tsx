@@ -524,6 +524,118 @@ test("a lease entry in History is tappable onto its own hub; a daily-lease entry
   expect(dailyLeaseText.closest("button")).toBeNull();
 });
 
+test("F-4.8/GAP-25: End daily lease is offered only when one is actually running, and ends the right one", async () => {
+  const user = userEvent.setup();
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({ "/api/vehicle/v1/daily-lease": dailyLeases });
+  const post = vi.fn().mockResolvedValue({
+    id: "dl1",
+    vehicleId: "v1",
+    driverId: "d1",
+    patternType: "every_day",
+    patternWeekdays: null,
+    effectiveFrom: "2026-06-01",
+    effectiveTo: "2026-08-15",
+    dailyLeaseAmountMinor: "450000",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "End daily lease" }));
+  await user.click(await screen.findByRole("button", { name: "End daily lease" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledOnce());
+  const [url, body] = post.mock.calls[0] as [string, { effectiveTo: string }];
+  expect(url).toBe("/api/daily-lease/dl1/end");
+  expect(body.effectiveTo).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+});
+
+test("F-4.3/GAP-2: Change the daily lease amount is offered only when one is actually running, and changes the right one", async () => {
+  const user = userEvent.setup();
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({ "/api/vehicle/v1/daily-lease": dailyLeases });
+  const post = vi.fn().mockResolvedValue({
+    dailyLeaseId: "dl1",
+    dailyLeaseAmountMinor: "600000",
+    effectiveFrom: "2026-08-15",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Change the daily lease amount" }));
+  await user.click(screen.getByRole("button", { name: "Enter new daily lease amount" }));
+  await user.click(screen.getByRole("button", { name: "6" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Change the daily lease amount" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/daily-lease/dl1/rate",
+      expect.objectContaining({ dailyLeaseAmountMinor: "6" }),
+    ),
+  );
+});
+
+test("F-4.8/GAP-25: no End daily lease action when nothing is currently running", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  expect(screen.queryByRole("button", { name: "End daily lease" })).toBeNull();
+});
+
 test("Incidents lists every one with its own status, and each row is tappable (Web-P8a)", async () => {
   const user = userEvent.setup();
   const incidents: IncidentResponse[] = [

@@ -294,13 +294,33 @@ export async function findDailyLeaseForBusiness(
 export async function findCurrentDailyLeaseRate(
   db: ReadDb,
   dailyLeaseId: string,
-): Promise<{ dailyLeaseAmountMinor: bigint } | undefined> {
+): Promise<{ dailyLeaseAmountMinor: bigint; effectiveFrom: string } | undefined> {
   const rows = await db
-    .select({ dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor })
+    .select({
+      dailyLeaseAmountMinor: dailyLeaseRate.dailyLeaseAmountMinor,
+      effectiveFrom: dailyLeaseRate.effectiveFrom,
+    })
     .from(dailyLeaseRate)
     .where(and(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId), isNull(dailyLeaseRate.effectiveTo)))
     .limit(1);
   return rows[0];
+}
+
+/**
+ * F-4.3/GAP-2, the rate-table sibling of `endDailyLeaseRow`: closes the
+ * currently open `daily_lease_rate` the day before a new one opens — the
+ * same close-then-insert shape `changeDailyLeaseDriver` gives `daily_lease`
+ * itself, applied here to DM §7's own exclusion constraint on this table.
+ */
+export async function endDailyLeaseRateRow(
+  db: WriteDb,
+  dailyLeaseId: string,
+  effectiveTo: string,
+): Promise<void> {
+  await db
+    .update(dailyLeaseRate)
+    .set({ effectiveTo })
+    .where(and(eq(dailyLeaseRate.dailyLeaseId, dailyLeaseId), isNull(dailyLeaseRate.effectiveTo)));
 }
 
 export interface DailyLeaseRateRow {

@@ -8,7 +8,9 @@ import {
 } from "../auth/context.js";
 import {
   changeDailyLeaseDriver,
+  changeDailyLeaseRate,
   createLeaseDayException,
+  endDailyLease,
   startDailyLease,
   voidLeaseDayException,
 } from "../domain/dailyLease.js";
@@ -25,7 +27,9 @@ import { findDriverForBusiness } from "../queries/driver.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
   changeDailyLeaseDriverRoute,
+  changeDailyLeaseRateRoute,
   createLeaseDayExceptionRoute,
+  endDailyLeaseRoute,
   getDailyLeaseRoute,
   listActiveDailyLeasesRoute,
   listLeaseDayExceptionsRoute,
@@ -137,6 +141,52 @@ export const changeDailyLeaseDriverHandler: RouteHandler<
   });
 
   return c.json(toResponse(result, result.dailyLeaseAmountMinor), 201);
+};
+
+/** F-4.8/UC-101/GAP-25. `leaseAndTripLifecycle` — the same gate as every other daily-lease write. */
+export const endDailyLeaseHandler: RouteHandler<typeof endDailyLeaseRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await endDailyLease(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    effectiveTo: body.effectiveTo,
+    userId: requireUserId(c),
+  });
+
+  return c.json(toResponse(result, result.dailyLeaseAmountMinor), 200);
+};
+
+/** F-4.3/UC-32/GAP-2. `leaseAndTripLifecycle` — the same gate as every other daily-lease write. */
+export const changeDailyLeaseRateHandler: RouteHandler<
+  typeof changeDailyLeaseRateRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const result = await changeDailyLeaseRate(c.get("writer"), {
+    businessId,
+    dailyLeaseId: id,
+    dailyLeaseAmountMinor: body.dailyLeaseAmountMinor,
+    effectiveFrom: body.effectiveFrom,
+  });
+
+  return c.json(
+    {
+      dailyLeaseId: result.dailyLeaseId,
+      dailyLeaseAmountMinor: toWire(result.dailyLeaseAmountMinor as Minor),
+      effectiveFrom: result.effectiveFrom,
+    },
+    201,
+  );
 };
 
 function toExceptionResponse(row: LeaseDayExceptionRow) {

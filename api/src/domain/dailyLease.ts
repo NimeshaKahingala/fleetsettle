@@ -18,10 +18,12 @@ import {
 } from "../errors/app-error.js";
 import {
   findDayRecordByLeaseAndDate,
+  repriceFutureOpenDayRecords,
   voidFutureOpenDayRecordsForLease,
   voidOpenDayRecordForDate,
 } from "../queries/day-record.js";
 import {
+  endDailyLeaseRateRow,
   endDailyLeaseRow,
   findCurrentDailyLeaseRate,
   findDailyLeaseForBusiness,
@@ -275,6 +277,145 @@ export async function changeDailyLeaseDriver(
     }
     throw err;
   }
+}
+
+export interface EndDailyLeaseInput {
+  businessId: string;
+  dailyLeaseId: string;
+  effectiveTo: BusinessDate;
+  /** GAP-118's own actor, on this close's own void trio (CLAUDE.md → Writes: append-only, an actor recorded). */
+  userId: string;
+}
+
+export type EndedDailyLease = ChangedDailyLeaseDriver;
+
+/**
+ * F-4.8/UC-101/GAP-25, one transaction: **distinct from F-4.7** — nothing
+ * replaces this assignment, so there is no new `daily_lease` row to open
+ * behind it, only the same GAP-118 close-out `changeDailyLeaseDriver` and
+ * `changeVehicleArrangement` already both make on their own way off B.
+ * **INV-37**: no check against the driver's own balance — F-1.11's archive
+ * refusal (INV-35) protects against a driver dropping out of every list
+ * with a due left open behind him; ending an assignment hides nothing, so
+ * there is nothing that guard would be protecting here (W-62).
+ */
+export async function endDailyLease(
+  writer: Writer,
+  input: EndDailyLeaseInput,
+): Promise<EndedDailyLease> {
+  return await writer.transaction(async (tx) => {
+    const current = await findDailyLeaseForBusiness(tx, input.businessId, input.dailyLeaseId);
+    if (!current) throw new NotFoundError("No such daily lease in this business");
+    if (current.effectiveTo !== null) {
+      throw new ValidationError("This daily lease has already ended");
+    }
+    if (input.effectiveTo < current.effectiveFrom) {
+      throw new ValidationError("effectiveTo must not be before this assignment's own start date");
+    }
+
+    const rate = await findCurrentDailyLeaseRate(tx, input.dailyLeaseId);
+    if (!rate) throw new NotFoundError("No current rate for this daily lease");
+
+    await endDailyLeaseRow(tx, input.dailyLeaseId, input.effectiveTo);
+
+    // GAP-118: the same freeing `changeDailyLeaseDriver` makes on its own
+    // close-and-reopen, here with nothing reopening behind it — an idle
+    // vehicle's own future occupancy and cards must not stand for a lease
+    // that no longer runs.
+    await releaseDailyLeaseAllocationsAfter(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveTo,
+      "Daily lease ended",
+      input.userId,
+    );
+    await voidFutureOpenDayRecordsForLease(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveTo,
+      "Daily lease ended",
+      input.userId,
+    );
+
+    return {
+      id: current.id,
+      vehicleId: current.vehicleId,
+      driverId: current.driverId,
+      patternType: current.patternType,
+      patternWeekdays: current.patternWeekdays,
+      effectiveFrom: current.effectiveFrom,
+      effectiveTo: input.effectiveTo,
+      dailyLeaseAmountMinor: rate.dailyLeaseAmountMinor,
+    };
+  });
+}
+
+export interface ChangeDailyLeaseRateInput {
+  businessId: string;
+  dailyLeaseId: string;
+  dailyLeaseAmountMinor: Minor;
+  /** UC-32: editable, not defaulted to today — a catch-up week's own rate change usually took effect days ago. */
+  effectiveFrom: BusinessDate;
+}
+
+export interface ChangedDailyLeaseRate {
+  dailyLeaseId: string;
+  dailyLeaseAmountMinor: bigint;
+  effectiveFrom: string;
+}
+
+/**
+ * F-4.3/UC-32/GAP-2, one transaction: the `daily_lease_rate` sibling of
+ * `changeDailyLeaseDriver` — closes the currently open rate the day before
+ * and opens a new one from `effectiveFrom`, the identical close-then-insert
+ * shape applied to DM §7's other exclusion constraint. Past days keep their
+ * own figure (`day_record.expected_minor` is a snapshot, and `confirmDay`
+ * only ever reads today's `daily_lease_rate` state going forward from here);
+ * **future cards use the new one** re-prices every already-materialised but
+ * unconfirmed card in the same transaction — without it, a card generated
+ * under the old rate would sit showing a stale expected amount until
+ * `confirmDay`'s own per-date resolution quietly corrected it at the moment
+ * of confirming, which is exactly the "confident wrong number" CLAUDE.md
+ * warns against.
+ */
+export async function changeDailyLeaseRate(
+  writer: Writer,
+  input: ChangeDailyLeaseRateInput,
+): Promise<ChangedDailyLeaseRate> {
+  return await writer.transaction(async (tx) => {
+    const lease = await findDailyLeaseForBusiness(tx, input.businessId, input.dailyLeaseId);
+    if (!lease) throw new NotFoundError("No such daily lease in this business");
+    if (lease.effectiveTo !== null) {
+      throw new ValidationError("This daily lease has already ended");
+    }
+
+    const currentRate = await findCurrentDailyLeaseRate(tx, input.dailyLeaseId);
+    if (!currentRate) throw new NotFoundError("No current rate for this daily lease");
+    if (input.effectiveFrom <= currentRate.effectiveFrom) {
+      throw new ValidationError("effectiveFrom must be after the current rate's own start date");
+    }
+
+    const closesOn = addDays(input.effectiveFrom, -1);
+    await endDailyLeaseRateRow(tx, input.dailyLeaseId, closesOn);
+    await insertDailyLeaseRate(tx, {
+      id: newId(),
+      dailyLeaseId: input.dailyLeaseId,
+      dailyLeaseAmountMinor: input.dailyLeaseAmountMinor,
+      effectiveFrom: input.effectiveFrom,
+    });
+    await repriceFutureOpenDayRecords(
+      tx,
+      input.dailyLeaseId,
+      input.effectiveFrom,
+      input.dailyLeaseAmountMinor,
+    );
+
+    return {
+      dailyLeaseId: input.dailyLeaseId,
+      dailyLeaseAmountMinor: input.dailyLeaseAmountMinor,
+      effectiveFrom: input.effectiveFrom,
+    };
+  });
 }
 
 export interface CreateLeaseDayExceptionInput {

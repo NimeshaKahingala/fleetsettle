@@ -2,8 +2,11 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   activeDailyLeasesResponseSchema,
   changeDailyLeaseDriverRequestSchema,
+  changeDailyLeaseRateRequestSchema,
   createLeaseDayExceptionRequestSchema,
+  dailyLeaseRateResponseSchema,
   dailyLeaseResponseSchema,
+  endDailyLeaseRequestSchema,
   leaseDayExceptionResponseSchema,
   leaseDayExceptionsResponseSchema,
   startDailyLeaseRequestSchema,
@@ -97,6 +100,63 @@ export const changeDailyLeaseDriverRoute = createRoute({
     403: { description: "This role cannot change a daily lease's driver" },
     404: { description: "No such daily lease or driver in this business" },
     409: { description: "The new date range overlaps another daily lease on this vehicle" },
+  },
+});
+
+/**
+ * F-4.8/UC-101/GAP-25: "nothing replaces it" — the vehicle goes idle, moves
+ * to a different arrangement, or the driver relationship itself has ended.
+ * **INV-37**: never refuses on an open driver balance (unlike F-1.11's
+ * archive) — past figures stay exactly where they are, on the driver's own
+ * page.
+ */
+export const endDailyLeaseRoute = createRoute({
+  method: "post",
+  path: "/{id}/end",
+  request: {
+    params: dailyLeaseIdParams,
+    body: { content: { "application/json": { schema: endDailyLeaseRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: dailyLeaseResponseSchema } },
+      description: "The daily lease, now ended",
+    },
+    400: {
+      description:
+        "This daily lease has already ended, or effectiveTo is before its own start date",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot end a daily lease" },
+    404: { description: "No such daily lease in this business" },
+  },
+});
+
+/**
+ * F-4.3/UC-32/GAP-2: "make this the new daily amount from …" — closes the
+ * currently open `daily_lease_rate` and opens a new one, the rate-table
+ * sibling of `changeDailyLeaseDriverRoute`. Re-prices every already-
+ * materialised but unconfirmed future card in the same transaction.
+ */
+export const changeDailyLeaseRateRoute = createRoute({
+  method: "post",
+  path: "/{id}/rate",
+  request: {
+    params: dailyLeaseIdParams,
+    body: { content: { "application/json": { schema: changeDailyLeaseRateRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: dailyLeaseRateResponseSchema } },
+      description: "The new rate, open from effectiveFrom",
+    },
+    400: {
+      description:
+        "This daily lease has already ended, or effectiveFrom is not after the current rate's own start date",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot change a daily lease's rate" },
+    404: { description: "No such daily lease in this business" },
   },
 });
 

@@ -10,10 +10,12 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import {
   CalendarDays,
+  CalendarOff,
   CalendarPlus,
   ChevronRight,
   FileText,
   MoreVertical,
+  PiggyBank,
   Receipt,
   Route,
   TriangleAlert,
@@ -39,6 +41,8 @@ import {
 } from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
+import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
+import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 
 export interface VehicleOverviewScreenProps {
@@ -121,6 +125,8 @@ export function VehicleOverviewScreen({
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
   const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
+  const [endDailyLeaseOpen, setEndDailyLeaseOpen] = useState(false);
+  const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
@@ -186,6 +192,12 @@ export function VehicleOverviewScreen({
   // GAP-97: the same gate `bookTrip` itself enforces server-side and
   // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
   const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
+  // F-4.8/GAP-25: offered only when a daily lease is actually running — the
+  // history entry with no `effectiveTo` yet is exactly that one, the same
+  // "ongoing" reading `buildHistoryEntries` above already gives it.
+  const activeDailyLease = (dailyLeaseHistoryQuery.data ?? []).find(
+    (row) => row.effectiveTo === null,
+  );
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
@@ -215,6 +227,22 @@ export function VehicleOverviewScreen({
             label: "Book trip",
             icon: Route,
             onSelect: onBookTrip,
+          },
+        ]
+      : []),
+    ...(activeDailyLease !== undefined
+      ? [
+          {
+            key: "change-daily-lease-rate",
+            label: "Change the daily lease amount",
+            icon: PiggyBank,
+            onSelect: () => setChangeDailyLeaseRateOpen(true),
+          },
+          {
+            key: "end-daily-lease",
+            label: "End daily lease",
+            icon: CalendarOff,
+            onSelect: () => setEndDailyLeaseOpen(true),
           },
         ]
       : []),
@@ -421,6 +449,24 @@ export function VehicleOverviewScreen({
             today={today}
             {...(selectedDocument !== null ? { initialDocument: selectedDocument } : {})}
           />
+          {activeDailyLease !== undefined ? (
+            <EndDailyLeaseSheet
+              open={endDailyLeaseOpen}
+              onOpenChange={setEndDailyLeaseOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              today={today}
+            />
+          ) : null}
+          {activeDailyLease !== undefined ? (
+            <ChangeDailyLeaseRateSheet
+              open={changeDailyLeaseRateOpen}
+              onOpenChange={setChangeDailyLeaseRateOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              today={today}
+            />
+          ) : null}
           <ActionSheet
             open={actionsOpen}
             onOpenChange={setActionsOpen}

@@ -24,6 +24,13 @@ async function listUnconfirmedDayRecords(token: string) {
   return request("/api/day-record", bearer(token));
 }
 
+async function postConfirmWeek(token: string, dailyLeaseId: string) {
+  return request(`/api/day-record/${dailyLeaseId}/confirm-week`, {
+    method: "POST",
+    headers: bearer(token).headers,
+  });
+}
+
 /**
  * F-4.2/F-4.3/F-4.6 test matrix. `earned`/`received` are separate facts
  * (CLAUDE.md → Money, INV-2), one tap writes day_record + obligation +
@@ -672,5 +679,247 @@ describe("read a day record (P3, F-4.1)", () => {
 
       await ctx.cleanup();
     });
+  });
+});
+
+/**
+ * F-4.6/UC-38/GAP-2 test matrix. "The stack shows every open day, oldest
+ * first … Confirm all — one action" — every currently-open day strictly
+ * before today on one lease, confirmed at its own expected amount, one
+ * transaction.
+ */
+describe("confirm a week in one pass (P3, F-4.6/UC-38, GAP-2)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  const today = businessToday();
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every open day before today confirmed oldest-first, already-adjusted and today's own card left alone", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: addDays(today, -60),
+      periodEnd: addDays(today, 60),
+    });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+
+    const olderId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -3),
+    );
+    const newerId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -1),
+    );
+    // Adjusted individually first, per F-4.6's own Accept clause — the bulk
+    // action must not overwrite it.
+    const adjustedId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -2),
+      { state: "ran_paid_short", earnedMinor: 4_000_00n },
+    );
+    // Today's own card is a different section (§3.2) and is never `< today`.
+    const todayId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      today,
+    );
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmWeek(token, dailyLeaseId);
+    expect(res.status).toBe(200);
+    const body: {
+      confirmed: Array<{ id: string; businessDate: string; state: string; receivedMinor: string }>;
+      totalReceivedMinor: string;
+    } = await res.json();
+    expect(body.confirmed.map((r) => r.id)).toEqual([olderId, newerId]);
+    expect(body.confirmed[0]).toMatchObject({
+      businessDate: addDays(today, -3),
+      state: "ran_paid_full",
+      receivedMinor: "500000",
+    });
+    expect(body.totalReceivedMinor).toBe("1000000");
+    ctx.trackCreatedDayRecord(olderId);
+    ctx.trackCreatedDayRecord(newerId);
+
+    // Untouched: still its own individually-adjusted figure, not overwritten.
+    const adjustedRes = await getDayRecord(token, dailyLeaseId, addDays(today, -2));
+    const adjustedBody: { id: string; state: string; earnedMinor: string } =
+      await adjustedRes.json();
+    expect(adjustedBody).toMatchObject({ id: adjustedId, state: "ran_paid_short" });
+
+    // Untouched: today is never part of the backlog (`< today`, not `<=`)
+    // — the row still exists (this test created it directly) but is left
+    // exactly as it was, still `open`.
+    const todayRes = await getDayRecord(token, dailyLeaseId, today);
+    expect(todayRes.status).toBe(200);
+    const todayBody: { id: string; state: string } = await todayRes.json();
+    expect(todayBody).toMatchObject({ id: todayId, state: "open" });
+
+    await ctx.cleanup();
+  });
+
+  it("F-4.3/GAP-2 — reflects a rate change mid-backlog: earlier days at the old rate, later days at the new one", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: addDays(today, -60),
+      periodEnd: addDays(today, 60),
+    });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+    // A9's own expected_minor, as re-priced by a rate change that already
+    // ran (domain/dailyLease.ts's `repriceFutureOpenDayRecords`) — this
+    // test only needs the two figures to already differ on the two rows,
+    // not to exercise the rate-change endpoint itself again.
+    const oldRateId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -3),
+      { expectedMinor: 5_000_00n },
+    );
+    const newRateId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -1),
+      { expectedMinor: 7_000_00n },
+    );
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmWeek(token, dailyLeaseId);
+    expect(res.status).toBe(200);
+    const body: { confirmed: Array<{ id: string; receivedMinor: string }> } = await res.json();
+    expect(body.confirmed).toEqual([
+      expect.objectContaining({ id: oldRateId, receivedMinor: "500000" }),
+      expect.objectContaining({ id: newRateId, receivedMinor: "700000" }),
+    ]);
+    ctx.trackCreatedDayRecord(oldRateId);
+    ctx.trackCreatedDayRecord(newRateId);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — no open accounting period at all rolls the whole batch back (PERIOD_CLOSED)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    // `resolvePeriodLinkage` resolves against whatever period is currently
+    // `open` for the business, not a date-range match on `businessDate` —
+    // closing the only period is what actually reproduces PERIOD_CLOSED.
+    // Still needed as a valid FK for the day_record rows below.
+    const closedPeriodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: addDays(today, -60),
+      periodEnd: addDays(today, 60),
+    });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    const firstId = await ctx.createDayRecord(
+      businessId,
+      closedPeriodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -3),
+    );
+    await ctx.createDayRecord(
+      businessId,
+      closedPeriodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -1),
+    );
+    await ctx.closePeriod(closedPeriodId);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmWeek(token, dailyLeaseId);
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    // One transaction, a partial failure confirms nothing: the first (older,
+    // processed-first) day is still exactly as it was before the call —
+    // still `open`, not confirmed.
+    const firstRes = await getDayRecord(token, dailyLeaseId, addDays(today, -3));
+    expect(firstRes.status).toBe(200);
+    const firstBody: { id: string; state: string } = await firstRes.json();
+    expect(firstBody).toMatchObject({ id: firstId, state: "open" });
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await postConfirmWeek("", crypto.randomUUID());
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot bulk-confirm (dailyOperations is STAFF only)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await postConfirmWeek(token, dailyLeaseId);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the daily lease belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const otherDriverId = await ctx.createDriver(otherBusinessId);
+    const otherDailyLeaseId = await ctx.createDailyLease(
+      otherBusinessId,
+      otherVehicleId,
+      otherDriverId,
+    );
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmWeek(token, otherDailyLeaseId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
   });
 });

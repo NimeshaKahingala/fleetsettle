@@ -220,6 +220,36 @@ export async function voidFutureOpenDayRecordsForLease(
 }
 
 /**
+ * F-4.3/GAP-2: "future cards use the new one" — a rate change re-prices
+ * every already-materialised but not-yet-confirmed card from its own
+ * effective date forward, the same `state = 'open'`/`voided_at IS NULL`
+ * narrowing `voidFutureOpenDayRecordsForLease` uses (a confirmed day is a
+ * fact and keeps its own figure; `confirmDay` itself re-resolves the rate
+ * in force at confirm time regardless, so a card confirmed between this
+ * write and the change taking effect was never at risk either way). `gte`,
+ * not `gt`: `effectiveFrom` is the first date the new rate is actually in
+ * force.
+ */
+export async function repriceFutureOpenDayRecords(
+  db: WriteDb,
+  dailyLeaseId: string,
+  effectiveFrom: string,
+  expectedMinor: bigint,
+): Promise<void> {
+  await db
+    .update(dayRecord)
+    .set({ expectedMinor })
+    .where(
+      and(
+        eq(dayRecord.dailyLeaseId, dailyLeaseId),
+        gte(dayRecord.businessDate, effectiveFrom),
+        eq(dayRecord.state, "open"),
+        isNull(dayRecord.voidedAt),
+      ),
+    );
+}
+
+/**
  * GAP-20: the single-date sibling of `voidFutureOpenDayRecordsForLease` —
  * used when a manager skips a date that already has a card generated ahead
  * of it (P13's rolling horizon). `state = 'open'` only, the same narrowing
@@ -369,6 +399,35 @@ export async function listUnconfirmedDayRecordsForBusiness(
     )
     .orderBy(asc(dayRecord.businessDate));
   return rows;
+}
+
+/**
+ * F-4.6/GAP-2: "the stack shows every open day, oldest first" — the same
+ * unconfirmed-before-today definition `listUnconfirmedDayRecordsForBusiness`
+ * uses for Home item 4, scoped down to one daily lease's own backlog rather
+ * than the whole business, since "a week in one pass" is one driver's
+ * catch-up. Each row's own `expectedMinor` is read as-is, already kept
+ * current by any rate change's own reprice write (`repriceFutureOpenDayRecords`) —
+ * the bulk write below never re-derives it from `daily_lease_rate` itself.
+ */
+export async function listOpenDayRecordsForLeaseBeforeDate(
+  db: ReadDb,
+  dailyLeaseId: string,
+  today: string,
+): Promise<DayRecordRow[]> {
+  const rows = await db
+    .select(COLUMNS)
+    .from(dayRecord)
+    .where(
+      and(
+        eq(dayRecord.dailyLeaseId, dailyLeaseId),
+        eq(dayRecord.state, "open"),
+        lt(dayRecord.businessDate, today),
+        isNull(dayRecord.voidedAt),
+      ),
+    )
+    .orderBy(asc(dayRecord.businessDate));
+  return rows as DayRecordRow[];
 }
 
 export interface VehicleWithPendingWork {

@@ -114,3 +114,16 @@ export type UnconfirmedDayRecordRow = z.infer<typeof unconfirmedDayRecordRowSche
 
 export const unconfirmedDayRecordsResponseSchema = z.array(unconfirmedDayRecordRowSchema);
 export type UnconfirmedDayRecordsResponse = z.infer<typeof unconfirmedDayRecordsResponseSchema>;
+
+/**
+ * F-4.6/UC-38/GAP-2: "Confirm all" — one action, every currently-open day on
+ * this lease strictly before today, oldest first, each at its own already-
+ * current expected amount (§6.5's `paid_in_full`, applied per day). The
+ * preview list itself reuses `unconfirmedDayRecordsResponseSchema` (filtered
+ * client-side to one `dailyLeaseId`) rather than a second read endpoint.
+ */
+export const confirmDaysBulkResponseSchema = z.object({
+  confirmed: z.array(dayRecordResponseSchema),
+  totalReceivedMinor: z.string(),
+});
+export type ConfirmDaysBulkResponse = z.infer<typeof confirmDaysBulkResponseSchema>;
