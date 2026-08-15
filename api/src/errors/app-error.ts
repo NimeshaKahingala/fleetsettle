@@ -444,3 +444,17 @@ export class LeaseDayAlreadyConfirmedError extends AppError {
     super(409, "LEASE_DAY_ALREADY_CONFIRMED", message);
   }
 }
+
+// GAP-26: migration 0019's `vehicle_unavailability_vehicle_id_daterange_excl`
+// — a second live outage for the same vehicle over an overlapping range.
+export class VehicleUnavailabilityOverlapsError extends AppError {
+  constructor(message = "This vehicle already has a live outage over one or more of these dates") {
+    super(409, "VEHICLE_UNAVAILABILITY_OVERLAPS", message);
+  }
+}
+
+export class VehicleUnavailabilityAlreadyVoidedError extends AppError {
+  constructor(message = "This outage has already been undone") {
+    super(409, "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED", message);
+  }
+}

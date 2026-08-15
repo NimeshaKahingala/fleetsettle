@@ -1,11 +1,13 @@
 import { addDays, newId, type BusinessDate } from "@fleetsettle/shared";
 import type { Writer } from "../db/client.js";
-import { isUniqueViolation } from "../db/pg-error.js";
+import { isExclusionViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   NotFoundError,
   ValidationError,
   VehicleAlreadyExistsError,
   VehicleArrangementChangeBlockedError,
+  VehicleUnavailabilityAlreadyVoidedError,
+  VehicleUnavailabilityOverlapsError,
 } from "../errors/app-error.js";
 import { voidFutureOpenDayRecordsForLease } from "../queries/day-record.js";
 import {
@@ -18,10 +20,14 @@ import { findOpenTripForVehicle } from "../queries/trip.js";
 import {
   endVehicleArrangementRow,
   findCurrentVehicleArrangementRow,
+  findVehicleForBusiness,
+  findVehicleUnavailabilityForBusiness,
   insertVehicle,
   insertVehicleArrangement,
+  insertVehicleUnavailability,
   setVehicleLifecycle,
   upsertVehicleDocument,
+  voidVehicleUnavailabilityRow,
 } from "../queries/vehicle.js";
 
 export interface CreateVehicleInput {
@@ -228,4 +234,105 @@ export async function archiveVehicle(writer: Writer, vehicleId: string): Promise
 
 export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
   await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "active"));
+}
+
+export interface MarkVehicleUnavailableInput {
+  businessId: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: BusinessDate;
+  unavailableTo?: BusinessDate;
+  note?: string;
+  userId: string;
+}
+
+export interface VehicleUnavailability {
+  id: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: string;
+  unavailableTo: string | null;
+  note: string | null;
+}
+
+/**
+ * F-1.10/GAP-26: "works regardless of the vehicle's current arrangement" —
+ * no arrangement check, unlike `startLease`/`startDailyLease` (GAP-84). A
+ * single insert; the exclusion constraint (migration 0019) is the truth for
+ * overlap, never a pre-check (CLAUDE.md → Writes) — a second live outage
+ * over any of the same dates on this vehicle is caught below, not guessed
+ * at in application code.
+ */
+export async function markVehicleUnavailable(
+  writer: Writer,
+  input: MarkVehicleUnavailableInput,
+): Promise<VehicleUnavailability> {
+  const vehicle = await findVehicleForBusiness(writer, input.businessId, input.vehicleId);
+  if (!vehicle) throw new NotFoundError("No such vehicle in this business");
+
+  const id = newId();
+  try {
+    await writer.transaction((tx) =>
+      insertVehicleUnavailability(tx, {
+        id,
+        businessId: input.businessId,
+        vehicleId: input.vehicleId,
+        reason: input.reason,
+        unavailableFrom: input.unavailableFrom,
+        ...(input.unavailableTo !== undefined ? { unavailableTo: input.unavailableTo } : {}),
+        ...(input.note !== undefined ? { note: input.note } : {}),
+        createdBy: input.userId,
+      }),
+    );
+  } catch (err) {
+    if (isExclusionViolation(err, "vehicle_unavailability_vehicle_id_daterange_excl")) {
+      throw new VehicleUnavailabilityOverlapsError();
+    }
+    throw err;
+  }
+
+  return {
+    id,
+    vehicleId: input.vehicleId,
+    reason: input.reason,
+    unavailableFrom: input.unavailableFrom,
+    unavailableTo: input.unavailableTo ?? null,
+    note: input.note ?? null,
+  };
+}
+
+export interface VoidVehicleUnavailabilityInput {
+  businessId: string;
+  vehicleId: string;
+  unavailabilityId: string;
+  reason: string;
+  userId: string;
+}
+
+/** F-1.10/GAP-26: void, never delete — the same correction shape every other outage-style fact in this document uses (W-58). No "end early" endpoint: the row that guessed wrong is voided, and a fresh one covers the corrected range if one is still needed. */
+export async function voidVehicleUnavailability(
+  writer: Writer,
+  input: VoidVehicleUnavailabilityInput,
+): Promise<{ voidedAt: string }> {
+  const existing = await findVehicleUnavailabilityForBusiness(
+    writer,
+    input.businessId,
+    input.unavailabilityId,
+  );
+  if (!existing || existing.vehicleId !== input.vehicleId) {
+    throw new NotFoundError("No such outage on this vehicle");
+  }
+  if (existing.voidedAt !== null) throw new VehicleUnavailabilityAlreadyVoidedError();
+
+  // The WHERE guard in voidVehicleUnavailabilityRow makes a losing race
+  // against a concurrent void return undefined here rather than clobbering
+  // the winner's own reason/actor — the same shape voidCapitalContribution uses.
+  const voided = await writer.transaction((tx) =>
+    voidVehicleUnavailabilityRow(tx, input.unavailabilityId, {
+      voidedReason: input.reason,
+      voidedBy: input.userId,
+    }),
+  );
+  if (!voided) throw new VehicleUnavailabilityAlreadyVoidedError();
+  return voided;
 }

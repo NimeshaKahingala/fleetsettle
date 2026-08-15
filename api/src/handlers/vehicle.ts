@@ -11,7 +11,9 @@ import {
   archiveVehicle,
   changeVehicleArrangement,
   createVehicle,
+  markVehicleUnavailable,
   unarchiveVehicle,
+  voidVehicleUnavailability,
 } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
@@ -24,6 +26,7 @@ import {
   findVehicleForBusiness,
   listVehicleDocumentsForVehicle,
   listVehiclesForBusiness,
+  listVehicleUnavailabilityForVehicle,
   upsertVehicleDocument,
   type VehicleRow,
 } from "../queries/vehicle.js";
@@ -39,9 +42,12 @@ import type {
   listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
   listVehicleTripsRoute,
+  listVehicleUnavailabilityRoute,
   listVehiclesRoute,
+  markVehicleUnavailableRoute,
   unarchiveVehicleRoute,
   upsertVehicleDocumentRoute,
+  voidVehicleUnavailabilityRoute,
 } from "../route-defs/vehicle.js";
 import { incidentToResponse } from "./incident.js";
 import type { Env } from "../types.js";
@@ -166,6 +172,91 @@ export const getVehicleCalendarHandler: RouteHandler<typeof getVehicleCalendarRo
     })),
     200,
   );
+};
+
+interface UnavailabilityLike {
+  id: string;
+  vehicleId: string;
+  reason: "service" | "sale_preparation" | "other";
+  unavailableFrom: string;
+  unavailableTo: string | null;
+  note: string | null;
+}
+
+function unavailabilityToResponse(row: UnavailabilityLike) {
+  return {
+    id: row.id,
+    vehicleId: row.vehicleId,
+    reason: row.reason,
+    unavailableFrom: row.unavailableFrom,
+    unavailableTo: row.unavailableTo,
+    note: row.note,
+  };
+}
+
+/** F-1.10/GAP-26. `dailyOperations` — an operational, day-to-day fact about the vehicle, the same gate `listVehicleIncidentsHandler` uses. */
+export const markVehicleUnavailableHandler: RouteHandler<
+  typeof markVehicleUnavailableRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const row = await markVehicleUnavailable(c.get("writer"), {
+    businessId,
+    vehicleId: id,
+    reason: body.reason,
+    unavailableFrom: body.unavailableFrom,
+    ...(body.unavailableTo !== undefined ? { unavailableTo: body.unavailableTo } : {}),
+    ...(body.note !== undefined ? { note: body.note } : {}),
+    userId: requireUserId(c),
+  });
+
+  return c.json(unavailabilityToResponse(row), 201);
+};
+
+/** F-1.5's own calendar. Same gate as reading it. */
+export const listVehicleUnavailabilityHandler: RouteHandler<
+  typeof listVehicleUnavailabilityRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const { from, to } = c.req.valid("query");
+  const reader = c.get("reader");
+
+  const vehicleRow = await findVehicleForBusiness(reader, businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const rows = await listVehicleUnavailabilityForVehicle(reader, id, from, to);
+  return c.json(rows.map(unavailabilityToResponse), 200);
+};
+
+/** F-1.10/GAP-26: correct or end an outage. Same gate as creating one. */
+export const voidVehicleUnavailabilityHandler: RouteHandler<
+  typeof voidVehicleUnavailabilityRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+
+  const businessId = requireBusinessId(c);
+  const { id, unavailabilityId } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  const voided = await voidVehicleUnavailability(c.get("writer"), {
+    businessId,
+    vehicleId: id,
+    unavailabilityId,
+    reason: body.reason,
+    userId: requireUserId(c),
+  });
+
+  return c.json({ id: unavailabilityId, voidedAt: voided.voidedAt }, 200);
 };
 
 /** F-10.1 / UC-92. */

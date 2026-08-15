@@ -75,3 +75,35 @@ export type VehicleDocumentResponse = z.infer<typeof vehicleDocumentResponseSche
 /** Vehicle overview's paperwork tab (Web-P5): every document type this vehicle has ever had a date set for — at most one row per `docType` (UC-92's upsert), never one per renewal. */
 export const listVehicleDocumentsResponseSchema = z.array(vehicleDocumentResponseSchema);
 export type ListVehicleDocumentsResponse = z.infer<typeof listVehicleDocumentsResponseSchema>;
+
+/** F-1.10/GAP-26: every other reason a vehicle sits still (routine service, sale preparation, an owner's own use) — distinct from an incident's own `off_road_from`/`off_road_to` (§9.1), which already covers incident-caused downtime. */
+export const vehicleUnavailabilityReasonSchema = z.enum(["service", "sale_preparation", "other"]);
+
+export const markVehicleUnavailableRequestSchema = z
+  .object({
+    reason: vehicleUnavailabilityReasonSchema,
+    unavailableFrom: businessDateSchema,
+    unavailableTo: businessDateSchema.optional(),
+    note: z.string().trim().max(500).optional(),
+  })
+  .refine((v) => v.unavailableTo === undefined || v.unavailableTo >= v.unavailableFrom, {
+    message: "unavailableTo must not be before unavailableFrom",
+    path: ["unavailableTo"],
+  });
+export type MarkVehicleUnavailableRequest = z.infer<typeof markVehicleUnavailableRequestSchema>;
+
+export const vehicleUnavailabilityResponseSchema = z.object({
+  id: z.string().uuid(),
+  vehicleId: z.string().uuid(),
+  reason: vehicleUnavailabilityReasonSchema,
+  unavailableFrom: z.string(),
+  unavailableTo: z.string().nullable(),
+  note: z.string().nullable(),
+});
+export type VehicleUnavailabilityResponse = z.infer<typeof vehicleUnavailabilityResponseSchema>;
+
+/** F-1.5's own calendar (UI §7.6): every live outage overlapping the queried month, so a free-looking day can still say why it isn't. */
+export const vehicleUnavailabilityListResponseSchema = z.array(vehicleUnavailabilityResponseSchema);
+export type VehicleUnavailabilityListResponse = z.infer<
+  typeof vehicleUnavailabilityListResponseSchema
+>;

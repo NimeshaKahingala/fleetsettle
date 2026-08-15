@@ -51,6 +51,7 @@ import {
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
+  vehicleUnavailability,
   writeOff,
   writeOffRecovery,
 } from "../../src/db/schema.js";
@@ -832,6 +833,15 @@ export class TestContext {
       await this.#db.delete(vehicleDocument).where(eq(vehicleDocument.vehicleId, vehicleId));
       await this.#db.delete(vehicleArrangement).where(eq(vehicleArrangement.vehicleId, vehicleId));
       await this.#db.delete(vehicle).where(eq(vehicle.id, vehicleId));
+    });
+  }
+
+  /** F-1.10/GAP-26: `POST /api/vehicle/{id}/unavailability` writes a single row with an FK to `vehicle` and no cascade — track before the vehicle's own teardown so this unwinds first. */
+  trackCreatedVehicleUnavailability(unavailabilityId: string): void {
+    this.track(async () => {
+      await this.#db
+        .delete(vehicleUnavailability)
+        .where(eq(vehicleUnavailability.id, unavailabilityId));
     });
   }
 

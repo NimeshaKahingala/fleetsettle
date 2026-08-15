@@ -7,6 +7,7 @@ import {
   listIncidentsResponseSchema,
   listVehicleDocumentsResponseSchema,
   listVehiclesResponseSchema,
+  markVehicleUnavailableRequestSchema,
   upsertVehicleDocumentRequestSchema,
   vehicleArrangementResponseSchema,
   vehicleCalendarResponseSchema,
@@ -15,11 +16,19 @@ import {
   vehicleLeaseHistoryResponseSchema,
   vehicleResponseSchema,
   vehicleTripHistoryResponseSchema,
+  vehicleUnavailabilityListResponseSchema,
+  vehicleUnavailabilityResponseSchema,
+  voidRequestSchema,
+  voidedResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const vehicleIdParams = z.object({ id: z.string().uuid() });
 const vehicleCalendarQuery = z.object({ from: businessDateSchema, to: businessDateSchema });
+const vehicleUnavailabilityIdParams = z.object({
+  id: z.string().uuid(),
+  unavailabilityId: z.string().uuid(),
+});
 
 /** F-1.1 / UC-01. */
 export const createVehicleRoute = createRoute({
@@ -266,5 +275,66 @@ export const listVehicleTripsRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read trips" },
     404: { description: "No such vehicle in this business" },
+  },
+});
+
+/**
+ * F-1.10/GAP-26: mark a vehicle off the road — routine service, sale
+ * preparation, or an owner's own use. Works regardless of the vehicle's
+ * current arrangement, and deliberately does not duplicate an incident's
+ * own `off_road_from`/`off_road_to` (§9.1).
+ */
+export const markVehicleUnavailableRoute = createRoute({
+  method: "post",
+  path: "/{id}/unavailability",
+  request: {
+    params: vehicleIdParams,
+    body: { content: { "application/json": { schema: markVehicleUnavailableRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: vehicleUnavailabilityResponseSchema } },
+      description: "The outage",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot mark a vehicle off the road" },
+    404: { description: "No such vehicle in this business" },
+    409: { description: "This vehicle already has a live outage over one or more of these dates" },
+  },
+});
+
+/** F-1.5's own calendar (UI §7.6): every live outage overlapping the given range, so a free-looking day can still say why it isn't. */
+export const listVehicleUnavailabilityRoute = createRoute({
+  method: "get",
+  path: "/{id}/unavailability",
+  request: { params: vehicleIdParams, query: vehicleCalendarQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleUnavailabilityListResponseSchema } },
+      description: "Every live outage overlapping the given range",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read this vehicle's outages" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** F-1.10/GAP-26: correct or end an outage — voided, never deleted (W-58). No separate "end early" endpoint: the row that guessed wrong is voided, and a fresh one covers the corrected range if one is still needed. */
+export const voidVehicleUnavailabilityRoute = createRoute({
+  method: "post",
+  path: "/{id}/unavailability/{unavailabilityId}/void",
+  request: {
+    params: vehicleUnavailabilityIdParams,
+    body: { content: { "application/json": { schema: voidRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: voidedResponseSchema } },
+      description: "The outage, voided",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot manage this vehicle's outages" },
+    404: { description: "No such outage on this vehicle" },
+    409: { description: "This outage has already been undone" },
   },
 });
