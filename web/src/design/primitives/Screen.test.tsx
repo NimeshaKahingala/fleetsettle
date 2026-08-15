@@ -104,3 +104,17 @@ test("GAP-124a/§14: at lg the scroll region caps at a readable measure and cent
   );
   expect(container.querySelector("header")?.className).not.toMatch(/lg:max-w/);
 });
+
+test("GAP-124b/§14: a route can opt into a wider canvas for its own two-pane layout", () => {
+  const { container } = render(
+    <Screen title="Home" contentWidth="wide">
+      <p>Content</p>
+    </Screen>,
+  );
+
+  expect(container.querySelector(".overflow-y-auto")).toHaveClass(
+    "lg:mx-auto",
+    "lg:w-full",
+    "lg:max-w-6xl",
+  );
+});

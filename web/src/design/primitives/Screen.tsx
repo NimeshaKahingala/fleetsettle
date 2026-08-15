@@ -25,6 +25,8 @@ export interface ScreenProps {
   primaryAction?: ScreenPrimaryAction;
   /** Slot for `OfflineBanner`, rendered below the app bar and above the scroll region (§6.4) — Screen doesn't know what "offline" means, only where the banner goes. */
   offlineBanner?: React.ReactNode;
+  /** §14/M-31: top-level routes can opt into a wider canvas for a route-owned two-pane layout; ordinary forms/lists stay at the readable default. */
+  contentWidth?: "default" | "wide";
   children: React.ReactNode;
 }
 
@@ -49,6 +51,7 @@ export function Screen({
   action,
   primaryAction,
   offlineBanner,
+  contentWidth = "default",
   children,
 }: ScreenProps) {
   const ActionIcon = action?.icon;
@@ -84,7 +87,8 @@ export function Screen({
       {offlineBanner}
       <div
         className={cn(
-          "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3 lg:mx-auto lg:w-full lg:max-w-2xl",
+          "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3 lg:mx-auto lg:w-full",
+          contentWidth === "wide" ? "lg:max-w-6xl" : "lg:max-w-2xl",
           primaryAction !== undefined
             ? "scroll-pb-[88px] max-md:landscape:scroll-pb-[76px]"
             : "scroll-pb-4 max-md:landscape:scroll-pb-3",

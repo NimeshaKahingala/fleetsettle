@@ -1,7 +1,17 @@
-import { ChevronRight } from "lucide-react";
+import {
+  Banknote,
+  CalendarRange,
+  ChevronRight,
+  Fuel,
+  ReceiptText,
+  Route,
+  TimerOff,
+  type LucideIcon,
+} from "lucide-react";
 import { Can } from "../../components/Can.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
+import { Section } from "../../design/primitives/Section.js";
 
 export type ReportKey =
   "vehicle-month" | "trips" | "fuel-efficiency" | "receivables" | "cash-position" | "lost-days";
@@ -10,13 +20,31 @@ export interface ReportsCatalogueScreenProps {
   onSelect: (key: ReportKey) => void;
 }
 
-const CARDS: { key: ReportKey; label: string }[] = [
-  { key: "vehicle-month", label: "How was this month" },
-  { key: "trips", label: "Which trips made money" },
-  { key: "fuel-efficiency", label: "Is the bus drinking fuel" },
-  { key: "receivables", label: "Who owes us" },
-  { key: "cash-position", label: "Where is our cash" },
-  { key: "lost-days", label: "Lost days" },
+const GROUPS: {
+  title: string;
+  cards: { key: ReportKey; label: string; icon: LucideIcon }[];
+}[] = [
+  {
+    title: "This month",
+    cards: [
+      { key: "vehicle-month", label: "How was this month", icon: CalendarRange },
+      { key: "lost-days", label: "Lost days", icon: TimerOff },
+    ],
+  },
+  {
+    title: "Trips and vehicles",
+    cards: [
+      { key: "trips", label: "Which trips made money", icon: Route },
+      { key: "fuel-efficiency", label: "Is the bus drinking fuel", icon: Fuel },
+    ],
+  },
+  {
+    title: "Money questions",
+    cards: [
+      { key: "receivables", label: "Who owes us", icon: ReceiptText },
+      { key: "cash-position", label: "Where is our cash", icon: Banknote },
+    ],
+  },
 ];
 
 /**
@@ -35,19 +63,32 @@ export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps
   return (
     <Screen title="Reports">
       <Can cap="viewReports">
-        <div className="flex flex-col gap-2">
-          {CARDS.map((card) => (
-            <button
-              key={card.key}
-              type="button"
-              onClick={() => onSelect(card.key)}
-              className="w-full text-left"
-            >
-              <Card className="flex items-center justify-between gap-3">
-                <span className="text-body text-ink-primary">{card.label}</span>
-                <ChevronRight className="size-4 text-ink-muted" aria-hidden />
-              </Card>
-            </button>
+        <div className="flex flex-col gap-5">
+          {GROUPS.map((group) => (
+            <Section
+              key={group.title}
+              title={group.title}
+              count={group.cards.length}
+              items={group.cards.map((card) => {
+                const Icon = card.icon;
+                return (
+                  <button
+                    key={card.key}
+                    type="button"
+                    onClick={() => onSelect(card.key)}
+                    className="w-full text-left"
+                  >
+                    <Card className="flex items-center justify-between gap-3">
+                      <span className="flex min-w-0 items-center gap-3">
+                        <Icon className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+                        <span className="min-w-0 text-body text-ink-primary">{card.label}</span>
+                      </span>
+                      <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
+                    </Card>
+                  </button>
+                );
+              })}
+            />
           ))}
         </div>
       </Can>

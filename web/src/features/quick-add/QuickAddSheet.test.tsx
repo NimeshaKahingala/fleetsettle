@@ -145,6 +145,10 @@ test("New trip picks a vehicle, then reports it — no route change of its own (
   renderWithProviders(<QuickAddSheetHarness onBookTrip={onBookTrip} />, { get });
 
   await user.click(screen.getByRole("button", { name: "New trip" }));
+  expect(screen.queryByRole("heading", { name: "Add" })).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "New trip — choose a vehicle" }),
+  ).toBeInTheDocument();
   await user.click(await screen.findByRole("button", { name: "NC-1234" }));
 
   expect(onBookTrip).toHaveBeenCalledWith("v1");

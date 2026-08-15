@@ -11,6 +11,7 @@ import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
@@ -40,6 +41,22 @@ function formatShortDate(date: string, options: { year?: boolean } = {}): string
     month: "short",
     ...(year ? { year: "numeric" as const } : {}),
   }).format(new Date(`${date}T00:00:00`));
+}
+
+const TRIP_STATUS_LABEL: Record<string, string> = {
+  hold: "Hold",
+  booked: "Booked",
+  in_progress: "In progress",
+  closed: "Closed",
+  cancelled: "Cancelled",
+};
+
+function tripStatusVariant(status: string): "brand" | "good" | "warning" | "critical" | "neutral" {
+  if (status === "closed") return "good";
+  if (status === "cancelled") return "critical";
+  if (status === "hold") return "warning";
+  if (status === "in_progress") return "brand";
+  return "neutral";
 }
 
 /**
@@ -190,10 +207,24 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
       ) : (
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">
-            <p className="text-body-sm text-ink-muted">
-              {trip.destination ?? "No destination recorded"}
-              {customerQuery.data !== undefined ? ` · ${customerQuery.data.name}` : ""}
-            </p>
+            <div className="flex flex-wrap gap-2">
+              <Badge variant={tripStatusVariant(trip.status)}>
+                {TRIP_STATUS_LABEL[trip.status] ?? trip.status}
+              </Badge>
+              <Badge variant="neutral">
+                {formatShortDate(trip.startDate, { year: titleShowsYear })} –{" "}
+                {formatShortDate(trip.endDate, { year: titleShowsYear })}
+              </Badge>
+              {trip.destination !== null ? (
+                <Badge variant="neutral">{trip.destination}</Badge>
+              ) : null}
+              {customerQuery.data !== undefined ? (
+                <Badge variant="neutral">{customerQuery.data.name}</Badge>
+              ) : null}
+            </div>
+            {trip.destination === null ? (
+              <p className="text-body-sm text-ink-muted">No destination recorded</p>
+            ) : null}
             <div className="flex items-center justify-between gap-4">
               <p className="text-body text-ink-primary">Agreed</p>
               <Money value={parse(trip.agreedAmountMinor)} />

@@ -160,7 +160,10 @@ export function ConfirmDayCard({
           <SyncChip synced={!confirmMutation.isPending} />
         </div>
         <p className="text-body text-ink-secondary">{stateLabel(settled.state)}</p>
-        <Money value={parse(settled.earnedMinor)} className="text-hero" />
+        <div>
+          <p className="text-label font-medium text-ink-muted">Earned</p>
+          <Money value={parse(settled.earnedMinor)} className="text-hero" />
+        </div>
         {confirmMutation.isError ? (
           <p className="text-body-sm text-critical-ink">{confirmMutation.error.message}</p>
         ) : null}

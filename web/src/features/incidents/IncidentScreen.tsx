@@ -11,9 +11,11 @@ import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
@@ -48,6 +50,13 @@ const CLAIM_STATUS_LABEL: Record<string, string> = {
   settled: "Settled",
   rejected: "Rejected",
 };
+
+function incidentStatusVariant(status: string): "brand" | "good" | "warning" | "neutral" {
+  if (status === "closed") return "good";
+  if (status === "recovery_pending") return "warning";
+  if (status === "repairs_recorded") return "brand";
+  return "neutral";
+}
 
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
@@ -198,9 +207,11 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
       ) : (
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">
-            <p className="text-body-sm text-ink-muted">
-              {STATUS_LABEL[incident.status] ?? incident.status}
-            </p>
+            <div>
+              <Badge variant={incidentStatusVariant(incident.status)}>
+                {STATUS_LABEL[incident.status] ?? incident.status}
+              </Badge>
+            </div>
             <p className="text-body text-ink-primary">
               {incident.description ?? "Incident with no description"}
             </p>
@@ -209,25 +220,31 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
             ) : null}
           </Card>
 
-          <Card className="flex flex-col gap-3">
-            <p className="text-label text-ink-secondary">Bottom line</p>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body text-ink-primary">Total repairs</p>
-              <Money value={parse(incident.bottomLine.totalRepairCostMinor)} />
+          <section className="flex flex-col gap-2" aria-labelledby="incident-bottom-line">
+            <p id="incident-bottom-line" className="text-label text-ink-secondary">
+              Bottom line
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <StatTile
+                label="Total repairs"
+                value={<Money value={parse(incident.bottomLine.totalRepairCostMinor)} />}
+              />
+              <StatTile
+                label="Recovered"
+                value={<Money value={parse(incident.bottomLine.totalRecoveredMinor)} />}
+              />
+              <StatTile
+                label="Pending recovery"
+                value={<Money value={parse(incident.bottomLine.pendingRecoveryMinor)} />}
+              />
+              <StatTile
+                label="Net cost to you"
+                value={<Money value={parse(incident.bottomLine.netCostMinor)} />}
+                size="hero"
+                className="sm:col-span-2"
+              />
             </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body text-ink-primary">Recovered</p>
-              <Money value={parse(incident.bottomLine.totalRecoveredMinor)} />
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body text-ink-primary">Pending recovery</p>
-              <Money value={parse(incident.bottomLine.pendingRecoveryMinor)} />
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body font-medium text-ink-primary">Net cost to you</p>
-              <Money value={parse(incident.bottomLine.netCostMinor)} className="text-title" />
-            </div>
-          </Card>
+          </section>
 
           {incident.offRoadFrom !== null && incident.offRoadTo !== null ? (
             <Card className="flex flex-col gap-1">

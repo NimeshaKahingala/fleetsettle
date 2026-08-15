@@ -17,6 +17,10 @@ test("a 404 on /api/me — the documented first-run/revoked-member signal — re
   );
 
   expect(await screen.findByText("Get started")).toBeInTheDocument();
+  expect(screen.getByLabelText("FleetSettle")).toBeInTheDocument();
+  expect(screen.getByText("Create a business")).toBeInTheDocument();
+  expect(screen.getByText("Join a business")).toBeInTheDocument();
+  expect(screen.getByText("Enter the code you were given.")).toBeInTheDocument();
 });
 
 test("GAP-101: a real server error on /api/me shows a failure notice, never an eternal spinner", async () => {

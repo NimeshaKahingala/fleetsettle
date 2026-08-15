@@ -120,9 +120,22 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
     onBookTrip(option.key);
   }
 
+  const childSheetOpen =
+    fuelOpen ||
+    expenseOpen ||
+    receivedPartyPickerOpen ||
+    paidPartyPickerOpen ||
+    paymentSheetOpen ||
+    tripVehiclePickerOpen;
+
   return (
     <>
-      <ActionSheet open={open} onOpenChange={onOpenChange} title="Add" actions={actions} />
+      <ActionSheet
+        open={open && !childSheetOpen}
+        onOpenChange={onOpenChange}
+        title="Add"
+        actions={actions}
+      />
 
       <FuelFillSheet
         open={fuelOpen}
@@ -137,7 +150,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
         onRecorded={(_expense: ExpenseResponse) => setExpenseOpen(false)}
       />
       <ReasonPicker
-        open={receivedPartyPickerOpen}
+        open={receivedPartyPickerOpen && !paymentSheetOpen}
         onOpenChange={setReceivedPartyPickerOpen}
         title="Payment received — choose who paid"
         reasons={receivedPartyReasons}
@@ -162,7 +175,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
             : {})}
       />
       <ReasonPicker
-        open={paidPartyPickerOpen}
+        open={paidPartyPickerOpen && !paymentSheetOpen}
         onOpenChange={setPaidPartyPickerOpen}
         title="Payment made — choose a driver"
         reasons={paidPartyReasons}

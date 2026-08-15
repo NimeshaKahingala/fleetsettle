@@ -177,7 +177,7 @@ The order is already fixed by the flows document (FL §7) and is not a design ch
 - Item 3 renders as the **only elevated card on the screen**, sized so its three buttons land between 55% and 90% of viewport height on a 640px screen. This is the thumb's natural arc, and it is the one interaction the whole product is optimised around.
 - Items 4–7 are **section groups with counts** (`Earlier days · 5`), collapsed to three rows each with "Show all".
 - **Nothing about successful messaging appears.** Success is invisible by design (UC-87).
-- **Empty is a real state and it is a good one.** "Nothing needs you today" with the date, not a blank screen and not a nudge to go find work.
+- **Empty is a real state and it is a good one.** Show "Nothing needs you today" with the date only after the Home reads have answered with real nothing, not during the initial loading window and not as a nudge to go find work.
 
 **When more than one vehicle has a card today.** The worked examples describe one bus, but the model allows any number of daily leases, and five stacked cards at ~200px each is a 1,000px home screen before anything else appears — which turns U-4's "the home screen holds the truth" into a wall nobody reads to the bottom of.
 
@@ -583,7 +583,7 @@ Each entry gives the target interaction cost, the level-1 fields, and the traps.
 | **Level 1** | Nothing. The card *is* the form |
 | **Level 2** | Earned vs received, note, odometer (optional, never prompted — W-20) |
 
-*First run, empty cache.* The home screen shows the empty state — "Nothing needs you today" — until the first response lands. A skeleton appears **only** if the app already knows a daily-lease vehicle exists and its card has not arrived within 300ms. A skeleton before that is a promise of content that may not exist, and on a business with no daily lease it would never resolve.
+*First run, empty cache.* The home screen shows a neutral loading state until the Home reads answer. It shows the real empty state — "Nothing needs you today" with the business date — only after those reads have answered with no waiting work. A skeleton appears **only** if the app already knows a daily-lease vehicle exists and its card has not arrived within 300ms. A skeleton before that is a promise of content that may not exist, and on a business with no daily lease it would never resolve.
 
 Traps: the card must be tappable before data loads (render from cache, confirm optimistically); the three buttons must never reflow after load; "Didn't run" must not be reachable by mis-tapping "Paid in full" — hence the two-row layout with the primary alone on its row.
 
