@@ -31,13 +31,19 @@ export function VehiclePerformanceCard({
       <Card className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <span className="text-body font-medium text-ink-primary">{vehicle.registration}</span>
+          {/* Profit is a derived net, never a single-direction fact — no
+              border marker, the same "Net" line treatment TwoBalances gives
+              its own net (never a raw receivable/payable). */}
           <Money value={parse(vehicle.profitMinor)} />
         </div>
-        <div className="flex justify-between text-body-sm text-ink-secondary">
+        {/* §7.11/TwoBalances: "he owes you" (income, brand) vs "you owe
+            him" (a cost, direction-payable) — the same 3px leading-border
+            marker, not a colour on the figure itself (M-15). */}
+        <div className="flex justify-between border-l-[3px] border-brand pl-2 text-body-sm text-ink-secondary">
           <span>Earned</span>
           <Money value={parse(vehicle.earnedMinor)} />
         </div>
-        <div className="flex justify-between text-body-sm text-ink-secondary">
+        <div className="flex justify-between border-l-[3px] border-direction-payable pl-2 text-body-sm text-ink-secondary">
           <span>Spent</span>
           <Money value={parse(vehicle.costsMinor)} />
         </div>
