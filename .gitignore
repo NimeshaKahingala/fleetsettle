@@ -54,3 +54,4 @@ CLAUDE.local.md
 *.log
 npm-debug.log*
 testCred.md
+.playwright-cli

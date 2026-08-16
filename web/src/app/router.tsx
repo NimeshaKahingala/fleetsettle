@@ -36,8 +36,10 @@ import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
+import { AgeingReportScreen } from "../features/reports/AgeingReportScreen.js";
 import { CashPositionReportScreen } from "../features/reports/CashPositionReportScreen.js";
 import { FuelEfficiencyReportScreen } from "../features/reports/FuelEfficiencyReportScreen.js";
+import { GoodwillReportScreen } from "../features/reports/GoodwillReportScreen.js";
 import { LostDaysReportScreen } from "../features/reports/LostDaysReportScreen.js";
 import { ReceivablesReportScreen } from "../features/reports/ReceivablesReportScreen.js";
 import {
@@ -45,6 +47,7 @@ import {
   type ReportKey,
 } from "../features/reports/ReportsCatalogueScreen.js";
 import { TripRankingReportScreen } from "../features/reports/TripRankingReportScreen.js";
+import { UtilisationReportScreen } from "../features/reports/UtilisationReportScreen.js";
 import { VehicleMonthReportScreen } from "../features/reports/VehicleMonthReportScreen.js";
 import { ReviewMoneyScreen } from "../features/review/ReviewMoneyScreen.js";
 import { ReviewThisMonthScreen } from "../features/review/ReviewThisMonthScreen.js";
@@ -414,6 +417,9 @@ const REPORT_PATH: Record<ReportKey, string> = {
   receivables: "/reports/receivables",
   "cash-position": "/reports/cash-position",
   "lost-days": "/reports/lost-days",
+  ageing: "/reports/ageing",
+  goodwill: "/reports/goodwill",
+  utilisation: "/reports/utilisation",
 };
 
 /** B4/§5.1: the catalogue — six cards, reached identically from the Review shell's own `Reports` tab and Operate's `/more` row (§4's IA). */
@@ -509,6 +515,63 @@ function LostDaysReportRoute({ today }: { today: BusinessDate }) {
       today={today}
       onParamsChange={(params) => {
         void navigate({ to: "/reports/lost-days", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** GAP-98: defaults to today, matching UC-78's own "as of" framing — the ageing buckets are as-of-now views, not period-scoped. */
+function AgeingReportRoute({ today }: { today: BusinessDate }) {
+  const { asOfDate } = useSearch({ from: "/reports/ageing" });
+  const navigate = useNavigate();
+  return (
+    <AgeingReportScreen
+      asOfDate={asOfDate ?? today}
+      today={today}
+      onParamsChange={(date) => {
+        void navigate({ to: "/reports/ageing", search: { asOfDate: date } });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** GAP-98: defaults to the current calendar year — UC-77's own framing is "per year", unlike lost-days' current-month default. */
+function GoodwillReportRoute({ today }: { today: BusinessDate }) {
+  const { from, to } = useSearch({ from: "/reports/goodwill" });
+  const navigate = useNavigate();
+  return (
+    <GoodwillReportScreen
+      from={from ?? asBusinessDate(`${today.slice(0, 4)}-01-01`)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/goodwill", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** GAP-98: the same last-90-days default `FuelEfficiencyReportRoute` uses — the other report parameterised by both a vehicle and a window. */
+function UtilisationReportRoute({ today }: { today: BusinessDate }) {
+  const { vehicleId, from, to } = useSearch({ from: "/reports/utilisation" });
+  const navigate = useNavigate();
+  return (
+    <UtilisationReportScreen
+      {...(vehicleId !== undefined ? { vehicleId } : {})}
+      from={from ?? addDays(today, -90)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/utilisation", search: params });
       }}
       onBack={() => {
         void navigate({ to: "/reports" });
@@ -939,6 +1002,52 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <LostDaysReportRoute today={today} />,
   });
 
+  const ageingReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/ageing",
+    validateSearch: (search: Record<string, unknown>): { asOfDate?: BusinessDate } => {
+      const raw = search["asOfDate"];
+      return isBusinessDateLike(raw) ? { asOfDate: raw } : {};
+    },
+    component: () => <AgeingReportRoute today={today} />,
+  });
+
+  const goodwillReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/goodwill",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { from?: BusinessDate; to?: BusinessDate } => {
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <GoodwillReportRoute today={today} />,
+  });
+
+  const utilisationReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/utilisation",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { vehicleId?: string; from?: BusinessDate; to?: BusinessDate } => {
+      const rawVehicleId = search["vehicleId"];
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(typeof rawVehicleId === "string" && rawVehicleId !== ""
+          ? { vehicleId: rawVehicleId }
+          : {}),
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <UtilisationReportRoute today={today} />,
+  });
+
   const mineRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/me",
@@ -979,6 +1088,9 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     receivablesReportRoute,
     cashPositionReportRoute,
     lostDaysReportRoute,
+    ageingReportRoute,
+    goodwillReportRoute,
+    utilisationReportRoute,
     mineRoute,
   ]);
 

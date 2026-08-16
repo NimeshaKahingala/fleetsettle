@@ -9,6 +9,7 @@ export const reportPartyTypeSchema = z.enum(["customer", "driver", "partner"]);
 export type ReportPartyType = z.infer<typeof reportPartyTypeSchema>;
 
 export const ageingBucketSchema = z.enum(["current", "1-30", "31-60", "61-90", "over-90"]);
+export type AgeingBucket = z.infer<typeof ageingBucketSchema>;
 
 /** UC-70/DM §15: one row per vehicle for a given accounting period — "combined" is the caller summing this array, the same pre-computed-lines convention `AllocationPreview` already uses (UI §6). */
 export const vehicleMonthOwnerShareSchema = z.object({
@@ -200,10 +201,9 @@ export type GoodwillResponse = z.infer<typeof goodwillResponseSchema>;
 
 /**
  * UC-79: day-based figures for one vehicle in a window — always computable
- * (W-56). `revenuePerAvailableDayMinor`, the "which arrangement earns more"
- * comparison the use case also describes, is not built this pass — a real,
- * separate figure needing its own date-range-scoped earned calculation,
- * disproportionate to a phase "Second" item (recorded in TRACKER.md).
+ * (W-56). `revenuePerAvailableDayMinor` is the "which arrangement earns
+ * more" comparison the use case describes — `null`, never a guessed `0`,
+ * whenever the window has no available day to divide by (GAP-19).
  */
 export const utilisationResponseSchema = z.object({
   vehicleId: uuidSchema,
@@ -217,5 +217,6 @@ export const utilisationResponseSchema = z.object({
   offRoadDays: z.number().int().nonnegative(),
   // eslint-disable-next-line no-restricted-syntax -- a day count, not money
   totalDays: z.number().int().nonnegative(),
+  revenuePerAvailableDayMinor: z.string().nullable(),
 });
 export type UtilisationResponse = z.infer<typeof utilisationResponseSchema>;
