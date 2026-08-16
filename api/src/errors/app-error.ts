@@ -1,4 +1,4 @@
-import type { ErrorCode } from "@fleetsettle/shared";
+import type { ErrorCode, VehicleDoubleBookedDetails } from "@fleetsettle/shared";
 
 /**
  * One base, typed subclasses, one global `app.onError` (IG §3.3). Handlers
@@ -91,10 +91,18 @@ export class VehicleAlreadyExistsError extends AppError {
 // and it says so before you can create the conflict"). DM §4.1's
 // `one_arrangement_per_vehicle_day` unique index is the truth — this class
 // exists so a caught violation maps to one code, the same pattern as
-// PeriodClosedError.
+// PeriodClosedError. GAP-44: `details` is optional because the enrichment
+// query (domain/trip.ts's own `buildDoubleBookedError`) is a best-effort
+// read after the constraint violation already happened — if it somehow
+// finds no occupying row (a race with a concurrent void, in principle) or
+// one of its reads itself throws (a transient DB error), the 409 still
+// fires with the plain message rather than failing to error at all.
 export class VehicleDoubleBookedError extends AppError {
-  constructor(message = "This vehicle is already allocated for one or more of these dates") {
-    super(409, "VEHICLE_DOUBLE_BOOKED", message);
+  constructor(
+    message = "This vehicle is already allocated for one or more of these dates",
+    details?: VehicleDoubleBookedDetails,
+  ) {
+    super(409, "VEHICLE_DOUBLE_BOOKED", message, details);
   }
 }
 
