@@ -21,6 +21,8 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+output/
+.playwright-cli
 
 # environment — secrets go through `wrangler secret put`, never a committed file
 .env

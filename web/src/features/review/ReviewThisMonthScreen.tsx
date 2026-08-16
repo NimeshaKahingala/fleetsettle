@@ -7,10 +7,11 @@ import type {
   VehicleMonthResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Card } from "../../design/primitives/Card.js";
-import { Screen } from "../../design/primitives/Screen.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Card } from "../../design/primitives/Card.js";
+import { Screen } from "../../design/primitives/Screen.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -179,19 +180,21 @@ export function ReviewThisMonthScreen({
   return (
     <Screen title="This month">
       <div className="flex flex-col gap-4">
-        <Card className="flex flex-col gap-1">
-          <span className="text-caption text-ink-muted">My share this month</span>
-          <Money value={myShare} className="text-title-lg font-medium" />
-          {delta !== null ? (
-            <span
-              className={
-                delta >= 0 ? "text-body-sm text-good-ink" : "text-body-sm text-critical-ink"
+        <StatTile
+          label="My share this month"
+          value={<Money value={myShare} />}
+          size="hero"
+          {...(delta !== null && deltaRounded !== null
+            ? {
+                delta: {
+                  value: `${deltaRounded.toString()}%`,
+                  direction: delta >= 0 ? "up" : "down",
+                  sentiment: delta >= 0 ? "good" : "serious",
+                  label: "vs last month",
+                },
               }
-            >
-              {delta >= 0 ? "▲" : "▼"} {deltaRounded}% vs last month
-            </span>
-          ) : null}
-        </Card>
+            : {})}
+        />
 
         <div className="flex flex-col gap-2">
           {currentReport.vehicles.map((v) => {

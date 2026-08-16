@@ -51,7 +51,11 @@ describe("AuthGate", () => {
     );
 
     expect(screen.queryByText("the app")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    expect(
+      screen.getByText("A small fleet ledger for money everyone can believe."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Secured sign-in for your business records.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Sign in to FleetSettle" }));
     expect(signIn).toHaveBeenCalledTimes(1);
   });
 
@@ -103,7 +107,7 @@ describe("AuthGate", () => {
       </AuthGate>,
     );
 
-    expect(screen.getByText("Signing you in…")).toBeInTheDocument();
+    expect(screen.getByText("Signing you in...")).toBeInTheDocument();
     await waitFor(() => {
       expect(signIn).toHaveBeenCalledTimes(1);
     });

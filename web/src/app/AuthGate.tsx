@@ -1,4 +1,5 @@
 import { useAuthContext } from "@asgardeo/auth-react";
+import { ShieldCheck } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Button } from "../design/primitives/Button.js";
 import { Screen } from "../design/primitives/Screen.js";
@@ -25,6 +26,33 @@ function isCallbackReturn(location: Location): boolean {
 
 export interface AuthGateProps {
   children: React.ReactNode;
+}
+
+function FleetSettleLockup({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-3 text-ink-primary" aria-label="FleetSettle">
+      <svg
+        viewBox="0 0 200 91"
+        aria-hidden
+        className={compact ? "h-9 w-20 text-brand" : "h-12 w-28 text-brand"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64" />
+        <path d="M 68 64 L 132 64" />
+        <path d="M 78 35 L 138 35" />
+        <circle cx="52" cy="64" r="11.5" />
+        <circle cx="148" cy="64" r="11.5" />
+      </svg>
+      <span className={compact ? "text-title" : "text-title-lg"} aria-hidden>
+        <span className="font-[450]">Fleet</span>
+        <span className="font-bold">Settle</span>
+      </span>
+    </div>
+  );
 }
 
 /**
@@ -99,7 +127,10 @@ export function AuthGate({ children }: AuthGateProps) {
   if (state.isLoading || isOnCallbackPath(window.location)) {
     return (
       <Screen title="FleetSettle">
-        <p className="text-body text-ink-secondary">Signing you in…</p>
+        <div className="flex min-h-[55svh] flex-col justify-center gap-4">
+          <FleetSettleLockup compact />
+          <p className="text-body text-ink-secondary">Signing you in...</p>
+        </div>
       </Screen>
     );
   }
@@ -107,10 +138,19 @@ export function AuthGate({ children }: AuthGateProps) {
   if (!state.isAuthenticated) {
     return (
       <Screen title="FleetSettle">
-        <div className="flex flex-col gap-4">
-          <p className="text-body text-ink-secondary">Sign in to continue.</p>
+        <div className="flex min-h-[70svh] flex-col justify-center gap-6">
+          <div className="flex flex-col gap-3">
+            <FleetSettleLockup />
+            <p className="max-w-sm text-body text-ink-secondary">
+              A small fleet ledger for money everyone can believe.
+            </p>
+          </div>
+          <div className="flex items-start gap-3 text-body-sm text-ink-muted">
+            <ShieldCheck className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+            <p>Secured sign-in for your business records.</p>
+          </div>
           <Button size="cta" onClick={() => void authRef.current.signIn()}>
-            Sign in
+            Sign in to FleetSettle
           </Button>
         </div>
       </Screen>

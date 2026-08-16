@@ -1,7 +1,7 @@
 import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { BankingEventResponse, CashPositionResponse } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, ChevronRight } from "lucide-react";
+import { Banknote, ChevronRight, HandCoins, Landmark } from "lucide-react";
 import { useState } from "react";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
@@ -14,6 +14,7 @@ import { Input } from "../../design/primitives/Input.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
@@ -174,10 +175,11 @@ export function CashScreen({ today, onSelectPartner, onBack }: CashScreenProps) 
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-5">
-          <Card className="flex items-center justify-between gap-4">
-            <span className="text-body text-ink-secondary">Held as deposits</span>
-            <Money value={BigInt(cash.depositsHeldMinor) as Minor} />
-          </Card>
+          <StatTile
+            label="Held as deposits"
+            value={<Money value={BigInt(cash.depositsHeldMinor) as Minor} />}
+            size="hero"
+          />
           <Section
             title="Partners holding cash"
             count={cash.partners.length}
@@ -189,9 +191,14 @@ export function CashScreen({ today, onSelectPartner, onBack }: CashScreenProps) 
                 className="w-full text-left"
               >
                 <Card className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-body text-ink-primary">{partnerName(partner.displayName)}</p>
-                    <p className="text-caption text-ink-muted">Holding</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <HandCoins className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+                    <div className="min-w-0">
+                      <p className="text-body text-ink-primary">
+                        {partnerName(partner.displayName)}
+                      </p>
+                      <p className="text-caption text-ink-muted">Holding</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <Money value={BigInt(partner.heldMinor) as Minor} />
@@ -207,7 +214,10 @@ export function CashScreen({ today, onSelectPartner, onBack }: CashScreenProps) 
               count={cash.banked.length}
               items={cash.banked.map((row) => (
                 <Card key={row.destination} className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">{row.destination}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Landmark className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+                    <p className="min-w-0 truncate text-body text-ink-primary">{row.destination}</p>
+                  </div>
                   <Money value={BigInt(row.heldMinor) as Minor} />
                 </Card>
               ))}

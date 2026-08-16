@@ -16,6 +16,14 @@ import { HomeScreen } from "./HomeScreen.js";
 
 const today = businessToday();
 
+function formatTestHomeDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
 /**
  * Every path this screen never asks about resolves to empty, so a test only
  * has to say what it cares about. `ConfirmDayCard` (used by both item 3 and
@@ -50,6 +58,30 @@ function baseGet(overrides: Record<string, unknown> = {}) {
 test("nothing outstanding renders the empty state, not a blank screen", async () => {
   const get = baseGet();
   renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Nothing needs you today")).toBeInTheDocument();
+  expect(screen.getByText(formatTestHomeDate(today))).toBeInTheDocument();
+});
+
+test("GAP-126: the empty state waits for the Home reads to answer, never standing in for loading", async () => {
+  let resolveVehicles: ((value: ActiveDailyLeaseRow[]) => void) | undefined;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/daily-lease") {
+      return new Promise<ActiveDailyLeaseRow[]>((resolve) => {
+        resolveVehicles = resolve;
+      });
+    }
+    if (path.startsWith("/api/day-record/")) {
+      return Promise.reject(new ApiError(404, "NOT_FOUND", "not yet confirmed", "req-1"));
+    }
+    return Promise.resolve([]);
+  });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByText("Nothing needs you today")).not.toBeInTheDocument();
+
+  resolveVehicles?.([]);
 
   expect(await screen.findByText("Nothing needs you today")).toBeInTheDocument();
 });
@@ -124,9 +156,9 @@ test("a paperwork warning renders as an alert strip, styled by isExpired, with a
     get,
   });
 
-  const vehicleAlert = await screen.findByText(/CAB-1234 — insurance expires 2026-08-10/);
+  const vehicleAlert = await screen.findByText(/CAB-1234 — insurance expires 10 Aug/);
   expect(vehicleAlert).toBeInTheDocument();
-  expect(screen.getByText(/Nimal — licence expired 2026-07-20/)).toBeInTheDocument();
+  expect(screen.getByText(/Nimal — licence expired 20 Jul/)).toBeInTheDocument();
 
   const alerts = screen.getAllByRole("alert");
   expect(alerts).toHaveLength(2);
@@ -173,8 +205,10 @@ test("four or more vehicles collapse to a summary row, which expands to the full
   const get = baseGet({ "/api/daily-lease": leases });
   renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
 
+  expect(await screen.findByText("Expected")).toBeInTheDocument();
+  expect(screen.getByText("4 vehicles to confirm")).toBeInTheDocument();
   expect(await screen.findByText("4 vehicles running today")).toBeInTheDocument();
-  expect(screen.getByText("Rs 20,000")).toBeInTheDocument();
+  expect(screen.getAllByText("Rs 20,000")).toHaveLength(2);
   expect(screen.queryByText("Expected from Driver 0")).not.toBeInTheDocument();
 
   await user.click(screen.getByText("4 vehicles running today"));
@@ -311,7 +345,8 @@ test("deposits to release and trips in progress each render in their own section
   expect(await screen.findByText("Deposits to release · 1")).toBeInTheDocument();
   expect(screen.getByText("Trips in progress · 1")).toBeInTheDocument();
   expect(screen.getByText("CAB-9999")).toBeInTheDocument();
-  expect(screen.getByText(/Kandy/)).toBeInTheDocument();
+  expect(screen.getByText("Kandy · 1 Aug–3 Aug")).toBeInTheDocument();
+  expect(screen.getByText("Open")).toBeInTheDocument();
 
   await user.click(screen.getByText("CAB-9999"));
   expect(onSelectTrip).toHaveBeenCalledWith("t1");
