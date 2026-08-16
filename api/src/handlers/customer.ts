@@ -138,6 +138,7 @@ export const listCustomerObligationsHandler: RouteHandler<
       id: row.id,
       kind: row.kind,
       dueOn: row.dueOn,
+      effectiveDueOn: row.effectiveDueOn,
       amountMinor: toWire(row.amountMinor as Minor),
       settledMinor: toWire(row.settledMinor as Minor),
       waivedMinor: toWire(row.waivedMinor as Minor),

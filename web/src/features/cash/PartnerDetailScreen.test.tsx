@@ -118,6 +118,47 @@ test("B2: Partner detail records a partner payout", async () => {
   );
 });
 
+/**
+ * GAP-115: the capital-contribution write path had no test at all —
+ * `PartnerDetailScreen.tsx`'s own `CapitalContributionSheet` (`mutationFn`
+ * posts `userId`/`amountMinor`/`contributedOn` and an optional trimmed
+ * `note`) was correct source with zero coverage. Mirrors the payout test
+ * above, the sibling mutation this file already tests.
+ */
+test("GAP-115: Partner detail records a capital contribution", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "c2",
+    userId: "u1",
+    vehicleId: null,
+    amountMinor: "150000",
+    contributedOn: today,
+    note: null,
+    replacesId: null,
+  });
+  renderWithProviders(<PartnerDetailScreen userId="u1" today={today} onBack={vi.fn()} />, {
+    get: baseGet(),
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Partner money" }));
+  await user.click(await screen.findByRole("button", { name: "Capital contribution" }));
+  await enterMoney(user, "150000");
+  await user.click(screen.getByRole("button", { name: "Save contribution" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/capital-contribution",
+      expect.objectContaining({ userId: "u1", amountMinor: "150000", contributedOn: today }),
+    ),
+  );
+  // The mutationFn's own conditional spread — `note` is omitted entirely
+  // when blank, not sent as an empty string — so a regression that starts
+  // always sending it would fail this.
+  const [, body] = post.mock.calls[0] as [string, Record<string, unknown>];
+  expect(body).not.toHaveProperty("note");
+});
+
 test("GAP-101: failed partner summary read shows a scoped failure", async () => {
   const get = vi.fn().mockImplementation((path: string) => {
     if (path === "/api/partner/u1") {

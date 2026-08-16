@@ -2046,6 +2046,7 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     expect(body.receivable).toMatchObject({
       kind: "trip_fare",
       dueOn: "2026-03-03",
+      effectiveDueOn: "2026-03-03",
       amountMinor: "3000000",
       settledMinor: "0",
       waivedMinor: "0",
@@ -2057,6 +2058,8 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     const getBody: { receivable: Record<string, unknown> | null } = await getRes.json();
     expect(getBody.receivable).toMatchObject({
       id: body.receivable?.["id"],
+      dueOn: "2026-03-03",
+      effectiveDueOn: "2026-03-03",
       amountMinor: "3000000",
       settledMinor: "0",
       status: "pending",

@@ -102,6 +102,12 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
           <ImageIcon className="size-4" aria-hidden />
           {receiptCount} receipt{receiptCount === 1 ? "" : "s"}
         </button>
+      ) : attachmentsState.kind === "pending" || attachmentsState.kind === "idle" ? (
+        // GAP-130: `confirmedCount` reads as 0 for the query's whole
+        // in-flight window, indistinguishable from a genuinely receipt-free
+        // expense without this branch — the same "?? 0 during pending"
+        // shape GAP-126/127/128/129 already fixed elsewhere.
+        <p className="text-caption text-ink-muted">Checking receipts…</p>
       ) : null}
       {!voided ? (
         <VoidExpenseSheet

@@ -116,6 +116,23 @@ test("no receipt indicator when the expense has no attachments", async () => {
   expect(screen.queryByRole("button", { name: /receipt/ })).toBeNull();
 });
 
+/**
+ * GAP-130: while the attachments read is still in flight, `confirmedCount`
+ * is `?? 0` — indistinguishable from a genuinely receipt-free expense
+ * without this check. A never-resolving `get` keeps the query pending for
+ * the whole assertion window.
+ */
+test("GAP-130: shows a pending notice rather than silently no receipt indicator while the read is in flight", async () => {
+  const get = vi.fn().mockImplementation(() => new Promise<never>(() => {}));
+  renderWithProviders(
+    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    { get },
+  );
+
+  expect(await screen.findByText("Checking receipts…")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /receipt/ })).toBeNull();
+});
+
 test("a receipt indicator shows the count and opens the receipt sheet — GAP-16 not honestly closed until a user can see what they uploaded", async () => {
   const user = userEvent.setup();
   const receipt: AttachmentResponse = {

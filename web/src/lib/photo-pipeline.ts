@@ -88,10 +88,14 @@ export async function withWorkerTimeout(
   run: () => Promise<EncodedPhoto>,
   fallback: () => EncodedPhoto,
   timeoutMs: number = PHOTO_WORKER_TIMEOUT_MS,
+  onTimeout?: () => void,
 ): Promise<EncodedPhoto> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<EncodedPhoto>((resolve) => {
-    timer = setTimeout(() => resolve(fallback()), timeoutMs);
+    timer = setTimeout(() => {
+      onTimeout?.();
+      resolve(fallback());
+    }, timeoutMs);
   });
   try {
     return await Promise.race([run().catch(() => fallback()), timeout]);
@@ -100,11 +104,12 @@ export async function withWorkerTimeout(
   }
 }
 
-function runInWorker(file: File): Promise<EncodedPhoto> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL("./photo-pipeline.worker.ts", import.meta.url), {
-      type: "module",
-    });
+/** `worker.terminate()` is idempotent — safe to call again from the timeout path even after `onmessage`/`onerror` already terminated it. */
+function runInWorker(file: File): { promise: Promise<EncodedPhoto>; worker: Worker } {
+  const worker = new Worker(new URL("./photo-pipeline.worker.ts", import.meta.url), {
+    type: "module",
+  });
+  const promise = new Promise<EncodedPhoto>((resolve, reject) => {
     worker.onmessage = (event: MessageEvent) => {
       const result = event.data as PhotoWorkerResult;
       worker.terminate();
@@ -117,6 +122,7 @@ function runInWorker(file: File): Promise<EncodedPhoto> {
     };
     worker.postMessage(file);
   });
+  return { promise, worker };
 }
 
 /**
@@ -125,17 +131,20 @@ function runInWorker(file: File): Promise<EncodedPhoto> {
  * first, photos follow" contract only holds if it never blocks that save.
  * Encodes in a Web Worker where available; past the timeout, the original
  * file goes up unresized (flagged) rather than making the caller wait
- * longer — the worker keeps running underneath and is simply discarded
- * once it does finish, since nothing here re-delivers a late result.
+ * longer, and the worker is terminated on the way out so a stuck decode
+ * doesn't keep a thread and its retained bitmap alive after the caller has
+ * already moved on.
  */
 export function encodeWithWorkerTimeout(
   file: File,
   timeoutMs: number = PHOTO_WORKER_TIMEOUT_MS,
 ): Promise<EncodedPhoto> {
   if (typeof Worker === "undefined") return downscaleAndEncode(file);
+  const { promise, worker } = runInWorker(file);
   return withWorkerTimeout(
-    () => runInWorker(file),
+    () => promise,
     () => ({ blob: file, flagged: true }),
     timeoutMs,
+    () => worker.terminate(),
   );
 }

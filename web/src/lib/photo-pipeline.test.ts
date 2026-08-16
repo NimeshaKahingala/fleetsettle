@@ -98,6 +98,46 @@ test("GAP-17: a custom timeout overrides the 3s default", async () => {
   }
 });
 
+test("falls back on timeout without terminating a run() that already settled", async () => {
+  vi.useFakeTimers();
+  try {
+    const photo = { blob: blobOfSize(50_000), flagged: false };
+    const onTimeout = vi.fn();
+    const result = withWorkerTimeout(
+      () => Promise.resolve(photo),
+      () => {
+        throw new Error("fallback must not run when run() already won");
+      },
+      PHOTO_WORKER_TIMEOUT_MS,
+      onTimeout,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).resolves.toBe(photo);
+    expect(onTimeout).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("calls onTimeout so a stuck worker can be terminated once the fallback wins the race", async () => {
+  vi.useFakeTimers();
+  try {
+    const fallbackPhoto = { blob: blobOfSize(1_000_000), flagged: true };
+    const onTimeout = vi.fn();
+    const result = withWorkerTimeout(
+      () => new Promise(() => {}), // never settles — the stuck-Worker case
+      () => fallbackPhoto,
+      PHOTO_WORKER_TIMEOUT_MS,
+      onTimeout,
+    );
+    await vi.advanceTimersByTimeAsync(PHOTO_WORKER_TIMEOUT_MS);
+    await expect(result).resolves.toBe(fallbackPhoto);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("GAP-17: run() rejecting (worker fails to load, CSP block, construction throws) falls back immediately rather than rejecting the call", async () => {
   vi.useFakeTimers();
   try {

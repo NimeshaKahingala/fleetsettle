@@ -77,3 +77,16 @@ if (typeof globalThis.createImageBitmap === "undefined") {
     Promise.resolve({ close: () => undefined, height: 1, width: 1 });
   globalThis.createImageBitmap = createImageBitmapMock;
 }
+
+// GAP-86: jsdom stubs window.scrollTo but does not implement it — calling
+// it just logs "Not implemented: Window's scrollTo() method" via jsdom's
+// virtual console rather than throwing, so `!window.scrollTo` is always
+// false and this has to unconditionally overwrite it, not gate on
+// existence. TanStack Router calls it on every navigation (its own
+// scroll-restoration behaviour), so any test that renders a real router
+// (App.test.tsx, router-sheet-history.test.tsx) logged this on every route
+// change. Never failed a test, which is exactly why it went unfixed —
+// noise a real regression could hide behind.
+if (typeof window !== "undefined") {
+  window.scrollTo = () => undefined;
+}
