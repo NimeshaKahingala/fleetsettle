@@ -82,6 +82,8 @@ export function CorrectPaymentSheet({
     },
     enabled: open && payment !== null,
   });
+  // allow: reasoned out below — a failed/pending membersQuery degrades
+  // each entry to the honest "A former member" label, never a wrong name.
   const membersQuery = useQuery({
     queryKey: ["business-member"],
     queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),

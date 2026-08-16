@@ -70,6 +70,8 @@ export function BookTripScreen({
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
 
+  // allow: title fallback only ("Book a trip") — the booking flow itself
+  // reads no other field off this query.
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),

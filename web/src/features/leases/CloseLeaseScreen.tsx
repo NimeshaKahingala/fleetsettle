@@ -90,10 +90,15 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
   const [step, setStep] = useState(0);
   const [finalPeriod, setFinalPeriod] = useState<ClosedLeaseFinalPeriodResponse | null>(null);
 
+  // allow: leaseQuery.data is never rendered, only feeds customerQuery's
+  // queryKey/enabled below — a failure here just leaves customerQuery
+  // disabled, which already degrades safely to the title fallback.
   const leaseQuery = useQuery({
     queryKey: ["lease", leaseId],
     queryFn: () => api.get<LeaseResponse>(`/api/lease/${leaseId}`),
   });
+  // allow: title fallback only ("Close the lease"); the flow's real content
+  // (unpaid dues, deposit) is summaryQuery/depositQuery, both wrapped below.
   const customerQuery = useQuery({
     queryKey: ["customer", leaseQuery.data?.customerId],
     queryFn: () => {

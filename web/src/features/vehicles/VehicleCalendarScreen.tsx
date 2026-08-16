@@ -146,6 +146,9 @@ export function VehicleCalendarScreen({
   const from = monthStart(monthAnchor);
   const to = monthEnd(monthAnchor);
 
+  // allow: title fallback plus fails-closed arrangement gating (never
+  // offers a free-day action when unresolved, only withholds it) — the
+  // occupancy grid itself is daysQuery/unavailabilityQuery, both wrapped.
   const { data: vehicle } = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),

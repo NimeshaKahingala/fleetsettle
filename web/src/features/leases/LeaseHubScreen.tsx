@@ -80,6 +80,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
     queryKey: ["lease", leaseId],
     queryFn: () => api.get<LeaseResponse>(`/api/lease/${leaseId}`),
   });
+  // allow: title fallback plus a fail-closed gate on CollectPaymentSheet
+  // (rendered only once customerQuery.data resolves) — a failure here
+  // never offers a wrong customer, it just delays the action rendering.
   const customerQuery = useQuery({
     queryKey: ["customer", leaseQuery.data?.customerId],
     queryFn: () => {
