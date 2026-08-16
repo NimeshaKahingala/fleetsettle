@@ -67,7 +67,7 @@ Three rules that have already earned their place:
 | data-model | v1.1.7 | 13 Aug 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
 | implementation-guidelines | v1.6.1 | 10 Aug 2026 |
-| ui-ux-guidelines | v1.4.0 | 14 Aug 2026 |
+| ui-ux-guidelines | v1.4.1 | 16 Aug 2026 |
 | brand-guidelines | v1.0.2 | 14 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).

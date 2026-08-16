@@ -11,15 +11,16 @@ import { createAppRouteTree } from "./router.js";
 const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" as const };
 
 /**
- * `useMobileHistoryDismiss` (`Sheet`'s mobile back-button support) calls
- * `window.history.pushState`/`.back()` directly, and TanStack Router's
- * default (browser) history wraps that same `window.history` — unlike
- * every other test here, which uses `createMemoryHistory` and so never
- * touches the real jsdom history/location at all. This is the one place
- * the two can actually interact, so it gets its own file with a real
- * browser-backed router rather than sharing `renderWithRouter`'s memory
- * history, and its own careful jsdom URL reset so it can't leak into
- * other test files' assumptions about the starting location.
+ * GAP-134: a route `navigate()` and a `Sheet` closing in the same handler
+ * both used to reach real `window.history` (`useMobileHistoryDismiss`'s
+ * `pushState`/`.back()`, TanStack Router's default browser history) —
+ * unlike every other test here, which uses `createMemoryHistory` and so
+ * never touches the real jsdom history/location at all, this was the one
+ * place the two could actually interact and race. `useCloseWatcherDismiss`
+ * (its replacement) never touches `window.history` at all, so there is
+ * nothing left to race, but this file — and its real browser-backed router,
+ * rather than `renderWithRouter`'s memory history — stays as the regression
+ * shape: a sheet closing and a route changing in the same jsdom document.
  */
 function mockCoarsePointer(matches: boolean): void {
   window.matchMedia = vi.fn().mockReturnValue({ matches }) as typeof window.matchMedia;
@@ -48,8 +49,9 @@ test("opening and dismissing a sheet (via its visible close button) on a routed 
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   // No `history` override — the real point of this test is the default
-  // browser history, the one `useMobileHistoryDismiss` can actually collide
-  // with; `window.history` already sits on `/vehicles` from `beforeEach`.
+  // browser history, the one a sheet closing and a route change could
+  // collide on; `window.history` already sits on `/vehicles` from
+  // `beforeEach`.
   const router = createAppRouteTree(businessToday());
 
   const apiClient: Partial<ApiClient> = { get };

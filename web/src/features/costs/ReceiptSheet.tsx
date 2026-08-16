@@ -12,7 +12,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
-import { useMobileHistoryDismiss } from "../../lib/useMobileHistoryDismiss.js";
+import { useCloseWatcherDismiss } from "../../lib/useCloseWatcherDismiss.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 
@@ -319,10 +319,9 @@ function ReceiptThumbnail({
  * the topmost one, interactive while marking everything outside it inert —
  * a hand-rolled portal is just another sibling under `document.body` as far
  * as that stack is concerned, and gets marked inert (`pointer-events: none`)
- * right along with the real background. Registers a mobile history entry
- * the same way `Sheet` does (§3.3), so the Android back button closes it
- * rather than leaving the app; Escape and the overlay click come free from
- * Radix.
+ * right along with the real background. Registers a close-watcher the same
+ * way `Sheet` does (§3.3), so the Android back button closes it rather than
+ * leaving the app; Escape and the overlay click come free from Radix.
  */
 function ReceiptLightbox({
   url,
@@ -333,7 +332,7 @@ function ReceiptLightbox({
   onClose: () => void;
   onRemove: () => void;
 }) {
-  useMobileHistoryDismiss(true, (next) => {
+  useCloseWatcherDismiss(true, (next) => {
     if (!next) onClose();
   });
 
