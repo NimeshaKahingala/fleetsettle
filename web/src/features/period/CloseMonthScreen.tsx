@@ -5,10 +5,12 @@ import type {
   PaymentListRow,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TriangleAlert } from "lucide-react";
 import { useState } from "react";
 import { Can } from "../../components/Can.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Dialog, DialogConfirmFooter } from "../../design/primitives/Dialog.js";
@@ -30,8 +32,13 @@ function formatPeriod(start: string, end: string): string {
   return `${fmt.format(new Date(`${start}T00:00:00`))} – ${fmt.format(new Date(`${end}T00:00:00`))}`;
 }
 
+type ChecklistCountKey = Exclude<
+  keyof CloseChecklistResponse["checklist"],
+  "dayCardsGeneratedThrough"
+>;
+
 const CHECKLIST_ROWS: {
-  key: keyof CloseChecklistResponse["checklist"];
+  key: ChecklistCountKey;
   label: string;
 }[] = [
   { key: "unconfirmedDays", label: "Days not yet confirmed" },
@@ -119,14 +126,27 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
 
         {checklistQuery.data !== undefined && closedResult === null ? (
           <div className="flex flex-col gap-2">
-            {CHECKLIST_ROWS.map((row) => (
-              <Card key={row.key} className="flex items-center justify-between gap-4">
-                <span className="text-body text-ink-primary">{row.label}</span>
-                <span className="text-body text-ink-secondary tabular-nums">
-                  {checklistQuery.data.checklist[row.key]}
-                </span>
-              </Card>
-            ))}
+            {/* §7.11: "close-month checklist rows use warning structure, not
+                a flat list" — U-7 still holds, this never blocks Close. */}
+            {CHECKLIST_ROWS.map((row) => {
+              const count = checklistQuery.data.checklist[row.key];
+              const needsAttention = count > 0;
+              return (
+                <Card
+                  key={row.key}
+                  {...(needsAttention ? { accent: "warning" as const } : {})}
+                  className="flex items-center justify-between gap-4"
+                >
+                  <span className="flex items-center gap-2 text-body text-ink-primary">
+                    {needsAttention ? (
+                      <TriangleAlert className="size-4 shrink-0 text-warning-ink" aria-hidden />
+                    ) : null}
+                    {row.label}
+                  </span>
+                  <Badge variant={needsAttention ? "warning" : "good"}>{count}</Badge>
+                </Card>
+              );
+            })}
           </div>
         ) : null}
 
