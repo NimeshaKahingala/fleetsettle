@@ -226,8 +226,30 @@ const DOUBLE_BOOKED_LOOKAHEAD_DAYS = 180;
  * transaction has already rolled back, on `writer` directly rather than the
  * dead `tx` — a plain best-effort read, never itself money-writing, so it
  * has no transaction of its own to join.
+ *
+ * Never rejects. A transient failure in one of the reads below (a dropped
+ * connection right after the constraint violation, not a real gap in the
+ * data) must still surface as the plain 409 the caller is already primed to
+ * catch — never a 500 that makes an ordinary conflict look like a server
+ * failure. This is the app-error.ts doc comment's "the 409 still fires with
+ * the plain message" promise, extended from the no-row case to every read
+ * failure.
  */
 async function buildDoubleBookedError(
+  writer: Writer,
+  businessId: string,
+  vehicleId: string,
+  startDate: BusinessDate,
+  endDate: BusinessDate,
+): Promise<VehicleDoubleBookedError> {
+  try {
+    return await buildDoubleBookedErrorDetails(writer, businessId, vehicleId, startDate, endDate);
+  } catch {
+    return new VehicleDoubleBookedError();
+  }
+}
+
+async function buildDoubleBookedErrorDetails(
   writer: Writer,
   businessId: string,
   vehicleId: string,

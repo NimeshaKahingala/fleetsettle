@@ -256,13 +256,15 @@ test("GAP-44/INV-1: a double-booked conflict opens a Dialog naming the conflict,
 
   expect(await screen.findByText("Vehicle is already booked")).toBeInTheDocument();
   expect(
-    screen.getByText("NC-1234 is on a trip from 2026-07-15 to 2026-07-15 — Kandy, for R. Perera."),
+    screen.getByText(
+      "NC-1234 is on a trip from 15 Jul 2026 to 15 Jul 2026 — Kandy, for R. Perera.",
+    ),
   ).toBeInTheDocument();
   // The bare mutation.error.message line is the fallback for every other
   // 409 — this one gets the Dialog instead, never both at once.
   expect(screen.queryByText("already allocated")).not.toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "Use 2026-07-16" }));
+  await user.click(screen.getByRole("button", { name: "Use 16 Jul 2026" }));
   expect(screen.queryByText("Vehicle is already booked")).not.toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "Book trip" }));
