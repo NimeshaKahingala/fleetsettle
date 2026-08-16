@@ -93,10 +93,11 @@ test("renders terms, billing periods and dues once loaded", async () => {
 
   expect(await screen.findByRole("heading", { name: "Acme Traders" })).toBeInTheDocument();
   expect(screen.getByText("Active")).toBeInTheDocument();
-  // The monthly-amount StatTile, the billing period card and the "Rent"
-  // due all happen to read 70,000 in this fixture — real occurrences, not
-  // duplicates of the same fact.
-  expect(screen.getAllByText("Rs 70,000").length).toBeGreaterThanOrEqual(1);
+  // The billing period card and the "Rent" due also happen to read 70,000
+  // in this fixture (real occurrences, not duplicates of the same fact) —
+  // anchoring on the "Monthly amount" label's own StatTile keeps this
+  // pinned to that tile specifically, not to the string appearing anywhere.
+  expect(screen.getByText("Monthly amount").parentElement).toHaveTextContent("Rs 70,000");
   expect(screen.getByText(/km\/day/)).toHaveTextContent("100 km/day · Rs 50/km excess");
 
   expect(screen.getByText("Billing periods · 1")).toBeInTheDocument();
