@@ -74,6 +74,25 @@ test("GAP-22: renders customer details, outstanding dues and payment history", a
   expect(screen.getByText("Rs 1,000")).toBeInTheDocument();
 });
 
+test("§7.11: an outstanding due shows a due-age chip, matching the ageing report's own buckets", async () => {
+  // vi.setSystemTime alone (no vi.useFakeTimers()) mocks Date without
+  // touching setTimeout — Testing Library's async findBy* utilities need
+  // real timers to poll, and fake timers here previously hung every test
+  // after this one.
+  vi.setSystemTime(new Date("2026-08-20T08:00:00Z"));
+  try {
+    renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, {
+      get: baseGet(),
+    });
+
+    // due.dueOn is 2026-08-01; 19 days late lands in the "1-30" bucket —
+    // the same boundaries listAgeingBuckets uses server-side.
+    expect(await screen.findByText("1–30 days")).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("GAP-101: a failed customer payment history read shows a scoped failure", async () => {
   const get = baseGet();
   get.mockImplementation((path: string) => {

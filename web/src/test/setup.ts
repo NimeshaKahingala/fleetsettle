@@ -11,11 +11,11 @@ afterEach(() => {
 });
 
 // jsdom does not implement matchMedia at all — any component that reads a
-// media query (dark-mode detection, useMobileHistoryDismiss's `pointer:
+// media query (dark-mode detection, useCloseWatcherDismiss's `pointer:
 // coarse` check) throws under test without this. Defaults to "no match"
 // (a mouse-and-keyboard desktop, no dark-mode override); a test that needs
 // the opposite overrides `window.matchMedia` itself, as
-// useMobileHistoryDismiss.test.tsx does.
+// useCloseWatcherDismiss.test.tsx does.
 if (typeof window !== "undefined" && !window.matchMedia) {
   window.matchMedia = (query: string): MediaQueryList =>
     ({

@@ -701,6 +701,16 @@ function RootLayout({ today }: { today: BusinessDate }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [quickAddOpen, setQuickAddOpen] = useState(false);
 
+  // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
+  // change while it's open (an iOS edge-swipe back — iOS has no hardware
+  // back button/gesture for `useCloseWatcherDismiss` to answer, only this
+  // real history navigation) would otherwise leave it open over the wrong
+  // screen. Every other sheet is owned by the route it opens on and
+  // unmounts with it for free; this is the one exception.
+  useEffect(() => {
+    setQuickAddOpen(false);
+  }, [pathname]);
+
   return (
     <FirstRunGate
       renderOperate={() => (

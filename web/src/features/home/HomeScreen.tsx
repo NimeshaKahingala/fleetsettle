@@ -134,7 +134,7 @@ function HomeSummaryItem({
           : "text-brand-ink";
 
   return (
-    <div className="flex min-w-0 flex-col gap-1 px-3 py-3 sm:px-4">
+    <div className="flex min-w-28 flex-1 flex-col gap-1 px-3 py-3 sm:px-4">
       <div className="flex min-w-0 items-center gap-2">
         <Icon className={`size-4 shrink-0 ${iconTone}`} aria-hidden />
         <p className="min-w-0 truncate text-caption font-medium text-ink-secondary sm:text-label">
@@ -289,7 +289,7 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
 
   return (
     <Screen title="Home" contentWidth="wide">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] lg:items-start">
         {!anySectionHasContent && !anySectionErrored && allSectionsReady ? (
           <div className="lg:col-span-2">
             <EmptyState message="Nothing needs you today" detail={formatHomeDate(today)} />
@@ -332,7 +332,7 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
         </div>
 
         {anySectionHasContent ? (
-          <Card className="grid grid-cols-3 divide-x divide-line-hairline p-0 lg:col-span-2">
+          <Card className="flex flex-wrap divide-x divide-line-hairline p-0 lg:col-span-2">
             <HomeSummaryItem
               label="Rent due"
               icon={Banknote}

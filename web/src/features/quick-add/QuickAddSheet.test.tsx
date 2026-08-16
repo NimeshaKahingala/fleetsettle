@@ -9,7 +9,6 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
-import { __resetSheetHistoryStackForTests } from "../../lib/useMobileHistoryDismiss.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { QuickAddSheet } from "./QuickAddSheet.js";
 
@@ -54,7 +53,6 @@ function mockCoarsePointer(matches: boolean): void {
 
 beforeEach(() => {
   mockCoarsePointer(true);
-  __resetSheetHistoryStackForTests();
 });
 
 afterEach(() => {

@@ -19,6 +19,7 @@ import {
   Receipt,
   Route,
   TriangleAlert,
+  Truck,
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
@@ -287,9 +288,12 @@ export function VehicleOverviewScreen({
       ) : (
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">
-            <div>
-              <p className="text-label text-ink-secondary">Registration</p>
-              <p className="text-title text-ink-primary">{vehicle.registration}</p>
+            <div className="flex items-center gap-3">
+              <Truck className="size-6 shrink-0 text-ink-muted" aria-hidden />
+              <div>
+                <p className="text-label text-ink-secondary">Registration</p>
+                <p className="text-title text-ink-primary">{vehicle.registration}</p>
+              </div>
             </div>
             <div>
               <p className="text-label text-ink-secondary">Type</p>
