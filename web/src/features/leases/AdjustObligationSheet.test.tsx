@@ -9,6 +9,7 @@ const due: LeaseObligationRow = {
   id: "o1",
   kind: "mileage_excess",
   dueOn: "2026-07-11",
+  effectiveDueOn: "2026-07-11",
   amountMinor: "500000",
   settledMinor: "0",
   waivedMinor: "0",

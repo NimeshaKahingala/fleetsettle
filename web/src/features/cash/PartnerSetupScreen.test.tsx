@@ -149,6 +149,40 @@ test("B2 remainder: records an ownership split for a vehicle without one", async
   );
 });
 
+/**
+ * GAP-115: the server-400 rejection path for the ownership-split write had
+ * no test — only the happy path above did. Confirms the inline
+ * `mutation.error.message` rendering actually surfaces a rejected write,
+ * not just that it exists in source.
+ */
+test("GAP-115: a rejected ownership-share write shows the server's own message inline", async () => {
+  const user = userEvent.setup();
+  const post = vi
+    .fn()
+    .mockRejectedValue(
+      new ApiError(400, "VALIDATION_ERROR", "Shares for this vehicle must total 100%", "req-1"),
+    );
+  renderWithProviders(
+    <PartnerSetupScreen today={today} onBack={vi.fn()} />,
+    {
+      get: makeGet(),
+      post,
+    },
+    undefined,
+    ownerManager,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Setup" }));
+  await user.click(await screen.findByRole("button", { name: "Set ownership shares" }));
+  await user.selectOptions(await screen.findByLabelText("Vehicle"), "v2");
+  await user.clear(screen.getByLabelText("Nimal share"));
+  await user.type(screen.getByLabelText("Nimal share"), "70");
+  await user.type(screen.getByLabelText("Amal share"), "30");
+  await user.click(screen.getByRole("button", { name: "Save shares" }));
+
+  expect(await screen.findByText("Shares for this vehicle must total 100%")).toBeInTheDocument();
+});
+
 test("GAP-113: the ownership total states pass/fail in words, never colour alone", async () => {
   const user = userEvent.setup();
   renderWithProviders(

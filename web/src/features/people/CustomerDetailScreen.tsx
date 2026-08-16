@@ -145,7 +145,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               count={dues.length}
               total={<Money value={totalOutstandingMinor(dues)} />}
               items={dues.map((due) => {
-                const bucket = computeAgeingBucket(due.dueOn, today);
+                const bucket = computeAgeingBucket(due.effectiveDueOn, today);
                 return (
                   <Card key={due.id} className="flex items-center justify-between gap-4">
                     <div>

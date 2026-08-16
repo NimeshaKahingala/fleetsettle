@@ -164,6 +164,8 @@ export const leaseObligationRowSchema = z.object({
   id: z.string().uuid(),
   kind: z.string(),
   dueOn: z.string(),
+  /** DM D-5: bucketing off this, not `dueOn`, is what makes an ageing chip agree with `listAgeingBuckets` by construction rather than by coincidence — see `web/src/lib/ageingBucket.ts`. */
+  effectiveDueOn: z.string(),
   amountMinor: z.string(),
   settledMinor: z.string(),
   waivedMinor: z.string(),
