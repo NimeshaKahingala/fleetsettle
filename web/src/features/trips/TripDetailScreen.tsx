@@ -97,6 +97,9 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   });
   const trip = tripQuery.data;
 
+  // allow: a badge name plus a fail-closed gate on CollectPaymentSheet
+  // (rendered only once customerQuery.data resolves) — a failure here
+  // never offers a wrong customer, it just delays the action rendering.
   const customerQuery = useQuery({
     queryKey: ["customer", trip?.customerId],
     queryFn: () => {
@@ -107,6 +110,8 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
     },
     enabled: trip?.customerId !== null && trip?.customerId !== undefined,
   });
+  // allow: a name label only ("— · fee Rs X") — the fee figure itself
+  // comes from `trip`, already loaded, never from this query.
   const driverQuery = useQuery({
     queryKey: ["driver", trip?.driverId],
     queryFn: () => {

@@ -1,4 +1,11 @@
-import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import {
+  addDays,
+  inclusiveDays,
+  toWire,
+  type BusinessDate,
+  type Minor,
+  type VehicleDoubleBookedDetails,
+} from "@fleetsettle/shared";
 import type {
   bookTripRequestSchema,
   CustomerResponse,
@@ -20,14 +27,44 @@ import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
+import { Dialog, DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { CreateDriverForm } from "../people/CreateDriverForm.js";
+
+const SOURCE_TYPE_LABEL: Record<VehicleDoubleBookedDetails["conflict"]["sourceType"], string> = {
+  lease: "a monthly lease",
+  daily_lease: "a daily lease",
+  trip: "a trip",
+};
+
+/** The 180-day lookahead genuinely crosses year boundaries, so unlike some short-date helpers elsewhere this one always includes the year — a bare "12 Feb" on a booking decision is the wrong kind of ambiguous. */
+function formatShortDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+/** GAP-44/INV-1: turns the enriched conflict into the one sentence the Dialog states — "CAB-1234 is on a trip from 12 Aug 2026 to 18 Aug 2026 — Kandy, for R. Perera." shaped, but built from whichever fields this conflict actually carries. */
+function conflictSentence(
+  vehicleLabel: string,
+  conflict: VehicleDoubleBookedDetails["conflict"],
+): string {
+  const range =
+    conflict.to !== null
+      ? `${formatShortDate(conflict.from)} to ${formatShortDate(conflict.to)}`
+      : `${formatShortDate(conflict.from)} onward`;
+  const destination = conflict.destination !== null ? ` — ${conflict.destination}` : "";
+  return `${vehicleLabel} is on ${SOURCE_TYPE_LABEL[conflict.sourceType]} from ${range}${destination}, for ${conflict.holderLabel}.`;
+}
 
 /** `BookTripRequest` (the schema's output type) is post-transform — `Minor`/`BusinessDate`. `z.input` is the wire shape this call actually sends, the same fix every domain-typed form in this codebase already applies. */
 type BookTripWireRequest = z.input<typeof bookTripRequestSchema>;
@@ -70,6 +107,8 @@ export function BookTripScreen({
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
 
+  // allow: title fallback only ("Book a trip") — the booking flow itself
+  // reads no other field off this query.
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -170,6 +209,27 @@ export function BookTripScreen({
       onBooked(trip.id);
     },
   });
+
+  // GAP-44/INV-1: `VEHICLE_DOUBLE_BOOKED` gets the Dialog its own doc
+  // comment reserves it for, instead of the bare `mutation.error.message`
+  // line every other 409 still falls through to below. `details` is only
+  // ever absent on the best-effort enrichment's own failure path
+  // (domain/trip.ts's `buildDoubleBookedError`) — falls through to the
+  // plain message rather than a dialog with nothing to say.
+  const doubleBooked =
+    mutation.error instanceof ApiError &&
+    mutation.error.code === "VEHICLE_DOUBLE_BOOKED" &&
+    mutation.error.details !== undefined
+      ? (mutation.error.details as VehicleDoubleBookedDetails)
+      : null;
+
+  /** Shifts both dates by the same span so the trip keeps its own requested length, landing its new start on the date the server already confirmed is free. */
+  function applySuggestedDate(nextFreeFrom: BusinessDate): void {
+    const tripLengthDays = inclusiveDays(startDate, endDate);
+    setStartDate(nextFreeFrom);
+    setEndDate(addDays(nextFreeFrom, tripLengthDays - 1));
+    mutation.reset();
+  }
 
   function goBack(): void {
     if (step === 0) onBack();
@@ -345,7 +405,7 @@ export function BookTripScreen({
               {customer !== null ? ` · ${customer.label}` : ""}
               {destination.trim() !== "" ? ` · ${destination.trim()}` : ""}
             </p>
-            {mutation.isError ? (
+            {mutation.isError && doubleBooked === null ? (
               <p className="text-body-sm text-critical-ink">{mutation.error.message}</p>
             ) : null}
             <Button
@@ -382,6 +442,33 @@ export function BookTripScreen({
             }}
           />
         </Sheet>
+
+        <Dialog
+          open={doubleBooked !== null}
+          onOpenChange={() => mutation.reset()}
+          title="Vehicle is already booked"
+          {...(doubleBooked !== null
+            ? {
+                description: conflictSentence(
+                  vehicleQuery.data?.registration ?? "This vehicle",
+                  doubleBooked.conflict,
+                ),
+              }
+            : {})}
+          footer={
+            doubleBooked?.nextFreeFrom !== null && doubleBooked?.nextFreeFrom !== undefined ? (
+              <DialogConfirmFooter
+                confirmLabel={`Use ${formatShortDate(doubleBooked.nextFreeFrom)}`}
+                onConfirm={() => applySuggestedDate(doubleBooked.nextFreeFrom as BusinessDate)}
+                onCancel={() => mutation.reset()}
+              />
+            ) : (
+              <Button size="cta" onClick={() => mutation.reset()}>
+                OK
+              </Button>
+            )
+          }
+        />
       </div>
     </Screen>
   );

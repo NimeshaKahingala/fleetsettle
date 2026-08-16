@@ -1,5 +1,6 @@
 import type { CashPositionResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
@@ -48,6 +49,26 @@ test("empty banked/driverAdvances render an honest message rather than an empty 
 
   expect(await screen.findByText("Nothing banked yet.")).toBeInTheDocument();
   expect(screen.getByText("No advances outstanding.")).toBeInTheDocument();
+});
+
+test("GAP-111: the table view gives an empty banked/driverAdvances section the same honest message as the chart view, not a bare header", async () => {
+  const user = userEvent.setup();
+  const response: CashPositionResponse = {
+    partners: [{ userId: "u1", displayName: "Nimesha", heldMinor: "1500000" }],
+    depositsHeldMinor: "0",
+    banked: [],
+    driverAdvances: [],
+  };
+  const get = vi.fn().mockResolvedValue(response);
+  renderWithProviders(<CashPositionReportScreen onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: "View as table" }));
+
+  expect(screen.getByText("Nothing banked yet.")).toBeInTheDocument();
+  expect(screen.getByText("No advances outstanding.")).toBeInTheDocument();
+  // "Held per partner" always renders (it has a real row) — only the two
+  // empty sections drop their table for the honest-message fallback.
+  expect(screen.getAllByRole("table")).toHaveLength(1);
 });
 
 test("GAP-101/F2: a failed read shows a failure notice, with the back button still reachable, never an eternal spinner", async () => {

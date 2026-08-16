@@ -124,6 +124,7 @@ export function ReviewThisMonthScreen({
   const currentReportState = useQueryState(currentReportQuery);
   const previousReportState = useQueryState(previousReportQuery);
   const overheadsState = useQueryState(overheadsQuery);
+  const warningsState = useQueryState(warningsQuery);
   const partnerState = useQueryState(partnerQuery);
 
   // GAP-101: `periodsQuery` failing is checked first — without it `current`
@@ -171,10 +172,14 @@ export function ReviewThisMonthScreen({
   // eslint-disable-next-line no-restricted-syntax -- rounding a display percentage, not a money amount
   const deltaRounded = delta !== null ? Math.abs(Math.round(delta)) : null;
 
+  // GAP-125/S0-3: gated on `ready`, not `?? []` — a failed or in-flight read
+  // must not silently read as "no vehicle has an expiring document" (W-56).
   const vehicleWarnings = new Map(
-    (warningsQuery.data ?? [])
-      .filter((w) => w.subjectType === "vehicle")
-      .map((w) => [w.subjectId, `${w.docType} expires ${w.expiryDate}`]),
+    warningsState.kind === "ready"
+      ? warningsState.data
+          .filter((w) => w.subjectType === "vehicle")
+          .map((w) => [w.subjectId, `${w.docType} expires ${w.expiryDate}`])
+      : [],
   );
 
   return (
@@ -195,6 +200,14 @@ export function ReviewThisMonthScreen({
               }
             : {})}
         />
+
+        {warningsState.kind === "error" ? (
+          <QueryStateFailure
+            error={warningsState.error}
+            retry={warningsState.retry}
+            of="paperwork warnings"
+          />
+        ) : null}
 
         <div className="flex flex-col gap-2">
           {currentReport.vehicles.map((v) => {

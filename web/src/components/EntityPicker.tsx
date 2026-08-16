@@ -16,6 +16,8 @@ export interface EntityPickerProps {
   onChange: (option: EntityOption) => void;
   onAddNew?: () => void;
   addNewLabel?: string;
+  /** GAP-129/GAP-125: when `options` is fed by a query still in flight (the common shape for an `enabled`-gated picker query that only starts fetching once this sheet opens), renders a loading notice in place of the otherwise-indistinguishable empty list. Callers with a static option list never pass this. */
+  pending?: boolean;
 }
 
 /**
@@ -33,6 +35,7 @@ export function EntityPicker({
   onChange,
   onAddNew,
   addNewLabel = "Add new",
+  pending = false,
 }: EntityPickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -67,46 +70,50 @@ export function EntityPicker({
       </button>
 
       <Sheet open={open} onOpenChange={setOpen} title={label} className="flex max-h-[85svh]">
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
-          <Input
-            aria-label={`Search ${label.toLowerCase()}`}
-            placeholder="Search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          <ul className="flex flex-1 flex-col gap-1 overflow-y-auto">
-            {filtered.map((option) => (
-              <li key={option.id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChange(option);
-                    setOpen(false);
-                    setQuery("");
-                  }}
-                  className="flex min-h-tap w-full flex-col items-start justify-center rounded-sm px-2 text-left active:bg-brand-wash"
-                >
-                  <span className="text-body text-ink-primary">{option.label}</span>
-                  {option.sublabel !== undefined ? (
-                    <span className="text-body-sm text-ink-muted">{option.sublabel}</span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-          {onAddNew !== undefined ? (
-            <button
-              type="button"
-              onClick={() => {
-                setOpen(false);
-                onAddNew();
-              }}
-              className="flex min-h-tap w-full items-center justify-center rounded-sm border border-line-strong text-body text-brand-ink"
-            >
-              {addNewLabel}
-            </button>
-          ) : null}
-        </div>
+        {pending ? (
+          <p className="text-body text-ink-muted">Loading…</p>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
+            <Input
+              aria-label={`Search ${label.toLowerCase()}`}
+              placeholder="Search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <ul className="flex flex-1 flex-col gap-1 overflow-y-auto">
+              {filtered.map((option) => (
+                <li key={option.id}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChange(option);
+                      setOpen(false);
+                      setQuery("");
+                    }}
+                    className="flex min-h-tap w-full flex-col items-start justify-center rounded-sm px-2 text-left active:bg-brand-wash"
+                  >
+                    <span className="text-body text-ink-primary">{option.label}</span>
+                    {option.sublabel !== undefined ? (
+                      <span className="text-body-sm text-ink-muted">{option.sublabel}</span>
+                    ) : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {onAddNew !== undefined ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onAddNew();
+                }}
+                className="flex min-h-tap w-full items-center justify-center rounded-sm border border-line-strong text-body text-brand-ink"
+              >
+                {addNewLabel}
+              </button>
+            ) : null}
+          </div>
+        )}
       </Sheet>
     </div>
   );

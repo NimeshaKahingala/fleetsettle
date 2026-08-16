@@ -86,3 +86,30 @@ export interface ErrorBody {
   requestId: string;
   details?: unknown;
 }
+
+/**
+ * GAP-44: `VEHICLE_DOUBLE_BOOKED`'s own `details` shape — the one error
+ * code whose `details` a client actually reads (the others carry it but no
+ * caller has needed it yet), so this is defined once here rather than
+ * separately on each side, the same reason a Zod schema is (rule 2, the
+ * five ordering rules TRACKER.md/Plan.md both cite): a hand-mirrored type
+ * drifts, and what drifts here is which dates a Dialog offers to book.
+ */
+export interface VehicleDoubleBookedConflict {
+  /** A lease's own occupancy is written by `generate-day-cards` (P13) out to its rolling horizon, not by `startLease` synchronously — so a new trip can still collide with one that was booked before the lease existed, not only with another trip or a daily lease. */
+  sourceType: "lease" | "daily_lease" | "trip";
+  /** The conflicting entity's own start — always present; a lease's, a trip's or a daily lease's occupancy all start on a real date. */
+  from: string;
+  /** `null` for an open-ended lease or an ongoing daily lease — a trip always has both. */
+  to: string | null;
+  /** Resolved server-side (the customer/driver's own name) so the client never needs a second round trip just to word the conflict. */
+  holderLabel: string;
+  /** Trip only. */
+  destination: string | null;
+}
+
+export interface VehicleDoubleBookedDetails {
+  conflict: VehicleDoubleBookedConflict;
+  /** The first date, at or after the request's own start, that could hold a booking of the same length — `null` if none was found within the lookahead window. */
+  nextFreeFrom: string | null;
+}

@@ -149,6 +149,29 @@ test("B2 remainder: records an ownership split for a vehicle without one", async
   );
 });
 
+test("GAP-113: the ownership total states pass/fail in words, never colour alone", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <PartnerSetupScreen today={today} onBack={vi.fn()} />,
+    { get: makeGet() },
+    undefined,
+    ownerManager,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Setup" }));
+  await user.click(await screen.findByRole("button", { name: "Set ownership shares" }));
+  await user.selectOptions(await screen.findByLabelText("Vehicle"), "v2");
+
+  await user.clear(screen.getByLabelText("Nimal share"));
+  await user.type(screen.getByLabelText("Nimal share"), "70");
+  await user.type(screen.getByLabelText("Amal share"), "20");
+  expect(screen.getByText(/must total 100%/)).toBeInTheDocument();
+
+  await user.clear(screen.getByLabelText("Amal share"));
+  await user.type(screen.getByLabelText("Amal share"), "30");
+  expect(screen.getByText(/totals 100%/)).toBeInTheDocument();
+});
+
 test("B2 remainder: grants vehicle sharing with an optional management fee", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({
