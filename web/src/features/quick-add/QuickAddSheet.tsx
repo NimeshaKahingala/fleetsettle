@@ -111,6 +111,8 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
   function selectPaymentParty(option: ReasonOption, direction: "received" | "paid") {
     const [partyType, partyId] = option.key.split(":");
     if ((partyType !== "customer" && partyType !== "driver") || partyId === undefined) return;
+    setReceivedPartyPickerOpen(false);
+    setPaidPartyPickerOpen(false);
     setPaymentDirection(direction);
     setPaymentParty({ partyType, partyId, label: option.label });
     setPaymentSheetOpen(true);
