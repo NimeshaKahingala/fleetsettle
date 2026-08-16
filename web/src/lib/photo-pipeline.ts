@@ -41,13 +41,8 @@ export async function encodeWithCap(
  * The real browser pipeline: downscale to a 1600px longest edge via
  * `createImageBitmap`/`OffscreenCanvas` (both worker-safe APIs, chosen so
  * this can move into a Web Worker without rewriting it), then run the JPEG
- * retry ladder above.
- *
- * Not yet wrapped in an actual Worker + 3s timeout fallback (the pipeline
- * table's "where" row) — that needs a worker bundle and message-passing
- * this pass doesn't build; tracked in TRACKER.md rather than left silent.
- * Runs on the main thread for now, which is correct, just not resilient to
- * a slow decode blocking it.
+ * retry ladder above. Called directly as the no-Worker fallback below, and
+ * from `photo-pipeline.worker.ts` inside the real Worker.
  */
 export async function downscaleAndEncode(file: File): Promise<EncodedPhoto> {
   const bitmap = await createImageBitmap(file);
@@ -67,4 +62,80 @@ export async function downscaleAndEncode(file: File): Promise<EncodedPhoto> {
   } finally {
     bitmap.close();
   }
+}
+
+export const PHOTO_WORKER_TIMEOUT_MS = 3000;
+
+/** What `photo-pipeline.worker.ts` posts back on completion. */
+export interface PhotoWorkerResult {
+  ok: boolean;
+  photo?: EncodedPhoto;
+}
+
+/**
+ * §6.3's pipeline "Where" row, decoupled from what's actually racing — the
+ * same reason `encodeWithCap` above takes an injectable `encodeAt`: a real
+ * Worker doesn't exist under jsdom, so this is what makes the timeout
+ * behaviour itself testable with fake timers rather than only trusted in a
+ * real browser (`encodeWithWorkerTimeout` below is the untested, real-API
+ * wiring, same split as `downscaleAndEncode` already has). `run()` rejecting
+ * — the worker module fails to load, a CSP blocks it, construction throws —
+ * takes the same fallback as the timeout, since GAP-17's resilience promise
+ * is "a photo still goes up unresized", not "unless the worker itself failed
+ * to start".
+ */
+export async function withWorkerTimeout(
+  run: () => Promise<EncodedPhoto>,
+  fallback: () => EncodedPhoto,
+  timeoutMs: number = PHOTO_WORKER_TIMEOUT_MS,
+): Promise<EncodedPhoto> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<EncodedPhoto>((resolve) => {
+    timer = setTimeout(() => resolve(fallback()), timeoutMs);
+  });
+  try {
+    return await Promise.race([run().catch(() => fallback()), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function runInWorker(file: File): Promise<EncodedPhoto> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./photo-pipeline.worker.ts", import.meta.url), {
+      type: "module",
+    });
+    worker.onmessage = (event: MessageEvent) => {
+      const result = event.data as PhotoWorkerResult;
+      worker.terminate();
+      if (result.ok && result.photo !== undefined) resolve(result.photo);
+      else reject(new Error("photo-pipeline worker failed to encode"));
+    };
+    worker.onerror = () => {
+      worker.terminate();
+      reject(new Error("photo-pipeline worker crashed"));
+    };
+    worker.postMessage(file);
+  });
+}
+
+/**
+ * `PhotoCapture`'s own entry point (§6.3, GAP-17): a 12MP decode can block
+ * the main thread for seconds on a low-end device, which the "record saves
+ * first, photos follow" contract only holds if it never blocks that save.
+ * Encodes in a Web Worker where available; past the timeout, the original
+ * file goes up unresized (flagged) rather than making the caller wait
+ * longer — the worker keeps running underneath and is simply discarded
+ * once it does finish, since nothing here re-delivers a late result.
+ */
+export function encodeWithWorkerTimeout(
+  file: File,
+  timeoutMs: number = PHOTO_WORKER_TIMEOUT_MS,
+): Promise<EncodedPhoto> {
+  if (typeof Worker === "undefined") return downscaleAndEncode(file);
+  return withWorkerTimeout(
+    () => runInWorker(file),
+    () => ({ blob: file, flagged: true }),
+    timeoutMs,
+  );
 }

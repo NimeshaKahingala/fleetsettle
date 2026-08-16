@@ -50,6 +50,8 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
       <div className="flex flex-col gap-6">
         {driversState.kind === "error" ? (
           <QueryStateFailure error={driversState.error} retry={driversState.retry} of="drivers" />
+        ) : driversState.kind !== "ready" ? (
+          <p className="text-body-sm text-ink-muted">Loading…</p>
         ) : (
           <Section
             title="Drivers"
@@ -86,6 +88,8 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
             retry={customersState.retry}
             of="customers"
           />
+        ) : customersState.kind !== "ready" ? (
+          <p className="text-body-sm text-ink-muted">Loading…</p>
         ) : (
           <Section
             title="Customers"

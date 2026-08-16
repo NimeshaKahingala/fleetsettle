@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { Badge } from "./Badge.js";
 
 test("renders each semantic variant with its own tokens", () => {
-  const variants = ["brand", "good", "warning", "serious", "critical", "neutral"] as const;
+  const variants = ["brand", "good", "warning", "serious", "critical", "trip", "neutral"] as const;
   for (const variant of variants) {
     render(<Badge variant={variant}>{variant}</Badge>);
     expect(screen.getByText(variant)).toBeInTheDocument();

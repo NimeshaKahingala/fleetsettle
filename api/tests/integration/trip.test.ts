@@ -392,8 +392,34 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
       endDate: "2026-05-14",
     });
     expect(second.status).toBe(409);
-    const secondBody: { code: string } = await second.json();
-    expect(secondBody).toMatchObject({ code: "VEHICLE_DOUBLE_BOOKED" });
+    const secondBody: {
+      code: string;
+      details?: {
+        conflict: {
+          sourceType: string;
+          from: string;
+          to: string | null;
+          holderLabel: string;
+          destination: string | null;
+        };
+        nextFreeFrom: string | null;
+      };
+    } = await second.json();
+    expect(secondBody.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    // GAP-44: the enriched payload names the real conflict — the first
+    // trip's own dates, not the requested range — and a free date the
+    // dialog can offer in one tap, computed from what's actually occupied
+    // rather than merely "past the requested range".
+    expect(secondBody.details).toMatchObject({
+      conflict: {
+        sourceType: "trip",
+        from: "2026-05-10",
+        to: "2026-05-12",
+        holderLabel: "no customer on file",
+        destination: null,
+      },
+      nextFreeFrom: "2026-05-13",
+    });
 
     // The conflicting attempt must not have left a partial trip or allocation
     // row behind — the whole booking is one transaction.
@@ -407,6 +433,63 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
         ),
       );
     expect(leftoverAllocations).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-44: 409 — a trip booked over a vehicle's already-materialised lease occupancy names the lease and its customer, not just the vehicle", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    // The conflict this reproduces is real precisely because arrangement is
+    // set to C for the booking attempt (matching bookTrip's own gate) while
+    // the vehicle_day_allocation row below carries arrangement A — the
+    // lease's own materialised horizon (P13/day-card-generation.ts), not
+    // something startLease itself would ever write synchronously.
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-06-01",
+      endDate: "2026-06-10",
+      status: "active",
+    });
+    await ctx.createVehicleDayAllocation(businessId, vehicleId, "2026-06-05", "A", leaseId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-06-03",
+      endDate: "2026-06-06",
+    });
+    expect(res.status).toBe(409);
+    const body: {
+      code: string;
+      details?: {
+        conflict: {
+          sourceType: string;
+          from: string;
+          to: string | null;
+          holderLabel: string;
+          destination: string | null;
+        };
+        nextFreeFrom: string | null;
+      };
+    } = await res.json();
+    expect(body.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    expect(body.details).toMatchObject({
+      conflict: {
+        sourceType: "lease",
+        from: "2026-06-01",
+        to: "2026-06-10",
+        holderLabel: "Test Customer",
+        destination: null,
+      },
+      // Only 2026-06-05 is actually occupied — the requested length is 4
+      // days (06-03..06-06), and 06-06..06-09 is the first such window with
+      // no occupied date in it.
+      nextFreeFrom: "2026-06-06",
+    });
 
     await ctx.cleanup();
   });

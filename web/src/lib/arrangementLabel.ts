@@ -12,9 +12,14 @@ export const ARRANGEMENT_LABEL: Record<string, string> = {
   C: "Trips / charter",
 };
 
-/** Doubles as a `Badge` variant and a `Card` accent — same word, same colour, both places it appears. */
+/**
+ * Doubles as a `Badge` variant and a `Card` accent — same word, same colour,
+ * both places it appears. **C uses its own `trip` token (GAP-27), not
+ * `serious`** — a vehicle on a trip isn't overdue or in arrears, and reusing
+ * the status token was a colour match, not a semantic one.
+ */
 export const ARRANGEMENT_BADGE_VARIANT: Record<string, CardAccent> = {
   A: "brand",
   B: "good",
-  C: "serious",
+  C: "trip",
 };

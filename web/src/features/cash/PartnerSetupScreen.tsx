@@ -6,7 +6,14 @@ import type {
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Handshake, MoreVertical, Percent, UserRoundCog } from "lucide-react";
+import {
+  CircleAlert,
+  CircleCheck,
+  Handshake,
+  MoreVertical,
+  Percent,
+  UserRoundCog,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
@@ -247,11 +254,17 @@ function OwnershipSharesSheet({
             <span
               className={
                 totalBp === 10000
-                  ? "text-body font-medium text-good-ink"
-                  : "text-body font-medium text-critical-ink"
+                  ? "flex items-center gap-1.5 text-body font-medium text-good-ink"
+                  : "flex items-center gap-1.5 text-body font-medium text-critical-ink"
               }
             >
+              {totalBp === 10000 ? (
+                <CircleCheck className="size-4 shrink-0" aria-hidden />
+              ) : (
+                <CircleAlert className="size-4 shrink-0" aria-hidden />
+              )}
               {formatPercent(totalBp)}
+              {totalBp === 10000 ? " — totals 100%" : " — must total 100%"}
             </span>
           </Card>
           {mutation.isError ? (

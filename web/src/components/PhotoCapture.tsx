@@ -1,7 +1,7 @@
 import { AlertCircle, Image as ImageIcon, Plus, RefreshCw, TriangleAlert } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { ATTACHMENT_CONTENT_TYPES } from "@fleetsettle/shared/schemas";
-import { downscaleAndEncode, type EncodedPhoto } from "../lib/photo-pipeline.js";
+import { encodeWithWorkerTimeout, type EncodedPhoto } from "../lib/photo-pipeline.js";
 
 export interface PhotoSlotDef {
   key: string;
@@ -61,7 +61,7 @@ export function PhotoCapture({ slots, onCapture, uploadStatus, onRetryUpload }: 
     setEncoding((e) => ({ ...e, [key]: true }));
     setCaptureError((e) => ({ ...e, [key]: false }));
     try {
-      const encoded: EncodedPhoto = await downscaleAndEncode(file);
+      const encoded: EncodedPhoto = await encodeWithWorkerTimeout(file);
       // photo-pipeline always re-encodes to image/jpeg, except its own
       // no-2D-context fallback, which returns the original file untouched —
       // still possibly a format the server allowlist rejects (HEIC, for
