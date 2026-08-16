@@ -312,5 +312,14 @@ export const getUtilisationReportHandler: RouteHandler<
 
   const report = await getUtilisationReport(c.get("reader"), businessId, vehicleId, from, to);
 
-  return c.json(report, 200);
+  return c.json(
+    {
+      ...report,
+      revenuePerAvailableDayMinor:
+        report.revenuePerAvailableDayMinor === null
+          ? null
+          : toWire(report.revenuePerAvailableDayMinor as Minor),
+    },
+    200,
+  );
 };

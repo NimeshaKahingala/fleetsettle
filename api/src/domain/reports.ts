@@ -23,6 +23,7 @@ import {
   sumGoodwillGiven,
   sumOverheadsForPeriod,
   sumVehicleCostsForPeriod,
+  sumVehicleEarnedForDateRange,
   sumVehicleEarnedForPeriod,
   type AgeingRow,
   type GoodwillByTypeRow,
@@ -423,8 +424,14 @@ function countOffRoadDays(ranges: OffRoadRangeRow[], from: string, to: string): 
  * computable). A day is earning if it ran on its daily lease, was on a
  * lease (arrangement 'A'), or was on a trip (arrangement 'C') —
  * non-overlapping by construction (INV-1: a vehicle cannot be double-booked).
- * `revenuePerAvailableDayMinor` is not built this pass (recorded in
- * TRACKER.md) — a real, separate figure disproportionate to this phase.
+ *
+ * GAP-19: `revenuePerAvailableDayMinor` — "available" is `totalDays -
+ * offRoadDays` (earning **and** idle both count; idle is exactly "what the
+ * vehicle could have been earning and wasn't", UC-79's own definition), and
+ * the revenue itself is `sumVehicleEarnedForDateRange`, never prorated
+ * (W-25). `null`, not a guessed `0n`, when there are no available days at
+ * all to divide by (the whole window off the road) — W-56's degrade rule
+ * applies to a ratio exactly as it does to a missing reading.
  */
 export async function getUtilisationReport(
   db: ReadDb,
@@ -440,17 +447,25 @@ export async function getUtilisationReport(
   idleDays: number;
   offRoadDays: number;
   totalDays: number;
+  revenuePerAvailableDayMinor: bigint | null;
 }> {
   await requireVehicle(db, businessId, vehicleId);
 
-  const [{ ranDays }, leaseDays, tripDays, incidentOffRoadRanges, unavailabilityRanges] =
-    await Promise.all([
-      countEarningDaysForVehicle(db, businessId, vehicleId, from, to),
-      countAllocatedDaysForVehicle(db, businessId, vehicleId, "A", from, to),
-      countAllocatedDaysForVehicle(db, businessId, vehicleId, "C", from, to),
-      listOffRoadRangesForVehicle(db, businessId, vehicleId, from, to),
-      listVehicleUnavailabilityRangesForVehicle(db, businessId, vehicleId, from, to),
-    ]);
+  const [
+    { ranDays },
+    leaseDays,
+    tripDays,
+    incidentOffRoadRanges,
+    unavailabilityRanges,
+    earnedMinor,
+  ] = await Promise.all([
+    countEarningDaysForVehicle(db, businessId, vehicleId, from, to),
+    countAllocatedDaysForVehicle(db, businessId, vehicleId, "A", from, to),
+    countAllocatedDaysForVehicle(db, businessId, vehicleId, "C", from, to),
+    listOffRoadRangesForVehicle(db, businessId, vehicleId, from, to),
+    listVehicleUnavailabilityRangesForVehicle(db, businessId, vehicleId, from, to),
+    sumVehicleEarnedForDateRange(db, vehicleId, from, to),
+  ]);
 
   const offRoadDays = countOffRoadDays(
     [...incidentOffRoadRanges, ...unavailabilityRanges],
@@ -461,6 +476,18 @@ export async function getUtilisationReport(
   const totalDays = inclusiveDays(from as BusinessDate, to as BusinessDate);
   const earningDays = ranDays + leaseDays + tripDays;
   const idleDays = Math.max(0, totalDays - earningDays - offRoadDays);
+  const availableDays = totalDays - offRoadDays;
+  const revenuePerAvailableDayMinor =
+    availableDays > 0 ? earnedMinor / BigInt(availableDays) : null;
 
-  return { vehicleId, from, to, earningDays, idleDays, offRoadDays, totalDays };
+  return {
+    vehicleId,
+    from,
+    to,
+    earningDays,
+    idleDays,
+    offRoadDays,
+    totalDays,
+    revenuePerAvailableDayMinor,
+  };
 }
