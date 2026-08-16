@@ -140,7 +140,16 @@ export function encodeWithWorkerTimeout(
   timeoutMs: number = PHOTO_WORKER_TIMEOUT_MS,
 ): Promise<EncodedPhoto> {
   if (typeof Worker === "undefined") return downscaleAndEncode(file);
-  const { promise, worker } = runInWorker(file);
+  let handle: { promise: Promise<EncodedPhoto>; worker: Worker };
+  try {
+    handle = runInWorker(file);
+  } catch {
+    // `new Worker(...)` itself threw (CSP block, module load failure) —
+    // still a construction failure GAP-17's fallback promise covers, the
+    // same as a Worker that starts but then rejects.
+    return downscaleAndEncode(file);
+  }
+  const { promise, worker } = handle;
   return withWorkerTimeout(
     () => promise,
     () => ({ blob: file, flagged: true }),
