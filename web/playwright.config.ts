@@ -20,11 +20,11 @@ export default defineConfig({
       testIgnore: "**/*.touch.spec.ts",
       use: { viewport: { width: 360, height: 640 } },
     },
-    // GAP-104: `useMobileHistoryDismiss`'s coarse-pointer gate
+    // GAP-104/GAP-134: `useCloseWatcherDismiss`'s coarse-pointer gate
     // (`matchMedia("(pointer: coarse)")`) is false under the default
     // project above — the viewport is phone-sized, but nothing tells
-    // Chromium the input is touch, so the mobile-history race can never
-    // reproduce there. `hasTouch`/`isMobile` is what actually flips it,
+    // Chromium the input is touch, so the mobile close-watcher path can
+    // never engage there. `hasTouch`/`isMobile` is what actually flips it,
     // which is why this is a separate project (kept off every other spec
     // via `testMatch`) rather than added to the default one.
     {
