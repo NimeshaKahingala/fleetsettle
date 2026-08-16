@@ -286,7 +286,7 @@ async function buildDoubleBookedErrorDetails(
       holding !== undefined
         ? ((await findDriverForBusiness(writer, businessId, holding.driverId))?.name ??
           "an unnamed driver")
-        : "an unnamed driver";
+        : "the current holder";
     conflict = {
       sourceType: "daily_lease",
       from: holding?.effectiveFrom ?? firstConflictDate ?? startDate,
@@ -300,7 +300,7 @@ async function buildDoubleBookedErrorDetails(
       holding !== undefined
         ? ((await findCustomerForBusiness(writer, businessId, holding.customerId))?.name ??
           "an unnamed customer")
-        : "an unnamed customer";
+        : "the current holder";
     conflict = {
       sourceType: "lease",
       from: holding?.startDate ?? firstConflictDate ?? startDate,
