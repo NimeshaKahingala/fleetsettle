@@ -3,7 +3,6 @@ import type {
   BillingPeriodResponse,
   CustomerResponse,
   LeaseObligationRow,
-  LeaseResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Gauge, MoreVertical, RefreshCw, SlidersHorizontal, SquareX, Wallet } from "lucide-react";
@@ -27,6 +26,7 @@ import { AdjustObligationSheet } from "./AdjustObligationSheet.js";
 import { CollectPaymentSheet } from "./CollectPaymentSheet.js";
 import { ReadOdometerSheet } from "./ReadOdometerSheet.js";
 import { RenewLeaseSheet } from "./RenewLeaseSheet.js";
+import { useLeaseQuery } from "./useLeaseQuery.js";
 
 export interface LeaseHubScreenProps {
   leaseId: string;
@@ -86,10 +86,7 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
   const [collectForDue, setCollectForDue] = useState<LeaseObligationRow | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
 
-  const leaseQuery = useQuery({
-    queryKey: ["lease", leaseId],
-    queryFn: () => api.get<LeaseResponse>(`/api/lease/${leaseId}`),
-  });
+  const leaseQuery = useLeaseQuery(leaseId);
   // allow: title fallback plus a fail-closed gate on CollectPaymentSheet
   // (rendered only once customerQuery.data resolves) — a failure here
   // never offers a wrong customer, it just delays the action rendering.

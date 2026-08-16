@@ -78,7 +78,11 @@ export interface PhotoWorkerResult {
  * Worker doesn't exist under jsdom, so this is what makes the timeout
  * behaviour itself testable with fake timers rather than only trusted in a
  * real browser (`encodeWithWorkerTimeout` below is the untested, real-API
- * wiring, same split as `downscaleAndEncode` already has).
+ * wiring, same split as `downscaleAndEncode` already has). `run()` rejecting
+ * — the worker module fails to load, a CSP blocks it, construction throws —
+ * takes the same fallback as the timeout, since GAP-17's resilience promise
+ * is "a photo still goes up unresized", not "unless the worker itself failed
+ * to start".
  */
 export async function withWorkerTimeout(
   run: () => Promise<EncodedPhoto>,
@@ -94,7 +98,7 @@ export async function withWorkerTimeout(
     }, timeoutMs);
   });
   try {
-    return await Promise.race([run(), timeout]);
+    return await Promise.race([run().catch(() => fallback()), timeout]);
   } finally {
     clearTimeout(timer);
   }

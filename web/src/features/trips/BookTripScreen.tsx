@@ -44,13 +44,24 @@ const SOURCE_TYPE_LABEL: Record<VehicleDoubleBookedDetails["conflict"]["sourceTy
   trip: "a trip",
 };
 
-/** GAP-44/INV-1: turns the enriched conflict into the one sentence the Dialog states — "CAB-1234 is on a trip from 12 Aug to 18 Aug — Kandy, for R. Perera." shaped, but built from whichever fields this conflict actually carries. */
+/** The 180-day lookahead genuinely crosses year boundaries, so unlike some short-date helpers elsewhere this one always includes the year — a bare "12 Feb" on a booking decision is the wrong kind of ambiguous. */
+function formatShortDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
+/** GAP-44/INV-1: turns the enriched conflict into the one sentence the Dialog states — "CAB-1234 is on a trip from 12 Aug 2026 to 18 Aug 2026 — Kandy, for R. Perera." shaped, but built from whichever fields this conflict actually carries. */
 function conflictSentence(
   vehicleLabel: string,
   conflict: VehicleDoubleBookedDetails["conflict"],
 ): string {
   const range =
-    conflict.to !== null ? `${conflict.from} to ${conflict.to}` : `${conflict.from} onward`;
+    conflict.to !== null
+      ? `${formatShortDate(conflict.from)} to ${formatShortDate(conflict.to)}`
+      : `${formatShortDate(conflict.from)} onward`;
   const destination = conflict.destination !== null ? ` — ${conflict.destination}` : "";
   return `${vehicleLabel} is on ${SOURCE_TYPE_LABEL[conflict.sourceType]} from ${range}${destination}, for ${conflict.holderLabel}.`;
 }
@@ -447,7 +458,7 @@ export function BookTripScreen({
           footer={
             doubleBooked?.nextFreeFrom !== null && doubleBooked?.nextFreeFrom !== undefined ? (
               <DialogConfirmFooter
-                confirmLabel={`Use ${doubleBooked.nextFreeFrom}`}
+                confirmLabel={`Use ${formatShortDate(doubleBooked.nextFreeFrom)}`}
                 onConfirm={() => applySuggestedDate(doubleBooked.nextFreeFrom as BusinessDate)}
                 onCancel={() => mutation.reset()}
               />

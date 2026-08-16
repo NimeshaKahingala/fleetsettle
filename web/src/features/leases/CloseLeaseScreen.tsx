@@ -33,6 +33,7 @@ import {
   INCIDENT_STATUS_LABEL,
 } from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { useLeaseQuery } from "./useLeaseQuery.js";
 
 export interface CloseLeaseScreenProps {
   leaseId: string;
@@ -99,10 +100,7 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
   // allow: leaseQuery.data is never rendered, only feeds customerQuery's
   // queryKey/enabled below — a failure here just leaves customerQuery
   // disabled, which already degrades safely to the title fallback.
-  const leaseQuery = useQuery({
-    queryKey: ["lease", leaseId],
-    queryFn: () => api.get<LeaseResponse>(`/api/lease/${leaseId}`),
-  });
+  const leaseQuery = useLeaseQuery(leaseId);
   // allow: title fallback only ("Close the lease"); the flow's real content
   // (unpaid dues, deposit) is summaryQuery/depositQuery, both wrapped below.
   const customerQuery = useQuery({

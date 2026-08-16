@@ -137,3 +137,18 @@ test("calls onTimeout so a stuck worker can be terminated once the fallback wins
     vi.useRealTimers();
   }
 });
+
+test("GAP-17: run() rejecting (worker fails to load, CSP block, construction throws) falls back immediately rather than rejecting the call", async () => {
+  vi.useFakeTimers();
+  try {
+    const fallbackPhoto = { blob: blobOfSize(1_000_000), flagged: true };
+    const result = withWorkerTimeout(
+      () => Promise.reject(new Error("photo-pipeline worker crashed")),
+      () => fallbackPhoto,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).resolves.toBe(fallbackPhoto);
+  } finally {
+    vi.useRealTimers();
+  }
+});

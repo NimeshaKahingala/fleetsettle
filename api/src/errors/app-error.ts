@@ -94,9 +94,9 @@ export class VehicleAlreadyExistsError extends AppError {
 // PeriodClosedError. GAP-44: `details` is optional because the enrichment
 // query (domain/trip.ts's own `buildDoubleBookedError`) is a best-effort
 // read after the constraint violation already happened — if it somehow
-// finds no occupying row (a race with a concurrent void, in principle),
-// the 409 still fires with the plain message rather than failing to error
-// at all.
+// finds no occupying row (a race with a concurrent void, in principle) or
+// one of its reads itself throws (a transient DB error), the 409 still
+// fires with the plain message rather than failing to error at all.
 export class VehicleDoubleBookedError extends AppError {
   constructor(
     message = "This vehicle is already allocated for one or more of these dates",
