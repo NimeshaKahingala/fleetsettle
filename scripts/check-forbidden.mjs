@@ -290,6 +290,68 @@ function checkMigrationSet() {
  * regardless: destructuring only `data` discards `isError`/`isPending`
  * before there is anything left to wrap.
  */
+// A comment on the binding's own line, or on an unbroken run of comment
+// lines directly above it — the same "explain it right where it happens"
+// convention this codebase's `eslint-disable-next-line …-- reason` comments
+// already use.
+function isOptedOut(lines, lineIndex) {
+  if (OPT_OUT.test(lines[lineIndex])) return true;
+  for (let i = lineIndex - 1; i >= 0 && /^\s*\/\//.test(lines[i]); i--) {
+    if (OPT_OUT.test(lines[i])) return true;
+  }
+  return false;
+}
+
+function findUnwrappedQueryBindings(text, lines, path) {
+  const findings = [];
+  const bindingPattern = /\b(?:const|let)\s+(\w+)\s*=\s*useQuery(?:<[^>]*>)?\s*\(\s*\{/g;
+  let m;
+  while ((m = bindingPattern.exec(text)) !== null) {
+    const name = m[1];
+    const lineIndex = text.slice(0, m.index).split("\n").length - 1;
+    if (isOptedOut(lines, lineIndex)) continue;
+    const wrapped = new RegExp(String.raw`\buseQueryState\s*\(\s*${name}\b|\bquery=\{${name}\}`);
+    if (wrapped.test(text)) continue;
+    findings.push({
+      file: path,
+      line: lineIndex + 1,
+      column: 1,
+      id: "query/no-error-state",
+      match: name,
+      message:
+        `\`${name}\` is never passed to useQueryState or a <QueryState query={${name}}> — ` +
+        "a failed fetch renders as loading forever (UI §6.4/M-28, GAP-101/GAP-125). Wrap it, " +
+        "or add `// allow: <reason>` on this line (or the comment block above it) if this " +
+        "read genuinely never needs one.",
+    });
+  }
+  return findings;
+}
+
+function findDestructuredDataOnlyQueries(text, lines, path) {
+  const findings = [];
+  const destructurePattern =
+    /\b(?:const|let)\s*\{\s*data\s*(?::\s*\w+\s*)?\}\s*=\s*useQuery(?:<[^>]*>)?\s*\(\s*\{/g;
+  let m;
+  while ((m = destructurePattern.exec(text)) !== null) {
+    const lineIndex = text.slice(0, m.index).split("\n").length - 1;
+    if (isOptedOut(lines, lineIndex)) continue;
+    findings.push({
+      file: path,
+      line: lineIndex + 1,
+      column: 1,
+      id: "query/no-error-state",
+      match: "{ data }",
+      message:
+        "Destructuring only `data` off useQuery discards isError/isPending before there's " +
+        "anything left to wrap (UI §6.4/M-28, GAP-101/GAP-125). Bind the whole query result " +
+        "and wrap it with useQueryState, or add `// allow: <reason>` on this line (or the " +
+        "comment block above it).",
+    });
+  }
+  return findings;
+}
+
 function checkQueryErrorHandling(paths) {
   const findings = [];
   for (const path of paths) {
@@ -304,59 +366,8 @@ function checkQueryErrorHandling(paths) {
     }
     if (!/\buseQuery\s*\(\s*\{/.test(text)) continue;
     const lines = text.split("\n");
-
-    // A comment on the binding's own line, or on an unbroken run of comment
-    // lines directly above it — the same "explain it right where it
-    // happens" convention this codebase's `eslint-disable-next-line …--
-    // reason` comments already use.
-    const optedOut = (lineIndex) => {
-      if (OPT_OUT.test(lines[lineIndex])) return true;
-      for (let i = lineIndex - 1; i >= 0 && /^\s*\/\//.test(lines[i]); i--) {
-        if (OPT_OUT.test(lines[i])) return true;
-      }
-      return false;
-    };
-
-    const bindingPattern = /\b(?:const|let)\s+(\w+)\s*=\s*useQuery(?:<[^>]*>)?\s*\(\s*\{/g;
-    let m;
-    while ((m = bindingPattern.exec(text)) !== null) {
-      const name = m[1];
-      const lineIndex = text.slice(0, m.index).split("\n").length - 1;
-      if (optedOut(lineIndex)) continue;
-      const wrapped = new RegExp(`\\buseQueryState\\s*\\(\\s*${name}\\b|\\bquery=\\{${name}\\}`);
-      if (wrapped.test(text)) continue;
-      findings.push({
-        file: path,
-        line: lineIndex + 1,
-        column: 1,
-        id: "query/no-error-state",
-        match: name,
-        message:
-          `\`${name}\` is never passed to useQueryState or a <QueryState query={${name}}> — ` +
-          "a failed fetch renders as loading forever (UI §6.4/M-28, GAP-101/GAP-125). Wrap it, " +
-          "or add `// allow: <reason>` on this line (or the comment block above it) if this " +
-          "read genuinely never needs one.",
-      });
-    }
-
-    const destructurePattern =
-      /\b(?:const|let)\s*\{\s*data\s*(?::\s*\w+)?\s*\}\s*=\s*useQuery(?:<[^>]*>)?\s*\(\s*\{/g;
-    while ((m = destructurePattern.exec(text)) !== null) {
-      const lineIndex = text.slice(0, m.index).split("\n").length - 1;
-      if (optedOut(lineIndex)) continue;
-      findings.push({
-        file: path,
-        line: lineIndex + 1,
-        column: 1,
-        id: "query/no-error-state",
-        match: "{ data }",
-        message:
-          "Destructuring only `data` off useQuery discards isError/isPending before there's " +
-          "anything left to wrap (UI §6.4/M-28, GAP-101/GAP-125). Bind the whole query result " +
-          "and wrap it with useQueryState, or add `// allow: <reason>` on this line (or the " +
-          "comment block above it).",
-      });
-    }
+    findings.push(...findUnwrappedQueryBindings(text, lines, path));
+    findings.push(...findDestructuredDataOnlyQueries(text, lines, path));
   }
   return findings;
 }
