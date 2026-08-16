@@ -1,4 +1,10 @@
-import { addDays, newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import {
+  addDays,
+  newId,
+  type BusinessDate,
+  type Minor,
+  type VehicleDoubleBookedDetails,
+} from "@fleetsettle/shared";
 import type { OdometerSource } from "@fleetsettle/shared/schemas";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
@@ -10,6 +16,7 @@ import {
 } from "../errors/app-error.js";
 import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findBusinessSettings } from "../queries/business.js";
+import { findCustomerForBusiness } from "../queries/customer.js";
 import { applyCreditForward } from "./credit-forward.js";
 import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import {
@@ -17,6 +24,9 @@ import {
   findDailyLeaseForBusiness,
   listDailyLeaseRatesForLease,
 } from "../queries/dailyLease.js";
+import { findDriverForBusiness } from "../queries/driver.js";
+import { findLeaseForBusiness } from "../queries/lease.js";
+import { findVehicleCalendar } from "../queries/vehicle.js";
 import { pauseDayRecordsForTrip, resumeDayRecordsForTrip } from "../queries/day-record.js";
 import {
   findUnsettledAdvancesForTrip,
@@ -202,6 +212,103 @@ function dateRange(start: BusinessDate, end: BusinessDate): BusinessDate[] {
  * not suppress daily cards"). Before either branch runs, this vehicle's own
  * expired holds are released synchronously, never only by the nightly sweep.
  */
+// GAP-44: how far past the requested range this looks for a free block of
+// the same length. Generous on purpose — a heavily-booked vehicle is
+// exactly the case a short window would fail silently on (`nextFreeFrom`
+// staying `null` when a real gap exists just past it).
+const DOUBLE_BOOKED_LOOKAHEAD_DAYS = 180;
+
+/**
+ * GAP-44: turns a bare `one_arrangement_per_vehicle_day` violation into the
+ * enriched `VehicleDoubleBookedError` the client actually renders — the
+ * conflicting entity (named, not just "occupied"), the dates it holds, and
+ * the next date this same request would fit. Runs *after* `bookTrip`'s own
+ * transaction has already rolled back, on `writer` directly rather than the
+ * dead `tx` — a plain best-effort read, never itself money-writing, so it
+ * has no transaction of its own to join.
+ */
+async function buildDoubleBookedError(
+  writer: Writer,
+  businessId: string,
+  vehicleId: string,
+  startDate: BusinessDate,
+  endDate: BusinessDate,
+): Promise<VehicleDoubleBookedError> {
+  const requestedDays = dateRange(startDate, endDate);
+  const lookaheadTo = addDays(endDate, DOUBLE_BOOKED_LOOKAHEAD_DAYS);
+  const occupied = await findVehicleCalendar(writer, businessId, vehicleId, startDate, lookaheadTo);
+  const occupiedByDate = new Map(occupied.map((row) => [row.businessDate, row]));
+
+  const firstConflictDate = requestedDays.find((d) => occupiedByDate.has(d));
+  const conflictRow =
+    firstConflictDate !== undefined ? occupiedByDate.get(firstConflictDate) : undefined;
+
+  let conflict: VehicleDoubleBookedDetails["conflict"] | undefined;
+  if (conflictRow?.sourceType === "trip") {
+    const holding = await findTripForBusiness(writer, businessId, conflictRow.sourceId);
+    const holderLabel =
+      holding?.customerId !== null && holding?.customerId !== undefined
+        ? ((await findCustomerForBusiness(writer, businessId, holding.customerId))?.name ??
+          "an unnamed customer")
+        : "no customer on file";
+    conflict = {
+      sourceType: "trip",
+      from: holding?.startDate ?? firstConflictDate ?? startDate,
+      to: holding?.endDate ?? null,
+      holderLabel,
+      destination: holding?.destination ?? null,
+    };
+  } else if (conflictRow?.sourceType === "daily_lease") {
+    const holding = await findDailyLeaseForBusiness(writer, businessId, conflictRow.sourceId);
+    const holderLabel =
+      holding !== undefined
+        ? ((await findDriverForBusiness(writer, businessId, holding.driverId))?.name ??
+          "an unnamed driver")
+        : "an unnamed driver";
+    conflict = {
+      sourceType: "daily_lease",
+      from: holding?.effectiveFrom ?? firstConflictDate ?? startDate,
+      to: holding?.effectiveTo ?? null,
+      holderLabel,
+      destination: null,
+    };
+  } else if (conflictRow?.sourceType === "lease") {
+    const holding = await findLeaseForBusiness(writer, businessId, conflictRow.sourceId);
+    const holderLabel =
+      holding !== undefined
+        ? ((await findCustomerForBusiness(writer, businessId, holding.customerId))?.name ??
+          "an unnamed customer")
+        : "an unnamed customer";
+    conflict = {
+      sourceType: "lease",
+      from: holding?.startDate ?? firstConflictDate ?? startDate,
+      to: holding?.endDate ?? null,
+      holderLabel,
+      destination: null,
+    };
+  }
+
+  // The last candidate whose own window still ends at or before
+  // `lookaheadTo` — every date this loop checks was actually queried above,
+  // so it never reports a date "free" only because it fell outside what was
+  // asked for.
+  const requestedLength = requestedDays.length;
+  const scanUntil = addDays(lookaheadTo, -(requestedLength - 1));
+  let nextFreeFrom: string | null = null;
+  for (const candidate of dateRange(startDate, scanUntil)) {
+    const window = dateRange(candidate, addDays(candidate, requestedLength - 1));
+    if (window.every((d) => !occupiedByDate.has(d))) {
+      nextFreeFrom = candidate;
+      break;
+    }
+  }
+
+  return new VehicleDoubleBookedError(
+    undefined,
+    conflict !== undefined ? { conflict, nextFreeFrom } : undefined,
+  );
+}
+
 export async function bookTrip(writer: Writer, input: BookTripInput): Promise<BookedTrip> {
   const asHold = input.asHold ?? false;
   try {
@@ -320,7 +427,13 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "one_arrangement_per_vehicle_day")) {
-      throw new VehicleDoubleBookedError();
+      throw await buildDoubleBookedError(
+        writer,
+        input.businessId,
+        input.vehicleId,
+        input.startDate,
+        input.endDate,
+      );
     }
     throw err;
   }

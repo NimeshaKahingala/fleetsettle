@@ -12,12 +12,21 @@ export class ApiError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
   readonly requestId: string;
+  /** GAP-44: the first error `details` a client actually reads — untyped here (the base wire shape), narrowed by the caller against the specific `code` it already checked (`VehicleDoubleBookedDetails`, for `VEHICLE_DOUBLE_BOOKED`). */
+  readonly details?: unknown;
 
-  constructor(status: number, code: ErrorCode, message: string, requestId: string) {
+  constructor(
+    status: number,
+    code: ErrorCode,
+    message: string,
+    requestId: string,
+    details?: unknown,
+  ) {
     super(message);
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    this.details = details;
   }
 }
 
@@ -63,6 +72,7 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
         body?.code ?? "INTERNAL_ERROR",
         body?.error ?? res.statusText,
         body?.requestId ?? "",
+        body?.details,
       );
     }
 
@@ -86,6 +96,7 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
         body?.code ?? "INTERNAL_ERROR",
         body?.error ?? res.statusText,
         body?.requestId ?? "",
+        body?.details,
       );
     }
 

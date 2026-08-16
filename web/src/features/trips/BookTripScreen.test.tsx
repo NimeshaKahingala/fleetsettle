@@ -225,6 +225,89 @@ test("GAP-101 (Mode 3): a failed paperwork read shows a warning on the confirm s
   expect(await screen.findByText("Couldn't check this vehicle's paperwork.")).toBeInTheDocument();
 });
 
+test("GAP-44/INV-1: a double-booked conflict opens a Dialog naming the conflict, and 'Use <date>' retries with the suggested dates", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const details = {
+    conflict: {
+      sourceType: "trip",
+      from: "2026-07-15",
+      to: "2026-07-15",
+      holderLabel: "R. Perera",
+      destination: "Kandy",
+    },
+    nextFreeFrom: "2026-07-16",
+  };
+  const post = vi
+    .fn()
+    .mockRejectedValueOnce(
+      new ApiError(409, "VEHICLE_DOUBLE_BOOKED", "already allocated", "req-1", details),
+    )
+    .mockResolvedValueOnce({ id: "t1" } satisfies Partial<TripResponse>);
+  const onBooked = vi.fn();
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={onBooked} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Book trip" }));
+
+  expect(await screen.findByText("Vehicle is already booked")).toBeInTheDocument();
+  expect(
+    screen.getByText("NC-1234 is on a trip from 2026-07-15 to 2026-07-15 — Kandy, for R. Perera."),
+  ).toBeInTheDocument();
+  // The bare mutation.error.message line is the fallback for every other
+  // 409 — this one gets the Dialog instead, never both at once.
+  expect(screen.queryByText("already allocated")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Use 2026-07-16" }));
+  expect(screen.queryByText("Vehicle is already booked")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Book trip" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenLastCalledWith(
+      "/api/trip",
+      expect.objectContaining({ startDate: "2026-07-16", endDate: "2026-07-16" }),
+    ),
+  );
+  expect(onBooked).toHaveBeenCalledWith("t1");
+});
+
+test("GAP-44: no nextFreeFrom (the lookahead window found nothing) falls back to a plain OK, not a false suggestion", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const details = {
+    conflict: {
+      sourceType: "daily_lease",
+      from: "2026-01-01",
+      to: null,
+      holderLabel: "an unnamed driver",
+      destination: null,
+    },
+    nextFreeFrom: null,
+  };
+  const post = vi
+    .fn()
+    .mockRejectedValue(
+      new ApiError(409, "VEHICLE_DOUBLE_BOOKED", "already allocated", "req-1", details),
+    );
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={() => {}} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Book trip" }));
+
+  expect(await screen.findByText("Vehicle is already booked")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "OK" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /^Use / })).not.toBeInTheDocument();
+});
+
 test("GAP-101 (Mode 3): a failed calendar read shows a warning that the pause impact couldn't be checked, never a silent 'nothing paused'", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockImplementation((path: string) => {
