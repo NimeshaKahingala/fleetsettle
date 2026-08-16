@@ -173,7 +173,7 @@ describe("skippable individual daily-lease days (P2/P13, F-1.7/GAP-20)", () => {
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
-    await ctx.createDayRecord(
+    const dayRecordId = await ctx.createDayRecord(
       businessId,
       periodId,
       dailyLeaseId,
@@ -181,6 +181,12 @@ describe("skippable individual daily-lease days (P2/P13, F-1.7/GAP-20)", () => {
       driverId,
       "2026-07-15",
     );
+    // Whichever side of the race confirmDay wins, it writes a real
+    // obligation (and, paid_in_full, a payment) that the bare
+    // createDayRecord() teardown above doesn't know about — sweep them too,
+    // or a winning confirm leaves rows the driver/business delete below
+    // can't get past.
+    ctx.trackCreatedDayRecord(dayRecordId);
 
     const [exceptionRes, confirmRes] = await Promise.all([
       postException(token, dailyLeaseId, { exceptionDate: "2026-07-15" }),
