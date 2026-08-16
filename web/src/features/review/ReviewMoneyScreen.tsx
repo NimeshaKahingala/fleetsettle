@@ -70,13 +70,16 @@ export function ReviewMoneyScreen() {
           size="hero"
         />
 
-        <Card className="flex flex-col">
+        {/* §7.11/TwoBalances: the same 3px leading-border direction marker
+            — put in is money flowing from the partner to the business
+            (direction-payable), taken out is the reverse (brand). */}
+        <Card className="flex flex-col border-l-[3px] border-l-direction-payable">
           <h2 className="pb-2 text-label font-medium text-ink-secondary">Put in (all time)</h2>
           <Row label="Contributions" value={parse(data.putIn.contributionsMinor)} />
           <Row label="Out of pocket" value={parse(data.putIn.outOfPocketMinor)} />
         </Card>
 
-        <Card className="flex flex-col">
+        <Card className="flex flex-col border-l-[3px] border-l-brand">
           <h2 className="pb-2 text-label font-medium text-ink-secondary">Taken out (all time)</h2>
           <Row label="Payouts" value={parse(data.takenOut.payoutsMinor)} />
           <Row label="Settlements" value={parse(data.takenOut.settlementsMinor)} />

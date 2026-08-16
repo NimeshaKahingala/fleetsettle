@@ -7,6 +7,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
 import { cn } from "../../lib/cn.js";
@@ -96,11 +97,12 @@ function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicles"][num
       </button>
       {open ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line-hairline pt-3">
-          <div className="flex justify-between text-body-sm text-ink-secondary">
+          {/* §7.11/TwoBalances: earned (brand) vs spent (direction-payable), same 3px leading-border marker. */}
+          <div className="flex justify-between border-l-[3px] border-brand pl-2 text-body-sm text-ink-secondary">
             <span>Earned</span>
             <Money value={parse(vehicle.earnedMinor)} />
           </div>
-          <div className="flex justify-between text-body-sm text-ink-secondary">
+          <div className="flex justify-between border-l-[3px] border-direction-payable pl-2 text-body-sm text-ink-secondary">
             <span>Spent</span>
             <Money value={parse(vehicle.costsMinor)} />
           </div>
@@ -260,19 +262,20 @@ export function VehicleMonthReportScreen({
             >
               {report.period.periodStart} – {report.period.periodEnd} ▾
             </button>
+            {/* §7.11/TwoBalances: same direction markers as VehicleRow's own
+                Earned/Spent below; profit is a derived net, left unmarked. */}
             <div className="grid grid-cols-3 gap-2">
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Earned</span>
-                <Money value={totals.earnedMinor} className="text-body font-medium" />
-              </Card>
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Spent</span>
-                <Money value={totals.costsMinor} className="text-body font-medium" />
-              </Card>
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Profit</span>
-                <Money value={totals.profitMinor} className="text-body font-medium" />
-              </Card>
+              <StatTile
+                label="Earned"
+                value={<Money value={totals.earnedMinor} />}
+                className="border-l-[3px] border-l-brand"
+              />
+              <StatTile
+                label="Spent"
+                value={<Money value={totals.costsMinor} />}
+                className="border-l-[3px] border-l-direction-payable"
+              />
+              <StatTile label="Profit" value={<Money value={totals.profitMinor} />} />
             </div>
             <HorizontalBarChart data={toChartData(report.vehicles)} />
           </div>
