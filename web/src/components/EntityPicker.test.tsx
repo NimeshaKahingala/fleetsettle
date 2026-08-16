@@ -47,6 +47,16 @@ test("once a value is chosen, the field's label survives in the accessible name 
   );
 });
 
+test("GAP-129: pending renders a loading notice, never a silently empty list", async () => {
+  const user = userEvent.setup();
+  render(<EntityPicker label="Driver" options={[]} value={null} onChange={vi.fn()} pending />);
+
+  await user.click(screen.getByRole("button", { name: "Choose driver" }));
+
+  expect(screen.getByText("Loading…")).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "Search driver" })).not.toBeInTheDocument();
+});
+
 test("Add new is pinned at the bottom and fires its own callback", async () => {
   const user = userEvent.setup();
   const onAddNew = vi.fn();

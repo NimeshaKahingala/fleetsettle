@@ -84,6 +84,13 @@
   --color-serious-ink: #8a3b12;
   --color-critical: #d03b3b;
   --color-critical-ink: #b3231f;
+
+  /* GAP-27: arrangement C (trips/charter) used to borrow --color-serious for
+     its calendar/badge accent — a colour match, not a semantic one, since
+     being on a trip isn't "overdue" or "in arrears". Same hex, its own
+     token, so it can drift from status colour independently. */
+  --color-trip: #ec835a;
+  --color-trip-ink: #8a3b12;
   --spacing-tap: 44px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -137,6 +144,7 @@
     --color-good-ink: #3fbf57;
     --color-warning-ink: #fab219;
     --color-serious-ink: #ec835a;
+    --color-trip-ink: #ec835a;
     --color-critical: #f0736f;
     --color-critical-ink: #f0736f;
   }
@@ -168,6 +176,7 @@
   --color-good-ink: #3fbf57;
   --color-warning-ink: #fab219;
   --color-serious-ink: #ec835a;
+  --color-trip-ink: #ec835a;
   --color-critical: #f0736f;
   --color-critical-ink: #f0736f;
 }

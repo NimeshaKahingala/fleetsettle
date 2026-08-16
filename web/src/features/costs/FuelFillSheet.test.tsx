@@ -8,9 +8,9 @@ import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { FuelFillSheet } from "./FuelFillSheet.js";
 
 // PhotoCapture's own boundary mock (PhotoCapture.test.tsx) — createImageBitmap/
-// OffscreenCanvas don't exist under jsdom.
+// OffscreenCanvas/Worker don't exist under jsdom.
 vi.mock("../../lib/photo-pipeline.js", () => ({
-  downscaleAndEncode: vi.fn((_file: File) =>
+  encodeWithWorkerTimeout: vi.fn((_file: File) =>
     Promise.resolve({ blob: new Blob(["fake"], { type: "image/jpeg" }), flagged: false }),
   ),
 }));

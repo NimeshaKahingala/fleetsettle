@@ -7,6 +7,7 @@ const ACCENT_CLASS = {
   warning: "border-l-[3px] border-l-warning",
   serious: "border-l-[3px] border-l-serious",
   critical: "border-l-[3px] border-l-critical",
+  trip: "border-l-[3px] border-l-trip",
 } as const;
 
 export type CardAccent = keyof typeof ACCENT_CLASS;

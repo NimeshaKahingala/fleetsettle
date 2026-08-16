@@ -90,8 +90,8 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
   }
   if (day.arrangement === "C") {
     return day.isHold
-      ? { wash: "border border-serious text-serious-ink", glyph: "T?", label: "Hold (tentative)" }
-      : { wash: "bg-serious/15 text-serious-ink", glyph: "T", label: "On a trip" };
+      ? { wash: "border border-trip text-trip-ink", glyph: "T?", label: "Hold (tentative)" }
+      : { wash: "bg-trip/15 text-trip-ink", glyph: "T", label: "On a trip" };
   }
   // arrangement B — each of the four reachable states gets its own token
   // (UI-LF-07): "ran" and "not yet confirmed" used to share the brand
@@ -315,9 +315,9 @@ export function VehicleCalendarScreen({
                 glyph="!"
                 label="Daily lease, lost"
               />
-              <LegendRow wash="bg-serious/15 text-serious-ink" glyph="T" label="On a trip" />
+              <LegendRow wash="bg-trip/15 text-trip-ink" glyph="T" label="On a trip" />
               <LegendRow
-                wash="border border-serious text-serious-ink"
+                wash="border border-trip text-trip-ink"
                 glyph="T?"
                 label="Hold (tentative)"
               />

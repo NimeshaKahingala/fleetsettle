@@ -1,5 +1,11 @@
 import { expect, test, vi } from "vitest";
-import { encodeWithCap, PHOTO_QUALITY_PASSES, PHOTO_SIZE_CAP_BYTES } from "./photo-pipeline.js";
+import {
+  encodeWithCap,
+  PHOTO_QUALITY_PASSES,
+  PHOTO_SIZE_CAP_BYTES,
+  PHOTO_WORKER_TIMEOUT_MS,
+  withWorkerTimeout,
+} from "./photo-pipeline.js";
 
 function blobOfSize(bytes: number): Blob {
   return new Blob([new Uint8Array(bytes)]);
@@ -40,4 +46,54 @@ test("accepts whatever the third pass gives and flags it, rather than looping fo
 
 test("the cap is exactly 200KB", () => {
   expect(PHOTO_SIZE_CAP_BYTES).toBe(200_000);
+});
+
+// GAP-17: the §6.3 "Where" row's 3s race, decoupled from a real Worker
+// (jsdom has none) so fake timers can exercise both outcomes directly.
+test("GAP-17: resolves with the run() result when it settles before the timeout", async () => {
+  vi.useFakeTimers();
+  try {
+    const photo = { blob: blobOfSize(50_000), flagged: false };
+    const result = withWorkerTimeout(
+      () => Promise.resolve(photo),
+      () => {
+        throw new Error("fallback must not run when run() already won");
+      },
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).resolves.toBe(photo);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("GAP-17: falls back once the timeout elapses, without waiting for run() to ever settle", async () => {
+  vi.useFakeTimers();
+  try {
+    const fallbackPhoto = { blob: blobOfSize(1_000_000), flagged: true };
+    const result = withWorkerTimeout(
+      () => new Promise(() => {}), // never settles — the stuck-Worker case
+      () => fallbackPhoto,
+    );
+    await vi.advanceTimersByTimeAsync(PHOTO_WORKER_TIMEOUT_MS);
+    await expect(result).resolves.toBe(fallbackPhoto);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("GAP-17: a custom timeout overrides the 3s default", async () => {
+  vi.useFakeTimers();
+  try {
+    const fallbackPhoto = { blob: blobOfSize(1_000_000), flagged: true };
+    const result = withWorkerTimeout(
+      () => new Promise(() => {}),
+      () => fallbackPhoto,
+      500,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    await expect(result).resolves.toBe(fallbackPhoto);
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -208,19 +208,27 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">In each account</p>
-            <ReportTable
-              columns={BANKED_COLUMNS}
-              rows={data.banked}
-              rowKey={(row) => row.destination}
-            />
+            {data.banked.length > 0 ? (
+              <ReportTable
+                columns={BANKED_COLUMNS}
+                rows={data.banked}
+                rowKey={(row) => row.destination}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">Nothing banked yet.</p>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">With drivers, as advances</p>
-            <ReportTable
-              columns={DRIVER_ADVANCE_COLUMNS}
-              rows={data.driverAdvances}
-              rowKey={(row) => row.driverId}
-            />
+            {data.driverAdvances.length > 0 ? (
+              <ReportTable
+                columns={DRIVER_ADVANCE_COLUMNS}
+                rows={data.driverAdvances}
+                rowKey={(row) => row.driverId}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">No advances outstanding.</p>
+            )}
           </div>
         </div>
       }
