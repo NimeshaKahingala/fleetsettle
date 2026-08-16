@@ -366,8 +366,10 @@ function checkQueryErrorHandling(paths) {
     }
     if (!/\buseQuery\s*\(\s*\{/.test(text)) continue;
     const lines = text.split("\n");
-    findings.push(...findUnwrappedQueryBindings(text, lines, path));
-    findings.push(...findDestructuredDataOnlyQueries(text, lines, path));
+    findings.push(
+      ...findUnwrappedQueryBindings(text, lines, path),
+      ...findDestructuredDataOnlyQueries(text, lines, path),
+    );
   }
   return findings;
 }
