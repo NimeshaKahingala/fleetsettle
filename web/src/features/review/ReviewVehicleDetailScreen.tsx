@@ -2,9 +2,9 @@ import { parse } from "@fleetsettle/shared";
 import type { AccountingPeriodListRow, VehicleMonthResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -101,19 +101,22 @@ export function ReviewVehicleDetailScreen({
           </p>
         ) : (
           <>
+            {/* §7.11/TwoBalances: earned (income, brand) and spent (a cost,
+                direction-payable) each get the same 3px leading-border
+                marker VehiclePerformanceCard uses; profit is a derived net,
+                left unmarked the same way TwoBalances' own net line is. */}
             <div className="grid grid-cols-3 gap-2">
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Earned</span>
-                <Money value={parse(vehicle.earnedMinor)} className="text-body font-medium" />
-              </Card>
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Spent</span>
-                <Money value={parse(vehicle.costsMinor)} className="text-body font-medium" />
-              </Card>
-              <Card className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">Profit</span>
-                <Money value={parse(vehicle.profitMinor)} className="text-body font-medium" />
-              </Card>
+              <StatTile
+                label="Earned"
+                value={<Money value={parse(vehicle.earnedMinor)} />}
+                className="border-l-[3px] border-l-brand"
+              />
+              <StatTile
+                label="Spent"
+                value={<Money value={parse(vehicle.costsMinor)} />}
+                className="border-l-[3px] border-l-direction-payable"
+              />
+              <StatTile label="Profit" value={<Money value={parse(vehicle.profitMinor)} />} />
             </div>
             {vehicle.ownerShares.length > 0 ? (
               <ReportTable
