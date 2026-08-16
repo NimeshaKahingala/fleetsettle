@@ -17,6 +17,7 @@ import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
@@ -24,8 +25,13 @@ import { Label } from "../../design/primitives/Label.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import {
+  INCIDENT_STATUS_BADGE_VARIANT,
+  INCIDENT_STATUS_LABEL,
+} from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface CloseLeaseScreenProps {
@@ -341,10 +347,10 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
             ) : null}
             {summaryQuery.data !== undefined ? (
               <>
-                <Card className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">Total unpaid</p>
-                  <Money value={parse(summaryQuery.data.totalUnpaidMinor)} />
-                </Card>
+                <StatTile
+                  label="Total unpaid"
+                  value={<Money value={parse(summaryQuery.data.totalUnpaidMinor)} />}
+                />
                 {summaryQuery.data.unpaidObligations.length > 0 ? (
                   <Section
                     title="Unpaid dues"
@@ -373,7 +379,9 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
                         <p className="text-body text-ink-primary">
                           {formatShortDate(incident.occurredOn)}
                         </p>
-                        <p className="text-caption text-ink-muted">{incident.status}</p>
+                        <Badge variant={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}>
+                          {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
+                        </Badge>
                       </Card>
                     ))}
                   />
