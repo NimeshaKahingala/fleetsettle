@@ -200,19 +200,15 @@ export const archiveDriverHandler: RouteHandler<typeof archiveDriverRoute, Env> 
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
-  const reader = c.get("reader");
 
-  const row = await findDriverForBusiness(reader, businessId, id);
-  if (!row) throw new NotFoundError();
-
-  const { voidedAt } = await archiveDriver(reader, c.get("writer"), {
+  const row = await archiveDriver(c.get("reader"), c.get("writer"), {
     businessId,
     partyId: id,
     reason: body.reason,
     userId,
   });
 
-  return c.json({ ...toResponse(row), archivedAt: voidedAt }, 200);
+  return c.json(toResponse(row), 200);
 };
 
 /** F-1.11's "Unarchive" alternate — same `manageEntities` gate. */
@@ -221,11 +217,7 @@ export const unarchiveDriverHandler: RouteHandler<typeof unarchiveDriverRoute, E
 
   const businessId = requireBusinessId(c);
   const { id } = c.req.valid("param");
-  const reader = c.get("reader");
 
-  const row = await findDriverForBusiness(reader, businessId, id);
-  if (!row) throw new NotFoundError();
-
-  await unarchiveDriver(reader, c.get("writer"), businessId, id);
-  return c.json({ ...toResponse(row), archivedAt: null }, 200);
+  const row = await unarchiveDriver(c.get("reader"), c.get("writer"), businessId, id);
+  return c.json(toResponse(row), 200);
 };

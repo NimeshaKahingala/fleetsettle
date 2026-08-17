@@ -1,5 +1,15 @@
 # UI low-API work plan - 11 Aug 2026
 
+**Superseded — the branch it planned (`codex/ui-low-api-work-2026-08-11`)
+merged, and nothing in the repository still points at this file.** Recorded
+17 August 2026 during the Wave 8b document-disposition pass: `grep` across
+`TRACKER.md`, `Plan.md` and `CLAUDE.md` returns zero references, and the plan
+below carried no status marker of its own past the branch merging, so a
+reader had no way to tell this had already finished. Kept rather than
+deleted — recoverable from git either way, but a plan a reader can still
+check against its own "Implementation status" section below is worth more
+than a commit hash.
+
 This document is a handoff plan for a fresh Codex chat. It focuses on UI work
 that can move with little or no new API dependency. Report work and offline/PWA
 support are deliberately delayed.

@@ -38,6 +38,7 @@ import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { AgeingReportScreen } from "../features/reports/AgeingReportScreen.js";
 import { CashPositionReportScreen } from "../features/reports/CashPositionReportScreen.js";
+import { ExportTransactionsScreen } from "../features/reports/ExportTransactionsScreen.js";
 import { FuelEfficiencyReportScreen } from "../features/reports/FuelEfficiencyReportScreen.js";
 import { GoodwillReportScreen } from "../features/reports/GoodwillReportScreen.js";
 import { LostDaysReportScreen } from "../features/reports/LostDaysReportScreen.js";
@@ -49,6 +50,7 @@ import {
 import { TripRankingReportScreen } from "../features/reports/TripRankingReportScreen.js";
 import { UtilisationReportScreen } from "../features/reports/UtilisationReportScreen.js";
 import { VehicleMonthReportScreen } from "../features/reports/VehicleMonthReportScreen.js";
+import { VehicleYearReportScreen } from "../features/reports/VehicleYearReportScreen.js";
 import { ReviewMoneyScreen } from "../features/review/ReviewMoneyScreen.js";
 import { ReviewThisMonthScreen } from "../features/review/ReviewThisMonthScreen.js";
 import { ReviewVehicleDetailScreen } from "../features/review/ReviewVehicleDetailScreen.js";
@@ -412,6 +414,7 @@ function ReviewMoneyRoute() {
 
 const REPORT_PATH: Record<ReportKey, string> = {
   "vehicle-month": "/reports/vehicle-month",
+  "vehicle-year": "/reports/vehicle-year",
   trips: "/reports/trips",
   "fuel-efficiency": "/reports/fuel-efficiency",
   receivables: "/reports/receivables",
@@ -420,9 +423,10 @@ const REPORT_PATH: Record<ReportKey, string> = {
   ageing: "/reports/ageing",
   goodwill: "/reports/goodwill",
   utilisation: "/reports/utilisation",
+  export: "/reports/export",
 };
 
-/** B4/§5.1: the catalogue — six cards, reached identically from the Review shell's own `Reports` tab and Operate's `/more` row (§4's IA). */
+/** B4/§5.1: the catalogue — eleven cards (GAP-98, then GAP-18), reached identically from the Review shell's own `Reports` tab and Operate's `/more` row (§4's IA). */
 function ReportsRoute() {
   const navigate = useNavigate();
   return (
@@ -572,6 +576,44 @@ function UtilisationReportRoute({ today }: { today: BusinessDate }) {
       today={today}
       onParamsChange={(params) => {
         void navigate({ to: "/reports/utilisation", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** GAP-18: the same current-calendar-year default `GoodwillReportRoute` uses — UC-73's own framing is "the year", not a rolling window. */
+function VehicleYearReportRoute({ today }: { today: BusinessDate }) {
+  const { from, to } = useSearch({ from: "/reports/vehicle-year" });
+  const navigate = useNavigate();
+  return (
+    <VehicleYearReportScreen
+      from={from ?? asBusinessDate(`${today.slice(0, 4)}-01-01`)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/vehicle-year", search: params });
+      }}
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+/** GAP-18: the same current-calendar-year default `VehicleYearReportRoute` uses — "a year of transactions", UC-99's own framing. */
+function ExportTransactionsRoute({ today }: { today: BusinessDate }) {
+  const { from, to } = useSearch({ from: "/reports/export" });
+  const navigate = useNavigate();
+  return (
+    <ExportTransactionsScreen
+      from={from ?? asBusinessDate(`${today.slice(0, 4)}-01-01`)}
+      to={to ?? today}
+      today={today}
+      onParamsChange={(params) => {
+        void navigate({ to: "/reports/export", search: params });
       }}
       onBack={() => {
         void navigate({ to: "/reports" });
@@ -1058,6 +1100,38 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <UtilisationReportRoute today={today} />,
   });
 
+  const vehicleYearReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/vehicle-year",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { from?: BusinessDate; to?: BusinessDate } => {
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <VehicleYearReportRoute today={today} />,
+  });
+
+  const exportTransactionsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/export",
+    validateSearch: (
+      search: Record<string, unknown>,
+    ): { from?: BusinessDate; to?: BusinessDate } => {
+      const rawFrom = search["from"];
+      const rawTo = search["to"];
+      return {
+        ...(isBusinessDateLike(rawFrom) ? { from: rawFrom } : {}),
+        ...(isBusinessDateLike(rawTo) ? { to: rawTo } : {}),
+      };
+    },
+    component: () => <ExportTransactionsRoute today={today} />,
+  });
+
   const mineRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/me",
@@ -1101,6 +1175,8 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     ageingReportRoute,
     goodwillReportRoute,
     utilisationReportRoute,
+    vehicleYearReportRoute,
+    exportTransactionsRoute,
     mineRoute,
   ]);
 

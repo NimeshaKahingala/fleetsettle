@@ -1332,6 +1332,243 @@ describe("reports (P11)", () => {
     });
   });
 
+  describe("vehicle year (GAP-18/UC-73, owners only)", () => {
+    it("happy path — earned, costs, profit, owner shares and overheads for the window", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleA = await ctx.createVehicle(businessId, { registration: "A-1111" });
+      const customerId = await ctx.createCustomer(businessId);
+
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId: vehicleA,
+        kind: "rent",
+        amountMinor: 50_000n,
+        dueOn: "2026-03-15",
+      });
+      const costExpenseId = newId();
+      await db.insert(expense).values({
+        id: costExpenseId,
+        businessId,
+        vehicleId: vehicleA,
+        category: "other",
+        amountMinor: 9_000n,
+        spentOn: "2026-05-10",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(costExpenseId);
+
+      // An overhead cost — no vehicle — inside the window, beneath vehicle profit rather than spread across it.
+      const overheadExpenseId = newId();
+      await db.insert(expense).values({
+        id: overheadExpenseId,
+        businessId,
+        category: "office",
+        amountMinor: 4_000n,
+        spentOn: "2026-06-01",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(overheadExpenseId);
+
+      const owner1 = await mintUser(db, ctx, businessId, "owner");
+      const share1Id = newId();
+      await db.insert(ownershipShare).values([
+        {
+          id: share1Id,
+          vehicleId: vehicleA,
+          userId: owner1.userId,
+          shareBp: 10_000,
+          effectiveFrom: "2026-01-01",
+        },
+      ]);
+      ctx.trackCreatedOwnershipShares([share1Id]);
+
+      const token = await signAccessToken(owner1.asgardeoSub);
+
+      const res = await getReport("/vehicle-year?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      const body: {
+        from: string;
+        to: string;
+        overheadsMinor: string;
+        vehicles: {
+          vehicleId: string;
+          earnedMinor: string;
+          costsMinor: string;
+          profitMinor: string;
+          ownerShares: { userId: string; profitShareMinor: string }[];
+        }[];
+      } = await res.json();
+
+      expect(body).toMatchObject({ from: "2026-01-01", to: "2026-12-31", overheadsMinor: "4000" });
+      const rowA = body.vehicles.find((v) => v.vehicleId === vehicleA);
+      expect(rowA).toMatchObject({
+        earnedMinor: "50000",
+        costsMinor: "9000",
+        profitMinor: "41000",
+      });
+      expect(rowA?.ownerShares).toHaveLength(1);
+      expect(rowA?.ownerShares[0]).toMatchObject({
+        userId: owner1.userId,
+        profitShareMinor: "41000",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("403 — a manager cannot reach it at all (UC-73's own Sees line, narrower than vehicle-month)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport("/vehicle-year?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(403);
+
+      await ctx.cleanup();
+    });
+
+    it("400 — GAP-92: from after to is refused", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/vehicle-year?from=2026-12-31&to=2026-01-01", token);
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
+
+    it("404 — a named vehicle belongs to another business", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+      const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/vehicle-year?vehicleId=${otherVehicleId}&from=2026-01-01&to=2026-12-31`,
+        token,
+      );
+      expect(res.status).toBe(404);
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("export (GAP-18/UC-99 CSV half, owners only)", () => {
+    it("happy path — text/csv, oldest first, plain decimal amounts", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "A-1111" });
+      const customerId = await ctx.createCustomer(businessId);
+
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId,
+        kind: "rent",
+        amountMinor: 50_000n,
+        dueOn: "2026-03-15",
+      });
+      const expenseId = newId();
+      await db.insert(expense).values({
+        id: expenseId,
+        businessId,
+        vehicleId,
+        category: "fuel",
+        amountMinor: 2_550n,
+        spentOn: "2026-01-05",
+        borneBy: "us",
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedExpense(expenseId);
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toMatch(/^text\/csv/);
+      expect(res.headers.get("content-disposition")).toContain("attachment");
+      const csv = await res.text();
+      const lines = csv.trim().split("\r\n");
+      expect(lines[0]).toBe("Date,Vehicle,Type,Direction,Amount (Rs)");
+      // Oldest first: the fuel expense (Jan) before the rent obligation (Mar).
+      expect(lines[1]).toBe("2026-01-05,A-1111,Fuel,Out,25.50");
+      expect(lines[2]).toBe("2026-03-15,A-1111,Rent,In,500.00");
+
+      await ctx.cleanup();
+    });
+
+    it("CWE-1236 — a vehicle registration starting with a formula character is neutralised, not written live", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      // registration has no character restriction (z.string().trim().min(1).max(50)) —
+      // this is what a normal "add a vehicle" call can produce, not a crafted DB row.
+      // No comma/quote in the payload, so this exercises only the formula guard,
+      // not RFC 4180 quoting (a separate, already-covered concern) at the same time.
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "=SUM(A1:A9)" });
+      const customerId = await ctx.createCustomer(businessId);
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId,
+        kind: "rent",
+        amountMinor: 50_000n,
+        dueOn: "2026-03-15",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      const csv = await res.text();
+      const lines = csv.trim().split("\r\n");
+      // A leading quote reads as literal text in Excel/Sheets, never as a formula.
+      expect(lines[1]).toBe("2026-03-15,'=SUM(A1:A9),Rent,In,500.00");
+      expect(lines[1]).not.toMatch(/^2026-03-15,=/);
+
+      await ctx.cleanup();
+    });
+
+    it("403 — a manager cannot export", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const manager = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(manager.asgardeoSub);
+
+      const res = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(403);
+
+      await ctx.cleanup();
+    });
+
+    it("400 — GAP-92: from after to is refused", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/export?from=2026-12-31&to=2026-01-01", token);
+      expect(res.status).toBe(400);
+
+      await ctx.cleanup();
+    });
+  });
+
   describe("access boundary — every report", () => {
     const staffGated = [
       `/vehicle-month?periodId=${PLACEHOLDER_UUID}`,
@@ -1346,6 +1583,8 @@ describe("reports (P11)", () => {
     const ownerOnlyGated = [
       "/goodwill?from=2026-07-01&to=2026-07-31",
       `/utilisation?vehicleId=${PLACEHOLDER_UUID}&from=2026-07-01&to=2026-07-31`,
+      "/vehicle-year?from=2026-07-01&to=2026-07-31",
+      "/export?from=2026-07-01&to=2026-07-31",
     ];
 
     it("401 — every report requires a token", async () => {

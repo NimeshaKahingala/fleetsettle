@@ -187,6 +187,33 @@ export class PaymentAlreadyReversedError extends AppError {
   }
 }
 
+// GAP-135/DM D-5. F-4.5 promises "a weekly settler is not in arrears on
+// Thursday": `obligation.effective_due_on` is meant to be derived from
+// `driver.settlement_rhythm`, and that derivation was never built —
+// `confirmDay` sets `effective_due_on = due_on` unconditionally. Harmless
+// while every driver is `'daily'` (where the two genuinely are equal), and
+// silently wrong the moment one is `'weekly'`: his day fee would read as
+// overdue on every day before the agreed settlement point, in the ageing
+// report and the driver-money screens alike, with nothing announced.
+//
+// So the write path refuses rather than computing a date it knows is wrong.
+// This is W-56's rule ("reports degrade to 'not available', never to a
+// confident wrong number") applied to a write: an admitted refusal a person
+// can act on, instead of a plausible figure nobody would question. It is
+// deliberately *not* a CHECK constraint pinning the column to `'daily'` —
+// that would contradict UC-31, UC-37 and F-4.5, which all describe weekly
+// settlement as a real arrangement this business has. The rhythm stays
+// licensed; only the unbuilt computation is blocked.
+export class SettlementRhythmUnsupportedError extends AppError {
+  constructor(rhythm: string) {
+    super(
+      409,
+      "SETTLEMENT_RHYTHM_UNSUPPORTED",
+      `This driver settles ${rhythm}, and due dates for that rhythm are not calculated yet — confirming the day would record a due date that reads as overdue when it is not. Set the driver to daily settlement, or record this day once the rhythm is supported.`,
+    );
+  }
+}
+
 // F-8.5/UC-96: an expense already carrying `voided_at` — a second void would
 // silently overwrite the first correction's own reason and actor.
 export class ExpenseAlreadyVoidedError extends AppError {

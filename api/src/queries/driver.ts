@@ -62,6 +62,26 @@ export async function listDriversForBusiness(db: ReadDb, businessId: string): Pr
 }
 
 /**
+ * GAP-135/DM D-5. Read on its own rather than added to `COLUMNS`: that set
+ * feeds `DriverRow` into every driver response, and this column is an
+ * internal guard input, not something the client has any use for. Returns
+ * `undefined` for a driver that does not exist — the caller is always inside
+ * a flow that has already proven the id, so it treats that as nothing to
+ * check rather than as a not-found of its own.
+ */
+export async function findDriverSettlementRhythm(
+  db: ReadDb,
+  driverId: string,
+): Promise<string | undefined> {
+  const rows = await db
+    .select({ settlementRhythm: driver.settlementRhythm })
+    .from(driver)
+    .where(eq(driver.id, driverId))
+    .limit(1);
+  return rows[0]?.settlementRhythm;
+}
+
+/**
  * F-1.8/A11: guarded on `linked_user_id IS NULL` — this only ever runs from
  * inside `redeemInvite`'s transaction, after the invite row itself has
  * already been consumed under its own guard, so reaching 0 rows here means

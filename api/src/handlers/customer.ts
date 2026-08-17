@@ -177,19 +177,15 @@ export const archiveCustomerHandler: RouteHandler<typeof archiveCustomerRoute, E
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
-  const reader = c.get("reader");
 
-  const row = await findCustomerForBusiness(reader, businessId, id);
-  if (!row) throw new NotFoundError();
-
-  const { voidedAt } = await archiveCustomer(reader, c.get("writer"), {
+  const row = await archiveCustomer(c.get("reader"), c.get("writer"), {
     businessId,
     partyId: id,
     reason: body.reason,
     userId,
   });
 
-  return c.json({ ...toResponse(row), archivedAt: voidedAt }, 200);
+  return c.json(toResponse(row), 200);
 };
 
 /** F-1.11's "Unarchive" alternate — same `manageEntities` gate. */
@@ -200,11 +196,7 @@ export const unarchiveCustomerHandler: RouteHandler<typeof unarchiveCustomerRout
 
   const businessId = requireBusinessId(c);
   const { id } = c.req.valid("param");
-  const reader = c.get("reader");
 
-  const row = await findCustomerForBusiness(reader, businessId, id);
-  if (!row) throw new NotFoundError();
-
-  await unarchiveCustomer(reader, c.get("writer"), businessId, id);
-  return c.json({ ...toResponse(row), archivedAt: null }, 200);
+  const row = await unarchiveCustomer(c.get("reader"), c.get("writer"), businessId, id);
+  return c.json(toResponse(row), 200);
 };

@@ -1,7 +1,11 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
-import { DayRecordVoidedError, PeriodClosedError } from "../errors/app-error.js";
+import {
+  DayRecordVoidedError,
+  PeriodClosedError,
+  SettlementRhythmUnsupportedError,
+} from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   confirmOpenDayRecord,
@@ -10,6 +14,7 @@ import {
   listOpenDayRecordsForLeaseBeforeDate,
   type DayRecordRow,
 } from "../queries/day-record.js";
+import { findDriverSettlementRhythm } from "../queries/driver.js";
 import { findObligationBySource, insertObligation } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
 import { applyCreditForward } from "./credit-forward.js";
@@ -41,6 +46,24 @@ export interface ConfirmDayResult {
 }
 
 /** Reads back the row a lost race just wrote — used by both the genuinely-already-confirmed path and the 0-rows-affected UPDATE path below. */
+/**
+ * GAP-135/DM D-5/F-4.5. Refuses a confirm for any driver whose settlement
+ * rhythm this build cannot compute an `effective_due_on` for.
+ *
+ * Called **once per confirm call, not once per day** — `confirmDaysBulk`
+ * carries a single `driverId` for the whole batch, so checking inside
+ * `confirmDayInTx` would issue one read per day for an answer that cannot
+ * change between them (the same N+1 shape GAP-132 removed from the archive
+ * check). Placed here rather than at the obligation insert for the same
+ * reason: the fact being checked belongs to the call, not to the row.
+ */
+async function assertSettlementRhythmSupported(tx: Tx, driverId: string): Promise<void> {
+  const rhythm = await findDriverSettlementRhythm(tx, driverId);
+  if (rhythm !== undefined && rhythm !== "daily") {
+    throw new SettlementRhythmUnsupportedError(rhythm);
+  }
+}
+
 async function asNoOpResult(
   tx: Tx,
   dailyLeaseId: string,
@@ -304,7 +327,10 @@ export async function confirmDay(
   input: ConfirmDayInput,
 ): Promise<ConfirmDayResult> {
   try {
-    return await writer.transaction((tx) => confirmDayInTx(tx, input));
+    return await writer.transaction(async (tx) => {
+      await assertSettlementRhythmSupported(tx, input.driverId);
+      return await confirmDayInTx(tx, input);
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     // A concurrent confirm of a day with *no* pre-generated row landed
@@ -364,6 +390,8 @@ export async function confirmDaysBulk(
 ): Promise<ConfirmDaysBulkResult> {
   try {
     return await writer.transaction(async (tx) => {
+      await assertSettlementRhythmSupported(tx, input.driverId);
+
       const openDays = await listOpenDayRecordsForLeaseBeforeDate(
         tx,
         input.dailyLeaseId,

@@ -922,4 +922,78 @@ describe("confirm a week in one pass (P3, F-4.6/UC-38, GAP-2)", () => {
 
     await ctx.cleanup();
   });
+
+  /**
+   * GAP-135/DM D-5/F-4.5. `effective_due_on` is meant to be derived from the
+   * driver's agreed settlement rhythm — "a weekly settler is not in arrears
+   * on Thursday" — and that derivation was never built: every write path sets
+   * `effective_due_on = due_on`. Rather than record a due date it knows reads
+   * as overdue when it is not, the confirm path refuses.
+   *
+   * No endpoint writes `settlement_rhythm`, so these tests set it directly.
+   * That is the point: the column can only reach `'weekly'` out of band today,
+   * and the guard is what stops that state from silently producing a wrong
+   * number rather than an admitted one (W-56 applied to a write).
+   */
+  it("409 — a weekly settler's day is refused rather than given a due date that reads as overdue (GAP-135)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId, { settlementRhythm: "weekly" });
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await confirmDay(token, {
+      dailyLeaseId,
+      businessDate: "2026-07-15",
+      action: "paid_in_full",
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "SETTLEMENT_RHYTHM_UNSUPPORTED" });
+
+    // Refused, not half-written: the four inserts F-4.2 makes are one
+    // transaction, and none of them landed.
+    const after = await getDayRecord(token, dailyLeaseId, "2026-07-15");
+    expect(after.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — the bulk week-confirm refuses the same way, checked once for the batch (GAP-135)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId, { settlementRhythm: "weekly" });
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+      dailyLeaseAmountMinor: 5_000_00n,
+    });
+    const today = businessToday();
+    const openId = await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      addDays(today, -3),
+    );
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postConfirmWeek(token, dailyLeaseId);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "SETTLEMENT_RHYTHM_UNSUPPORTED" });
+
+    // The backlog day is untouched — still `open`, not partially confirmed.
+    const stillOpen = await getDayRecord(token, dailyLeaseId, addDays(today, -3));
+    const stillOpenBody: { id: string; state: string } = await stillOpen.json();
+    expect(stillOpenBody).toMatchObject({ id: openId, state: "open" });
+
+    await ctx.cleanup();
+  });
 });

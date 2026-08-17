@@ -12,7 +12,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 | 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-30`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
 | 7 | [design/brand-guidelines.md](design/brand-guidelines.md) | **Identity.** The mark, lockups, icon assets, voice | Colour and type — those are §6 |
 
-Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set.
+Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set. [testing/](testing/) (35 files, ~4,900 lines) is retired reference material, not acceptance evidence — GAP-58 found it was aspirational test design that had never been run, and its own README says so; [`LIVE-TEST-PLAN.md`](../LIVE-TEST-PLAN.md) is the live-browser queue that replaced it.
 
 ---
 
@@ -62,15 +62,25 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.12 | 15 Aug 2026 |
-| user-flows | v1.1.13 | 15 Aug 2026 |
-| data-model | v1.1.8 | 16 Aug 2026 |
+| use-cases | v1.2.13 | 17 Aug 2026 |
+| user-flows | v1.1.14 | 17 Aug 2026 |
+| data-model | v1.1.9 | 17 Aug 2026 |
 | tech-stack | v1.3 | 5 Aug 2026 |
 | implementation-guidelines | v1.6.1 | 10 Aug 2026 |
 | ui-ux-guidelines | v1.4.1 | 16 Aug 2026 |
 | brand-guidelines | v1.0.2 | 14 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
+
+**Three acceptance criteria are deliberately unmet, recorded 17 August 2026.** Nothing here is an open *question* — each was decided — but the suite now states which of its promises are built, so this index does not read as claiming more than the product delivers:
+
+| Criterion | Status | Why |
+|---|---|---|
+| **FL F-6.6** — shareable without a login | printed slip built; **share link deferred** | It would be the first route outside the login, carrying a full financial position (UC-57) |
+| **FL F-9.3** — a statement to PDF | CSV built; **PDF deferred** | No renderer has a home in this runtime, `TS §8` (UC-99) |
+| **FL F-4.5** — a weekly settler is not in arrears on Thursday | **unbuilt, and refused rather than mis-served** | `effective_due_on` is never derived from `settlement_rhythm`; the write path errors instead of recording a wrong date (`DM §17` D-5) |
+
+All three criteria stand as written — they are right, and are not withdrawn. **`TRACKER.md` carries each one's gap id and owns when they get built; this table only records that they are not built yet.**
 
 **Two owner decisions of 31 July 2026 that changed sequencing rather than behaviour:**
 
