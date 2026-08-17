@@ -1,9 +1,9 @@
 # GAP-12 — the nine remaining void endpoints: cascade design
 
 **Written 14 August 2026, on `wave5b/corrections-2026-08-14`, after PR #44 merged.**
-**Status: design finalised and decided. No code written against it yet, and no specification document updated yet.**
+**Status: built and closed, 14 August 2026 — same day.** All nine endpoints below shipped as designed (migration `0024`'s `offset_allocation` void trio, the two read-side filters, `VoidBlockedError`, nine `*AlreadyVoidedError` classes, 23 new integration tests), and the doc-change §7 asked for landed the same day, before any of the nine were built (`use-cases.md` W-61, `user-flows.md` INV-36 and F-8.5). [TRACKER.md](TRACKER.md)'s GAP-12 row carries the closing account and the two bugs found building it; this file keeps the design reasoning that got there.
 
-This is a working design note, not a specification. `docs/` still decides; where this and `docs/` disagree, `docs/` wins — and §7 below is precisely the list of what must be written *into* `docs/` before any of this is built. [TRACKER.md](TRACKER.md) carries the one-paragraph summary; this file carries the reasoning, so a cold session can build from it without re-deriving anything.
+This is a working design note, not a specification. `docs/` decides, and by the time this closed, `docs/` already agreed with every decision below — nothing here overrides it. [TRACKER.md](TRACKER.md) carries the one-paragraph summary; this file carries the reasoning, kept for a cold session reconstructing *why*, not *whether*.
 
 ---
 
@@ -151,6 +151,8 @@ Note `opening_balance` obligations stay **out** of the allowlist — GAP-103's b
 
 Each endpoint carries the standard matrix (happy · 401 · 403 · **404 cross-tenant** · 409 already-voided · `PERIOD_CLOSED`) plus its own cascade assertions.
 
+**All six items done, 14 August 2026, same day** — see TRACKER.md's GAP-12 row for the closing account, including the two bugs found building item 4 (`adjustmentId` missing from the create response, and §3.9's own `recordRecoveryReceived` double-post, item 5 above).
+
 ---
 
 ## 7. The doc-change this owes, before any code
@@ -162,6 +164,8 @@ Ownership runs downhill, so this starts in intent and flows down — the same or
 **`user-flows.md` — a new `INV-36` plus `F-8.5` clauses:** the per-table mechanics of §3 — which query filters `voided_at`, which status recomputes, which parent refuses and on what. Plus the two facts from §5 worth stating explicitly: a void is refused once its month closes, and reversing an allocation is legal in a closed period because the readers are as-of-now.
 
 **Also record, per this repository's convention, what was *not* taken** — the refuse-only answer for §3.1 and the offsetting-entry answer for §3.3, both with the reasoning above, so the same argument is not had twice.
+
+**Landed 14 August 2026, before any of the nine endpoints — `use-cases.md` W-61, `user-flows.md` INV-36 and F-8.5**, exactly as asked above.
 
 ---
 

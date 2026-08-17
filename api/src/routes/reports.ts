@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
+  exportTransactionsCsvHandler,
   getAgeingReportHandler,
   getCashPositionReportHandler,
   getFuelEfficiencyReportHandler,
@@ -11,8 +12,10 @@ import {
   getTripRankingReportHandler,
   getUtilisationReportHandler,
   getVehicleMonthReportHandler,
+  getVehicleYearReportHandler,
 } from "../handlers/reports.js";
 import {
+  exportTransactionsCsvRoute,
   getAgeingReportRoute,
   getCashPositionReportRoute,
   getFuelEfficiencyReportRoute,
@@ -23,6 +26,7 @@ import {
   getTripRankingReportRoute,
   getUtilisationReportRoute,
   getVehicleMonthReportRoute,
+  getVehicleYearReportRoute,
 } from "../route-defs/reports.js";
 import type { Env } from "../types.js";
 
@@ -37,4 +41,6 @@ export const reports = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(getCashPositionReportRoute, getCashPositionReportHandler)
   .openapi(getLostDaysReportRoute, getLostDaysReportHandler)
   .openapi(getGoodwillReportRoute, getGoodwillReportHandler)
-  .openapi(getUtilisationReportRoute, getUtilisationReportHandler);
+  .openapi(getUtilisationReportRoute, getUtilisationReportHandler)
+  .openapi(getVehicleYearReportRoute, getVehicleYearReportHandler)
+  .openapi(exportTransactionsCsvRoute, exportTransactionsCsvHandler);

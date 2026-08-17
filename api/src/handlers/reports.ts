@@ -15,14 +15,17 @@ import {
   getLostDaysReport,
   getOverheadsReport,
   getReceivablesReport,
+  getTransactionsCsv,
   getTripRankingReport,
   getUtilisationReport,
   getVehicleMonthReport,
+  getVehicleYearReport,
 } from "../domain/reports.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findPeriodBoundaries } from "../queries/reports.js";
 import { listVehicleIdsManagedByUserForPeriod } from "../queries/vehicle-scope.js";
 import type {
+  exportTransactionsCsvRoute,
   getAgeingReportRoute,
   getCashPositionReportRoute,
   getFuelEfficiencyReportRoute,
@@ -33,6 +36,7 @@ import type {
   getTripRankingReportRoute,
   getUtilisationReportRoute,
   getVehicleMonthReportRoute,
+  getVehicleYearReportRoute,
 } from "../route-defs/reports.js";
 import type { Env } from "../types.js";
 
@@ -322,4 +326,56 @@ export const getUtilisationReportHandler: RouteHandler<
     },
     200,
   );
+};
+
+/** GAP-18/UC-73. `viewOwnerOnlyReports`: owner, owner-manager only — the capability's own comment already named this pair. Never scoped to a manager's vehicle set, unlike `vehicle-month`: a manager cannot reach this report at all. */
+export const getVehicleYearReportHandler: RouteHandler<
+  typeof getVehicleYearReportRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "viewOwnerOnlyReports");
+  const businessId = requireBusinessId(c);
+  const { vehicleId, from, to } = c.req.valid("query");
+
+  const report = await getVehicleYearReport(c.get("reader"), businessId, vehicleId, from, to);
+
+  return c.json(
+    {
+      from: report.from,
+      to: report.to,
+      overheadsMinor: toWire(report.overheadsMinor as Minor),
+      vehicles: report.vehicles.map((v) => ({
+        vehicleId: v.vehicleId,
+        registration: v.registration,
+        earnedMinor: toWire(v.earnedMinor as Minor),
+        costsMinor: toWire(v.costsMinor as Minor),
+        profitMinor: toWire(v.profitMinor as Minor),
+        ownerShares: v.ownerShares.map((o) => ({
+          userId: o.userId,
+          displayName: o.displayName,
+          shareBp: o.shareBp,
+          profitShareMinor: toWire(o.profitShareMinor as Minor),
+        })),
+      })),
+    },
+    200,
+  );
+};
+
+/** GAP-18/UC-99 (CSV half). `viewOwnerOnlyReports`, the same gate as `vehicle-year` above — UC-99's own actor is "Owner". Returns raw `text/csv`, never a JSON envelope (`getAttachmentHandler`'s own `c.body()` precedent). */
+export const exportTransactionsCsvHandler: RouteHandler<
+  typeof exportTransactionsCsvRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "viewOwnerOnlyReports");
+  const businessId = requireBusinessId(c);
+  const { from, to } = c.req.valid("query");
+
+  const csv = await getTransactionsCsv(c.get("reader"), businessId, from, to);
+
+  return c.body(csv, 200, {
+    "Content-Type": "text/csv; charset=utf-8",
+    "Content-Disposition": `attachment; filename="fleetsettle-transactions-${from}-to-${to}.csv"`,
+    "Cache-Control": "private, no-store",
+  });
 };

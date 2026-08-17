@@ -37,6 +37,35 @@ export const vehicleMonthResponseSchema = z.object({
 });
 export type VehicleMonthResponse = z.infer<typeof vehicleMonthResponseSchema>;
 
+/**
+ * GAP-18/UC-73: "as UC-70, with overheads (UC-66) stated beneath vehicle
+ * profit, never spread across it" — one report, not `vehicleMonthResponseSchema`
+ * plus a second `overheadsResponseSchema` call composed client-side the way
+ * the Review shell's month screen does it. A year rarely lines up with any
+ * accounting period, so `overheadsResponseSchema`'s own `periodId`-keyed
+ * query has no home here; this carries its own `overheadsMinor` instead.
+ * `viewOwnerOnlyReports`: UC-73's own "Sees: owner, owner-manager" line —
+ * narrower than `vehicleMonthResponseSchema`'s manager-inclusive audience,
+ * so this is a distinct schema rather than a reused one.
+ */
+export const vehicleYearRowSchema = z.object({
+  vehicleId: uuidSchema,
+  registration: z.string(),
+  earnedMinor: z.string(),
+  costsMinor: z.string(),
+  profitMinor: z.string(),
+  ownerShares: z.array(vehicleMonthOwnerShareSchema),
+});
+export type VehicleYearRow = z.infer<typeof vehicleYearRowSchema>;
+
+export const vehicleYearResponseSchema = z.object({
+  from: z.string(),
+  to: z.string(),
+  vehicles: z.array(vehicleYearRowSchema),
+  overheadsMinor: z.string(),
+});
+export type VehicleYearResponse = z.infer<typeof vehicleYearResponseSchema>;
+
 /** GAP-41/UC-66/W-32: costs recorded with no vehicle, for one accounting period — a real zero when none were recorded, never `NotAvailable` (W-56 governs an unknown, not an absent one). Reported as its own block beneath vehicle totals, never spread across vehicles. */
 export const overheadsResponseSchema = z.object({
   totalMinor: z.string(),

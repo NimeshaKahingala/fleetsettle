@@ -4,6 +4,7 @@ import {
   Banknote,
   CalendarRange,
   ChevronRight,
+  Download,
   Fuel,
   Gift,
   History,
@@ -21,6 +22,7 @@ import { can } from "../../lib/capabilities.js";
 
 export type ReportKey =
   | "vehicle-month"
+  | "vehicle-year"
   | "trips"
   | "fuel-efficiency"
   | "receivables"
@@ -28,7 +30,8 @@ export type ReportKey =
   | "lost-days"
   | "ageing"
   | "goodwill"
-  | "utilisation";
+  | "utilisation"
+  | "export";
 
 export interface ReportsCatalogueScreenProps {
   onSelect: (key: ReportKey) => void;
@@ -57,6 +60,7 @@ const GROUPS: {
         icon: Hourglass,
         ownerOnly: true,
       },
+      { key: "vehicle-year", label: "How was the year", icon: CalendarRange, ownerOnly: true },
     ],
   },
   {
@@ -66,12 +70,19 @@ const GROUPS: {
       { key: "ageing", label: "Who is overdue, and by how long", icon: History },
       { key: "cash-position", label: "Where is our cash", icon: Banknote },
       { key: "goodwill", label: "Goodwill given", icon: Gift, ownerOnly: true },
+      {
+        key: "export",
+        label: "Export transactions (CSV)",
+        icon: Download,
+        ownerOnly: true,
+      },
     ],
   },
 ];
 
 /**
- * `/reports` — UI §5.1's catalogue. **Nine cards now, not six** (GAP-98):
+ * `/reports` — UI §5.1's catalogue. **Eleven cards now, not six** (GAP-98,
+ * then GAP-18 adding UC-73's yearly view and UC-99's CSV export):
  * UC-77 (goodwill) and UC-79 (utilisation) were the only two owner-only
  * reports and both were phase 2 — both moved to phase 1 with UC-78
  * (ageing) on 11 Aug 2026 (`use-cases.md` v1.2.5), and this catalogue is

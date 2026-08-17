@@ -47,7 +47,7 @@ export type Capability =
   | "reverseReceipt" // F-8.2
   | "closePeriod" // F-9.1
   | "viewReports" // P11/UC-70/71/72/74/75/76/78: "owner, owner-manager, manager" — every report that doesn't say owners-only
-  | "viewOwnerOnlyReports" // P11/UC-77/79 (and UC-73/99 when built): "Sees: owner, owner-manager" only
+  | "viewOwnerOnlyReports" // P11/UC-77/79/73/99 (GAP-18): "Sees: owner, owner-manager" only
   | "viewOwnData" // F-6.8/UC-59, P12: the linked driver's own read-only view — no other role has any use for it
   | "messagingKillSwitch"
   | "messagingConfig"; // full config, not just the kill switch

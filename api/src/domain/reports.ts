@@ -17,11 +17,14 @@ import {
   listOffRoadRangesForVehicle,
   listPartnerCashPositions,
   listReceivables,
+  listTransactionsForDateRange,
   listUsBoughtFuelFills,
   listVehicleUnavailabilityRangesForVehicle,
   sumDepositsHeld,
   sumGoodwillGiven,
+  sumOverheadsForDateRange,
   sumOverheadsForPeriod,
+  sumVehicleCostsForDateRange,
   sumVehicleCostsForPeriod,
   sumVehicleEarnedForDateRange,
   sumVehicleEarnedForPeriod,
@@ -29,6 +32,7 @@ import {
   type GoodwillByTypeRow,
   type OffRoadRangeRow,
   type ReceivableRow,
+  type TransactionRow,
 } from "../queries/reports.js";
 import {
   findVehicleForBusiness,
@@ -179,6 +183,101 @@ export async function getOverheadsReport(
 
   const totalMinor = await sumOverheadsForPeriod(db, businessId, periodId);
   return { totalMinor };
+}
+
+export interface VehicleYearRow {
+  vehicleId: string;
+  registration: string;
+  earnedMinor: bigint;
+  costsMinor: bigint;
+  profitMinor: bigint;
+  ownerShares: VehicleMonthOwnerShare[];
+}
+
+export interface VehicleYearReport {
+  from: string;
+  to: string;
+  vehicles: VehicleYearRow[];
+  overheadsMinor: bigint;
+}
+
+/** `computeVehicleMonthRow`'s own shape, keyed by a date window instead of a period — ownership shares as of the window's own end (INV-16), the same "as of" reading the month row already uses. */
+async function computeVehicleYearRow(
+  db: ReadDb,
+  businessId: string,
+  vehicle: VehicleRow,
+  from: string,
+  to: string,
+): Promise<VehicleYearRow> {
+  const earnedMinor = await sumVehicleEarnedForDateRange(db, vehicle.id, from, to);
+  const costsMinor = await sumVehicleCostsForDateRange(db, vehicle.id, from, to);
+  const profitMinor = earnedMinor - costsMinor;
+
+  const shares = await findOwnershipSharesAsOf(db, vehicle.id, to);
+  let ownerShares: VehicleMonthOwnerShare[] = [];
+  if (shares.length > 0) {
+    const names = await findPartyNames(
+      db,
+      businessId,
+      [],
+      [],
+      shares.map((s) => s.userId),
+    );
+    const splitAmounts = splitInteger(
+      profitMinor,
+      shares.map((s) => BigInt(s.shareBp)),
+    );
+    ownerShares = shares.map((s, i) => ({
+      userId: s.userId,
+      displayName: names.partners.get(s.userId) ?? null,
+      shareBp: s.shareBp,
+      profitShareMinor: splitAmounts[i] as bigint,
+    }));
+  }
+
+  return {
+    vehicleId: vehicle.id,
+    registration: vehicle.registration,
+    earnedMinor,
+    costsMinor,
+    profitMinor,
+    ownerShares,
+  };
+}
+
+/**
+ * GAP-18/UC-73: "as UC-70, with overheads (UC-66) stated beneath vehicle
+ * profit, never spread across it" — one report, per-vehicle earned/costs/
+ * profit/ownerShares over the given window plus the window's own overheads
+ * total, rather than two calls the client composes (the way the Review
+ * shell's month screen composes `vehicle-month` + `overheads`). A year has
+ * no single accounting period for an `overheads`-style `periodId` query to
+ * key on, so this carries its own date-windowed overheads figure instead.
+ * `viewOwnerOnlyReports`-gated at the handler (UC-73's own "Sees: owner,
+ * owner-manager" — narrower than UC-70's manager-inclusive audience), so
+ * unlike `getVehicleMonthReport` this never takes a manager's restricted
+ * vehicle set.
+ */
+export async function getVehicleYearReport(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string | undefined,
+  from: string,
+  to: string,
+): Promise<VehicleYearReport> {
+  let vehicles: VehicleRow[];
+  if (vehicleId) {
+    vehicles = [await requireVehicle(db, businessId, vehicleId)];
+  } else {
+    vehicles = await listVehiclesForBusiness(db, businessId);
+  }
+
+  const [rows, overheadsMinor] = await Promise.all([
+    Promise.all(vehicles.map((v) => computeVehicleYearRow(db, businessId, v, from, to))),
+    sumOverheadsForDateRange(db, businessId, from, to),
+  ]);
+
+  return { from, to, vehicles: rows, overheadsMinor };
 }
 
 /** UC-71: ranked by profit; profit-per-km is `null` (and excluded from a per-km ranking) for any trip with no closing odometer, never ranked at zero. */
@@ -490,4 +589,70 @@ export async function getUtilisationReport(
     totalDays,
     revenuePerAvailableDayMinor,
   };
+}
+
+/** `TransactionRow.kind` is an obligation kind, the literal `"trip"`, or an `expense.category` — CLAUDE.md's reserved vocabulary where one exists, Title Case otherwise, never the raw snake_case token an accountant would have to decode. */
+const TRANSACTION_KIND_LABEL: Record<string, string> = {
+  rent: "Rent",
+  daily_amount: "Daily lease amount",
+  mileage_excess: "Mileage excess",
+  driver_fee: "Driver fee",
+  management_fee: "Management fee",
+  trip: "Trip income",
+};
+
+function labelForTransactionKind(kind: string): string {
+  return (
+    TRANSACTION_KIND_LABEL[kind] ??
+    kind.replace(/_/g, " ").replace(/^./, (c: string) => c.toUpperCase())
+  );
+}
+
+/** RFC 4180: a field containing a comma, quote or newline is wrapped in quotes, with any quote doubled. */
+function csvField(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/** Plain decimal Rs, never `format()`'s comma-grouped display string — this is data for a spreadsheet import, not a screen for a person to read, and a thousands separator is one more character a CSV parser has to strip back out. */
+function csvAmount(v: bigint): string {
+  const negative = v < 0n;
+  const abs = negative ? -v : v;
+  const major = abs / 100n;
+  const cents = abs % 100n;
+  return `${negative ? "-" : ""}${major.toString()}.${cents.toString().padStart(2, "0")}`;
+}
+
+const TRANSACTIONS_CSV_HEADER = ["Date", "Vehicle", "Type", "Direction", "Amount (Rs)"];
+
+function transactionRowToCsvLine(row: TransactionRow): string {
+  return [
+    row.date,
+    row.registration ?? "",
+    labelForTransactionKind(row.kind),
+    row.direction === "in" ? "In" : "Out",
+    csvAmount(row.amountMinor),
+  ]
+    .map(csvField)
+    .join(",");
+}
+
+/**
+ * GAP-18/UC-99: "a year of transactions to CSV" — every row
+ * `listTransactionsForDateRange` returns, oldest first, `\r\n` line endings
+ * (the convention most spreadsheet importers expect). `viewOwnerOnlyReports`-
+ * gated at the handler, same as `getVehicleYearReport` — UC-99's own actor is
+ * "Owner", and the capability's own comment already named this pair.
+ */
+export async function getTransactionsCsv(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<string> {
+  const rows = await listTransactionsForDateRange(db, businessId, from, to);
+  rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const lines = [TRANSACTIONS_CSV_HEADER.map(csvField).join(",")];
+  for (const row of rows) lines.push(transactionRowToCsvLine(row));
+  return lines.join("\r\n") + "\r\n";
 }

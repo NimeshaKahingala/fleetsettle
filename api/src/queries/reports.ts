@@ -18,6 +18,7 @@ import {
   ownershipShare,
   payment,
   trip,
+  vehicle,
   vehicleUnavailability,
 } from "../db/schema.js";
 import { sumDepositMovements } from "./driver-money.js";
@@ -106,6 +107,49 @@ export async function sumVehicleEarnedForDateRange(
   );
 }
 
+/**
+ * GAP-18/UC-73: `sumVehicleCostsForPeriod`'s own logic, keyed by an
+ * arbitrary date window the way `sumVehicleEarnedForDateRange` already is
+ * for the earned side — `expense.spentOn` and `obligation.dueOn` in place of
+ * `postedPeriodId`, same kind/direction/borne-by filters, same reasoning.
+ */
+export async function sumVehicleCostsForDateRange(
+  db: ReadDb,
+  vehicleId: string,
+  from: string,
+  to: string,
+): Promise<bigint> {
+  const expenseRows = await db
+    .select({ amountMinor: expense.amountMinor })
+    .from(expense)
+    .where(
+      and(
+        eq(expense.vehicleId, vehicleId),
+        gte(expense.spentOn, from),
+        lte(expense.spentOn, to),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    );
+  const obligationRows = await db
+    .select({ amountMinor: obligation.amountMinor })
+    .from(obligation)
+    .where(
+      and(
+        eq(obligation.vehicleId, vehicleId),
+        gte(obligation.dueOn, from),
+        lte(obligation.dueOn, to),
+        eq(obligation.direction, "owed_by_us"),
+        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+        isNull(obligation.voidedAt),
+      ),
+    );
+  return (
+    expenseRows.reduce((sum, r) => sum + r.amountMinor, 0n) +
+    obligationRows.reduce((sum, r) => sum + r.amountMinor, 0n)
+  );
+}
+
 /** UC-70/DM §15, reproduced verbatim: a cost query reading only `expense` under-reports every month with a trip by exactly its driver fee (W-53 covers the management fee the same way). Verified against G-1: 37,000 + 9,000 = 46,000. */
 export async function sumVehicleCostsForPeriod(
   db: ReadDb,
@@ -161,6 +205,29 @@ export async function sumOverheadsForPeriod(
         eq(expense.businessId, businessId),
         isNull(expense.vehicleId),
         eq(expense.postedPeriodId, periodId),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    );
+  return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+}
+
+/** GAP-18/UC-73: `sumOverheadsForPeriod`'s own filter set, keyed by a date window (`expense.spent_on`) instead of `postedPeriodId` — a year has no single accounting period to key an overheads figure to. */
+export async function sumOverheadsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<bigint> {
+  const rows = await db
+    .select({ amountMinor: expense.amountMinor })
+    .from(expense)
+    .where(
+      and(
+        eq(expense.businessId, businessId),
+        isNull(expense.vehicleId),
+        gte(expense.spentOn, from),
+        lte(expense.spentOn, to),
         eq(expense.borneBy, "us"),
         isNull(expense.voidedAt),
       ),
@@ -955,6 +1022,158 @@ export async function findPeriodBoundaries(
     .where(and(eq(accountingPeriod.id, periodId), eq(accountingPeriod.businessId, businessId)))
     .limit(1);
   return rows[0];
+}
+
+/**
+ * GAP-18/UC-99: one row per money-recognition event in the window — the
+ * spreadsheet is "a year of transactions", not a re-derived summary, so
+ * these list rather than sum. `kind` carries the obligation kind, the
+ * literal `"trip"`, or the expense `category`; the caller (domain layer)
+ * gives each row its own human label. Business-wide, never per-vehicle
+ * (UC-99 is one export for the year, not one per vehicle) — `registration`
+ * is `null` for an overhead row (`vehicle_id IS NULL`), never a guessed one.
+ */
+export interface TransactionRow {
+  date: string;
+  vehicleId: string | null;
+  registration: string | null;
+  kind: string;
+  direction: "in" | "out";
+  amountMinor: bigint;
+}
+
+/** The `sumVehicleEarnedForDateRange`/`sumVehicleCostsForDateRange` obligation halves, row-level and business-wide rather than summed per vehicle — one bulk query per direction (api/CLAUDE.md's bounded-CPU rule), never one per row. */
+async function listObligationTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+  direction: "owed_to_us" | "owed_by_us",
+  kinds: readonly string[],
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: obligation.dueOn,
+      vehicleId: obligation.vehicleId,
+      registration: vehicle.registration,
+      kind: obligation.kind,
+      amountMinor: obligation.amountMinor,
+    })
+    .from(obligation)
+    .leftJoin(vehicle, eq(vehicle.id, obligation.vehicleId))
+    .where(
+      and(
+        eq(obligation.businessId, businessId),
+        gte(obligation.dueOn, from),
+        lte(obligation.dueOn, to),
+        eq(obligation.direction, direction),
+        inArray(obligation.kind, kinds),
+        isNull(obligation.voidedAt),
+      ),
+    );
+  return rows.map((r) => ({
+    date: r.date,
+    vehicleId: r.vehicleId,
+    registration: r.registration,
+    kind: r.kind,
+    direction: direction === "owed_to_us" ? ("in" as const) : ("out" as const),
+    amountMinor: r.amountMinor,
+  }));
+}
+
+/** UC-70's own trip-income basis (INV-30: recognised by `closing_date`), row-level and business-wide. */
+async function listClosedTripTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: trip.closingDate,
+      vehicleId: trip.vehicleId,
+      registration: vehicle.registration,
+      amountMinor: trip.agreedAmountMinor,
+    })
+    .from(trip)
+    .innerJoin(vehicle, eq(vehicle.id, trip.vehicleId))
+    .where(
+      and(
+        eq(trip.businessId, businessId),
+        eq(trip.status, "closed"),
+        gte(trip.closingDate, from),
+        lte(trip.closingDate, to),
+      ),
+    );
+  return rows
+    .filter((r): r is typeof r & { date: string } => r.date !== null)
+    .map((r) => ({
+      date: r.date,
+      vehicleId: r.vehicleId,
+      registration: r.registration,
+      kind: "trip",
+      direction: "in" as const,
+      amountMinor: r.amountMinor,
+    }));
+}
+
+/** `sumVehicleCostsForDateRange`'s own `expense` half (below-the-line `borne_by = 'us'` costs, UC-66's overheads included via a null `vehicleId`), row-level and business-wide. */
+async function listCostExpenseTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: expense.spentOn,
+      vehicleId: expense.vehicleId,
+      registration: vehicle.registration,
+      category: expense.category,
+      amountMinor: expense.amountMinor,
+    })
+    .from(expense)
+    .leftJoin(vehicle, eq(vehicle.id, expense.vehicleId))
+    .where(
+      and(
+        eq(expense.businessId, businessId),
+        gte(expense.spentOn, from),
+        lte(expense.spentOn, to),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    );
+  return rows.map((r) => ({
+    date: r.date,
+    vehicleId: r.vehicleId,
+    registration: r.registration,
+    kind: r.category,
+    direction: "out" as const,
+    amountMinor: r.amountMinor,
+  }));
+}
+
+/** GAP-18/UC-99: the whole year of transactions in one call — three bulk queries (never one per row), merged and left for the domain layer to sort and render. */
+export async function listTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const [earned, costs, trips] = await Promise.all([
+    listObligationTransactionsForDateRange(db, businessId, from, to, "owed_to_us", [
+      "rent",
+      "daily_amount",
+      "mileage_excess",
+    ]),
+    listObligationTransactionsForDateRange(db, businessId, from, to, "owed_by_us", [
+      "driver_fee",
+      "management_fee",
+    ]),
+    listClosedTripTransactionsForDateRange(db, businessId, from, to),
+  ]);
+  const expenses = await listCostExpenseTransactionsForDateRange(db, businessId, from, to);
+  return [...earned, ...costs, ...trips, ...expenses];
 }
 
 export { desc };
