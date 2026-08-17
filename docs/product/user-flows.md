@@ -1,8 +1,9 @@
 # Key User Flows
 
-**Status:** v1.1.13 — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
+**Status:** v1.1.14 — **three flows given honest delivery status, none weakened.** **F-6.6** splits: the printed slip is phase 1, the no-login share link phase 2 — it would be the first route in the client outside the login, carrying a full financial position, so it earns W-49's isolation class and its own expiry and revocation tests rather than a corner of a release. "Not optional" stands; print satisfies it, and F-6.8/UC-59 already gives a linked driver the same figures. **F-9.3** splits the same way: CSV ships, PDF defers — no renderer has a home in this runtime (`TS §8`), and the alternatives are a dependency inside the money-write runtime or an outside service that would see every figure. **F-4.5's weekly-settler criterion is recorded as unmet**: nothing derives `effective_due_on` from `driver.settlement_rhythm`, so confirming a day for a non-`'daily'` driver now **refuses** (`SETTLEMENT_RHYTHM_UNSUPPORTED`) rather than writing a due date that reads as overdue — W-56's rule applied to a write. All three criteria stay as written; what changed is that the documents now say which are built. Mirrors `use-cases.md` v1.2.13; see `data-model.md` D-5. Decided 17 Aug 2026.
+**v1.1.13** — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
 **v1.1.12** — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
-**Date:** 15 August 2026
+**Date:** 17 August 2026
 **Purpose:** the validation spine. Every entity, every screen and every test is checked against this file.
 
 > **What changed in v1.1.** Every flow now cites a real use case — v1.0 had nine marked *(new)* because the behaviour existed only here. All nine open questions are resolved and carry the decision that settled them. Four invariants were added, two flows written, the report catalogue built out, and the phasing corrections in §11.2 became confirmations once v1.2 adopted them. §13 lists it all.
@@ -659,6 +660,8 @@ W-5 says daily handover; UC-31 admits weekly payers. It is now a first-class use
 · Surplus becomes credit against his coming days, not an unexplained overpayment
 · **A weekly settler is not in arrears on Thursday.** The arrangement records his agreed rhythm and ageing measures from that point (UC-78), or a perfectly reliable driver sits permanently in a late bucket and the report stops being read.
 
+> **This criterion is not yet met, and the system refuses rather than pretending otherwise.** ⚑ 17 Aug 2026. `driver.settlement_rhythm` exists and `obligation.effective_due_on` exists, but nothing derives the second from the first — every write path sets `effective_due_on = due_on`. For a `'daily'` driver those genuinely are equal, so the gap is invisible; for a `'weekly'` one the criterion above would be **silently violated**, which is the one outcome W-56 exists to prevent. **So confirming a day for a non-`'daily'` driver is refused with an explicit error** (`SETTLEMENT_RHYTHM_UNSUPPORTED`) instead of writing a due date known to read as overdue. An admitted refusal a person can act on, never a plausible wrong figure. The criterion stays as written because it is right; what is missing is its implementation, tracked as **GAP-135**. See `data-model.md` D-5.
+
 #### F-4.6 Confirm a week in one pass
 *Actor:* Manager · *Source:* UC-38, U-8, §4.3 · *Phase:* 1
 §4.3 promises "days missed while away appear as a stack; bulk-confirm at the expected amount" and a two-minute weekly catch-up. Per-day confirmation (F-4.2) cannot deliver that — seven cards at one tap each, with a round trip between them, is not two minutes.
@@ -787,9 +790,13 @@ Every day owed and paid, every excused day, every lost day, trips and fees, adva
 **Accept** · §7.1's driver ends the month at `he owes 2,000 / you owe 9,000`, with the four lost days and the three excused days both visible and distinguishable.
 
 #### F-6.6 The printed slip
-*Actor:* Manager · *Source:* UC-57, W-3 · *Phase:* 1
+*Actor:* Manager · *Source:* UC-57, W-3 · *Phase:* **1 (print)** · **2 (share link — split out 17 Aug 2026, see below)**
 **Not optional.** You chose to be the single source of truth; that works only if the other party can see what you see.
-**Accept** · Same figures as F-6.5 · printable, and shareable without a login via a **signed link that expires** — it carries someone's financial position, so it is not a guessable URL.
+**Accept** · Same figures as F-6.5 · printable · shareable without a login via a **signed link that expires** — it carries someone's financial position, so it is not a guessable URL.
+
+> **The share link is deferred; the slip is not.** ⚑ 17 Aug 2026. "Not optional" above is unchanged and still binding — the driver must be able to see what you see, and **print delivers that**. What is deferred is only the link, and the reason is that it is not the small addition it looks like: **every route in the client sits behind the login, so this would be the first that does not.** That is a security boundary being opened for a page carrying someone's whole financial position, and it needs W-49's linked-driver isolation class, its own expiry test and its own revocation test — a deliberate build, not a corner of a release.
+>
+> **Nothing is unreachable meanwhile:** a *linked* driver already reads these exact figures himself (F-6.8/UC-59), and an unlinked one is handed paper, which is what this flow describes first. **The acceptance criterion is not withdrawn** — it is unmet, deliberately, and stays here so it is not quietly lost. Tracked as GAP-65/A14.
 
 #### F-6.7 The driver's deposit
 *Actor:* Manager · *Source:* UC-58, W-8 · *Phase:* 1
@@ -960,9 +967,11 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 · Below-the-line costs never enter profit but are always reachable (INV-5).
 
 #### F-9.3 Export
-*Actor:* Owner · *Source:* UC-99, W-49 · *Phase:* **1** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
+*Actor:* Owner · *Source:* UC-99, W-49 · *Phase:* **1 (CSV)** · **2 (PDF — split out 17 Aug 2026, see below)** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
 A year of transactions to CSV, a statement to PDF, for an accountant or a tax filing.
 **Accept** · Exports respect §2.3 permissions · a driver can export only his own statement.
+
+> **CSV ships; PDF is deferred.** ⚑ 17 Aug 2026. The two halves are work of different kinds. **CSV is an ordinary data dump** and is built as specified, W-49 checks included. **PDF has no home in this runtime**: no filesystem, no Node libraries, and a hard CPU ceiling per request (`TS §8`). The two available answers are a rendering dependency inside the runtime that also performs every money write, or an outside service that would receive every figure on the statement — and **neither is needed to satisfy what UC-99 is actually for**, which is getting the numbers out. CSV does that, and a statement prints from the screen that already shows it. Deferred until a document is genuinely required rather than assumed; tracked as GAP-136.
 
 ---
 
@@ -1049,6 +1058,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-8.5, F-8.6 | UC-96, UC-97 | U-5, W-50 |
 | F-9.1 | UC-98 | W-35, W-40 — **it is the precondition for W-35** |
 | F-9.2, F-9.3 | UC-70…UC-75 | §6.9 |
+| F-9.3 | **UC-99** | W-49 — *added 17 Aug 2026: F-9.3 has cited UC-99 as its source since it was written, but no row here carried it, so traceability did not close in the use-case direction. Found while splitting F-9.3's CSV and PDF halves.* |
 | F-10.1–F-10.4 | UC-80…UC-87, UC-92 | W-14, W-21…W-23, W-31, W-33, §6.10 |
 
 | F-1.9 | UC-18 | W-19 |

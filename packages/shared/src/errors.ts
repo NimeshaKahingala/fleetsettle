@@ -71,6 +71,12 @@ export const ERROR_CODES = [
   // GAP-26: off the road.
   "VEHICLE_UNAVAILABILITY_OVERLAPS",
   "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED",
+  // GAP-135/DM D-5/F-4.5: the day-fee write path refuses rather than
+  // computing an `effective_due_on` it cannot derive. Unlike every other
+  // 409 here this names an unbuilt capability rather than a bad request —
+  // the caller did nothing wrong, and the refusal exists so that a weekly
+  // settler never silently reads as overdue (W-56 applied to a write).
+  "SETTLEMENT_RHYTHM_UNSUPPORTED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the
