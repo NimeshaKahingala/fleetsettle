@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { Fuel } from "lucide-react";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { __resetSheetHistoryStackForTests } from "../../lib/useMobileHistoryDismiss.js";
 import { ActionSheet, type ActionSheetAction } from "./ActionSheet.js";
 import { Sheet } from "./Sheet.js";
 
@@ -37,7 +36,7 @@ test("renders nothing when closed", () => {
  * (`pointer: coarse`) rather than the desktop default the tests above run
  * under — this is the class of device the bug only reproduces on, and the
  * two tests below are close to real usage rather than a unit test of the
- * manager in isolation (`useMobileHistoryDismiss.test.tsx` has that).
+ * hook in isolation (`useCloseWatcherDismiss.test.tsx` has that).
  */
 function mockCoarsePointer(matches: boolean): void {
   window.matchMedia = vi.fn().mockReturnValue({ matches }) as typeof window.matchMedia;
@@ -45,7 +44,6 @@ function mockCoarsePointer(matches: boolean): void {
 
 beforeEach(() => {
   mockCoarsePointer(true);
-  __resetSheetHistoryStackForTests();
 });
 
 afterEach(() => {
@@ -76,13 +74,11 @@ test("GAP-104: on a touch device, selecting an ActionSheet action opens the targ
   await user.click(screen.getByRole("button", { name: "Fuel" }));
 
   expect(await screen.findByText("Fuel amount")).toBeInTheDocument();
-  // A basic sanity check, not this repo's primary regression coverage for
-  // the handoff race: verified against the pre-fix implementation that
-  // jsdom's history.back()/popstate never reproduces this specific
-  // interleaving the way real Chromium does, no matter how long this waits
-  // — the manager-level assertion in useMobileHistoryDismiss.test.tsx
-  // ("nets to zero history calls") and the touch-emulated Playwright spec
-  // (e2e/mobile-sheet-history.touch.spec.ts) are what actually catch it.
+  // A basic sanity check, not this repo's primary regression coverage: jsdom
+  // has no CloseWatcher (feature-detected off) and no real touch timing, so
+  // it cannot reproduce GAP-104/GAP-134's failure modes either way — the
+  // touch-emulated Playwright spec (e2e/mobile-sheet-history.touch.spec.ts)
+  // is what actually catches those.
   await new Promise((resolve) => setTimeout(resolve, 100));
   expect(screen.getByText("Fuel amount")).toBeInTheDocument();
 });

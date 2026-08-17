@@ -1,9 +1,10 @@
 import type { CustomerResponse, DriverResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Plus } from "lucide-react";
+import { Building2, ChevronRight, Plus, UserRound } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet } from "../../design/primitives/ActionSheet.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
@@ -16,6 +17,10 @@ import { CreateDriverForm } from "./CreateDriverForm.js";
 export interface PeopleListScreenProps {
   onSelectDriver: (driver: DriverResponse) => void;
   onSelectCustomer: (customer: CustomerResponse) => void;
+}
+
+function customerTypeLabel(type: CustomerResponse["customerType"]): string {
+  return type === "person" ? "Person" : "Organisation";
 }
 
 /** §3.1's People tab: drivers and customers. A driver's own page (the two-balance screen) is F-6.x's territory, not built here. */
@@ -45,6 +50,8 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
       <div className="flex flex-col gap-6">
         {driversState.kind === "error" ? (
           <QueryStateFailure error={driversState.error} retry={driversState.retry} of="drivers" />
+        ) : driversState.kind !== "ready" ? (
+          <p className="text-body-sm text-ink-muted">Loading…</p>
         ) : (
           <Section
             title="Drivers"
@@ -57,11 +64,17 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
                 className="w-full text-left"
               >
                 <Card className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-title text-ink-primary">{driver.name}</p>
-                    {driver.mobile !== null ? (
-                      <p className="text-body-sm text-ink-muted">{driver.mobile}</p>
-                    ) : null}
+                  <div className="flex min-w-0 items-center gap-3">
+                    <UserRound className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-title text-ink-primary">{driver.name}</p>
+                        <Badge variant="neutral">Driver</Badge>
+                      </div>
+                      {driver.mobile !== null ? (
+                        <p className="truncate text-body-sm text-ink-muted">{driver.mobile}</p>
+                      ) : null}
+                    </div>
                   </div>
                   <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
                 </Card>
@@ -75,6 +88,8 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
             retry={customersState.retry}
             of="customers"
           />
+        ) : customersState.kind !== "ready" ? (
+          <p className="text-body-sm text-ink-muted">Loading…</p>
         ) : (
           <Section
             title="Customers"
@@ -87,11 +102,18 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
                 className="w-full text-left"
               >
                 <Card className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-title text-ink-primary">{customer.name}</p>
-                    <p className="text-body-sm text-ink-muted">
-                      {customer.customerType === "person" ? "Person" : "Organisation"}
-                    </p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    {customer.customerType === "person" ? (
+                      <UserRound className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    ) : (
+                      <Building2 className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-title text-ink-primary">{customer.name}</p>
+                        <Badge variant="neutral">{customerTypeLabel(customer.customerType)}</Badge>
+                      </div>
+                    </div>
                   </div>
                   <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
                 </Card>
@@ -109,13 +131,13 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
           {
             key: "driver",
             label: "Add a driver",
-            icon: Plus,
+            icon: UserRound,
             onSelect: () => setAddDriverOpen(true),
           },
           {
             key: "customer",
             label: "Add a customer",
-            icon: Plus,
+            icon: Building2,
             onSelect: () => setAddCustomerOpen(true),
           },
         ]}

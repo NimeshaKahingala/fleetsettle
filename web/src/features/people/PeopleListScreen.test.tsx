@@ -64,6 +64,30 @@ test("GAP-101: a failed driver read shows a failure notice, never a false 'Drive
   expect(screen.getByText("Perera Transport")).toBeInTheDocument();
 });
 
+test("GAP-128: a driver read still in flight shows a loading notice, never a false 'Drivers · 0' — the customers section is unaffected", async () => {
+  let resolveDrivers: ((value: DriverResponse[]) => void) | undefined;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/driver") {
+      return new Promise<DriverResponse[]>((resolve) => {
+        resolveDrivers = resolve;
+      });
+    }
+    if (path === "/api/customer") return Promise.resolve(customers);
+    throw new Error(`unexpected path: ${path}`);
+  });
+  renderWithProviders(<PeopleListScreen onSelectDriver={vi.fn()} onSelectCustomer={vi.fn()} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Customers · 1")).toBeInTheDocument();
+  expect(screen.getAllByText("Loading…")).toHaveLength(1);
+  expect(screen.queryByText(/Drivers ·/)).not.toBeInTheDocument();
+
+  resolveDrivers?.(drivers);
+
+  expect(await screen.findByText("Drivers · 1")).toBeInTheDocument();
+});
+
 test("selecting a driver or a customer reports it, never a route change", async () => {
   const user = userEvent.setup();
   const onSelectDriver = vi.fn();

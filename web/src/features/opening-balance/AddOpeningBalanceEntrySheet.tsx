@@ -59,6 +59,13 @@ function partyKindFor(kind: OpeningBalanceEntryKind): "customer" | "driver" | "p
   return "driver";
 }
 
+// GAP-129/GAP-125: these queries are `enabled: open`, so `idle` only ever
+// means "sheet still closed" — once open, both `idle` and `pending` are the
+// same fetch-in-flight window the picker below must not render as empty.
+function inFlight(s: { kind: string }): boolean {
+  return s.kind === "pending" || s.kind === "idle";
+}
+
 function chipClass(selected: boolean): string {
   return cn(
     "min-h-tap rounded-sm border px-3 text-body text-left",
@@ -244,6 +251,7 @@ export function AddOpeningBalanceEntrySheet({
               options={partyOptions}
               value={party}
               onChange={setParty}
+              pending={partyState !== null && inFlight(partyState)}
             />
           </>
         ) : null}
@@ -299,6 +307,7 @@ export function AddOpeningBalanceEntrySheet({
               options={vehicleOptions}
               value={vehicle}
               onChange={setVehicle}
+              pending={inFlight(vehiclesState)}
             />
           )}
         </Disclosure>

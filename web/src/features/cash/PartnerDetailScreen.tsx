@@ -21,6 +21,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
@@ -261,13 +262,11 @@ export function PartnerDetailScreen({ userId, today, onBack }: PartnerDetailScre
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-5">
-          <Card className="flex flex-col gap-1">
-            <span className="text-caption text-ink-muted">Balance</span>
-            <Money
-              value={BigInt(summary.balanceMinor) as Minor}
-              className="text-title-lg font-medium"
-            />
-          </Card>
+          <StatTile
+            label="Balance"
+            value={<Money value={BigInt(summary.balanceMinor) as Minor} />}
+            size="hero"
+          />
           <Card className="flex flex-col">
             <SummaryRow label="Contributions" amountMinor={summary.putIn.contributionsMinor} />
             <SummaryRow label="Out of pocket" amountMinor={summary.putIn.outOfPocketMinor} />

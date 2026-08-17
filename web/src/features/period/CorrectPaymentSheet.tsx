@@ -82,6 +82,8 @@ export function CorrectPaymentSheet({
     },
     enabled: open && payment !== null,
   });
+  // allow: reasoned out below — a failed/pending membersQuery degrades
+  // each entry to the honest "A former member" label, never a wrong name.
   const membersQuery = useQuery({
     queryKey: ["business-member"],
     queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),
@@ -188,6 +190,14 @@ export function CorrectPaymentSheet({
             <div className="flex flex-col gap-3 border-t border-line-hairline pt-4">
               <Label>History</Label>
               <Timeline entries={timelineEntries} />
+            </div>
+          ) : auditState.kind === "pending" || auditState.kind === "idle" ? (
+            // GAP-130: `auditQuery.data?.entries ?? []` reads as empty for
+            // the whole in-flight window, indistinguishable from a payment
+            // that genuinely has no history without this branch.
+            <div className="flex flex-col gap-3 border-t border-line-hairline pt-4">
+              <Label>History</Label>
+              <p className="text-body-sm text-ink-muted">Loading…</p>
             </div>
           ) : null}
         </div>

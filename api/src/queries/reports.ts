@@ -58,6 +58,54 @@ export async function sumVehicleEarnedForPeriod(
   );
 }
 
+/**
+ * UC-79/GAP-19: `sumVehicleEarnedForPeriod`'s own logic, keyed by an
+ * arbitrary date window instead of an accounting period — the utilisation
+ * report's own `from`/`to` rarely lines up with one. Same fact, same
+ * columns, same "never spread across days it wasn't actually posted for"
+ * reading `postedPeriodId` already carries (W-25: rent is a fixed amount
+ * per billing period, never prorated per day) — a monthly `rent` obligation
+ * counts on its own `due_on`, exactly as it already does when it happens to
+ * land in one accounting period rather than another. `obligation.dueOn` for
+ * the window, `trip.closingDate` for the window (UC-70's own "trips by
+ * closing date", INV-30).
+ */
+export async function sumVehicleEarnedForDateRange(
+  db: ReadDb,
+  vehicleId: string,
+  from: string,
+  to: string,
+): Promise<bigint> {
+  const obligationRows = await db
+    .select({ amountMinor: obligation.amountMinor })
+    .from(obligation)
+    .where(
+      and(
+        eq(obligation.vehicleId, vehicleId),
+        gte(obligation.dueOn, from),
+        lte(obligation.dueOn, to),
+        eq(obligation.direction, "owed_to_us"),
+        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+        isNull(obligation.voidedAt),
+      ),
+    );
+  const tripRows = await db
+    .select({ amountMinor: trip.agreedAmountMinor })
+    .from(trip)
+    .where(
+      and(
+        eq(trip.vehicleId, vehicleId),
+        gte(trip.closingDate, from),
+        lte(trip.closingDate, to),
+        eq(trip.status, "closed"),
+      ),
+    );
+  return (
+    obligationRows.reduce((sum, r) => sum + r.amountMinor, 0n) +
+    tripRows.reduce((sum, r) => sum + r.amountMinor, 0n)
+  );
+}
+
 /** UC-70/DM §15, reproduced verbatim: a cost query reading only `expense` under-reports every month with a trip by exactly its driver fee (W-53 covers the management fee the same way). Verified against G-1: 37,000 + 9,000 = 46,000. */
 export async function sumVehicleCostsForPeriod(
   db: ReadDb,

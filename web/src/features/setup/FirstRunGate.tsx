@@ -4,12 +4,41 @@ import type {
   MeResponse,
   RedeemInviteResponse,
 } from "@fleetsettle/shared/schemas";
+import { Building2, KeyRound } from "lucide-react";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Card } from "../../design/primitives/Card.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
+
+function FleetSettleSetupLockup() {
+  return (
+    <div className="flex items-center gap-3 text-ink-primary" aria-label="FleetSettle">
+      <svg
+        viewBox="0 0 200 91"
+        aria-hidden
+        className="h-10 w-24 text-brand"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M 36 64 L 20 64 L 20 46 L 65 33 L 87 15 L 129 15 L 158 34 L 180 43 L 180 64 L 164 64" />
+        <path d="M 68 64 L 132 64" />
+        <path d="M 78 35 L 138 35" />
+        <circle cx="52" cy="64" r="11.5" />
+        <circle cx="148" cy="64" r="11.5" />
+      </svg>
+      <span className="text-title" aria-hidden>
+        <span className="font-[450]">Fleet</span>
+        <span className="font-bold">Settle</span>
+      </span>
+    </div>
+  );
+}
 
 export interface FirstRunGateProps {
   /** Rendered once `/api/me` resolves to `owner_manager`/`manager` (UI §1.1, M-3: the owner-manager is never routed into Review). */
@@ -84,26 +113,48 @@ export function FirstRunGate({ renderOperate, renderReview, renderMine }: FirstR
 
   if (meState.data === null) {
     return (
-      <div className="flex flex-col gap-8 p-4">
-        <h1 className="text-title-lg text-ink-primary">Get started</h1>
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4">
         <div className="flex flex-col gap-3">
-          <h2 className="text-label font-medium text-ink-secondary">Create a business</h2>
-          <CreateBusinessForm
-            onCreated={(_business: BusinessResponse) => {
-              void queryClient.invalidateQueries({ queryKey: ["me"] });
-            }}
-          />
+          <FleetSettleSetupLockup />
+          <div>
+            <h1 className="text-title-lg text-ink-primary">Get started</h1>
+            <p className="text-body-sm text-ink-muted">
+              Create your business, or use an invite code someone gave you.
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col gap-3 border-t border-line-hairline pt-8">
-          <h2 className="text-label font-medium text-ink-secondary">Join a business</h2>
-          <p className="text-body-sm text-ink-muted">
-            Already invited? Enter the code you were given.
-          </p>
-          <RedeemInviteForm
-            onRedeemed={(_result: RedeemInviteResponse) => {
-              void queryClient.invalidateQueries({ queryKey: ["me"] });
-            }}
-          />
+
+        <div className="grid gap-4 md:grid-cols-2 md:items-start">
+          <Card className="flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <Building2 className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+              <div>
+                <h2 className="text-title text-ink-primary">Create a business</h2>
+                <p className="text-body-sm text-ink-muted">
+                  Start a new FleetSettle business record.
+                </p>
+              </div>
+            </div>
+            <CreateBusinessForm
+              onCreated={(_business: BusinessResponse) => {
+                void queryClient.invalidateQueries({ queryKey: ["me"] });
+              }}
+            />
+          </Card>
+          <Card className="flex flex-col gap-4">
+            <div className="flex items-start gap-3">
+              <KeyRound className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+              <div>
+                <h2 className="text-title text-ink-primary">Join a business</h2>
+                <p className="text-body-sm text-ink-muted">Enter the code you were given.</p>
+              </div>
+            </div>
+            <RedeemInviteForm
+              onRedeemed={(_result: RedeemInviteResponse) => {
+                void queryClient.invalidateQueries({ queryKey: ["me"] });
+              }}
+            />
+          </Card>
         </div>
       </div>
     );

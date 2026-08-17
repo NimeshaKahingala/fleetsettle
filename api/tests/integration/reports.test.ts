@@ -1174,6 +1174,86 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-19 — revenuePerAvailableDayMinor: only revenue whose own due/closing date falls inside the window, never prorated (W-25)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+
+      // Inside the window: a daily-amount obligation (5,000) and a closed
+      // trip (30,000) — 35,000 total, over 14 available days = 2,500/day.
+      await ctx.createObligation(businessId, periodId, {
+        vehicleId,
+        driverId,
+        kind: "daily_amount",
+        direction: "owed_to_us",
+        amountMinor: 5_000n,
+        dueOn: "2026-07-08",
+      });
+      await ctx.createTrip(businessId, vehicleId, periodId, {
+        agreedAmountMinor: 30_000n,
+        closingDate: "2026-07-10",
+      });
+      // Outside the window entirely — a monthly rent obligation due before
+      // it starts. Proves the window is a hard filter, not a share of a
+      // period this report never even asked for.
+      await ctx.createObligation(businessId, periodId, {
+        vehicleId,
+        driverId,
+        kind: "rent",
+        direction: "owed_to_us",
+        amountMinor: 100_000n,
+        dueOn: "2026-06-20",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${vehicleId}&from=2026-07-01&to=2026-07-14`,
+        token,
+      );
+      expect(res.status).toBe(200);
+      const body: { totalDays: number; offRoadDays: number; revenuePerAvailableDayMinor: string } =
+        await res.json();
+      expect(body).toMatchObject({
+        totalDays: 14,
+        offRoadDays: 0,
+        revenuePerAvailableDayMinor: "2500",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-19 — revenuePerAvailableDayMinor is null, never a guessed 0, when the whole window is off the road (W-56)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const incidentId = await openIncident(token, vehicleId);
+      ctx.trackCreatedIncident(incidentId);
+      const offRoadRes = await recordOffRoad(token, incidentId, "2026-07-01", "2026-07-14");
+      expect(offRoadRes.status).toBe(200);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${vehicleId}&from=2026-07-01&to=2026-07-14`,
+        token,
+      );
+      expect(res.status).toBe(200);
+      const body: { totalDays: number; offRoadDays: number; revenuePerAvailableDayMinor: null } =
+        await res.json();
+      expect(body).toMatchObject({
+        totalDays: 14,
+        offRoadDays: 14,
+        revenuePerAvailableDayMinor: null,
+      });
+
+      await ctx.cleanup();
+    });
+
     it("GAP-26 — an incident's own off-road window and a separately-logged vehicle_unavailability outage never double-count an overlapping day", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

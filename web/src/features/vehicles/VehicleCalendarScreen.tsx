@@ -90,8 +90,8 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
   }
   if (day.arrangement === "C") {
     return day.isHold
-      ? { wash: "border border-serious text-serious-ink", glyph: "T?", label: "Hold (tentative)" }
-      : { wash: "bg-serious/15 text-serious-ink", glyph: "T", label: "On a trip" };
+      ? { wash: "border border-trip text-trip-ink", glyph: "T?", label: "Hold (tentative)" }
+      : { wash: "bg-trip/15 text-trip-ink", glyph: "T", label: "On a trip" };
   }
   // arrangement B — each of the four reachable states gets its own token
   // (UI-LF-07): "ran" and "not yet confirmed" used to share the brand
@@ -146,6 +146,9 @@ export function VehicleCalendarScreen({
   const from = monthStart(monthAnchor);
   const to = monthEnd(monthAnchor);
 
+  // allow: title fallback plus fails-closed arrangement gating (never
+  // offers a free-day action when unresolved, only withholds it) — the
+  // occupancy grid itself is daysQuery/unavailabilityQuery, both wrapped.
   const { data: vehicle } = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -312,9 +315,9 @@ export function VehicleCalendarScreen({
                 glyph="!"
                 label="Daily lease, lost"
               />
-              <LegendRow wash="bg-serious/15 text-serious-ink" glyph="T" label="On a trip" />
+              <LegendRow wash="bg-trip/15 text-trip-ink" glyph="T" label="On a trip" />
               <LegendRow
-                wash="border border-serious text-serious-ink"
+                wash="border border-trip text-trip-ink"
                 glyph="T?"
                 label="Hold (tentative)"
               />

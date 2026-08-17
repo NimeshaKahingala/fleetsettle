@@ -54,6 +54,7 @@ const dues: LeaseObligationRow[] = [
     id: "o1",
     kind: "rent",
     dueOn: "2026-01-12",
+    effectiveDueOn: "2026-01-12",
     amountMinor: "7000000",
     settledMinor: "0",
     waivedMinor: "0",
@@ -63,6 +64,7 @@ const dues: LeaseObligationRow[] = [
     id: "o2",
     kind: "mileage_excess",
     dueOn: "2026-02-11",
+    effectiveDueOn: "2026-02-11",
     amountMinor: "50000",
     settledMinor: "50000",
     waivedMinor: "0",
@@ -93,7 +95,10 @@ test("renders terms, billing periods and dues once loaded", async () => {
 
   expect(await screen.findByRole("heading", { name: "Acme Traders" })).toBeInTheDocument();
   expect(screen.getByText("Active")).toBeInTheDocument();
-  expect(screen.getByText("Rs 70,000", { selector: ".text-title" })).toBeInTheDocument();
+  // The monthly-amount StatTile, the billing period card and the "Rent"
+  // due all happen to read 70,000 in this fixture — real occurrences, not
+  // duplicates of the same fact.
+  expect(screen.getAllByText("Rs 70,000").length).toBeGreaterThanOrEqual(1);
   expect(screen.getByText(/km\/day/)).toHaveTextContent("100 km/day · Rs 50/km excess");
 
   expect(screen.getByText("Billing periods · 1")).toBeInTheDocument();

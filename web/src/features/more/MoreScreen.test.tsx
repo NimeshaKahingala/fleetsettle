@@ -1,9 +1,24 @@
 import type { MeResponse } from "@fleetsettle/shared/schemas";
+import type * as ReactRouter from "@tanstack/react-router";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { MoreScreen } from "./MoreScreen.js";
+
+// GAP-86: `MoreScreen` is a real route component (`router.tsx`'s own
+// `component: MoreScreen`), so it calls `useNavigate()` directly rather than
+// taking an `onNavigate` prop the way non-route screens do — correct in the
+// app, but `renderWithProviders` (unlike `renderWithRouter`) renders it with
+// no `RouterProvider` in the tree, since no test here ever clicks a row that
+// actually navigates. That mismatch is what emitted "useRouter must be used
+// inside a <RouterProvider> component!" on every render; none of these tests
+// exercise navigation, so a no-op stand-in for the one hook that needs a
+// router removes the noise without pulling in a real router or `/api/me`.
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof ReactRouter>();
+  return { ...actual, useNavigate: () => vi.fn() };
+});
 
 const OWNER_MANAGER: MeResponse = { userId: "u1", businessId: "b1", role: "owner_manager" };
 const MANAGER: MeResponse = { userId: "u2", businessId: "b1", role: "manager" };

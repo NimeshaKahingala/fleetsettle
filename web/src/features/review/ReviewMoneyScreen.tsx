@@ -1,10 +1,11 @@
 import { parse, type Minor } from "@fleetsettle/shared";
 import type { PartnerSummaryResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Card } from "../../design/primitives/Card.js";
-import { Screen } from "../../design/primitives/Screen.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Card } from "../../design/primitives/Card.js";
+import { Screen } from "../../design/primitives/Screen.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -63,18 +64,22 @@ export function ReviewMoneyScreen() {
   return (
     <Screen title="My money">
       <div className="flex flex-col gap-4">
-        <Card className="flex flex-col gap-1">
-          <span className="text-caption text-ink-muted">What I'm owed</span>
-          <Money value={parse(data.balanceMinor)} className="text-title-lg font-medium" />
-        </Card>
+        <StatTile
+          label="What I'm owed"
+          value={<Money value={parse(data.balanceMinor)} />}
+          size="hero"
+        />
 
-        <Card className="flex flex-col">
+        {/* §7.11/TwoBalances: the same 3px leading-border direction marker
+            — put in is money flowing from the partner to the business
+            (direction-payable), taken out is the reverse (brand). */}
+        <Card className="flex flex-col border-l-[3px] border-l-direction-payable">
           <h2 className="pb-2 text-label font-medium text-ink-secondary">Put in (all time)</h2>
           <Row label="Contributions" value={parse(data.putIn.contributionsMinor)} />
           <Row label="Out of pocket" value={parse(data.putIn.outOfPocketMinor)} />
         </Card>
 
-        <Card className="flex flex-col">
+        <Card className="flex flex-col border-l-[3px] border-l-brand">
           <h2 className="pb-2 text-label font-medium text-ink-secondary">Taken out (all time)</h2>
           <Row label="Payouts" value={parse(data.takenOut.payoutsMinor)} />
           <Row label="Settlements" value={parse(data.takenOut.settlementsMinor)} />
@@ -88,10 +93,10 @@ export function ReviewMoneyScreen() {
           <Row label="Management fee" value={parse(data.earned.managementFeeMinor)} />
         </Card>
 
-        <Card className="flex items-center justify-between">
-          <span className="text-body text-ink-secondary">Holding (business cash in hand)</span>
-          <Money value={parse(data.holdingMinor)} />
-        </Card>
+        <StatTile
+          label="Holding (business cash in hand)"
+          value={<Money value={parse(data.holdingMinor)} />}
+        />
       </div>
     </Screen>
   );

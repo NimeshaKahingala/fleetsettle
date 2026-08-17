@@ -69,6 +69,28 @@ test("a non-ok response throws an ApiError carrying the Worker's error shape", a
   });
 });
 
+test("GAP-44: a non-ok response's details reach the thrown ApiError, not just its message and code", async () => {
+  const details = { conflict: { sourceType: "trip" }, nextFreeFrom: "2026-05-13" };
+  const errorBody = {
+    error: "This vehicle is already allocated for one or more of these dates",
+    code: "VEHICLE_DOUBLE_BOOKED",
+    requestId: "r-3",
+    details,
+  };
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValue(new Response(JSON.stringify(errorBody), { status: 409 }));
+  vi.stubGlobal("fetch", fetchMock);
+
+  const client = createApiClient("https://api.example", () => Promise.resolve("t"));
+
+  await expect(client.post("/api/trip", {})).rejects.toMatchObject({
+    status: 409,
+    code: "VEHICLE_DOUBLE_BOOKED",
+    details,
+  });
+});
+
 test("postBinary sends the caller's own Content-Type, not the JSON default", async () => {
   const fetchMock = vi
     .fn()

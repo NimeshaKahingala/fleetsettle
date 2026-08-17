@@ -21,7 +21,7 @@ export function AlertStrip({ severity, icon: Icon, children, action, className }
     <div
       role="alert"
       className={cn(
-        "flex items-center gap-3 px-4 py-3",
+        "flex flex-wrap items-center gap-3 px-4 py-3",
         severity === "critical"
           ? "bg-critical/15 text-critical-ink"
           : "bg-warning/15 text-warning-ink",
@@ -29,7 +29,7 @@ export function AlertStrip({ severity, icon: Icon, children, action, className }
       )}
     >
       <Icon className="size-5 shrink-0" aria-hidden />
-      <p className="flex-1 text-body-sm">{children}</p>
+      <p className="min-w-0 flex-1 text-body-sm">{children}</p>
       {action !== undefined ? (
         <button
           type="button"

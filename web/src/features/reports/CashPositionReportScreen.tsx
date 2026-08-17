@@ -2,9 +2,9 @@ import { format, parse } from "@fleetsettle/shared";
 import type { CashPositionResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, LabelList, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import { Card } from "../../design/primitives/Card.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -156,12 +156,11 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-2 gap-2">
             {data.partners.map((p) => (
-              <Card key={p.userId} className="flex flex-col gap-1">
-                <span className="text-caption text-ink-muted">
-                  {p.displayName ?? "Unnamed partner"}
-                </span>
-                <Money value={parse(p.heldMinor)} className="text-body font-medium" />
-              </Card>
+              <StatTile
+                key={p.userId}
+                label={p.displayName ?? "Unnamed partner"}
+                value={<Money value={parse(p.heldMinor)} />}
+              />
             ))}
           </div>
           <CashStackedBar data={data} />
@@ -209,19 +208,27 @@ export function CashPositionReportScreen({ onBack }: CashPositionReportScreenPro
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">In each account</p>
-            <ReportTable
-              columns={BANKED_COLUMNS}
-              rows={data.banked}
-              rowKey={(row) => row.destination}
-            />
+            {data.banked.length > 0 ? (
+              <ReportTable
+                columns={BANKED_COLUMNS}
+                rows={data.banked}
+                rowKey={(row) => row.destination}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">Nothing banked yet.</p>
+            )}
           </div>
           <div className="flex flex-col gap-1">
             <p className="text-caption text-ink-muted">With drivers, as advances</p>
-            <ReportTable
-              columns={DRIVER_ADVANCE_COLUMNS}
-              rows={data.driverAdvances}
-              rowKey={(row) => row.driverId}
-            />
+            {data.driverAdvances.length > 0 ? (
+              <ReportTable
+                columns={DRIVER_ADVANCE_COLUMNS}
+                rows={data.driverAdvances}
+                rowKey={(row) => row.driverId}
+              />
+            ) : (
+              <p className="text-body-sm text-ink-secondary">No advances outstanding.</p>
+            )}
           </div>
         </div>
       }

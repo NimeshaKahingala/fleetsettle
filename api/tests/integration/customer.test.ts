@@ -43,6 +43,7 @@ interface CustomerObligationRowBody {
   id: string;
   kind: string;
   dueOn: string;
+  effectiveDueOn: string;
   amountMinor: string;
   settledMinor: string;
   waivedMinor: string;
@@ -255,12 +256,14 @@ describe("GET /api/customer/{id}/obligation and /payment (A4, GAP-22)", () => {
     expect(body.map((o) => o.id)).toEqual([partPaidId, pendingId]);
     expect(body[0]).toMatchObject({
       dueOn: "2026-07-12",
+      effectiveDueOn: "2026-07-12",
       amountMinor: "7000000",
       settledMinor: "2000000",
       status: "part_paid",
     });
     expect(body[1]).toMatchObject({
       dueOn: "2026-08-11",
+      effectiveDueOn: "2026-08-11",
       amountMinor: "500000",
       status: "pending",
     });

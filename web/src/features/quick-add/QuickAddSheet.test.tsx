@@ -9,7 +9,6 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
-import { __resetSheetHistoryStackForTests } from "../../lib/useMobileHistoryDismiss.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { QuickAddSheet } from "./QuickAddSheet.js";
 
@@ -54,7 +53,6 @@ function mockCoarsePointer(matches: boolean): void {
 
 beforeEach(() => {
   mockCoarsePointer(true);
-  __resetSheetHistoryStackForTests();
 });
 
 afterEach(() => {
@@ -145,6 +143,10 @@ test("New trip picks a vehicle, then reports it — no route change of its own (
   renderWithProviders(<QuickAddSheetHarness onBookTrip={onBookTrip} />, { get });
 
   await user.click(screen.getByRole("button", { name: "New trip" }));
+  expect(screen.queryByRole("heading", { name: "Add" })).not.toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "New trip — choose a vehicle" }),
+  ).toBeInTheDocument();
   await user.click(await screen.findByRole("button", { name: "NC-1234" }));
 
   expect(onBookTrip).toHaveBeenCalledWith("v1");

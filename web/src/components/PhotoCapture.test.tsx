@@ -1,19 +1,20 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
-import { downscaleAndEncode } from "../lib/photo-pipeline.js";
+import { encodeWithWorkerTimeout } from "../lib/photo-pipeline.js";
 import { PhotoCapture } from "./PhotoCapture.js";
 
-// createImageBitmap/OffscreenCanvas don't exist under jsdom — the real
-// pipeline is covered separately in photo-pipeline.test.ts, so this mocks
-// the boundary rather than reaching the canvas.
+// createImageBitmap/OffscreenCanvas/Worker don't exist under jsdom — the
+// real pipeline and the GAP-17 worker-timeout race are covered separately
+// in photo-pipeline.test.ts, so this mocks the boundary rather than
+// reaching either.
 vi.mock("../lib/photo-pipeline.js", () => ({
-  downscaleAndEncode: vi.fn((_file: File) =>
+  encodeWithWorkerTimeout: vi.fn((_file: File) =>
     Promise.resolve({ blob: new Blob(["fake"], { type: "image/jpeg" }), flagged: false }),
   ),
 }));
 
-const mockedDownscaleAndEncode = vi.mocked(downscaleAndEncode);
+const mockedEncodeWithWorkerTimeout = vi.mocked(encodeWithWorkerTimeout);
 
 function makeFile(): File {
   return new File(["fake"], "front.jpg", { type: "image/jpeg" });
@@ -57,7 +58,7 @@ test("capturing a slot's photo runs it through the pipeline and reports it via o
 });
 
 test("a flagged photo (still over the size cap after every quality pass, or the no-2D-context fallback) shows a warning badge", async () => {
-  mockedDownscaleAndEncode.mockResolvedValueOnce({
+  mockedEncodeWithWorkerTimeout.mockResolvedValueOnce({
     blob: new Blob(["fake"], { type: "image/jpeg" }),
     flagged: true,
   });
@@ -129,7 +130,7 @@ test("an upload error shows a retry affordance the caller drives", async () => {
 // Finding C: previously an unhandled rejection left the tile spinning
 // forever and onCapture never fired.
 test("a decode failure shows a local error instead of spinning forever, and lets the user try again", async () => {
-  mockedDownscaleAndEncode.mockRejectedValueOnce(new Error("createImageBitmap failed"));
+  mockedEncodeWithWorkerTimeout.mockRejectedValueOnce(new Error("createImageBitmap failed"));
   const user = userEvent.setup();
   const onCapture = vi.fn();
   render(<PhotoCapture slots={[{ key: "front", label: "Front" }]} onCapture={onCapture} />);
@@ -151,7 +152,7 @@ test("a decode failure shows a local error instead of spinning forever, and lets
 // allowlist rejects (HEIC, for one) — caught here, before onCapture ever
 // fires, rather than as a background upload failure with no sheet left.
 test("a content type outside the server's allowlist is caught before onCapture fires", async () => {
-  mockedDownscaleAndEncode.mockResolvedValueOnce({
+  mockedEncodeWithWorkerTimeout.mockResolvedValueOnce({
     blob: new Blob(["fake"], { type: "image/heic" }),
     flagged: true,
   });

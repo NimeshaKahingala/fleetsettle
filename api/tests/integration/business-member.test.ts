@@ -65,12 +65,38 @@ describe("GET /api/business-member (GAP-31)", () => {
     const token = await signAccessToken(owner.asgardeoSub);
     const res = await listBusinessMembers(token);
     expect(res.status).toBe(200);
-    const body: Array<{ userId: string; displayName: string | null; role: string }> =
+    const body: Array<{ id: string; userId: string; displayName: string | null; role: string }> =
       await res.json();
 
+    // GAP-114: `id` is the `business_member` row's own id — the one
+    // `revoke`/`change-role` actually key off (both looked up the same way
+    // below, e.g. line ~250's `memberRow[0]!.id`) — not `userId`. A
+    // `toMatchObject` without this field would pass even if the handler
+    // accidentally returned `userId` under the `id` key, which is exactly
+    // the "assertion positioned to protect the change is blind to it" shape
+    // this row was filed over.
+    const ownerRow = await db
+      .select()
+      .from(businessMember)
+      .where(eq(businessMember.userId, owner.userId));
+    const managerRow = await db
+      .select()
+      .from(businessMember)
+      .where(eq(businessMember.userId, manager.userId));
+
     expect(body.map((m) => m.userId)).toEqual([owner.userId, manager.userId]);
-    expect(body[0]).toMatchObject({ displayName: "Test owner", role: "owner" });
-    expect(body[1]).toMatchObject({ displayName: "Test manager", role: "manager" });
+    expect(body[0]).toMatchObject({
+      id: ownerRow[0]!.id,
+      displayName: "Test owner",
+      role: "owner",
+    });
+    expect(body[1]).toMatchObject({
+      id: managerRow[0]!.id,
+      displayName: "Test manager",
+      role: "manager",
+    });
+    expect(body[0]!.id).not.toBe(body[0]!.userId);
+    expect(body[1]!.id).not.toBe(body[1]!.userId);
 
     await ctx.cleanup();
   });

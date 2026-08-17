@@ -1,7 +1,7 @@
 import type { BusinessDate } from "@fleetsettle/shared";
 import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Plus } from "lucide-react";
+import { ChevronRight, Plus, Truck } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
@@ -55,9 +55,12 @@ export function VehicleListScreen({ today, onSelectVehicle }: VehicleListScreenP
                   }
                   className="flex items-center justify-between gap-4"
                 >
-                  <div>
-                    <p className="text-title text-ink-primary">{vehicle.registration}</p>
-                    <p className="text-body-sm text-ink-muted">{vehicle.vehicleType}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Truck className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    <div className="min-w-0">
+                      <p className="truncate text-title text-ink-primary">{vehicle.registration}</p>
+                      <p className="truncate text-body-sm text-ink-muted">{vehicle.vehicleType}</p>
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     {vehicle.arrangement !== undefined ? (

@@ -308,10 +308,10 @@ test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)",
   expect(screen.queryByText("How was this month")).not.toBeInTheDocument();
 });
 
-/** B4-REPORTS-DESIGN.md §5.1/§9.1: the phase-1 six, and no card for a phase-2 report — the assertion that keeps the scope decision from eroding one convenient card at a time. */
-test("the catalogue renders exactly the phase-1 six", async () => {
+/** GAP-98/B4-REPORTS-DESIGN.md §5.1: the phase-1 nine, now that UC-77/78/79 moved to phase 1 (11 Aug 2026) and this catalogue caught up — a plain `manager` (`viewOwnerOnlyReports`'s `OWNERS` set is `owner`/`owner_manager` only, per UC-77/79's own "Sees: owner, owner-manager") sees the staff-visible seven but not the two owner-only ones. */
+test("the catalogue renders the nine phase-1 cards, owner-only ones filtered for a plain manager", async () => {
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner_manager" });
+  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "manager" });
 
   renderWithRouter("/reports", { get });
 
@@ -321,22 +321,39 @@ test("the catalogue renders exactly the phase-1 six", async () => {
   expect(screen.getByText("Who owes us")).toBeInTheDocument();
   expect(screen.getByText("Where is our cash")).toBeInTheDocument();
   expect(screen.getByText("Lost days")).toBeInTheDocument();
-  // The phase-2 three (§9.1) have no card — checked by name, since a bare
-  // button count would also catch Operate's own five tab-bar buttons.
-  expect(screen.queryByText(/goodwill/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/ageing|overdue/i)).not.toBeInTheDocument();
-  expect(screen.queryByText(/utilisation|utilization/i)).not.toBeInTheDocument();
+  expect(screen.getByText("Who is overdue, and by how long")).toBeInTheDocument();
+  // GAP-98: goodwill and utilisation are viewOwnerOnlyReports (UC-77/79) —
+  // a plain manager is staff but not an owner, so neither card renders here.
+  expect(screen.queryByText("Goodwill given")).not.toBeInTheDocument();
+  expect(screen.queryByText("How hard is each vehicle working")).not.toBeInTheDocument();
 });
 
-/** No route for a phase-2 report exists at all (§9.1) — a stray link or a typed-in URL fails visibly rather than resolving to something that looks like it shipped. */
-test("no phase-2 report route resolves — goodwill is not found, not rendered", async () => {
+/** GAP-98: the owner-only pair does render for owner_manager — `viewOwnerOnlyReports`'s own `OWNERS` set includes it, and the filter is role-based, not a permanent absence. "Money questions" now has 4 cards, one over `Section`'s own `maxVisible=3`, so its own "Show all" needs a tap first — unrelated to the owner-only filter this test is pinning. */
+test("the catalogue also shows the owner-only pair for owner_manager", async () => {
   const get = vi.fn();
   get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner_manager" });
 
+  renderWithRouter("/reports", { get });
+
+  // "Trips and vehicles" has exactly 3 cards including utilisation — visible without expanding.
+  expect(await screen.findByText("How hard is each vehicle working")).toBeInTheDocument();
+
+  // "Money questions" has 4; goodwill is the 4th, behind "Show all".
+  const showAllButtons = screen.getAllByRole("button", { name: /Show all/ });
+  await userEvent.click(showAllButtons[showAllButtons.length - 1] as HTMLElement);
+  expect(await screen.findByText("Goodwill given")).toBeInTheDocument();
+});
+
+/** GAP-98: a route that used to 404 as unshipped now resolves to the real screen — the scope moved, and this pins the new permanent shape rather than leaving the old absence assertion to rot. */
+test("the ageing/goodwill/utilisation report routes all resolve now, not 'Not found'", async () => {
+  const get = vi.fn();
+  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner" });
+
   const { router } = renderWithRouter("/reports/goodwill", { get });
 
-  expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Goodwill given" })).toBeInTheDocument();
   expect(router.state.location.pathname).toBe("/reports/goodwill");
+  expect(screen.queryByRole("heading", { name: "Not found" })).not.toBeInTheDocument();
 });
 
 test("creating a business from the first-run gate replaces it with the operate shell", async () => {

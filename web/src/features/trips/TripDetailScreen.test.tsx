@@ -18,6 +18,7 @@ const pendingReceivable: TripResponse["receivable"] = {
   id: "ob1",
   kind: "trip_fare",
   dueOn: "2026-07-12",
+  effectiveDueOn: "2026-07-12",
   amountMinor: "6000000",
   settledMinor: "0",
   waivedMinor: "0",

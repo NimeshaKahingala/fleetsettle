@@ -2,7 +2,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Drawer } from "vaul";
 import { cn } from "../../lib/cn.js";
-import { useMobileHistoryDismiss } from "../../lib/useMobileHistoryDismiss.js";
+import { useCloseWatcherDismiss } from "../../lib/useCloseWatcherDismiss.js";
 
 export interface SheetProps {
   open: boolean;
@@ -19,7 +19,7 @@ export interface SheetProps {
  * with no visible way out is a dead end for anyone who doesn't know to
  * swipe. Focus trap, `aria-modal` and focus restore come from vaul's
  * underlying Radix Dialog; the mobile history-back behaviour (§3.3) is
- * `useMobileHistoryDismiss`, layered on top rather than reimplemented here.
+ * `useCloseWatcherDismiss`, layered on top rather than reimplemented here.
  *
  * `autoFocus` is **not** vaul's default and must not be removed (GAP-50).
  * vaul ships `autoFocus: false`, which calls `preventDefault()` on Radix's
@@ -36,7 +36,7 @@ export interface SheetProps {
  * accessibility tree, and headless Chromium only computes one when asked.
  */
 export function Sheet({ open, onOpenChange, title, description, children, className }: SheetProps) {
-  useMobileHistoryDismiss(open, onOpenChange);
+  useCloseWatcherDismiss(open, onOpenChange);
 
   // Where focus goes when this sheet closes. Radix's modal `DialogContent`
   // unconditionally preventDefaults close-auto-focus and focuses its own

@@ -17,6 +17,7 @@ import { Money } from "../../components/Money.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
@@ -24,9 +25,15 @@ import { Label } from "../../design/primitives/Label.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import {
+  INCIDENT_STATUS_BADGE_VARIANT,
+  INCIDENT_STATUS_LABEL,
+} from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { useLeaseQuery } from "./useLeaseQuery.js";
 
 export interface CloseLeaseScreenProps {
   leaseId: string;
@@ -90,10 +97,12 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
   const [step, setStep] = useState(0);
   const [finalPeriod, setFinalPeriod] = useState<ClosedLeaseFinalPeriodResponse | null>(null);
 
-  const leaseQuery = useQuery({
-    queryKey: ["lease", leaseId],
-    queryFn: () => api.get<LeaseResponse>(`/api/lease/${leaseId}`),
-  });
+  // allow: leaseQuery.data is never rendered, only feeds customerQuery's
+  // queryKey/enabled below — a failure here just leaves customerQuery
+  // disabled, which already degrades safely to the title fallback.
+  const leaseQuery = useLeaseQuery(leaseId);
+  // allow: title fallback only ("Close the lease"); the flow's real content
+  // (unpaid dues, deposit) is summaryQuery/depositQuery, both wrapped below.
   const customerQuery = useQuery({
     queryKey: ["customer", leaseQuery.data?.customerId],
     queryFn: () => {
@@ -336,10 +345,10 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
             ) : null}
             {summaryQuery.data !== undefined ? (
               <>
-                <Card className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">Total unpaid</p>
-                  <Money value={parse(summaryQuery.data.totalUnpaidMinor)} />
-                </Card>
+                <StatTile
+                  label="Total unpaid"
+                  value={<Money value={parse(summaryQuery.data.totalUnpaidMinor)} />}
+                />
                 {summaryQuery.data.unpaidObligations.length > 0 ? (
                   <Section
                     title="Unpaid dues"
@@ -368,7 +377,9 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
                         <p className="text-body text-ink-primary">
                           {formatShortDate(incident.occurredOn)}
                         </p>
-                        <p className="text-caption text-ink-muted">{incident.status}</p>
+                        <Badge variant={INCIDENT_STATUS_BADGE_VARIANT[incident.status]}>
+                          {INCIDENT_STATUS_LABEL[incident.status] ?? incident.status}
+                        </Badge>
                       </Card>
                     ))}
                   />
