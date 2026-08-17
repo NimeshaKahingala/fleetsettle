@@ -1,8 +1,8 @@
 import type { BusinessDate } from "@fleetsettle/shared";
 import { useMutation } from "@tanstack/react-query";
-import { DateField } from "../../components/DateField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { ReportDateRangeFields } from "./ReportDateRangeFields.js";
 
 export interface ExportTransactionsScreenProps {
   from: BusinessDate;
@@ -65,20 +65,7 @@ export function ExportTransactionsScreen({
           Every rent, daily amount, mileage excess, trip and cost recorded in this window, as a
           spreadsheet — for an accountant, a tax filing, or a bank.
         </p>
-        <div className="flex gap-3">
-          <DateField
-            label="From"
-            value={from}
-            today={today}
-            onChange={(date) => onParamsChange({ from: date, to })}
-          />
-          <DateField
-            label="To"
-            value={to}
-            today={today}
-            onChange={(date) => onParamsChange({ from, to: date })}
-          />
-        </div>
+        <ReportDateRangeFields from={from} to={to} today={today} onParamsChange={onParamsChange} />
         {exportMutation.isSuccess ? (
           <p className="text-body-sm text-ink-secondary">Saved to your downloads.</p>
         ) : null}

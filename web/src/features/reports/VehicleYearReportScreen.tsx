@@ -1,19 +1,15 @@
 import { parse, type BusinessDate } from "@fleetsettle/shared";
 import type { VehicleYearResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useState } from "react";
-import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
-import { Card } from "../../design/primitives/Card.js";
 import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { HorizontalBarChart } from "./charts/HorizontalBarChart.js";
+import { ReportDateRangeFields } from "./ReportDateRangeFields.js";
 import { ReportScreen } from "./ReportScreen.js";
-import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
-import { toChartData, toKpiTotals } from "./VehicleMonthReportScreen.js";
+import { toChartData, toKpiTotals, VehicleRow } from "./VehicleMonthReportScreen.js";
 
 export interface VehicleYearReportScreenProps {
   from: BusinessDate;
@@ -23,79 +19,19 @@ export interface VehicleYearReportScreenProps {
   onBack: () => void;
 }
 
-const SHARE_COLUMNS: ReportTableColumn<
-  VehicleYearResponse["vehicles"][number]["ownerShares"][number]
->[] = [
-  { key: "name", header: "Owner", render: (row) => row.displayName ?? "Unnamed owner" },
-  {
-    key: "share",
-    header: "Share",
-    align: "end",
-    render: (row) => `${(row.shareBp / 100).toString()}%`,
-  },
-  {
-    key: "profitShare",
-    header: "Profit share",
-    align: "end",
-    render: (row) => <Money value={parse(row.profitShareMinor)} />,
-  },
-];
-
-function VehicleRow({ vehicle }: { vehicle: VehicleYearResponse["vehicles"][number] }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <Card>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        className="flex min-h-tap w-full items-center justify-between gap-2 text-left"
-      >
-        <span className="text-body font-medium text-ink-primary">{vehicle.registration}</span>
-        <span className="flex items-center gap-2">
-          <Money value={parse(vehicle.profitMinor)} />
-          {open ? (
-            <ChevronUp className="size-4 text-ink-muted" aria-hidden />
-          ) : (
-            <ChevronDown className="size-4 text-ink-muted" aria-hidden />
-          )}
-        </span>
-      </button>
-      {open ? (
-        <div className="mt-3 flex flex-col gap-2 border-t border-line-hairline pt-3">
-          {/* §7.11/TwoBalances: same direction markers VehicleMonthReportScreen's own row uses. */}
-          <div className="flex justify-between border-l-[3px] border-brand pl-2 text-body-sm text-ink-secondary">
-            <span>Earned</span>
-            <Money value={parse(vehicle.earnedMinor)} />
-          </div>
-          <div className="flex justify-between border-l-[3px] border-direction-payable pl-2 text-body-sm text-ink-secondary">
-            <span>Spent</span>
-            <Money value={parse(vehicle.costsMinor)} />
-          </div>
-          {vehicle.ownerShares.length > 0 ? (
-            <ReportTable
-              columns={SHARE_COLUMNS}
-              rows={vehicle.ownerShares}
-              rowKey={(row) => row.userId}
-            />
-          ) : null}
-        </div>
-      ) : null}
-    </Card>
-  );
-}
-
 /**
  * GAP-18/UC-73 / `GET /api/reports/vehicle-year` — "as UC-70, with overheads
  * (UC-66) stated beneath vehicle profit, never spread across it": the same
  * per-vehicle earned/costs/profit/owner-share breakdown
- * `VehicleMonthReportScreen` renders, plus the window's own overheads figure
- * as a fourth, unmarked `StatTile` beneath the per-vehicle KPI row — a
- * fourth number placed after the three vehicle ones, never folded into
- * `profitMinor`. Never degrades (same basis as UC-70). Owner/owner-manager
- * only (`viewOwnerOnlyReports`) — UC-73's own "Sees" line, narrower than
- * UC-70's manager-inclusive audience, so there is no manager-scoped branch
- * here the way `VehicleMonthReportScreen` needs.
+ * `VehicleMonthReportScreen` renders (its own `VehicleRow`/`toKpiTotals`/
+ * `toChartData` reused here rather than re-copied — the row shape is
+ * structurally identical between `vehicle-month` and `vehicle-year`), plus
+ * the window's own overheads figure as a fourth, unmarked `StatTile`
+ * beneath the per-vehicle KPI row — a fourth number placed after the three
+ * vehicle ones, never folded into `profitMinor`. Never degrades (same basis
+ * as UC-70). Owner/owner-manager only (`viewOwnerOnlyReports`) — UC-73's own
+ * "Sees" line, narrower than UC-70's manager-inclusive audience, so there is
+ * no manager-scoped branch here the way `VehicleMonthReportScreen` needs.
  */
 export function VehicleYearReportScreen({
   from,
@@ -112,20 +48,7 @@ export function VehicleYearReportScreen({
   const state = useQueryState(query);
 
   const paramsForm = (
-    <div className="flex gap-3">
-      <DateField
-        label="From"
-        value={from}
-        today={today}
-        onChange={(date) => onParamsChange({ from: date, to })}
-      />
-      <DateField
-        label="To"
-        value={to}
-        today={today}
-        onChange={(date) => onParamsChange({ from, to: date })}
-      />
-    </div>
+    <ReportDateRangeFields from={from} to={to} today={today} onParamsChange={onParamsChange} />
   );
 
   if (state.kind === "error") {

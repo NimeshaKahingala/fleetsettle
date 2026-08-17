@@ -84,6 +84,36 @@ export interface VehicleMonthReport {
   vehicles: VehicleMonthRow[];
 }
 
+/** Shared by `computeVehicleMonthRow` and `computeVehicleYearRow` (GAP-18) — the ownership-share split is identical for both, effective-dated `asOf` the report window's own end (INV-16) either way. */
+async function computeOwnerShares(
+  db: ReadDb,
+  businessId: string,
+  vehicleId: string,
+  asOf: string,
+  profitMinor: bigint,
+): Promise<VehicleMonthOwnerShare[]> {
+  const shares = await findOwnershipSharesAsOf(db, vehicleId, asOf);
+  if (shares.length === 0) return [];
+
+  const names = await findPartyNames(
+    db,
+    businessId,
+    [],
+    [],
+    shares.map((s) => s.userId),
+  );
+  const splitAmounts = splitInteger(
+    profitMinor,
+    shares.map((s) => BigInt(s.shareBp)),
+  );
+  return shares.map((s, i) => ({
+    userId: s.userId,
+    displayName: names.partners.get(s.userId) ?? null,
+    shareBp: s.shareBp,
+    profitShareMinor: splitAmounts[i] as bigint,
+  }));
+}
+
 async function computeVehicleMonthRow(
   db: ReadDb,
   businessId: string,
@@ -94,28 +124,7 @@ async function computeVehicleMonthRow(
   const earnedMinor = await sumVehicleEarnedForPeriod(db, vehicle.id, periodId);
   const costsMinor = await sumVehicleCostsForPeriod(db, vehicle.id, periodId);
   const profitMinor = earnedMinor - costsMinor;
-
-  const shares = await findOwnershipSharesAsOf(db, vehicle.id, periodEnd);
-  let ownerShares: VehicleMonthOwnerShare[] = [];
-  if (shares.length > 0) {
-    const names = await findPartyNames(
-      db,
-      businessId,
-      [],
-      [],
-      shares.map((s) => s.userId),
-    );
-    const splitAmounts = splitInteger(
-      profitMinor,
-      shares.map((s) => BigInt(s.shareBp)),
-    );
-    ownerShares = shares.map((s, i) => ({
-      userId: s.userId,
-      displayName: names.partners.get(s.userId) ?? null,
-      shareBp: s.shareBp,
-      profitShareMinor: splitAmounts[i] as bigint,
-    }));
-  }
+  const ownerShares = await computeOwnerShares(db, businessId, vehicle.id, periodEnd, profitMinor);
 
   return {
     vehicleId: vehicle.id,
@@ -201,7 +210,7 @@ export interface VehicleYearReport {
   overheadsMinor: bigint;
 }
 
-/** `computeVehicleMonthRow`'s own shape, keyed by a date window instead of a period — ownership shares as of the window's own end (INV-16), the same "as of" reading the month row already uses. */
+/** `computeVehicleMonthRow`'s own shape, keyed by a date window instead of a period — ownership shares as of the window's own end (INV-16), the same "as of" reading the month row already uses, via the shared `computeOwnerShares`. */
 async function computeVehicleYearRow(
   db: ReadDb,
   businessId: string,
@@ -212,28 +221,7 @@ async function computeVehicleYearRow(
   const earnedMinor = await sumVehicleEarnedForDateRange(db, vehicle.id, from, to);
   const costsMinor = await sumVehicleCostsForDateRange(db, vehicle.id, from, to);
   const profitMinor = earnedMinor - costsMinor;
-
-  const shares = await findOwnershipSharesAsOf(db, vehicle.id, to);
-  let ownerShares: VehicleMonthOwnerShare[] = [];
-  if (shares.length > 0) {
-    const names = await findPartyNames(
-      db,
-      businessId,
-      [],
-      [],
-      shares.map((s) => s.userId),
-    );
-    const splitAmounts = splitInteger(
-      profitMinor,
-      shares.map((s) => BigInt(s.shareBp)),
-    );
-    ownerShares = shares.map((s, i) => ({
-      userId: s.userId,
-      displayName: names.partners.get(s.userId) ?? null,
-      shareBp: s.shareBp,
-      profitShareMinor: splitAmounts[i] as bigint,
-    }));
-  }
+  const ownerShares = await computeOwnerShares(db, businessId, vehicle.id, to, profitMinor);
 
   return {
     vehicleId: vehicle.id,

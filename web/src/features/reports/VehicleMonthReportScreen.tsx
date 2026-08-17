@@ -75,7 +75,8 @@ const SHARE_COLUMNS: ReportTableColumn<
   },
 ];
 
-function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicles"][number] }) {
+/** Exported for `VehicleYearReportScreen` (GAP-18) — the row shape is structurally identical between `vehicle-month` and `vehicle-year`, so this renders both rather than being re-typed and re-copied. */
+export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicles"][number] }) {
   const [open, setOpen] = useState(false);
   return (
     <Card>
