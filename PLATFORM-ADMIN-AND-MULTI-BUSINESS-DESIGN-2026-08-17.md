@@ -1,18 +1,20 @@
 # Platform admin, self-registration and multi-business membership — design
 
-**Written 17 August 2026. Status: design settled, nothing built, no specification document updated.**
+**Written 17 August 2026. Status: design settled, independently re-verified 17 August 2026 (§14), nothing built, no specification document updated.**
 
 This is a working design note, not a specification. `docs/` still decides; where this and `docs/` disagree, `docs/` wins — and §11 is precisely the list of what must be written *into* `docs/` before any of this is built. Nothing here has been absorbed into `TRACKER.md` or `Plan.md` yet, by explicit instruction: this document stands alone until the design is built or abandoned.
 
-Three things are being added at once, and they are separable:
+**Companion document, same date: `PLATFORM-ADMIN-AND-MULTI-BUSINESS-IMPLEMENTATION-PLAN-2026-08-17.md`** — the file-by-file blast radius, the corrected build sequence (§1 below summarizes the one correction that matters), and the data-isolation checklist. Read this document for *what and why*; read that one for *how, in what order, and what breaks if the order is wrong*.
+
+Three things are being added at once, and they are separable at the feature level:
 
 | Track | What | Depends on |
 |---|---|---|
 | **A** | Asgardeo claims fix — `email` / `display_name` actually populated | nothing |
-| **B** | Platform admin panel, self-registration, business-creation approval | A (for names) |
+| **B** | Platform admin panel, self-registration, business-creation approval | A (for names); **and, structurally, on C's schema half — see the correction below** |
 | **C** | Multi-business membership and the business switcher | A (for names) |
 
-B and C are independent of each other and may ship in either order.
+**Correction, second validation pass, 17 August 2026 — B and C are not independent at the schema layer.** Track B's threshold logic (decision 4: businesses 1–5 auto-approve) cannot create a second business at all until `one_active_business_per_user` (Track C's own `DROP INDEX`, §6.2) is gone — that index is the *only* thing standing between today's `createBusiness`/`redeemInvite` and a second business, and it blocks with a 409 before Track B's threshold-counting code would ever run. See `PLATFORM-ADMIN-AND-MULTI-BUSINESS-IMPLEMENTATION-PLAN-2026-08-17.md` §1 for the full reasoning and the corrected build order (a "Phase 1" that pulls the index-drop and the `resolveMemberships` rewrite forward, ahead of Track B's threshold logic, and must ship as one atomic unit with it — dropping the index without the join rewrite reactivates §7.3's cross-product bug live). The admin-panel UI and the business-switcher UI remain genuinely independent of each other; only this one schema piece is a hard, previously-unstated prerequisite.
 
 **Track A is confirmed blocked, live, as of this writing.** Verified against the QA branch 17 August 2026: `app_user.email` and `display_name` are NULL on the one real account. Half the fix is in this repo (the missing `email` scope); the other half is an Asgardeo console setting nobody who worked on this pass had access to check. See §9 and §12 Q5 — B and C should not start until this is closed and re-verified.
 
@@ -63,7 +65,7 @@ Repo convention (CLAUDE.md → *Record what you did not take*).
 
 - **A platform-admin claim in the Asgardeo token.** Rejected because it makes authorisation an identity-provider fact, which TS §2 and W-49 rule out by name: "Asgardeo answers who is this person; `business_member` answers what may they do here."
 
-- **Relaxing `audit_log.business_id` to nullable.** Rejected. That column being `NOT NULL` (`api/migrations/0001_initial_schema.sql:875`) is part of what makes a tenant-scoped audit query trustworthy. Platform actions get their own table instead.
+- **Relaxing `audit_log.business_id` to nullable.** Rejected. That column being `NOT NULL` (`api/migrations/0001_initial_schema.sql:876`, corrected from `:875`) is part of what makes a tenant-scoped audit query trustworthy. Platform actions get their own table instead.
 
 - **A separate Worker or origin for the admin panel.** Rejected for now: a second deployment pipeline is real operational cost, and the isolation that matters is achieved structurally within one Worker (§4). Revisit if the panel ever grows features that read more than it does today.
 
@@ -274,7 +276,7 @@ Rejecting a request is re-requestable, therefore reversible, therefore a `Sheet`
 
 Screens: request queue (approve / reject with reason), businesses list, users list, admin management, platform log. A self-approved request must render **visibly distinct** from an arms-length one (decision 11) — the `self_action` flag exists for exactly this, and it is the kind of thing that cannot be added credibly after the fact.
 
-**A tension to record.** M-3 says three shells, never a fourth, and never a role switcher (`Plan.md:636-647`). The admin panel is not a fourth *role* shell: it is a platform surface orthogonal to business membership, reached from within whichever shell the user already has, or standing alone when they have none. The distinction is real — the role still follows the business and is never chosen — but it is thin enough that UI §1.1 needs one explicit sentence when `docs/` is eventually updated, or the next reader will read this as M-3 being quietly reversed.
+**A tension to record.** M-3 says three shells, never a fourth, and never a role switcher (`Plan.md:584-595` — corrected from an earlier `636-647` citation, which as of this tree's current line numbers falls in an unrelated A3/GAP-39 passage; the actual "declined: a role switcher" reasoning is at `Plan.md:593`). The admin panel is not a fourth *role* shell: it is a platform surface orthogonal to business membership, reached from within whichever shell the user already has, or standing alone when they have none. The distinction is real — the role still follows the business and is never chosen — but it is thin enough that UI §1.1 needs one explicit sentence when `docs/` is eventually updated, or the next reader will read this as M-3 being quietly reversed.
 
 Likewise, a *business* switcher is not the *role* switcher that `Plan.md:636-647` rejected. The argument there was that a client-supplied role is a privilege claim and makes `audit_log.changed_by` ambiguous. Neither applies: the role is not chosen, it follows whichever membership the selected business carries, and `audit_log.business_id` comes from the row being written. **That argument must be made explicitly in the docs, not assumed.**
 
@@ -358,6 +360,22 @@ Traceability closes in both directions (`docs/README.md:55`): every use case get
 
 5. **Is the Asgardeo application registration configured to place `email`/`name` claims on the access token?** **This one blocks Track A, and therefore B and C.** Confirmed live 17 August 2026 (§9) that the deployed QA app does not — the one real account's `app_user.email`/`display_name` are NULL, and the write path is proven innocent (a NULL row means the token carried nothing). The fix, if one is needed, is an Asgardeo-console change to the application's user-attribute/claims mapping — outside this repository, and outside what `testCred.md`'s application-level credentials can check or change. Needs someone with Asgardeo admin console access: check the current mapping, add `email`/`name` to the access token's claims if absent, then re-verify against QA and backfill the one existing row.
 
+**Added, second validation pass, 17 August 2026 — questions 6-11 below. Full reasoning for each in `PLATFORM-ADMIN-AND-MULTI-BUSINESS-IMPLEMENTATION-PLAN-2026-08-17.md`, cited per item.**
+
+6. **What replaces the removed `isUniqueViolation(err, "one_active_business_per_user")` catch in `createBusiness` (`api/src/domain/setup.ts:96-98`) and `redeemInvite` (`api/src/domain/membership.ts:255-257`)?** Both are the only two places a `business_member` row is ever created, and both rely on this exact index — dropping it (§6.2) without deciding what these two catch blocks become leaves dead code matching nothing, silently, until a double-submit race surfaces an uncaught 500 where a clean 409 used to be. Not blocking design review, but blocking Phase 1 implementation (implementation plan §1) — this cannot be deferred past that point.
+
+7. **Does the 5-business threshold (decision 4) need a `SERIALIZABLE`-transaction fix for its check-then-act race, or is the race accepted?** Two concurrent `POST /api/business` requests from a user at their 4th active ownership can both read count = 4 and both auto-approve, exceeding the threshold with no queued request. This is a real departure from `api/src/db/pg-error.ts`'s own stated convention ("the constraint is the truth, do not pre-check in application code") — every other invariant in this codebase is enforced by a DB constraint or trigger the application catches a violation from; this one, as designed, is an application-level count-then-decide. Given this product's actual concurrency (one or two people), accepting the race explicitly may be the right call, but it should be a recorded decision per this repository's own "record what you did not take" convention, not an unexamined gap.
+
+8. **`web/src/lib/api.ts`'s `X-Business-Id` injection needs to land in two places, not one.** `request()` (line 56) is one fetch call site; `requestBlob()` (`getBlob`, line 90) builds its own header object independently and was missed by this document's original "one place" claim in §8.1. Not open in the sense of undecided — both need the header — flagged here so it isn't silently narrowed back to one call site during implementation.
+
+9. **`api/tests/support/auth.ts` has no helper for a second membership on an existing user.** `mintUser` (line 49-66) always creates a brand-new `app_user`. Track C's own first listed test (§10: "a user in two businesses gets 404 for a third") cannot be written until a sibling helper exists that adds a `business_member` row to an *existing* user id. Needs building as part of Phase 1's test support, not discovered mid-way through writing Track C's tests.
+
+10. **`localStorage` key name and who clears it on sign-out.** §8.1 is the first use of browser storage anywhere in `web/src` (confirmed by grep — zero existing call sites) — there is no convention to inherit for the key name, and neither `AuthGate` nor the stub `signOut` currently touches storage, since there was never anything to clear. Needs a name and an explicit owner before the first PR touching this, not decided ad hoc inside that PR.
+
+11. **Should Phase 1 (the index drop + `resolveMemberships` rewrite) and Phase 2 (the platform tier / threshold logic) ship as one deploy or two adjacent ones?** There is no safe intermediate state where Phase 1 is live in `develop`/QA and Phase 2 isn't — once the index is gone, nothing but Phase 2's threshold check limits business creation. QA migrates automatically on every push to `develop` (`DEPLOYMENT.md`), so "intermediate" here is a matter of minutes between merges at worst, not a deliberate soak, but it is worth a deliberate answer rather than an accident of PR scheduling.
+12. **Does `BusinessAlreadyExistsError` (`api/src/errors/app-error.ts:72-80`) get retired outright, or narrowed and kept for the same-business-twice case that `business_member_active_pair` still legitimately blocks?** Its own doc comment currently asserts the single-business premise this design overturns — false the moment Phase 1 ships regardless of which way this is decided. Either way, `web/src/features/setup/CreateBusinessForm.test.tsx:60,66` hard-codes its exact message and needs rewriting — found only by an independent code sweep, not by this document's own first pass, and not covered by §7.6's list of the two integration tests that invert.
+13. **`web/src/lib/api.ts`'s `createApiClient` has no parameter for a business id today** — `request()`'s closure only captures `getToken` (`TokenGetter = () => Promise<string>`, line 9), constructed once in `main.tsx:52` before any business-selection state exists. §8.1's "same injection shape the token getter already uses" is directionally right but understates the change: a second getter (or a widened one) needs threading through `createApiClient`'s signature into both `request()` and `requestBlob()`, not a single header line added in place. See the implementation plan §2 (Phase 3) and its open question 11 for the two ways to shape it.
+
 ---
 
 ## 13. Confidence and gaps in this document
@@ -367,3 +385,17 @@ Verified directly against the tree at `docs/tracker-plan-accuracy-2026-08-16`, 1
 **Verified live against QA and production, 17 August 2026** (§9): `app_user.email`/`display_name` are NULL for the one real QA account; production holds zero rows in `app_user` and `business`, matching CLAUDE.md.
 
 **Not verified, and assumed:** the generated constraint name on `driver.linked_user_id` (§6.2 says to confirm it, and does not guess); whether Asgardeo's application registration is configured to place `email`/`name` on the access token — this needs Asgardeo admin console access, which was not available in this pass (§9); whether Asgardeo exposes a sign-up-direct authorization parameter (§8.3 declines to assume one).
+
+---
+
+## 14. Second validation pass, 17 August 2026
+
+Independent re-verification against the same tree, plus a full implementation-level companion: **`PLATFORM-ADMIN-AND-MULTI-BUSINESS-IMPLEMENTATION-PLAN-2026-08-17.md`**, which carries the file-by-file blast radius, a corrected build sequence, and the data-isolation checklist this document's §4 states as intent but does not itself verify line by line.
+
+**Everything this document's original pass cited and marked verified came back confirmed on re-check** — `identity.ts`'s cross-product join, the audit_log/period-trigger shapes, the 203 react-query keys, the two inverting integration tests, the Asgardeo scope, `docs/README.md`'s citation table, `data-model.md:130`'s multi-business paragraph. Two citations were off by a small, immaterial amount (`audit_log.business_id NOT NULL` is line 876, not 875; the `Plan.md` role-switcher rejection is at line 584-595 under the current tree, not 636-647 — both corrected in place above) — recorded so a future reader isn't left hunting.
+
+**What this pass found that the first pass's own scope didn't reach:**
+
+- **The one correction that matters: Track B and Track C are not independent at the schema layer** (§1's table, corrected in place). `createBusiness` and `redeemInvite` both depend on `one_active_business_per_user` — Track C's own index — to produce the clean 409 that stands in for "no threshold logic exists yet." Track B's threshold behaviour is unreachable until that index is gone, and the index cannot be dropped without `resolveMemberships`'s rewrite landing in the same unit of work, or the cross-product bug §7.3 already describes as latent goes live. Full reasoning, corrected migration order and a three-phase resequencing: implementation plan §1.
+- Open questions 6-13 above, all sourced from code the first pass either cited as unverified (§13) or never reached — the removed `BusinessAlreadyExistsError` catch clauses, the threshold's check-then-act race, the `getBlob` header gap, the missing test-support helper, the `localStorage` precedent this client has never needed before, and `api.ts`'s missing parameter slot for a business id.
+- One thing checked and found **not** to be a gap, worth recording so it isn't re-litigated: `Can.tsx`/`ReportsCatalogueScreen.tsx` read `["me"]` synchronously in more places than `FirstRunGate` alone, but §8.1's "hard remount, not `invalidateQueries`" policy already closes the stale-role window this would otherwise open — no separate fix needed, only the one already specified.
