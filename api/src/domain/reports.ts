@@ -596,9 +596,19 @@ function labelForTransactionKind(kind: string): string {
   );
 }
 
-/** RFC 4180: a field containing a comma, quote or newline is wrapped in quotes, with any quote doubled. */
+/**
+ * RFC 4180: a field containing a comma, quote or newline is wrapped in
+ * quotes, with any quote doubled. **Also guards CWE-1236 (CSV formula
+ * injection)**: `registration` is free user text (`vehicle.registration`,
+ * `z.string().trim().min(1).max(50)`, no character restriction), so a
+ * vehicle named e.g. `=HYPERLINK(...)` would otherwise write a live formula
+ * into the export — Excel/Sheets executes a cell starting `=`, `+`, `-`,
+ * `@`, a tab or a CR as one. A leading single quote neutralises it (read as
+ * literal text) without changing the value RFC 4180 quoting would produce.
+ */
 function csvField(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
 /** Plain decimal Rs, never `format()`'s comma-grouped display string — this is data for a spreadsheet import, not a screen for a person to read, and a thousands separator is one more character a CSV parser has to strip back out. */

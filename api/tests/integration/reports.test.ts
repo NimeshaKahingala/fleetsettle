@@ -1510,6 +1510,40 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("CWE-1236 — a vehicle registration starting with a formula character is neutralised, not written live", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      // registration has no character restriction (z.string().trim().min(1).max(50)) —
+      // this is what a normal "add a vehicle" call can produce, not a crafted DB row.
+      // No comma/quote in the payload, so this exercises only the formula guard,
+      // not RFC 4180 quoting (a separate, already-covered concern) at the same time.
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "=SUM(A1:A9)" });
+      const customerId = await ctx.createCustomer(businessId);
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId,
+        kind: "rent",
+        amountMinor: 50_000n,
+        dueOn: "2026-03-15",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      const csv = await res.text();
+      const lines = csv.trim().split("\r\n");
+      // A leading quote reads as literal text in Excel/Sheets, never as a formula.
+      expect(lines[1]).toBe("2026-03-15,'=SUM(A1:A9),Rent,In,500.00");
+      expect(lines[1]).not.toMatch(/^2026-03-15,=/);
+
+      await ctx.cleanup();
+    });
+
     it("403 — a manager cannot export", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
