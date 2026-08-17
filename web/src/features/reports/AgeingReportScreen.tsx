@@ -1,11 +1,12 @@
 import { parse, type BusinessDate } from "@fleetsettle/shared";
-import type { AgeingResponse, AgeingBucket } from "@fleetsettle/shared/schemas";
+import type { AgeingResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { AGEING_BUCKET_LABEL, AGEING_BUCKET_VARIANT } from "../../lib/ageingBucket.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { PartyName } from "./PartyName.js";
 import { ReportScreen } from "./ReportScreen.js";
@@ -19,25 +20,6 @@ export interface AgeingReportScreenProps {
   onBack: () => void;
 }
 
-const BUCKET_LABEL: Record<AgeingBucket, string> = {
-  current: "Current",
-  "1-30": "1–30 days",
-  "31-60": "31–60 days",
-  "61-90": "61–90 days",
-  "over-90": "Over 90 days",
-};
-
-const BUCKET_VARIANT: Record<
-  AgeingBucket,
-  "good" | "neutral" | "warning" | "serious" | "critical"
-> = {
-  current: "good",
-  "1-30": "neutral",
-  "31-60": "warning",
-  "61-90": "serious",
-  "over-90": "critical",
-};
-
 const COLUMNS: ReportTableColumn<AgeingResponse[number]>[] = [
   {
     key: "party",
@@ -48,7 +30,9 @@ const COLUMNS: ReportTableColumn<AgeingResponse[number]>[] = [
   {
     key: "bucket",
     header: "Age",
-    render: (row) => <Badge variant={BUCKET_VARIANT[row.bucket]}>{BUCKET_LABEL[row.bucket]}</Badge>,
+    render: (row) => (
+      <Badge variant={AGEING_BUCKET_VARIANT[row.bucket]}>{AGEING_BUCKET_LABEL[row.bucket]}</Badge>
+    ),
   },
   {
     key: "outstanding",

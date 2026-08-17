@@ -82,6 +82,7 @@ export interface ObligationRow {
   id: string;
   kind: string;
   dueOn: string;
+  effectiveDueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
@@ -109,6 +110,7 @@ export async function findObligationBySource(
       id: obligation.id,
       kind: obligation.kind,
       dueOn: obligation.dueOn,
+      effectiveDueOn: obligation.effectiveDueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
@@ -258,6 +260,7 @@ export interface OutstandingObligation {
   id: string;
   kind: string;
   dueOn: string;
+  effectiveDueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
@@ -289,6 +292,7 @@ export async function findOutstandingObligationsForDriver(
       id: obligation.id,
       kind: obligation.kind,
       dueOn: obligation.dueOn,
+      effectiveDueOn: obligation.effectiveDueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
@@ -339,6 +343,7 @@ export async function findOutstandingObligationsForParty(
       id: obligation.id,
       kind: obligation.kind,
       dueOn: obligation.dueOn,
+      effectiveDueOn: obligation.effectiveDueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
@@ -567,6 +572,7 @@ export interface LeaseObligationRow {
   id: string;
   kind: string;
   dueOn: string;
+  effectiveDueOn: string;
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
@@ -621,6 +627,7 @@ export async function findObligationsForLease(
       id: obligation.id,
       kind: obligation.kind,
       dueOn: obligation.dueOn,
+      effectiveDueOn: obligation.effectiveDueOn,
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,

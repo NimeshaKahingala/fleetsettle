@@ -59,6 +59,28 @@ test("all five checklist rows render, with their real counts (U-7: warns and lis
   expect(screen.getByRole("button", { name: "Close this month" })).not.toBeDisabled();
 });
 
+test("§7.11: nonzero checklist rows get a warning structure, zero rows read as fine — never a flat list", async () => {
+  const get = baseGet();
+  renderWithProviders(
+    <CloseMonthScreen today={today} onBack={() => {}} />,
+    { get },
+    () => Promise.resolve(),
+    OWNER_MANAGER,
+  );
+
+  const daysRow = (await screen.findByText("Days not yet confirmed")).closest(
+    '[class*="rounded-md"]',
+  );
+  expect(daysRow).not.toBeNull();
+  // unconfirmedDays: 3 — needs attention.
+  expect(daysRow?.querySelector("svg")).not.toBeNull();
+
+  const advancesRow = screen.getByText("Advances not yet closed").closest('[class*="rounded-md"]');
+  expect(advancesRow).not.toBeNull();
+  // unreconciledAdvances: 0 — nothing to warn about, no icon.
+  expect(advancesRow?.querySelector("svg")).toBeNull();
+});
+
 test("GAP-101: a failed checklist read shows a failure notice, never an eternal spinner", async () => {
   const get = vi.fn().mockImplementation((path: string) => {
     if (path === "/api/accounting-period/checklist") {

@@ -25,6 +25,7 @@ const due: LeaseObligationRow = {
   id: "o1",
   kind: "rent",
   dueOn: "2026-08-01",
+  effectiveDueOn: "2026-08-01",
   amountMinor: "500000",
   settledMinor: "100000",
   waivedMinor: "0",
@@ -72,6 +73,79 @@ test("GAP-22: renders customer details, outstanding dues and payment history", a
   expect(screen.getByText("Payments · 1")).toBeInTheDocument();
   expect(screen.getByText("Received")).toBeInTheDocument();
   expect(screen.getByText("Rs 1,000")).toBeInTheDocument();
+});
+
+test("§7.11: an outstanding due shows a due-age chip, matching the ageing report's own buckets", async () => {
+  // vi.setSystemTime alone (no vi.useFakeTimers()) mocks Date without
+  // touching setTimeout — Testing Library's async findBy* utilities need
+  // real timers to poll, and fake timers here previously hung every test
+  // after this one.
+  vi.setSystemTime(new Date("2026-08-20T08:00:00Z"));
+  try {
+    renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, {
+      get: baseGet(),
+    });
+
+    // due.effectiveDueOn is 2026-08-01; 19 days late lands in the "1-30"
+    // bucket — the same boundaries listAgeingBuckets uses server-side.
+    expect(await screen.findByText("1–30 days")).toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+/**
+ * PR #60's own review (gitar-bot): `computeAgeingBucket` must bucket off
+ * `effectiveDueOn`, not `dueOn` — every current obligation-insert path sets
+ * them equal (so this diverging case cannot happen live yet), but the
+ * fields are structurally two different columns and this pins the chip to
+ * the right one regardless. `dueOn` set 19 days late (would read "1-30"),
+ * `effectiveDueOn` set 80 days late — if the chip ever regresses to
+ * bucketing off `dueOn`, this fails.
+ */
+test("the due-age chip buckets off effectiveDueOn, not dueOn, even when the two diverge", async () => {
+  vi.setSystemTime(new Date("2026-08-20T08:00:00Z"));
+  try {
+    const divergentDue: LeaseObligationRow = {
+      ...due,
+      dueOn: "2026-08-01",
+      effectiveDueOn: "2026-06-01",
+    };
+    const get = vi.fn();
+    get.mockImplementation((path: string) => {
+      if (path === "/api/customer/c1") return Promise.resolve(customer);
+      if (path === "/api/customer/c1/obligation") return Promise.resolve([divergentDue]);
+      if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+      throw new Error(`unexpected path ${path}`);
+    });
+
+    renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, { get });
+
+    expect(await screen.findByText("61–90 days")).toBeInTheDocument();
+    expect(screen.queryByText("1–30 days")).not.toBeInTheDocument();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+/** GAP-115: `duesState.kind === "error"` had no test — only the payments query's own failure branch did, leaving this screen's other `useQueryState` error path unverified. */
+test("GAP-115/GAP-101: a failed customer dues read shows a scoped failure", async () => {
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") {
+      return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-dues"));
+    }
+    if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, { get });
+
+  expect(
+    await screen.findByText("Something went wrong loading this customer's dues."),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("Loading dues…")).not.toBeInTheDocument();
 });
 
 test("GAP-101: a failed customer payment history read shows a scoped failure", async () => {

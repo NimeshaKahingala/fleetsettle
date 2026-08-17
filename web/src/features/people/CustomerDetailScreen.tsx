@@ -8,9 +8,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import {
+  AGEING_BUCKET_LABEL,
+  AGEING_BUCKET_VARIANT,
+  computeAgeingBucket,
+} from "../../lib/ageingBucket.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { OBLIGATION_KIND_LABEL, OBLIGATION_STATUS_LABEL } from "../../lib/obligationStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -138,20 +144,29 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               title="Outstanding dues"
               count={dues.length}
               total={<Money value={totalOutstandingMinor(dues)} />}
-              items={dues.map((due) => (
-                <Card key={due.id} className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-body text-ink-primary">
-                      {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
-                    </p>
-                    <p className="text-caption text-ink-muted">
-                      {formatShortDate(due.dueOn)} ·{" "}
-                      {OBLIGATION_STATUS_LABEL[due.status] ?? due.status}
-                    </p>
-                  </div>
-                  <Money value={outstandingMinor(due)} />
-                </Card>
-              ))}
+              items={dues.map((due) => {
+                const bucket = computeAgeingBucket(due.effectiveDueOn, today);
+                return (
+                  <Card key={due.id} className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-body text-ink-primary">
+                        {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
+                      </p>
+                      <p className="text-caption text-ink-muted">
+                        {formatShortDate(due.dueOn)} ·{" "}
+                        {OBLIGATION_STATUS_LABEL[due.status] ?? due.status}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1">
+                      <Money value={outstandingMinor(due)} />
+                      {/* §7.11: "dues as work queues with due-age chips" */}
+                      <Badge variant={AGEING_BUCKET_VARIANT[bucket]}>
+                        {AGEING_BUCKET_LABEL[bucket]}
+                      </Badge>
+                    </div>
+                  </Card>
+                );
+              })}
             />
           )}
 

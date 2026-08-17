@@ -10,9 +10,11 @@ import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
+import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import {
@@ -38,6 +40,14 @@ const STATUS_LABEL: Record<string, string> = {
   active: "Active",
   closing: "Closing",
   closed: "Closed",
+};
+
+/** M-31/§7.11: status gets the same Badge treatment INCIDENT_STATUS_BADGE_VARIANT already established, not a plain text line. */
+const STATUS_BADGE_VARIANT: Record<string, NonNullable<BadgeProps["variant"]>> = {
+  draft: "neutral",
+  active: "good",
+  closing: "warning",
+  closed: "neutral",
 };
 
 function formatShortDate(date: string): string {
@@ -177,14 +187,14 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
           <Card className="flex flex-col gap-3">
             <div>
               <p className="text-label text-ink-secondary">Status</p>
-              <p className="text-body text-ink-primary">
+              <Badge variant={STATUS_BADGE_VARIANT[lease.status] ?? "neutral"}>
                 {STATUS_LABEL[lease.status] ?? lease.status}
-              </p>
+              </Badge>
             </div>
-            <div>
-              <p className="text-label text-ink-secondary">Monthly amount</p>
-              <Money value={parse(lease.rentAmountMinor)} className="text-title" />
-            </div>
+            <StatTile
+              label="Monthly amount"
+              value={<Money value={parse(lease.rentAmountMinor)} />}
+            />
             <div>
               <p className="text-label text-ink-secondary">Billing day</p>
               <p className="text-body text-ink-primary">{lease.billingDay}</p>
@@ -214,28 +224,11 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             ) : null}
           </Card>
 
-          {billingPeriodsState.kind === "error" ? (
-            <QueryStateFailure
-              error={billingPeriodsState.error}
-              retry={billingPeriodsState.retry}
-              of="billing periods"
-            />
-          ) : null}
-          {billingPeriods.length > 0 ? (
-            <Section
-              title="Billing periods"
-              count={billingPeriods.length}
-              items={billingPeriods.map((period) => (
-                <Card key={period.id} className="flex items-center justify-between gap-4">
-                  <p className="text-body text-ink-primary">
-                    {formatShortDate(period.periodStart)} – {formatShortDate(period.periodEnd)}
-                  </p>
-                  <Money value={parse(period.rentAmountMinor)} />
-                </Card>
-              ))}
-            />
-          ) : null}
-
+          {/* §7.11: "leads with the financial summary and unresolved
+              blockers, then actions, then history" — dues (money still
+              owed) come before billing periods (the schedule that produced
+              them), the same ordering rule TripDetailScreen/IncidentScreen
+              already apply. */}
           {duesState.kind === "error" ? (
             <QueryStateFailure error={duesState.error} retry={duesState.retry} of="dues" />
           ) : null}
@@ -272,6 +265,28 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
                   <div key={due.id}>{row}</div>
                 );
               })}
+            />
+          ) : null}
+
+          {billingPeriodsState.kind === "error" ? (
+            <QueryStateFailure
+              error={billingPeriodsState.error}
+              retry={billingPeriodsState.retry}
+              of="billing periods"
+            />
+          ) : null}
+          {billingPeriods.length > 0 ? (
+            <Section
+              title="Billing periods"
+              count={billingPeriods.length}
+              items={billingPeriods.map((period) => (
+                <Card key={period.id} className="flex items-center justify-between gap-4">
+                  <p className="text-body text-ink-primary">
+                    {formatShortDate(period.periodStart)} – {formatShortDate(period.periodEnd)}
+                  </p>
+                  <Money value={parse(period.rentAmountMinor)} />
+                </Card>
+              ))}
             />
           ) : null}
 

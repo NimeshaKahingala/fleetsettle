@@ -141,7 +141,7 @@ test("F-1.7: a manager can start a daily lease from a vehicle, the flow GAP-51 f
 
   await page.getByRole("button", { name: "Choose driver" }).click();
   await page.getByText("Sunil Perera").click();
-  await page.getByRole("button", { name: "Rs 0" }).click();
+  await page.getByRole("button", { name: "Enter daily lease amount" }).click();
   for (const digit of "500000") {
     await page.getByRole("button", { name: digit, exact: true }).click();
   }

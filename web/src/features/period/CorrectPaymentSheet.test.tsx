@@ -40,6 +40,32 @@ test("renders the recorded amount and the correction fields", async () => {
   expect(screen.getByText("We absorb it")).toBeInTheDocument();
 });
 
+/**
+ * GAP-130: `auditQuery.data?.entries ?? []` reads as empty for the whole
+ * in-flight window, indistinguishable from a payment that genuinely has no
+ * history without a pending branch. A never-resolving audit-log fetch
+ * keeps the query pending for the whole assertion window.
+ */
+test("GAP-130: shows a loading notice under History, not a silently absent section, while the audit read is in flight", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/audit-log/payment/p1") return new Promise<never>(() => {});
+    return Promise.resolve([]);
+  });
+  renderWithProviders(
+    <CorrectPaymentSheet
+      open
+      onOpenChange={() => {}}
+      payment={payment}
+      today={today}
+      onCorrected={() => {}}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByText("History")).toBeInTheDocument();
+  expect(screen.getByText("Loading…")).toBeInTheDocument();
+});
+
 test("GAP-101: a failed audit-history read shows a failure notice, never a silently absent History section", async () => {
   const get = vi.fn().mockImplementation((path: string) => {
     if (path === "/api/audit-log/payment/p1") {

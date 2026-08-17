@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
 import {
   encodeWithCap,
+  encodeWithWorkerTimeout,
   PHOTO_QUALITY_PASSES,
   PHOTO_SIZE_CAP_BYTES,
   PHOTO_WORKER_TIMEOUT_MS,
@@ -98,6 +99,46 @@ test("GAP-17: a custom timeout overrides the 3s default", async () => {
   }
 });
 
+test("falls back on timeout without terminating a run() that already settled", async () => {
+  vi.useFakeTimers();
+  try {
+    const photo = { blob: blobOfSize(50_000), flagged: false };
+    const onTimeout = vi.fn();
+    const result = withWorkerTimeout(
+      () => Promise.resolve(photo),
+      () => {
+        throw new Error("fallback must not run when run() already won");
+      },
+      PHOTO_WORKER_TIMEOUT_MS,
+      onTimeout,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(result).resolves.toBe(photo);
+    expect(onTimeout).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("calls onTimeout so a stuck worker can be terminated once the fallback wins the race", async () => {
+  vi.useFakeTimers();
+  try {
+    const fallbackPhoto = { blob: blobOfSize(1_000_000), flagged: true };
+    const onTimeout = vi.fn();
+    const result = withWorkerTimeout(
+      () => new Promise(() => {}), // never settles — the stuck-Worker case
+      () => fallbackPhoto,
+      PHOTO_WORKER_TIMEOUT_MS,
+      onTimeout,
+    );
+    await vi.advanceTimersByTimeAsync(PHOTO_WORKER_TIMEOUT_MS);
+    await expect(result).resolves.toBe(fallbackPhoto);
+    expect(onTimeout).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("GAP-17: run() rejecting (worker fails to load, CSP block, construction throws) falls back immediately rather than rejecting the call", async () => {
   vi.useFakeTimers();
   try {
@@ -110,5 +151,33 @@ test("GAP-17: run() rejecting (worker fails to load, CSP block, construction thr
     await expect(result).resolves.toBe(fallbackPhoto);
   } finally {
     vi.useRealTimers();
+  }
+});
+
+// GAP-17 regression: `new Worker(...)` runs eagerly, outside `withWorkerTimeout`'s
+// own promise wrapping, so a synchronous construction throw (CSP block, module
+// load failure) must not escape `encodeWithWorkerTimeout` as a synchronous throw —
+// that would break the "record saves first, photos follow" contract before the
+// caller ever gets a Promise to react to.
+test("GAP-17: a synchronous Worker construction failure never throws out of encodeWithWorkerTimeout itself", () => {
+  const OriginalWorker = globalThis.Worker;
+  class ThrowingWorker {
+    constructor() {
+      throw new Error("Worker construction blocked (e.g. CSP)");
+    }
+  }
+  // @ts-expect-error test-only stand-in for the constructor signature
+  globalThis.Worker = ThrowingWorker;
+  try {
+    let result: Promise<unknown> | undefined;
+    expect(() => {
+      result = encodeWithWorkerTimeout(new File(["fake"], "front.jpg", { type: "image/jpeg" }));
+    }).not.toThrow();
+    // jsdom has no OffscreenCanvas, so the downscaleAndEncode fallback this
+    // takes still can't complete here — only that it's a rejected Promise,
+    // not a synchronous throw, is this test's concern.
+    result?.catch(() => undefined);
+  } finally {
+    globalThis.Worker = OriginalWorker;
   }
 });

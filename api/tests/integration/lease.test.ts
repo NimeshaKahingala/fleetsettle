@@ -453,13 +453,27 @@ describe("a lease's dues (Web-P6a, GET /{id}/obligation)", () => {
 
     const res = await getLeaseObligations(token, leaseId);
     expect(res.status).toBe(200);
-    const body: Array<{ kind: string; dueOn: string; amountMinor: string; status: string }> =
-      await res.json();
+    const body: Array<{
+      kind: string;
+      dueOn: string;
+      effectiveDueOn: string;
+      amountMinor: string;
+      status: string;
+    }> = await res.json();
 
     expect(body).toHaveLength(3);
     expect(body.map((o) => o.kind)).toEqual(["rent", "mileage_excess", "post_closure_charge"]);
-    expect(body[0]).toMatchObject({ dueOn: "2026-03-12", amountMinor: "7000000", status: "paid" });
-    expect(body[2]).toMatchObject({ dueOn: "2026-05-01", amountMinor: "150000" });
+    expect(body[0]).toMatchObject({
+      dueOn: "2026-03-12",
+      effectiveDueOn: "2026-03-12",
+      amountMinor: "7000000",
+      status: "paid",
+    });
+    expect(body[2]).toMatchObject({
+      dueOn: "2026-05-01",
+      effectiveDueOn: "2026-05-01",
+      amountMinor: "150000",
+    });
 
     await ctx.cleanup();
   });
