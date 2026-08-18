@@ -353,6 +353,19 @@ Due when the work lands, not before — a change to mechanics that leaves its do
 - [ ] **CLAUDE.md** — "Repository state: documentation only" has been wrong for a while and will be conspicuously wrong once this is live
 - [ ] **TRACKER.md / Plan.md** — record what shipped
 
+### 12 · Platform admin bootstrap *(added 18 Aug 2026, due when Phase 2 ships)*
+
+**The one-time SQL below is a bootstrap for the *first* row only, not a maintenance mechanism** — every admin after it is granted through the panel (F-11.2). Ordering matters, because production holds zero `app_user` rows at the time this is written (`CLAUDE.md`), so there is no row yet to point the first `platform_admin` row at.
+
+- [ ] **1.** Track A (the `email` scope) and Phase 1 (multi-membership plumbing) are both live — this bootstrap has no meaning before either is.
+- [ ] **2.** Enable self-registration in Asgardeo, deploy Phase 2.
+- [ ] **3.** Sign in once through the normal flow, and submit a business-creation request (or trigger `/api/session`'s own `app_user` upsert on first call, `IG §7.5`) — `app_user` is written just-in-time on the first authenticated *write*, so signing in alone creates nothing yet.
+- [ ] **4.** Confirm the row exists: `SELECT id, email FROM app_user WHERE asgardeo_sub = '…';`
+- [ ] **5.** Insert the first `platform_admin` row against that id.
+- [ ] **6.** **Verify it took** — `SELECT user_id FROM platform_admin WHERE revoked_at IS NULL;` A silent no-op here is the worst outcome available: the panel renders as "not an admin," with nothing telling whoever is looking why.
+
+Record the actual ids and timestamps used, in this section, once run for real — the same discipline every other step in this checklist already keeps.
+
 ---
 
 ## What this does not deliver

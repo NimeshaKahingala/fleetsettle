@@ -44,6 +44,8 @@ Four documents number their sections from 1, and three have a §6 about differen
 
 Identifier prefixes are global and never redefined: `W-n` decisions and `U-n` usability rules live in **1**, `INV-n` and `F-n` in **2**, `D-n` design notes in **3**, `M-n` mobile decisions in **6**, `B-n` brand decisions in **7**.
 
+**Decided 18 Aug 2026 — the platform tier gets no eighth prefix.** A design pass raised the question directly (`PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 27): platform administration and multi-business membership could have earned their own document and prefix, since they sit structurally above every business. Decided against — the tier's flows are `FL §`, its schema is `DM §`, its structural boundary is `IG §`, its screens are `UI §`, exactly like everything else, and the seven above stay the complete list. An eighth prefix would be a permanent tax on every future citation for a tier small enough to fit inside the existing seven.
+
 ---
 
 ## Change control
@@ -62,15 +64,17 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.13 | 17 Aug 2026 |
-| user-flows | v1.1.14 | 17 Aug 2026 |
-| data-model | v1.1.9 | 17 Aug 2026 |
-| tech-stack | v1.3 | 5 Aug 2026 |
-| implementation-guidelines | v1.6.1 | 10 Aug 2026 |
-| ui-ux-guidelines | v1.4.1 | 16 Aug 2026 |
+| use-cases | v1.2.14 | 18 Aug 2026 |
+| user-flows | v1.1.15 | 18 Aug 2026 |
+| data-model | v1.1.10 | 18 Aug 2026 |
+| tech-stack | v1.4 | 18 Aug 2026 |
+| implementation-guidelines | v1.7 | 18 Aug 2026 |
+| ui-ux-guidelines | v1.5 | 18 Aug 2026 |
 | brand-guidelines | v1.0.2 | 14 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
+
+**A platform tier above the business, and multi-business membership, absorbed 18 Aug 2026.** All seven affected documents above carry the same date. Settles `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` (decisions 1-29, three independent validation passes) and its companion implementation plan — both retired as standalone notes now that their content lives here, per decision 29. Nothing here is a money-table change; the golden fixtures (**134,000**, **15,000**, **7,500**) are untouched. What ships next, in order: Phase 1 (multi-membership plumbing — the schema and middleware this pass specifies), Phase 2 (the platform tier's tables and panel), Phase 3 (the client switcher) — `TRACKER.md`/`Plan.md` own the build state from here.
 
 **Three acceptance criteria are deliberately unmet, recorded 17 August 2026.** Nothing here is an open *question* — each was decided — but the suite now states which of its promises are built, so this index does not read as claiming more than the product delivers:
 
