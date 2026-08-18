@@ -7,6 +7,8 @@
 > **LT-10 is the one to be least willing to skip:** `CloseWatcher` has no iOS Safari fallback by design and has only ever been tested under CDP emulation — LT-13's own sweep used the same emulation, so it cannot substitute. **LT-9** needs a linked-driver account, which needs a real identity to redeem the invite.
 >
 > **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-unsized-and-that-is-the-finding) — **deferred entire 17 Aug, approvals deliberately not fired** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65, GAP-135 and GAP-136.
+>
+> **Before trusting anything in the superseded block, read [its marker](#the-order-end-to-end) — it now names four exceptions, not one** (17 August 2026). Two live conventions were buried under "do not read it" (`The bar every item clears`, `When an item here is finished`), and **[Skipped by decision](#skipped-by-decision) had six of its seven entries reversed** — it listed A7, GAP-1, GAP-6, GAP-12, GAP-19 and GAP-18 as out of scope after all six had shipped. Each now carries what actually happened. **A contradiction inside this file was resolved the same pass**: its tail read *"worth firing"* the twelve Meta approvals while Wave 10 records the owner's decision not to.
 
 **Not a specification, and not a record.** `docs/` says what to build and why; [TRACKER.md](TRACKER.md) says what is done and carries every open gap by id; this says what remains, in what order, and who can build it at the same time as whom. Where the three disagree: `docs/` first, then `TRACKER.md`, then this.
 
@@ -471,7 +473,14 @@ Each was deferred by owner decision on 17 Aug, and each carries its full reasoni
 
 > **⛔ Everything from this heading to the end of the file is the historical record of what shipped 5–11 August 2026, superseded by [the wave plan above](#the-ten-wave-plan--12-august-2026). It is kept unedited for its reasoning, not as current status. Do not read it to find out what is left.**
 >
-> **Marker added 16 August 2026.** The paragraph below opens *"Every remaining item on both tracks, sequenced"* — written when that was true, and left standing after the 12 Aug replan retired it. So the deprecated three-quarters of this file introduced itself as the live plan, while the actual live plan sat above with no marker pointing down here saying otherwise. Anyone scrolling from the top landed in this section and had no way to know they had left the current plan. **One exception worth knowing before this block is ever trimmed: [B7's section](#b7--offline-and-the-pwa--startable-sequence-last-now-phase-3) is still the only full specification of phase 3** — it is summarised in Wave 11 above, and that summary is what has to survive if these lines are deleted.
+> **Marker added 16 August 2026.** The paragraph below opens *"Every remaining item on both tracks, sequenced"* — written when that was true, and left standing after the 12 Aug replan retired it. So the deprecated three-quarters of this file introduced itself as the live plan, while the actual live plan sat above with no marker pointing down here saying otherwise. Anyone scrolling from the top landed in this section and had no way to know they had left the current plan.
+>
+> **Four exceptions — content inside this block that is *not* historical, listed 17 August 2026 so a future trim does not take them with it.** The first was already recorded here; the other three were found by reading the block to the end rather than trusting the marker:
+>
+> 1. **[B7's section](#b7--offline-and-the-pwa--startable-sequence-last-now-phase-3) is still the only full specification of phase 3** — summarised in Wave 11 above, and that summary is what has to survive if these lines are deleted.
+> 2. **[The bar every item clears](#the-bar-every-item-clears) is a live checklist**, not a record — mobile gate, U-2, tap targets, money types, tokens, vocabulary. It is restated there precisely "so no session goes looking", which this marker was quietly defeating.
+> 3. **[When an item here is finished](#when-an-item-here-is-finished) is the live convention** for how work gets written up in [TRACKER.md](TRACKER.md) — one row, real test counts, a gap id for anything unbuilt.
+> 4. **[Skipped by decision](#skipped-by-decision) is neither historical nor live and must not be read as either** — it is a dated list whose entries were *reversed*, six of seven now built. It carries per-entry corrections as of 17 August 2026.
 
 *Historical, 5–11 August 2026:* Every remaining item on both tracks, sequenced. **Sizes are relative to each other, not calendar estimates** — S is a sitting, XL is the largest thing left on either track.
 
@@ -692,7 +701,7 @@ A design pass asked whether users should hold **multiple roles**, with a **role 
 
 **A third correction, found reading UC-03 itself while writing the migration:** v1.2.3's invite-role list named only "manager, or a second owner-manager" — the plain, passive `owner` role this project's own two-partner example is built around had no invite path at all, the identical shape of bug A0 fixed for the creator. Fixed in `use-cases.md` v1.2.4 and `user-flows.md` v1.1.4 (F-1.4) before the endpoint shipped — `business_member_invite.role` and `business_member.role` both already admitted `owner`, so this cost no schema change, only the flow text and confirming the endpoint's accepted values matched.
 
-**Do the `doc-change` skill's remaining half — data-model.md — before the migration**, since W-57/F-1.4/F-1.8 are now real enough to need the invite-code table in DM §16's own DDL, not just a description here. The full list of documents this owes is in the [A11 checklist](#a11--member-and-driver-access).
+**Do the `doc-change` skill's remaining half — data-model.md — before the migration**, since W-57/F-1.4/F-1.8 are now real enough to need the invite-code table in DM §16's own DDL, not just a description here. The full list of documents this owes is in the [A11 checklist](#a11--member-and-driver-access--done-7-august-2026).
 
 ### A1 · Done
 
@@ -1669,13 +1678,19 @@ Unchanged, restated so no session goes looking:
 
 ## Skipped by decision
 
+> **⚠ Six of the seven items below were later built, and this section said otherwise until 17 August 2026.** It is dated 4–11 August and sits inside the superseded block, but unlike the rest of that block it reads as standing policy — "out of scope on both tracks", "also out" — rather than as a dated record, so a reader who reached it learned that shipped work was skipped. Each entry now carries what actually happened; the original reasoning is kept unedited beside it, per this repository's own *record what you did not take* convention, because the reasoning was sound at the time and the reversal is the interesting part.
+
 **R2 presigned uploads** — carried as **A7** rather than dropped, because the previous edition skipped it and the cost has compounded: five recorded gaps, a built-and-tested `photo-pipeline.ts`, and a `PhotoCapture` component with 0 callers, all waiting on one endpoint against an already-polymorphic `attachment` table.
+> ✅ **Built and merged 10 August 2026** (PR #20, `feature/image-upload`), closing GAP-16 for expense receipts. Condition photos were **not** in scope and that mattered downstream — GAP-99's own row had predicted A7 would make it moot and was corrected when it did not.
 
 **Per-vehicle capability scoping (GAP-1)** — backend hardening, out of scope on both tracks. Until it lands, an `owner_manager` shared one vehicle reaches every vehicle's capital, payouts and reports. It blocks no screen and closing it later forces no rework, since endpoint shapes do not change — **but B2 must not imply the scoping exists.**
+> ✅ **Closed 13 August 2026, Wave 3**, along with two prerequisite gaps it exposed (GAP-121, GAP-122). The "closing it later forces no rework" prediction held — endpoint shapes did not change — but the item was larger than this entry implies: it needed a `doc-change` first (W-59/INV-34/D-17), and the **writes deliberately stayed flat while only the reads got scoped**, because scoping writes would have made a solo owner-manager unable to set up their first vehicle's split.
 
 **Error monitoring (GAP-28)** — deferred deliberately, not forgotten. Workers Logs stays the only observability until there is an on-call person and a channel to page.
+> ⏳ **Still open — the one entry here that is still true**, though its shape changed 12 August 2026: reclassified from "flagged, not tracked" to **capture and query, no paging**, satisfiable on Workers Logs alone with no on-call person required. Carried in [TRACKER.md](TRACKER.md) §4 as `flagged, not tracked`.
 
 **Also out, and recorded in [TRACKER.md](TRACKER.md) §4:** UC-73 (yearly) and UC-99 (export), both product-phase Second · UC-79's `revenuePerAvailableDayMinor` (GAP-19) · F-8.4's deposit-apply (GAP-6) · void-and-replace for the other twelve W-50 tables (GAP-12) · everything under "Not in this tracker".
+> ✅ **All four built.** GAP-6 closed 14 Aug (Wave 5 · 5B-3) · GAP-12 closed 14 Aug (Wave 5 · 5B-1, all nine remaining tables plus migration `0024`) · GAP-19 closed 15 Aug (Wave 6) · **GAP-18 closed 17 Aug (Wave 6)** — UC-73's yearly view and UC-99's **CSV** half both shipped; UC-99's **PDF** half split out as **GAP-136** and deferred to phase 2, since no PDF renderer has a home in this runtime (TS §8). "Both product-phase Second" stopped being true on **11 August 2026**, when the owner's phase model moved all of them into phase 1 and a `doc-change` (`use-cases.md` v1.2.5, `user-flows.md` v1.1.6) landed to make the owning documents agree. **"Everything under *Not in this tracker*" is the only clause here still accurate** — that list is UC §9.1 / UI §15 *third* product scope and nothing has promoted it.
 
 ---
 
@@ -1687,7 +1702,9 @@ This section listed the external work that gated something real. **It is empty.*
 2. ✅ **Deployment** — 5 August 2026. Both environments live, both Neon branches migrated, deploy-on-merge for each. It needed **no application code at all**, because every route already sat under `/api/*` and the client already defaulted its base URL to `""`.
 3. ✅ **CI's integration workflow** — below.
 
-**The one still outstanding is P14's twelve Meta template approvals**, and it is the only thing on either track waiting on anybody else. Worth firing now regardless of when P14 runs — each approval is minutes to two days, and they queue.
+**~~The one still outstanding is P14's twelve Meta template approvals**, and it is the only thing on either track waiting on anybody else. Worth firing now regardless of when P14 runs — each approval is minutes to two days, and they queue.~~**
+
+> **⚠ Overruled by the owner, 17 August 2026 — and this line contradicted [Wave 10](#wave-10--p14-messaging--phase-2-unsized-and-that-is-the-finding) directly until it was struck through here.** The approvals were **deliberately not fired**. "They queue and cost nothing" is true of the approvals and false of what they commit you to: `use-cases.md` §8 lists **W-14 (fully automatic messaging)** as one of three decisions it expects a good reviewer to attack, and the alternative it names — assisted sending, where the manager taps and reviews before anything goes out — **needs no approved templates at all**. Submitting twelve would have quietly settled that open question by making one path cheaper than the other before either was chosen. **Nothing external is in flight, and that is the current state**; Wave 10 carries the live version of this reasoning.
 
 **Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 
