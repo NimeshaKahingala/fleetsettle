@@ -69,14 +69,14 @@ app.route("/api/_probe", probe);
 
 // F-0.1: `verifyTokenMiddleware`, never `authMiddleware` — this route is
 // what creates the first business_member row for an identity, so there is
-// nothing yet for authMiddleware's resolveMembership to resolve.
+// nothing yet for authMiddleware's resolveMemberships to resolve.
 app.use("/api/business", dbMiddleware(), verifyTokenMiddleware());
 app.route("/api/business", business);
 
 // W-57: `verifyTokenMiddleware`, never `authMiddleware` — the same reasoning
 // as `/api/business` above. Redeeming a code is how a business_member row or
 // a driver's linked_user_id is created; there is nothing yet for
-// authMiddleware's resolveMembership to resolve for a brand-new identity.
+// authMiddleware's resolveMemberships to resolve for a brand-new identity.
 app.use("/api/invite/*", dbMiddleware(), verifyTokenMiddleware());
 app.route("/api/invite", invite);
 

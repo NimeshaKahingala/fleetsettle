@@ -104,6 +104,22 @@ const RULES = [
     message:
       "business_id is resolved from the verified JWT sub via business_member — never from a request (CLAUDE.md → Tenancy).",
   },
+  // IG §7.5: X-Business-Id is a filter over memberships the server already
+  // derived from the token, never itself the source of businessId. This is
+  // a structurally different pattern from the rule above, not an extension
+  // of it — the-above matches property access (body.business_id); a header
+  // read is a call expression with a string-literal argument and contains
+  // no `.business_id` anywhere in its text, so adding "header" to that
+  // regex's alternation would be a no-op. One call site is meant to read
+  // this header at all: middleware/auth.ts, which carries its own
+  // `-- allow:`.
+  {
+    id: "tenancy/from-header",
+    when: (p) => inApi(p) && p.endsWith(".ts") && !isDomainOrQueries(p),
+    pattern: /c\.req\.header\s*\(\s*["']x-business-id["']/gi,
+    message:
+      "X-Business-Id is resolved once, in middleware/auth.ts's five-step rule — never read directly elsewhere (IG §7.5).",
+  },
 
   // ── Secrets ────────────────────────────────────────────────────────────────
   {
