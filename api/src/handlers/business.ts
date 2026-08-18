@@ -1,7 +1,7 @@
 import { businessToday } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireAuthSub } from "../auth/context.js";
-import { createBusiness } from "../domain/setup.js";
+import { requestOrCreateBusiness } from "../domain/business-creation.js";
 import type { createBusinessRoute } from "../route-defs/business.js";
 import type { Env } from "../types.js";
 
@@ -12,7 +12,7 @@ export const createBusinessHandler: RouteHandler<typeof createBusinessRoute, Env
   const email = c.get("authEmail");
   const displayName = c.get("authName");
 
-  const { businessId, accountingPeriodId } = await createBusiness(c.get("writer"), {
+  const result = await requestOrCreateBusiness(c.get("writer"), {
     sub,
     ...(email !== undefined ? { email } : {}),
     ...(displayName !== undefined ? { displayName } : {}),
@@ -22,14 +22,19 @@ export const createBusinessHandler: RouteHandler<typeof createBusinessRoute, Env
     today: businessToday(body.timezone),
   });
 
-  return c.json(
-    {
-      id: businessId,
-      name: body.name,
-      currencyCode: body.currencyCode,
-      timezone: body.timezone,
-      accountingPeriodId,
-    },
-    201,
-  );
+  if (result.kind === "created") {
+    return c.json(
+      {
+        kind: "created" as const,
+        id: result.businessId,
+        name: body.name,
+        currencyCode: body.currencyCode,
+        timezone: body.timezone,
+        accountingPeriodId: result.accountingPeriodId,
+      },
+      201,
+    );
+  }
+
+  return c.json({ kind: "pending" as const, requestId: result.requestId }, 201);
 };

@@ -1,8 +1,13 @@
 import { newId } from "@fleetsettle/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { SignJWT } from "jose";
 import type { Writer } from "../../src/db/client.js";
-import { appUser, businessMember, driver as driverTable } from "../../src/db/schema.js";
+import {
+  appUser,
+  businessMember,
+  driver as driverTable,
+  platformAdmin,
+} from "../../src/db/schema.js";
 import { TEST_ENV } from "./env.js";
 import type { TestContext } from "./factories.js";
 import { TEST_ALG, TEST_KID, TEST_SIGNING_KEY } from "./jwks.js";
@@ -144,4 +149,37 @@ export async function linkExistingUserAsDriver(
   ctx.track(async () => {
     await db.update(driverTable).set({ linkedUserId: null }).where(eq(driverTable.id, driverId));
   });
+}
+
+/**
+ * Phase 2: mints a fresh `app_user` with active `platform_admin` status —
+ * `mintUser`'s counterpart one tier up. No `business_member` row at all,
+ * deliberately (design §1.1/W-65's "not a business role") — a test that
+ * needs an admin who is *also* a business member composes this with
+ * `addBusinessMembership` explicitly, rather than this helper assuming one.
+ */
+export async function mintPlatformAdmin(
+  db: Writer,
+  ctx: TestContext,
+): Promise<{ userId: string; asgardeoSub: string }> {
+  const userId = newId();
+  const asgardeoSub = `test-sub-admin-${userId}`;
+  await db.insert(appUser).values({ id: userId, asgardeoSub, displayName: "Test Platform Admin" });
+
+  // platform_admin_audit (migration 0030) writes platform_audit_log.actor_id
+  // NOT NULL from audit_actor(), which reads fleetsettle.actor_id — nothing
+  // sets that outside a real request's withActor() wrapper, so a bare
+  // INSERT here 500s on the trigger's own constraint. Same shape as the
+  // live bootstrap (design §5): the very first admin grants themselves,
+  // self-scoped, inside one transaction so set_config's session-local
+  // value is visible to the trigger firing on the insert that follows it.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT set_config('fleetsettle.actor_id', ${userId}, true)`);
+    await tx.insert(platformAdmin).values({ userId, grantedBy: null });
+  });
+  ctx.track(async () => {
+    await db.delete(platformAdmin).where(eq(platformAdmin.userId, userId));
+  });
+
+  return { userId, asgardeoSub };
 }

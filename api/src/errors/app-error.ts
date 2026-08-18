@@ -92,6 +92,33 @@ export class BusinessNotSelectedError extends AppError {
   }
 }
 
+// INV-41, Phase 2: business_creation_request_one_pending — a rejected
+// requester may request again; a pending requester may not queue a second.
+export class RequestAlreadyPendingError extends AppError {
+  constructor(message = "A request is already being reviewed") {
+    super(409, "REQUEST_ALREADY_PENDING", message);
+  }
+}
+
+// F-11.1: a request already approved or rejected cannot be decided again —
+// the same "already voided" shape as ExpenseAlreadyVoidedError, applied to
+// a decision rather than a void.
+export class RequestAlreadyDecidedError extends AppError {
+  constructor(message = "This request has already been decided") {
+    super(409, "REQUEST_ALREADY_DECIDED", message);
+  }
+}
+
+// INV-40/migration 0030: assert_platform_has_admin() is the truth — a
+// revoke that would leave the platform with no active admin is refused
+// rather than merely warned, the same shape as LastOwnerRequiredError one
+// level up.
+export class LastPlatformAdminRequiredError extends AppError {
+  constructor(message = "The platform must always have at least one active admin") {
+    super(409, "LAST_PLATFORM_ADMIN_REQUIRED", message);
+  }
+}
+
 // F-1.1: DM §4's `UNIQUE(business_id, registration)` — the same registration
 // entered twice for the same business, most plausibly a double-submit.
 export class VehicleAlreadyExistsError extends AppError {
