@@ -62,11 +62,22 @@ export async function upsertPlatformAdmin(
     });
 }
 
-export async function revokePlatformAdmin(db: Db, userId: string): Promise<void> {
-  await db
+/**
+ * Fixes a review finding on PR #74 (gitar-bot, 18 Aug 2026): the `WHERE
+ * revoked_at IS NULL` guard means a user who was never granted, or is
+ * already revoked, matches zero rows — `.returning()` is what lets the
+ * caller tell that apart from a real revoke, instead of returning `void`
+ * and reporting 200 either way, which also let the case pass through with
+ * no `platform_admin_audit` entry (the trigger is `AFTER UPDATE`; a
+ * zero-row `UPDATE` never fires it).
+ */
+export async function revokePlatformAdmin(db: Db, userId: string): Promise<boolean> {
+  const revoked = await db
     .update(platformAdmin)
     .set({ revokedAt: sql`now()` })
-    .where(and(eq(platformAdmin.userId, userId), isNull(platformAdmin.revokedAt)));
+    .where(and(eq(platformAdmin.userId, userId), isNull(platformAdmin.revokedAt)))
+    .returning({ userId: platformAdmin.userId });
+  return revoked.length > 0;
 }
 
 export async function listPlatformAdmins(

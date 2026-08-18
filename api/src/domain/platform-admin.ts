@@ -31,7 +31,18 @@ export async function grantPlatformAdmin(
   });
 }
 
-/** INV-40: `assert_platform_has_admin()` (migration 0030) is the truth — refusing the last admin is caught here, not pre-checked, the same convention every other DB-enforced invariant in this codebase already follows. */
+/**
+ * INV-40: `assert_platform_has_admin()` (migration 0030) is the truth —
+ * refusing the last admin is caught here, not pre-checked, the same
+ * convention every other DB-enforced invariant in this codebase already
+ * follows.
+ *
+ * **Fixes a review finding on PR #74**: a target who was never an admin, or
+ * is already revoked, used to return 200 silently — `revokePlatformAdmin`'s
+ * `WHERE revoked_at IS NULL` guard matches zero rows in that case, and
+ * nothing checked for that. Mapped to the route's own documented 404,
+ * matching `grantPlatformAdmin`'s existing target-existence check above.
+ */
 export async function revokePlatformAdminGrant(
   writer: Writer,
   targetUserId: string,
@@ -39,9 +50,8 @@ export async function revokePlatformAdminGrant(
 ): Promise<void> {
   const scoped = withActor(writer, () => actorId);
   try {
-    await scoped.transaction(async (tx) => {
-      await revokePlatformAdmin(tx, targetUserId);
-    });
+    const revoked = await scoped.transaction(async (tx) => revokePlatformAdmin(tx, targetUserId));
+    if (!revoked) throw new NotFoundError();
   } catch (err) {
     if (isPlatformHasNoAdminViolation(err)) throw new LastPlatformAdminRequiredError();
     throw err;

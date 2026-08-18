@@ -446,6 +446,25 @@ describe("/api/admin/* (Phase 2)", () => {
     await ctx.cleanup();
   });
 
+  it("404 — revoking a user who was never a platform admin (fixes a review finding on PR #74)", async () => {
+    const ctx = new TestContext(db);
+    const admin = await mintPlatformAdmin(db, ctx);
+    const adminToken = await signAccessToken(admin.asgardeoSub);
+    const target = await mintUser(db, ctx, await ctx.createBusiness(), "owner");
+
+    const res = await request(`/api/admin/admins/${target.userId}/revoke`, {
+      method: "POST",
+      ...bearer(adminToken),
+    });
+    expect(res.status).toBe(404);
+
+    const auditRes = await request("/api/admin/audit-log", bearer(adminToken));
+    const auditBody: { subjectId: string }[] = await auditRes.json();
+    expect(auditBody.some((entry) => entry.subjectId === target.userId)).toBe(false);
+
+    await ctx.cleanup();
+  });
+
   it("grant then revoke a second admin, and the audit log carries both — non-self this time", async () => {
     const ctx = new TestContext(db);
     const admin = await mintPlatformAdmin(db, ctx);
