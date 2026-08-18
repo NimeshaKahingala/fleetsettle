@@ -18,6 +18,8 @@ import {
 type Db = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
 
+export type BusinessCreationRequestStatus = "pending" | "approved" | "rejected";
+
 export interface NewBusinessCreationRequest {
   id: string;
   requestedBy: string;
@@ -26,11 +28,12 @@ export interface NewBusinessCreationRequest {
   timezone: string;
 }
 
+/** No `status` column DEFAULT on the table (see migration 0030's own comment) — every request is born pending, named here rather than implicitly. */
 export async function insertBusinessCreationRequest(
   db: Db,
   values: NewBusinessCreationRequest,
 ): Promise<void> {
-  await db.insert(businessCreationRequest).values(values);
+  await db.insert(businessCreationRequest).values({ ...values, status: "pending" });
 }
 
 /** INV-41's own read side — whether `userId` already has a request outstanding, for the "pending requester may not queue a second" refusal. */
@@ -79,7 +82,7 @@ export interface RequesterView {
   requesterName: string;
   requesterEmail: string | null;
   name: string;
-  status: "pending" | "approved" | "rejected";
+  status: BusinessCreationRequestStatus;
   createdAt: string;
   decidedAt: string | null;
   rejectionReason: string | null;
@@ -124,7 +127,7 @@ export async function listRequests(db: ReadDb): Promise<RequesterView[]> {
   return rows.map((r) => ({
     ...r,
     requesterName: r.requesterName ?? "Unnamed user",
-    status: r.status as "pending" | "approved" | "rejected",
+    status: r.status as BusinessCreationRequestStatus,
     decidedSelfAction: r.decidedSelfAction ?? null,
   }));
 }
@@ -139,7 +142,7 @@ export async function findRequestById(
       name: string;
       currencyCode: string;
       timezone: string;
-      status: "pending" | "approved" | "rejected";
+      status: BusinessCreationRequestStatus;
     }
   | undefined
 > {
@@ -156,7 +159,7 @@ export async function findRequestById(
     .where(eq(businessCreationRequest.id, id))
     .limit(1);
   const row = rows[0];
-  return row ? { ...row, status: row.status as "pending" | "approved" | "rejected" } : undefined;
+  return row ? { ...row, status: row.status as BusinessCreationRequestStatus } : undefined;
 }
 
 /**

@@ -508,11 +508,37 @@ const PLATFORM_QUERY_SAFE_TABLES = [
   "businessMemberInvite",
 ];
 
+// Every import from db/schema.js in a file, not just the first — a second,
+// later import statement (however it got there) is exactly the shape a
+// violation would actually take. Split out of checkPlatformQueryImports
+// below purely to keep that function's own cognitive complexity under the
+// project's threshold — this loop carries no branching of its own that the
+// caller needs to see.
+function extractSchemaImportNames(text) {
+  const importPattern = /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/\.\.\/db\/schema\.js["']/g;
+  const imported = [];
+  let m;
+  while ((m = importPattern.exec(text)) !== null) {
+    imported.push(
+      ...m[1]
+        .split(",")
+        .map((s) =>
+          s
+            .trim()
+            .split(/\s+as\s+/)[0]
+            .trim(),
+        )
+        .filter(Boolean),
+    );
+  }
+  return imported;
+}
+
 function checkPlatformQueryImports(paths) {
   const findings = [];
   for (const path of paths) {
     if (!/^api\/src\/queries\/platform\/.*\.ts$/.test(path)) continue;
-    if (/\.test\.ts$/.test(path)) continue;
+    if (path.endsWith(".test.ts")) continue;
     const abs = resolve(ROOT, path);
     if (!existsSync(abs)) continue;
     let text;
@@ -523,25 +549,7 @@ function checkPlatformQueryImports(paths) {
     }
     if (OPT_OUT.test(text)) continue; // file-wide allow: — a deliberate, visible exception
 
-    // Every import from db/schema.js in the file, not just the first — a
-    // second, later import statement (however it got there) is exactly the
-    // shape a violation would actually take.
-    const importPattern = /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/\.\.\/db\/schema\.js["']/g;
-    const imported = [];
-    let m;
-    while ((m = importPattern.exec(text)) !== null) {
-      imported.push(
-        ...m[1]
-          .split(",")
-          .map((s) =>
-            s
-              .trim()
-              .split(/\s+as\s+/)[0]
-              .trim(),
-          )
-          .filter(Boolean),
-      );
-    }
+    const imported = extractSchemaImportNames(text);
     if (imported.length === 0) continue;
     const forbidden = imported.filter((name) => !PLATFORM_QUERY_SAFE_TABLES.includes(name));
     if (forbidden.length === 0) continue;

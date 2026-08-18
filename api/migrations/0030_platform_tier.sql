@@ -35,7 +35,12 @@ CREATE TABLE business_creation_request (
   name              text NOT NULL,
   currency_code     char(3) NOT NULL,
   timezone          text NOT NULL,
-  status            text NOT NULL DEFAULT 'pending'
+  -- No DEFAULT — insertBusinessCreationRequest sets 'pending' explicitly.
+  -- A DEFAULT here would be a third repetition of the same literal in this
+  -- one table definition (the CHECK below, and the partial index further
+  -- down, are the other two) for a value every caller already has to name
+  -- anyway to reach the CHECK constraint's IN list correctly.
+  status            text NOT NULL
                        CHECK (status IN ('pending','approved','rejected')),
   decided_by        uuid REFERENCES app_user(id),
   decided_at        timestamptz,
