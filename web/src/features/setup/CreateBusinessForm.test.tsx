@@ -55,13 +55,19 @@ test("a blank name is rejected client-side before ever reaching the API", async 
   expect(post).not.toHaveBeenCalled();
 });
 
-test("surfaces a 409 (duplicate business) from the API as a visible error", async () => {
+test("surfaces an API error as visible text", async () => {
+  // Phase 1 (18 Aug 2026): a second business is now legal under the
+  // allowance (W-63/W-64), so this can no longer assert the specific
+  // "already belongs to a business" 409 the old one_active_business_per_user
+  // index used to produce — that scenario doesn't exist any more. Kept as a
+  // generic error-renders check; Phase 2 gives this form its pending/rejected
+  // branches (design doc decision 17), which get their own test then.
   const user = userEvent.setup();
-  const post = vi.fn().mockRejectedValue(new Error("This account already belongs to a business"));
+  const post = vi.fn().mockRejectedValue(new Error("Something went wrong"));
   renderWithProviders(<CreateBusinessForm onCreated={vi.fn()} />, { post });
 
   await user.type(screen.getByLabelText("Business name"), "Perera Transport");
   await user.click(screen.getByRole("button", { name: "Create business" }));
 
-  expect(await screen.findByText("This account already belongs to a business")).toBeInTheDocument();
+  expect(await screen.findByText("Something went wrong")).toBeInTheDocument();
 });

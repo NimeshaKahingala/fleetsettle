@@ -66,6 +66,45 @@ export async function mintUser(
 }
 
 /**
+ * Adds a second (or further) `business_member` row to an **existing**
+ * `app_user`, unlike `mintUser` which always inserts a fresh identity.
+ * Phase 1 (18 Aug 2026, W-66): the fixture multi-business tests need — "a
+ * user in two businesses gets 404 for a third" and its siblings — cannot be
+ * built without a way to give one identity a second membership, and nothing
+ * in this file did that before now.
+ */
+export async function addBusinessMembership(
+  db: Writer,
+  ctx: TestContext,
+  userId: string,
+  businessId: string,
+  role: Role,
+): Promise<{ memberId: string }> {
+  const memberId = newId();
+  await db.insert(businessMember).values({ id: memberId, businessId, userId, role });
+  ctx.track(async () => {
+    await db.delete(businessMember).where(eq(businessMember.id, memberId));
+  });
+
+  return { memberId };
+}
+
+/**
+ * Tracks cleanup for a `business_member` row this test didn't create through
+ * a factory helper — one written by the real endpoint under test (a live
+ * invite redemption, say), where nothing else would otherwise unwind it.
+ * Registered here, in the file the `no-restricted-syntax`/append-only guard
+ * already exempts for teardown deletes, rather than adding a first inline
+ * disable inside a test file for a case the guard's own precedent already
+ * has a home for.
+ */
+export function trackBusinessMemberRow(db: Writer, ctx: TestContext, memberId: string): void {
+  ctx.track(async () => {
+    await db.delete(businessMember).where(eq(businessMember.id, memberId));
+  });
+}
+
+/**
  * Links an existing driver row to a fresh `app_user` (W-13) — the read-only,
  * own-data-only boundary (INV-25/W-49) that every driver-facing endpoint's
  * test class must cover.
@@ -86,4 +125,23 @@ export async function mintLinkedDriver(
   });
 
   return { userId, asgardeoSub };
+}
+
+/**
+ * `mintLinkedDriver`'s counterpart for an **existing** identity — Phase 1's
+ * own cross-business test ("a linked driver in two businesses reads only
+ * the selected one's driver row") needs the same identity linked as a
+ * driver in a *second* business, not a fresh one. `driver_linked_user_per_business`
+ * (migration 0029) is what makes this legal at all.
+ */
+export async function linkExistingUserAsDriver(
+  db: Writer,
+  ctx: TestContext,
+  userId: string,
+  driverId: string,
+): Promise<void> {
+  await db.update(driverTable).set({ linkedUserId: userId }).where(eq(driverTable.id, driverId));
+  ctx.track(async () => {
+    await db.update(driverTable).set({ linkedUserId: null }).where(eq(driverTable.id, driverId));
+  });
 }

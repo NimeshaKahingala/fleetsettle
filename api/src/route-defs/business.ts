@@ -21,9 +21,9 @@ export const createBusinessRoute = createRoute({
       description: "The business, its first open accounting period, and its one owner",
     },
     401: { description: "Missing or invalid access token" },
-    // F-0.1: this identity already resolves to a business (DM §3's
-    // one_active_business_per_user index) — a double-submit or a retry, not
-    // a validation error.
-    409: { description: "This account already belongs to a business" },
   },
 });
+// Phase 1 (18 Aug 2026, W-63): the 409 this route used to document —
+// one_active_business_per_user — is gone. A second business is legal, no
+// longer a conflict this route can even produce; the threshold/allowance
+// gate that replaces it is Phase 2's, on this same route.

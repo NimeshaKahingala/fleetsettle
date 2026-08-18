@@ -17,7 +17,14 @@ export const ERROR_CODES = [
   "FORBIDDEN_CAPABILITY",
   "PERIOD_CLOSED",
   "RATE_LIMITED",
-  "BUSINESS_ALREADY_EXISTS",
+  // Renamed from BUSINESS_ALREADY_EXISTS, Phase 1 (18 Aug 2026): the old
+  // name asserted a single-business premise this design retires — see
+  // AlreadyAMemberError. Still means "already a member of *this* business"
+  // (business_member_active_pair), never "already has a business, full stop".
+  "BUSINESS_ALREADY_MEMBER",
+  // IG §7.5 step 4b: more than one resolved membership, no X-Business-Id
+  // header to select between them.
+  "BUSINESS_NOT_SELECTED",
   "VEHICLE_ALREADY_EXISTS",
   "VEHICLE_DOUBLE_BOOKED",
   "DAILY_LEASE_OVERLAPS",

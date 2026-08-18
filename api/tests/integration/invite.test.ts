@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { appUser, businessMember, driver as driverTable } from "../../src/db/schema.js";
-import { mintUser, signAccessToken } from "../support/auth.js";
+import { mintUser, signAccessToken, trackBusinessMemberRow } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -129,7 +129,10 @@ describe("POST /api/invite/redeem (A11/W-57)", () => {
     expect(body).toMatchObject({ code: "INVITE_CODE_INVALID" });
   });
 
-  it("409 — this identity already belongs to a business", async () => {
+  it("200 — redeeming an invite while already a member elsewhere adds a second membership (Phase 1, 18 Aug 2026: W-63/W-66)", async () => {
+    // Inverted 18 Aug 2026 — see business.test.ts:149's own note. Redeeming
+    // an invite is never subject to the allowance/threshold at all (W-63):
+    // the inviting owner already vouched for the person.
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     ctx.trackCreatedBusinessMemberInvites(businessId);
@@ -144,9 +147,43 @@ describe("POST /api/invite/redeem (A11/W-57)", () => {
 
     const token = await signAccessToken(alreadyMember.asgardeoSub);
     const res = await redeem(token, code);
+    expect(res.status).toBe(200);
+    const body: { kind: string; businessId: string; role: string } = await res.json();
+    expect(body).toMatchObject({ kind: "business_member", businessId, role: "manager" });
+
+    const memberRows = await db
+      .select()
+      .from(businessMember)
+      .where(eq(businessMember.userId, alreadyMember.userId));
+    expect(memberRows).toHaveLength(2);
+
+    // The redeemed row was written by the live endpoint, not a factory
+    // helper, so nothing tracks its cleanup automatically — registered
+    // here (after businessId's own createBusiness() cleanup) so LIFO
+    // unwinding deletes this row before business_member_business_id_fkey
+    // would otherwise block deleting businessId itself.
+    const redeemedRow = memberRows.find((row) => row.businessId === businessId);
+    if (redeemedRow) trackBusinessMemberRow(db, ctx, redeemedRow.id);
+
+    await ctx.cleanup();
+  });
+
+  it("409 — redeeming an invite to a business the identity already actively belongs to (business_member_active_pair)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    ctx.trackCreatedBusinessMemberInvites(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner_manager");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const existingMember = await mintUser(db, ctx, businessId, "manager");
+
+    const issued = await inviteMember(ownerToken, "manager");
+    const { code }: { code: string } = await issued.json();
+
+    const token = await signAccessToken(existingMember.asgardeoSub);
+    const res = await redeem(token, code);
     expect(res.status).toBe(409);
     const body: { code: string } = await res.json();
-    expect(body).toMatchObject({ code: "BUSINESS_ALREADY_EXISTS" });
+    expect(body).toMatchObject({ code: "BUSINESS_ALREADY_MEMBER" });
 
     await ctx.cleanup();
   });

@@ -67,7 +67,7 @@ export interface NewBusinessMember {
   role: BusinessMemberRole;
 }
 
-/** DM §3's `one_active_business_per_user` index is the truth on the "exactly one owner" rule (F-0.1) — this insert is what can violate it, never a pre-check. */
+/** `business_member_active_pair` (DM §3) is the truth on "not the same business twice" — this insert is what can violate it, never a pre-check. `one_active_business_per_user`, the index this comment used to cite, was dropped in migration 0029 (W-63 to W-67, 18 Aug 2026). */
 export async function insertBusinessMember(db: Db, values: NewBusinessMember): Promise<void> {
   await db.insert(businessMember).values(values);
 }

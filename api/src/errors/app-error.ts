@@ -69,13 +69,26 @@ export class RateLimitedError extends AppError {
   }
 }
 
-// F-0.1: this product has no multi-business membership (DM §3's
-// `one_active_business_per_user` index). A second "create business" call
-// for the same identity — a double-submit, a client retry — is a conflict
-// with the caller's own existing business, not a validation error.
-export class BusinessAlreadyExistsError extends AppError {
-  constructor(message = "This account already belongs to a business") {
-    super(409, "BUSINESS_ALREADY_EXISTS", message);
+// Renamed from BusinessAlreadyExistsError, Phase 1 (18 Aug 2026, decision
+// 19/21): one_active_business_per_user is dropped — an identity may now
+// hold more than one business (W-63 to W-67). What survives is
+// business_member_active_pair, a narrower rule: the same identity cannot
+// join the *same* business twice (a double-submitted invite redemption is
+// the one live path that still hits this). No longer thrown by
+// createBusiness at all — a second business is legal, gated by the
+// allowance/threshold (Phase 2), not by this constraint.
+export class AlreadyAMemberError extends AppError {
+  constructor(message = "This account already belongs to this business") {
+    super(409, "BUSINESS_ALREADY_MEMBER", message);
+  }
+}
+
+// IG §7.5 step 4b: more than one resolved membership and no X-Business-Id
+// header to pick between them. Never guessed — the client must show the
+// switcher (user-flows.md F-0.4).
+export class BusinessNotSelectedError extends AppError {
+  constructor(message = "Select which business this request is for") {
+    super(400, "BUSINESS_NOT_SELECTED", message);
   }
 }
 
