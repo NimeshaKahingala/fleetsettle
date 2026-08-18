@@ -1,6 +1,7 @@
 # Implementation Guidelines
 
-**Status:** v1.6.1 — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
+**Status:** v1.7 — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
+**v1.6.1** — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
 **Date:** 10 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
@@ -334,6 +335,38 @@ The Asgardeo React quickstart is a starting point and not a specification. Three
 
 The imported document's longest warning is worth heeding in advance: single-flight refresh locks, proactive expiry checks, session rescue and `fetch` monkey-patches are the accumulated scar tissue of one IdP's rotating-refresh-token races. Start with the SDK's own refresh plus a **401-retry-once** backstop in the API client, and add nothing until a real failure justifies it.
 
+### 7.5 Multiple businesses: the five-step header rule *(added 18 Aug 2026, W-63 to W-67)*
+
+Once an identity may hold more than one membership, §7.1's chain gains a step: `app_user.id` resolves to a **set** of `business_member` rows, not at most one, and something has to pick which is in scope for this request.
+
+**The header is a filter over memberships the server derived from the token — never a grant.**
+
+```
+1. Verify the JWT → sub.
+2. resolveMemberships(reader, sub) → every membership this identity holds,
+   from the database — never from the token.
+3. Header present → find it in that set.
+     Not in the set → 404, never 403 (§10, cross-tenant is 404).
+   Header absent, set size 1 → use it, unremarked.
+   Header absent, set size > 1 → BUSINESS_NOT_SELECTED, 400.
+4. businessId is set from the matched membership ROW, never from the header
+   string.
+```
+
+**Step 4 is not pedantry.** The matched row's own `business_id` and the header's string value are equal at the moment of the check — but assigning from the row rather than the string is what leaves no path by which a later refactor reaches for request data directly. It is the difference between a validated selector and a trusted claim, and it is exactly the distinction §7.1 rule 1 already draws for the body.
+
+**`resolveMembership` (singular) becomes `resolveMemberships` (plural).** The existing query left-joins `business_member` and `driver` off `app_user`, then joins `business` with an `or()` across both — a shape that already produces a cross-product ambiguous as to which business belongs to which membership. It worked only because the now-dropped `one_active_business_per_user` index guaranteed at most one row of each kind and `.limit(1)` hid the rest. The plural version is a `UNION ALL` of the two membership shapes, each joined to its own business — still one round trip, since this is the hottest query in the system and every `reader` call is its own HTTP request.
+
+### 7.6 The platform tier's structural boundary *(added 18 Aug 2026, W-65)*
+
+**A platform admin must never be able to read business money data.** Enforced structurally, not by convention — the same standard §7.2 already sets for capability checks:
+
+1. **Admin routes mount on `/api/admin/*` behind `platformAdminMiddleware`, never `authMiddleware`.** They have no `businessId` and must not acquire one — there is no business in scope, and any code that resolves one has escaped the tier.
+2. **Admin queries live in `api/src/queries/platform/`**, and a `check-forbidden.mjs` rule bars that directory from importing money-table schema — the same mechanism this repository already uses for `tenancy/from-request` (§16.1), and the only kind of rule that survives a year of edits.
+3. **The rule takes an inline `-- allow: <reason>` exemption**, like every other in this repository (§16.2) — an exception is possible but visible in the diff.
+
+`platformAdminMiddleware` resolves against `platform_admin`, structurally parallel to how `authMiddleware` resolves against `business_member`/`driver` — but the two middlewares are never composed on one route. There is no existing path that runs both, and none should be added.
+
 ---
 
 ## 8. Testing
@@ -550,6 +583,8 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | Linked driver reaches another driver's data | Integration tests | §8.3, its own test class |
 | 44px targets, axe | Component test | UI §9 |
 | A read with no error state (UI §6.4/M-28) | Guard script | `useQuery(` in `web/src` without `useQueryState`/`QueryState` |
+| `business_id` read from a header, not just a body/query (added 18 Aug 2026, §7.5) | Guard script | `c.req.header(…)` reads for a business id, outside `middleware/auth.ts` — a structurally different pattern from the body/query rule above it, not an extension of the same regex |
+| Platform query imports money-table schema (added 18 Aug 2026, §7.6) | Guard script | `api/src/queries/platform/` importing from `db/schema.ts`'s money-table exports |
 
 The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
 

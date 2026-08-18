@@ -1,6 +1,7 @@
 # Data Model
 
-**Status:** v1.1.9 — **D-5 guarded.** The unbuilt `effective_due_on` derivation is now unreachable rather than merely known: `confirmDay` refuses a non-`'daily'` driver (`SETTLEMENT_RHYTHM_UNSUPPORTED`, 409) instead of writing a due date it cannot derive, so FL F-4.5's "a weekly settler is not in arrears on Thursday" can no longer be violated silently — it fails loudly instead. Deliberately **not** a `CHECK` pinning `settlement_rhythm` to `'daily'`: UC-31/UC-37/F-4.5 describe weekly settlement as a real arrangement, and constraining it away would put the schema in contradiction with the product. GAP-135 stays open as the feature it always was. Decided 17 Aug 2026.
+**Status:** v1.1.10 — **a platform tier above `business`, and `business_member` no longer capped at one row per user.** §3's own comment calling multi-business membership undescribed anywhere (`one_active_business_per_user`'s header) is corrected — it is now described, in `use-cases.md` Group L and `user-flows.md` §2.4/F-0.3/F-0.4/F-11. That index is **dropped**; `business_member_active_pair` alone now enforces "not the same business twice." New: `app_user.business_allowance`, `platform_admin`, `business_creation_request`, `platform_audit_log`; `driver.linked_user_id` becomes business-scoped. New triggers `platform_admin_audit` and `assert_platform_has_admin()`, mirroring `business_member_audit`/`assert_business_has_owner()` one level up. **§13.1's trigger count was found stale while adding these** — it read "expect 18" against a live schema carrying 43 (measured against QA 18 Aug 2026, not assumed); corrected to the measured figure, now 45 with the two added here. Mechanises `use-cases.md` W-63 to W-67/UC-102 to UC-105 and `user-flows.md` INV-38 to INV-42. Decided 17-18 Aug 2026.
+**v1.1.9** — **D-5 guarded.** The unbuilt `effective_due_on` derivation is now unreachable rather than merely known: `confirmDay` refuses a non-`'daily'` driver (`SETTLEMENT_RHYTHM_UNSUPPORTED`, 409) instead of writing a due date it cannot derive, so FL F-4.5's "a weekly settler is not in arrears on Thursday" can no longer be violated silently — it fails loudly instead. Deliberately **not** a `CHECK` pinning `settlement_rhythm` to `'daily'`: UC-31/UC-37/F-4.5 describe weekly settlement as a real arrangement, and constraining it away would put the schema in contradiction with the product. GAP-135 stays open as the feature it always was. Decided 17 Aug 2026.
 **v1.1.8** — **D-5** resolved: "worth confirming" is now confirmed negative. `confirmDay.ts` (the driver-side obligation write path) sets `effective_due_on` unconditionally to the business date and never reads `driver.settlement_rhythm`; the column itself is written by no endpoint and read nowhere in the codebase. Filed as **GAP-135**, found investigating an unrelated PR review comment on the customer-side ageing chip
 **Date:** 17 August 2026
 **Derived from:** `use-cases.md` v1.2.8 · `user-flows.md` v1.1.9
@@ -111,11 +112,13 @@ CREATE TABLE business (
 );
 
 CREATE TABLE app_user (
-  id              uuid PRIMARY KEY,
-  asgardeo_sub    text UNIQUE NOT NULL,          -- the OIDC subject; the only link to the IdP
-  email           text,
-  display_name    text,
-  created_at      timestamptz NOT NULL DEFAULT now()
+  id                  uuid PRIMARY KEY,
+  asgardeo_sub        text UNIQUE NOT NULL,      -- the OIDC subject; the only link to the IdP
+  email               text,
+  display_name        text,
+  business_allowance  int NOT NULL DEFAULT 5,    -- W-64: active owner/owner-manager memberships
+                                                  -- below which POST /api/business is immediate
+  created_at          timestamptz NOT NULL DEFAULT now()
 );
 
 -- W-49. Role is a business fact, not an identity-provider fact.
@@ -128,23 +131,23 @@ CREATE TABLE business_member (
   revoked_at      timestamptz                    -- UC-03: revoke without losing their records
 );
 
--- This product has no multi-business membership (nothing in use-cases.md or
--- user-flows.md describes one user across two businesses, or a switcher) —
--- the sub → app_user → business_member resolution (IG §7.1) assumes at most
--- one active row per user and takes it on faith. It does not stop the same
--- user acquiring a second business_id, which a double-submitted
--- "create business" request or a client retry after a timeout can otherwise
--- do. Revoked rows are excluded so a revoked manager (F-1.4) can be
--- re-granted, or someone start a second business after leaving the first,
--- without this index in the way.
-CREATE UNIQUE INDEX one_active_business_per_user ON business_member (user_id) WHERE revoked_at IS NULL;
+-- §3, corrected 18 Aug 2026 (W-63 to W-67): multi-business membership is now
+-- described — use-cases.md Group L, user-flows.md §2.4/F-0.3/F-0.4/F-11 — and
+-- the index this comment used to defend, one_active_business_per_user, is
+-- gone. business_member_active_pair, immediately below, is what remains: it
+-- still correctly stops the same identity joining the same business twice,
+-- which was always a distinct rule from "at most one business, ever." The
+-- sub → app_user → business_member resolution (IG §7.1) now returns every
+-- active membership, not at most one, and the request header (§2.4,
+-- user-flows.md) selects which is in scope for a given request.
 
 -- GAP-52. Until migration 0010 this pair was a plain table-level UNIQUE, and an
 -- earlier draft of the paragraph above claimed revoked rows were "excluded so a
--- revoked manager can be re-granted" — true of the index above, false of this
--- constraint, which still blocked the exact re-grant F-1.4 names as its own
--- alternate: revoke, then invite the same person back into the same business.
--- The comment was right about the object it examined and wrong about the
+-- revoked manager can be re-granted" — true of one_active_business_per_user
+-- (dropped 18 Aug 2026, see the comment above), false of this constraint,
+-- which still blocked the exact re-grant F-1.4 names as its own alternate:
+-- revoke, then invite the same person back into the same business. The
+-- comment was right about the object it examined and wrong about the
 -- conclusion, because it never checked the constraint one line above it. A
 -- partial unique index — scoped to the active pair only — is what the flow
 -- actually needs; a revoked row no longer occupies the slot.
@@ -247,6 +250,69 @@ Not every table holding an amount is a posting. The test is: **does this row rep
 **History must be written in period order, or not at all.** A migration or import that wants to place records in June must do so while June is open. Once closed, the only route in is W-35's — post to the open period with `belongs_to_period_id` pointing back.
 
 This is the intended behaviour rather than a limitation, and it is worth knowing before writing an importer: there is no admin override, no `--force`, and no way to reopen. The seed for the §16.1 fixtures therefore walks the real lifecycle — open July, write July, close July and open August, and so on — which is also the most honest test of UC-98 available.
+
+### 3.2 The platform tier *(added 18 Aug 2026, W-63 to W-67, UC-102 to UC-105)*
+
+Sits above `business`, not inside it — no table here carries `business_id`, and none of them may (§14, INV-38). **None of the three carry `posted_period_id`, deliberately** — they are not money tables and are correctly absent from `assert_period_open()`'s array (§13.1) and `write_audit_log()`'s discovery loop (§12). Say so here rather than leaving a reviewer to wonder whether it was missed.
+
+```sql
+-- W-65: one row per admin, re-grantable. PRIMARY KEY on the parent's own id
+-- rather than a surrogate — the same shape business_settings already uses
+-- for "one row per parent entity" (§3, business_settings), one level up.
+CREATE TABLE platform_admin (
+  user_id     uuid PRIMARY KEY REFERENCES app_user(id),
+  granted_by  uuid REFERENCES app_user(id),      -- null for the bootstrap row
+  granted_at  timestamptz NOT NULL DEFAULT now(),
+  revoked_at  timestamptz
+);
+
+CREATE UNIQUE INDEX platform_admin_active ON platform_admin (user_id) WHERE revoked_at IS NULL;
+
+-- W-63, W-64. A held request, not a pending business row — decision 2:
+-- nothing exists until approved, so 30+ existing routes never gain a status
+-- to check.
+CREATE TABLE business_creation_request (
+  id                uuid PRIMARY KEY,
+  requested_by      uuid NOT NULL REFERENCES app_user(id),
+  name              text NOT NULL,
+  currency_code     char(3) NOT NULL,
+  timezone          text NOT NULL,
+  status            text NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','approved','rejected')),
+  decided_by        uuid REFERENCES app_user(id),
+  decided_at        timestamptz,
+  rejection_reason  text,
+  business_id       uuid REFERENCES business(id),   -- set on approval, null otherwise
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+
+-- INV-41: at most one outstanding request per identity. The same idiom as
+-- one_active_business_per_user used before it was dropped (§3) and as
+-- business_member_active_pair still is — a partial unique index scoped to
+-- the one status that must stay singular.
+CREATE UNIQUE INDEX business_creation_request_one_pending
+  ON business_creation_request (requested_by) WHERE status = 'pending';
+
+-- W-67. A separate table from audit_log (§12) because audit_log.business_id
+-- is NOT NULL, and platform actions have no business to be NOT NULL about.
+CREATE TABLE platform_audit_log (
+  id           bigserial PRIMARY KEY,   -- allow: append-only log, never in a URL
+  action       text NOT NULL CHECK (action IN
+                  ('request_approved','request_rejected',
+                   'admin_granted','admin_revoked','allowance_changed')),
+  subject_id   uuid NOT NULL,           -- the request id, or the admin's user_id
+  actor_id     uuid NOT NULL REFERENCES app_user(id),
+  self_action  boolean NOT NULL DEFAULT false,   -- W-67: actor == requester/subject
+  detail_json  jsonb,
+  created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- Mirrors audit_log's append-only rules (§12).
+CREATE RULE platform_audit_log_no_update AS ON UPDATE TO platform_audit_log DO INSTEAD NOTHING;
+CREATE RULE platform_audit_log_no_delete AS ON DELETE TO platform_audit_log DO INSTEAD NOTHING;
+```
+
+**Why `business_creation_request` carries `currency_code`/`timezone`/`name` at all**: it is everything F-0.1's transaction needs to actually build the business on approval (F-11.1), so approval never re-asks the requester for information they already gave. This is not a money leak — decision 3 (`use-cases.md` §2 Actors) only forbids *money* data, and a business's own name is explicitly on the "may read" side (§14).
 
 ---
 
@@ -458,7 +524,7 @@ CREATE TABLE driver (
   driver_day_fee_minor  bigint CHECK (driver_day_fee_minor >= 0),   -- UC-04: we PAY him
   driver_trip_fee_minor bigint CHECK (driver_trip_fee_minor >= 0),  -- UC-04: we PAY him
   licence_expiry        date,
-  linked_user_id        uuid UNIQUE REFERENCES app_user(id),        -- W-13, nullable
+  linked_user_id        uuid REFERENCES app_user(id),                -- W-13, nullable
   language              text NOT NULL DEFAULT 'en',
   opted_in_at           timestamptz,
   number_verified_at    timestamptz,
@@ -467,6 +533,17 @@ CREATE TABLE driver (
                           -- UC-78: a weekly settler is not overdue on Thursday
   created_at            timestamptz NOT NULL DEFAULT now()
 );
+
+-- W-66, 18 Aug 2026. linked_user_id was a plain global UNIQUE — the shape
+-- that made sense while one identity held at most one business (§3, before
+-- one_active_business_per_user was dropped). One login may now drive for a
+-- different business than the one it otherwise belongs to, so the
+-- constraint moves from "this identity links to at most one driver record,
+-- anywhere" to "at most one per business" — a linked driver in business A
+-- and a linked driver in business B are two separate facts about the same
+-- identity, never merged (§2.4, user-flows.md).
+CREATE UNIQUE INDEX driver_linked_user_per_business
+  ON driver (business_id, linked_user_id) WHERE linked_user_id IS NOT NULL;
 
 -- W-42: manager-initiated linking only. Never driver-initiated search.
 CREATE TABLE driver_link_invite (
@@ -1501,6 +1578,25 @@ BEGIN
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
 -- CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED, so revoke-then-grant lands as one legal transaction.
+
+-- INV-40, added 18 Aug 2026. The platform tier's identical failure one level
+-- up from INV-31/assert_business_has_owner — the moment admin administration
+-- exists, the first thing it enables is the last admin revoking themselves
+-- and locking the tier out permanently, with no higher authority able to
+-- restore it, only hand-run SQL against production. Same shape, same
+-- reasoning, same UPDATE-only/deferred rationale as assert_business_has_owner.
+CREATE OR REPLACE FUNCTION assert_platform_has_admin() RETURNS trigger AS $$
+DECLARE remaining int;
+BEGIN
+  SELECT count(*) INTO remaining FROM platform_admin WHERE revoked_at IS NULL;
+  IF remaining = 0 THEN
+    RAISE EXCEPTION 'the platform would have no active admin (INV-40)';
+  END IF;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+-- CONSTRAINT TRIGGER … DEFERRABLE INITIALLY DEFERRED, so a re-grant (necessarily an
+-- in-place UPDATE — platform_admin's PK is user_id itself, §3.2) lands as one legal
+-- transaction rather than being rejected mid-write.
 ```
 
 ### 13.1 Attaching them — the step that is easy to skip
@@ -1516,7 +1612,7 @@ BEGIN
     'obligation','payment','expense','adjustment','write_off','write_off_recovery',
     'offset_record','deposit_movement','advance','advance_settlement','banking_event',
     'partner_payout','capital_contribution','day_record','mileage_assessment',
-    'payment_correction','incident_recovery','insurance_claim']
+    'payment_correction','incident_recovery','insurance_claim','trip']
   LOOP
     EXECUTE format(
       'CREATE TRIGGER %I_period_open BEFORE INSERT OR UPDATE ON %I '
@@ -1561,15 +1657,47 @@ CREATE CONSTRAINT TRIGGER business_has_owner
   AFTER UPDATE ON business_member
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION assert_business_has_owner();
+
+-- INV-40, added 18 Aug 2026. Deferred for the identical reason business_has_owner
+-- is: a re-grant after a revoke is one UPDATE (platform_admin's PK is user_id,
+-- §3.2 — no two-row trick available to it the way business_member's is).
+CREATE CONSTRAINT TRIGGER platform_has_admin
+  AFTER UPDATE ON platform_admin
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION assert_platform_has_admin();
+
+-- W-67, added 18 Aug 2026. Mirrors business_member_audit's own reasoning
+-- above: platform_admin's grant/revoke history must not depend on every
+-- future admin endpoint remembering to write it by hand. self_action isn't
+-- computable by a generic diff — it needs the acting admin's own id compared
+-- against the row changing — so this is purpose-built rather than a reuse
+-- of write_audit_log(), which also requires business_id, absent here.
+CREATE OR REPLACE FUNCTION write_platform_audit_log() RETURNS trigger AS $$
+BEGIN
+  INSERT INTO platform_audit_log (action, subject_id, actor_id, self_action)
+  VALUES (
+    CASE WHEN NEW.revoked_at IS NOT NULL THEN 'admin_revoked' ELSE 'admin_granted' END,
+    NEW.user_id,
+    current_setting('app.actor_id')::uuid,
+    current_setting('app.actor_id')::uuid = NEW.user_id
+  );
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER platform_admin_audit
+  AFTER INSERT OR UPDATE ON platform_admin
+  FOR EACH ROW EXECUTE FUNCTION write_platform_audit_log();
 ```
 
-**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods, and for a role change against `business_member`.
+**Both deferred triggers must be `DEFERRABLE INITIALLY DEFERRED`, and that is not a detail.** Shares are checked at commit because a 60/40 split is two inserts that are individually invalid — a non-deferred trigger would reject the first one and make a legal change impossible. The same holds for a mileage split across two periods, and for a role change against `business_member` or `platform_admin`.
 
 **Verification, after any migration:**
 
 ```sql
-SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal;  -- expect 18
+SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal;  -- expect 45
 ```
+
+**⚑ Corrected 18 Aug 2026 — this read "expect 18" against a schema that, measured directly against QA (`br-square-sound-afb68wft`), carries 43 today, not 18.** The 18 in the original count was only ever the `_period_open` array's own length; it was never the total `pg_trigger` count even when first written, since `write_audit_log()`'s discovery loop (§12) attaches a matching `_audit` trigger to the same tables, plus `business_member_audit`, `business_has_owner`, `ownership_shares_total`, `trip_advances_settled` and `split_sums` besides. **Measuring it precisely found a second, independent drift**, not only a stale total: the live database carries **19** `_period_open`/`_audit` table pairs, not 18 — `trip` has both triggers live (consistent with INV-30 and `trip.posted_period_id`) but was missing from the array immediately above, silently, exactly the failure mode CLAUDE.md names by its own history ("the list is hand-maintained and has drifted once already"). Added back above. The full count: 19 period-open + 19 matching audit + `business_member_audit` + 4 others (`business_has_owner`, `ownership_shares_total`, `trip_advances_settled`, `split_sums`) = 43, **measured, not assumed** — this document's own convention for exactly this class of error. Plus the two added here (`platform_has_admin`, `platform_admin_audit`), **45**. Whoever next adds a trigger should re-run both this query and the `table_missing_period_trigger` check above rather than trust either comment.
 
 **INV-18 (deposit not settled before the closure summary is shown)** is the one deliberately left to the application: `lease.closure_summary_shown_at` is set when the summary renders, and the deposit-settlement handler refuses while it is null. It is a workflow-ordering rule, not a data rule, and a trigger would enforce it against imports and fixtures too.
 
@@ -1612,8 +1740,19 @@ Every invariant in `user-flows.md` §5, and where it actually lives.
 | 29 lease boundary day | Falls out of INV-1's unique index | **DB** |
 | 30 trip in exactly one period | `CHECK (status <> 'closed' OR (closing_date IS NOT NULL AND posted_period_id IS NOT NULL))` | **DB** |
 | 31 business always has an active owner | `assert_business_has_owner()` constraint trigger on `business_member` | **DB** |
+| 32 no record hard-deleted | `voided_at`/`voided_reason`/`voided_by` on every table, including occupancy and child rows | **Schema shape** |
+| 33 a cost's vehicle/trip/incident are mutually consistent | Composite FK — `UNIQUE (id, vehicle_id)` on `trip`/`incident`, referenced with `MATCH SIMPLE` — plus two `CHECK`s (§9); `post_closure_charge` alone at the handler, since it writes `obligation` rather than owning its own table | **DB**, one named exception **App** |
+| 34 owner-manager/manager scope | `listVehicleIdsOwnedByUser`/`listVehicleIdsManagedByUserForPeriod` (`api/src/queries/vehicle-scope.ts`), reading `ownership_share`/`management_fee_agreement` after `requireCapability` has already confirmed the role holds the capability at all | **App** |
+| 35 archive refused while money is open | Live check against `obligation`/`deposit`/`advance` in the archive handler, naming every open figure (INV-3 still applies — never netted) | **App** |
+| 36 void cascades only into what the same write minted | Per-table cascade logic in each void handler — the one test, "did the same write mint this row, or was it entered separately" | **App** |
+| 37 ending a daily-lease assignment never refuses on balance | Deliberate absence — no check exists, because nothing about the driver's visibility changes | **N/A by design** |
+| 38 platform admin never reads business money *(added v1.1.10)* | `platformAdminMiddleware` never resolves a `businessId`; `queries/platform/` barred from importing money-table schema by a `check-forbidden.mjs` rule | **App**, structural |
+| 39 business outside the resolved set is unreachable *(added v1.1.10)* | `authMiddleware`'s five-step header rule (§2.4, `user-flows.md`) — 404 for anything not in the identity's own resolved membership set | **App** |
+| 40 platform always has an active admin *(added v1.1.10)* | `assert_platform_has_admin()` constraint trigger on `platform_admin` | **DB** |
+| 41 at most one pending business-creation request per identity *(added v1.1.10)* | `business_creation_request_one_pending` partial unique index | **DB** |
+| 42 a business is created only via allowance or approval *(added v1.1.10)* | The allowance check plus `business_creation_request.status`; no third code path calls the business-creation transaction | **App** |
 
-**23 of 31 are enforced by Postgres.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
+**23 of 31 original invariants are enforced by Postgres; INV-32 to INV-42 add eleven more, six of them (32, 33 mostly, 40, 41) at the database level.** The eight that are not are either arithmetic (9), workflow ordering (18, 22), scoping (25), or cross-cutting discipline (5, 12, 20, 28) — and each has a named test in `user-flows.md` §9.
 
 ---
 
@@ -1888,8 +2027,12 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-10.2 messaging config | `messaging_config`, `business_settings` |
 | F-10.3 automatic sends | `message`, `message_template` |
 | F-10.4 message log | `message_event` |
+| F-0.3 request an additional business *(added v1.1.10)* | `app_user.business_allowance`, `business_creation_request` |
+| F-0.4 switch between businesses *(added v1.1.10)* | none — client-side selection only, filtered against `business_member`/`driver.linked_user_id` server-side (§2.4, `user-flows.md`) |
+| F-11.1 approve or reject a request *(added v1.1.10)* | `business_creation_request`, `business`, `app_user`, `business_member`, `business_settings`, `accounting_period` (approval runs F-0.1's own transaction) |
+| F-11.2 grant or revoke platform admin *(added v1.1.10)* | `platform_admin`, `platform_audit_log` |
 
-**Result: 62 of 62 flows have a home. No flow requires a fact the schema cannot hold.**
+**Result: 66 of 66 flows have a home** *(62 original, plus F-0.3, F-0.4, F-11.1, F-11.2 — added v1.1.10)*. **No flow requires a fact the schema cannot hold.**
 
 ### 16.0 What has been verified
 

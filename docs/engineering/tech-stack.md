@@ -1,6 +1,7 @@
 # Tech Stack
 
-**Status:** v1.3 — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
+**Status:** v1.4 — **the `email` scope added (§2.1), and self-registration's activation moved from an Asgardeo-console gate to the platform tier's own approval queue.** The `email` scope shipped 18 Aug 2026 (Track A, PR #70) — `middleware/auth.ts` has always read `payload.email`/`payload.name` off the access token; the client had simply never asked for it. Self-registration itself stays off pending the platform tier (`use-cases.md` Group L, W-63/W-64) — enabling it at the console before that queue exists would let anyone create a business with no approval step at all. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 28.
+**v1.3** — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
 **Date:** 5 August 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
@@ -66,7 +67,7 @@ Registered 31 July 2026. Every value here is public — the client id ships in t
 | **JWKS** | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
 | **Authorize** | `https://api.asgardeo.io/t/fleetsettle/oauth2/authorize` |
 | **Logout** | `https://api.asgardeo.io/t/fleetsettle/oidc/logout` |
-| **Scopes** | `openid`, `profile` |
+| **Scopes** | `openid`, `profile`, `email` — the third added 18 Aug 2026 (Track A); `middleware/auth.ts`'s read of `payload.email`/`payload.name` predates it and was the write path all along, so the fix is entirely client-side |
 | **Redirect / origin** | `http://localhost:5173` today; the production domain is added when it exists |
 
 **The issuer is the token endpoint URL, not the tenant root.** That is unusual, it is not a typo, and it was read from the discovery document rather than inferred. `jose` compares `iss` as an exact string, so a trailing slash or a guessed shape makes every request 401 with a message that says nothing useful. If it ever needs re-checking, the source of truth is `…/oauth2/token/.well-known/openid-configuration`.
@@ -74,6 +75,8 @@ Registered 31 July 2026. Every value here is public — the client id ships in t
 **Audience is the client id**, because no API resource is registered. If one is later — to get real OAuth scopes rather than roles from `business_member` — `ASGARDEO_AUDIENCE` becomes the API identifier and nothing else changes.
 
 **Sign-in is password plus TOTP, and self-registration is off** at the organisation level. The second factor is not ceremony: `audit_log` (DM D-8) records who did what, and that record is worth exactly as much as the authentication behind it. An entry reading "the manager confirmed this day" has to actually mean the manager — which is the moment you reach for it, in a disagreement about money. Both partners hold console admin, because with two users there is no help desk and a lost phone otherwise locks someone out permanently.
+
+**Self-registration's own gate is moving, not disappearing — decision 28, 18 Aug 2026.** Today "off" is the only approval gate that exists: nobody can even reach the sign-up flow. Once the platform tier ships (`use-cases.md` Group L), the gate becomes the app's own — an identity below its allowance creates a business immediately, at or above it a platform admin approves (W-63, W-64) — and *then* self-registration is turned on at the console. Turning it on before that queue exists would mean anyone reaching the hosted login page could create a business with no approval step at all; the ordering is deliberate, not incidental.
 
 **Asgardeo config needed:** a Single-Page Application registered with the app's origin as an allowed redirect and CORS origin, and the Worker's audience value pinned in `jwtVerify`.
 

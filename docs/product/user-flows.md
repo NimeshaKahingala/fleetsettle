@@ -1,6 +1,7 @@
 # Key User Flows
 
-**Status:** v1.1.14 — **three flows given honest delivery status, none weakened.** **F-6.6** splits: the printed slip is phase 1, the no-login share link phase 2 — it would be the first route in the client outside the login, carrying a full financial position, so it earns W-49's isolation class and its own expiry and revocation tests rather than a corner of a release. "Not optional" stands; print satisfies it, and F-6.8/UC-59 already gives a linked driver the same figures. **F-9.3** splits the same way: CSV ships, PDF defers — no renderer has a home in this runtime (`TS §8`), and the alternatives are a dependency inside the money-write runtime or an outside service that would see every figure. **F-4.5's weekly-settler criterion is recorded as unmet**: nothing derives `effective_due_on` from `driver.settlement_rhythm`, so confirming a day for a non-`'daily'` driver now **refuses** (`SETTLEMENT_RHYTHM_UNSUPPORTED`) rather than writing a due date that reads as overdue — W-56's rule applied to a write. All three criteria stay as written; what changed is that the documents now say which are built. Mirrors `use-cases.md` v1.2.13; see `data-model.md` D-5. Decided 17 Aug 2026.
+**Status:** v1.1.15 — **a platform tier above the business, and one identity able to belong to more than one — mechanised.** New **INV-38 to INV-42**, new **F-0.3/F-0.4** and new **Group F-11**. **F-0.1 noted, F-1.4 amended**: F-0.1 is now the mechanism for every business under an identity's allowance, not only the first; F-1.4 states explicitly that redeeming an invite while already a member elsewhere is unremarkable — a second membership, never a merge, never a block. Mechanises `use-cases.md`'s **W-63 to W-67**/**UC-102 to UC-105**. §7's screen map and §8's traceability updated to match. Decided 17-18 Aug 2026.
+**v1.1.14** — **three flows given honest delivery status, none weakened.** **F-6.6** splits: the printed slip is phase 1, the no-login share link phase 2 — it would be the first route in the client outside the login, carrying a full financial position, so it earns W-49's isolation class and its own expiry and revocation tests rather than a corner of a release. "Not optional" stands; print satisfies it, and F-6.8/UC-59 already gives a linked driver the same figures. **F-9.3** splits the same way: CSV ships, PDF defers — no renderer has a home in this runtime (`TS §8`), and the alternatives are a dependency inside the money-write runtime or an outside service that would see every figure. **F-4.5's weekly-settler criterion is recorded as unmet**: nothing derives `effective_due_on` from `driver.settlement_rhythm`, so confirming a day for a non-`'daily'` driver now **refuses** (`SETTLEMENT_RHYTHM_UNSUPPORTED`) rather than writing a due date that reads as overdue — W-56's rule applied to a write. All three criteria stay as written; what changed is that the documents now say which are built. Mirrors `use-cases.md` v1.2.13; see `data-model.md` D-5. Decided 17 Aug 2026.
 **v1.1.13** — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
 **v1.1.12** — **INV-36** and **F-8.5** extended: the nine remaining void-cascade tables (`adjustment`, `offset_record`, `deposit_movement`, `advance`, `advance_settlement`, `write_off`, `write_off_recovery`, `incident_recovery`, `obligation`) each get their exact mechanics — which cascade, which recompute a status, which refuse and on what, naming the blocking rows. Mechanises `use-cases.md`'s **W-61**, closing GAP-12 for Wave 5 Track 5B — the nine void endpoints are unblocked by this. §8's traceability updated to match. Decided 14 Aug 2026. **v1.1.11** — **F-1.11** corrected: its Steps and Writes now say a reason is required, matching `use-cases.md` v1.2.10's UC-100 correction — migration `0023`'s own `CHECK` on `driver`/`customer` already required it (`voided_at` set with `voided_reason` null or empty is refused), the flow just hadn't said so. **v1.1.10** added **INV-35** and **F-1.11** themselves: archiving a driver or customer is refused while any obligation, deposit or (driver only) advance tied to him is still open, naming every open figure separately and never netting a driver's two balances (INV-3). §8's traceability updated to match. Mechanises `use-cases.md`'s **W-60**/**UC-100**, closing GAP-36's Step 0 — Wave 5 Track 5B's A9b archive endpoints are unblocked by this. Decided 14 Aug 2026
 **Date:** 17 August 2026
@@ -104,6 +105,7 @@ The use-case document is right to guard this (§6.13, W-27). These words have ex
 | **Manager (non-owner)** | Yes | Everything operational | Operations for vehicles shared with him; **not** the ownership/capital block |
 | **Driver** | Optional, **view-only** (W-13) | Never (W-3) | Only his own record — his two balances, his days, his trips, his advances, his deposit, his statement |
 | **Customer** | No | Never | Nothing in-app. Receives messages and statements (Group I) |
+| **Platform admin** (added v1.1.15) | Yes | Approves/rejects requests, grants/revokes admin | Requester names, emails, business names and counts — **never a balance, a report or an export from inside any business** (INV-38) |
 | **The system** | — | Generates dues, day cards, reminders, warnings | — |
 
 ### 2.2 The scope unit *(now W-39, UC-08)*
@@ -134,6 +136,30 @@ Not stated anywhere in v1.1 of the use-case document, and it blocked row-level d
 The driver boundary is the only one that is a security requirement rather than a preference: a linked driver account must be unable to read any record not tied to his own driver record, including via a report, an export or a shared link.
 
 **One row this table has no place for: UC-70 alone, of every report in Group H, scopes a manager to "shared vehicles" (INV-34).** UC-71/72/74/76/78 carry no such qualifier and stay whole-business for him — deliberate (W-59), since a manager runs operations and those are his working set; what he is denied is capital and the two owners-only reports. UC-75 has no vehicle dimension to scope by at all.
+
+### 2.4 The platform tier and cross-business selection *(added v1.1.15, now W-63 to W-67, UC-102 to UC-105)*
+
+Everything in §2.1 to §2.3 answers "what may this identity do inside the one business it is scoped to." This section is the layer above and beside that: how a business comes to exist at all, and how one identity holding membership in more than one picks which is in scope for a given request.
+
+**The platform tier is not a fifth row on the capability table above.** A platform admin has no business selected, ever — the concept does not apply to it, the same way "shared vehicles" does not apply to a driver. Its own capabilities:
+
+| Capability | Platform admin |
+|---|---|
+| Approve or reject a business-creation request (F-11.1) | ✓ |
+| Grant or revoke another platform admin (F-11.2) | ✓ |
+| See a business's name, creation date, member count | ✓ |
+| See a business's money — any balance, report or export | **✗ — no route reaches one (INV-38)** |
+| Read `audit_log` (any business's) | **✗ — it is tenant-scoped and not the platform's** |
+
+**Business selection is a header, never a grant.** An identity holding more than one membership sends `X-Business-Id` on every request; the server treats it strictly as a filter over memberships it already derived from the verified token, never as a claim to trust:
+
+1. Verify the token.
+2. Resolve every membership this identity holds, from the database — never from the token.
+3. Header present, and it names a membership in that set → use it. Header present, naming anything else → **404, never 403** (§2.3's rule, unchanged: a 403 would confirm the business exists).
+4. Header absent, exactly one membership → use it, unremarked — this is every identity that has never needed to select anything, and nothing about its experience changes.
+5. Header absent, more than one membership → refused, `BUSINESS_NOT_SELECTED` — the picker (F-0.4), never a guess.
+
+**Two businesses are never compared, combined, or visible to each other, by anyone — including a platform admin, including a linked driver who is also a member elsewhere.** Revoked from one, that business becomes unreachable the next time it is opened — 404, exactly as if it had never existed, the identical boundary §2.3 already draws for a driver reading another driver's record, drawn again one level up.
 
 ---
 
@@ -316,6 +342,11 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-35** | Archiving a driver or customer is refused while any `obligation` (either direction), `deposit` or — driver only — `advance` tied to him is not fully settled. The refusal names every open figure separately; INV-3 still applies, so a driver's two balances are never netted into one | W-60, UC-100 |
 | **INV-36** | Voiding a record cascades only into a row the same write minted; a record entered separately, on its own, beneath the one being voided blocks the void and is named in the refusal. Per-table mechanics: F-8.5 | W-61 |
 | **INV-37** | Ending a daily-lease assignment never refuses on an open driver balance. Unlike INV-35's archive, nothing about the driver's visibility changes, so there is no report the debt could silently leave | W-62, UC-101 |
+| **INV-38** | A platform admin can never read a business's money — no balance, no report, no export, by any route. Enforced structurally (separate middleware, separate query directory, a forbidden-import guard), not by a check that could be forgotten | W-65, §2.4 |
+| **INV-39** | A business not in an identity's resolved membership set is unreachable — 404, never 403 — whether the identity has zero, one, or several other memberships. Revoked access is indistinguishable from access that never existed | W-49, W-66, §2.4 |
+| **INV-40** | The platform always retains at least one active admin. Revoking or demoting the last one is refused, never merely warned — the identical shape INV-31 already takes for a business's last owner, one level up | W-65, UC-105 |
+| **INV-41** | At most one business-creation request is outstanding per identity at a time. A rejected request may be replaced by a new one; a pending one may not | W-64, UC-102 |
+| **INV-42** | A business is created exactly two ways: immediately, below the requester's allowance, or by an admin's explicit approval at or above it. No third path exists, and nothing but the allowance check and the admin's decision stands between a request and a business | W-63, W-64, UC-102, UC-103 |
 
 ---
 
@@ -339,6 +370,32 @@ Each is a property test, not a unit test. Each cites its source.
 · Currency and timezone are set once and are not editable from any operational screen
 · **The settings row and the first accounting period are created in the same transaction.** Neither is optional and neither defaults itself into existence: settings is a one-row-per-business table keyed on the business, and *every money record requires an open period to post to*. Without both, the first expense the user records fails on a constraint and the app appears broken on day one
 · Defaults applied: auto-waive threshold **zero** (W-43), send window 08:00–20:00, paperwork warning 30 days.
+
+**⚑ Noted, v1.1.15 — this is now the mechanism for any business under the requester's allowance, not only the identity's first.** An identity below its allowance (W-64, default five active owner/owner-manager memberships) runs this exact flow again for a second, third, fourth or fifth business — same steps, same writes, same Accept clauses, unremarked. Nothing here changes; what changes is that it is no longer the *only* way a business comes to exist — see F-0.3 for what happens at or above the allowance.
+
+---
+
+#### F-0.3 Request an additional business *(added v1.1.15)*
+*Actor:* Owner (any identity, signed in) · *Source:* UC-102, W-63, W-64 · *Phase:* 1
+**Pre** none — first business or additional, the form is identical (F-0.1 step 2).
+**Steps** 1. Name the business, confirm timezone and currency — same fields as F-0.1. 2. System counts the requester's current active owner/owner-manager memberships. 3. **Below the allowance** → F-0.1 runs exactly as written, unqueued. **At or above it** → a `pending` request is held instead; nothing is created yet.
+**Writes** below the allowance: identical to F-0.1, plus an `approved` request row alongside it, for a uniform audit trail. At or above it: a `pending` `BusinessCreationRequest` only.
+**Alternates** · A **rejected** request may be replaced by requesting again, with the rejection reason shown on the retry (INV-41) · a **pending** request may not be duplicated — the "get started" screen renders it as *"being reviewed"* rather than offering the form again.
+**Accept**
+· A request never creates a business by itself — only F-0.1's own transaction does that, whether triggered directly or by an admin's approval (F-11.1)
+· The allowance counts *active* owner/owner-manager memberships, never businesses ever created — leaving one frees a slot rather than consuming it permanently (INV-42)
+· Invite redemption (F-1.4) is never subject to this — it is not this flow, at any count.
+
+#### F-0.4 Switch between businesses *(added v1.1.15)*
+*Actor:* Anyone holding more than one membership, including a linked driver who is a member elsewhere · *Source:* UC-104, W-66 · *Phase:* 1
+**Pre** more than one resolved membership (§2.4).
+**Steps** 1. Open the switcher. 2. Pick a business. 3. Every screen, report and write from that point belongs to it alone, until switched again.
+**Writes** none — a client-side selection only; the server never trusts it as anything but a filter (§2.4 step 5).
+**Alternates** · Exactly one membership → the switcher never appears; F-0.1's original single-business experience is unchanged (§2.4 step 4) · access revoked from the currently-selected business mid-session → the next request 404s, `BUSINESS_NOT_SELECTED` is shown, and the picker replaces it, never an error screen.
+**Accept**
+· Two businesses are never shown side by side, compared, or combined, by anyone (INV-39)
+· Switching clears every cached figure from the previous business before the new one renders — a stale balance rendering under the new business's name is the single highest-severity failure this flow exists to prevent
+· A linked driver's isolation (INV-25) is unaffected: whichever business is selected, he reads only his own driver record within it, exactly as if the other business did not exist.
 
 #### F-0.2 Go live mid-stream — opening balances
 *Actor:* Owner-manager · *Source:* UC-09, W-51 · *Phase:* 1
@@ -388,7 +445,7 @@ Every real deployment starts on a Tuesday with a bus already leased, a car alrea
 **Pre** none — the invitee need not have signed in before.
 **Steps** 1. Choose the role — **owner** (reports only), **owner-manager** (a second person entering everything), or **manager** (operational, no ownership/capital block). 2. System generates an **invite code**, scoped to that role and this business. 3. Hand it over out of band — the same "however you'd normally reach them" as a driver's own code (F-1.8). 4. Invitee signs in and enters the code: joins the business in that role, creating their account if this is their first time. 5. **If the role is manager:** grant manage rights on the vehicle and, optionally, a monthly fee — the owner/owner-manager roles skip this step, since they are not scoped to a vehicle at all.
 **Alternates** · Revoke — access ends, everything they entered stays · a code not yet redeemed can be reissued, which invalidates the old one.
-**Accept** · **A second owner-manager is possible, not just a manager** — F-0.1 grants the *creator* the role; this is how anyone after the first person gets in · **a plain `owner` is reachable too, and it is the more common of the two for a real two-partner business** (⚑, corrected 7 Aug 2026 — v1.2.3's own text named only manager/owner-manager and left the passive partner this project is built around with no way in at all, the same shape of bug A0 fixed for the creator) · a revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block · redeeming a code never lets the invitee pick their own role.
+**Accept** · **A second owner-manager is possible, not just a manager** — F-0.1 grants the *creator* the role; this is how anyone after the first person gets in · **a plain `owner` is reachable too, and it is the more common of the two for a real two-partner business** (⚑, corrected 7 Aug 2026 — v1.2.3's own text named only manager/owner-manager and left the passive partner this project is built around with no way in at all, the same shape of bug A0 fixed for the creator) · a revoked manager's records remain attributed to them · the management fee appears in UC-64's "managed" block, not as a vehicle cost of the owner's block · redeeming a code never lets the invitee pick their own role · **⚑ amended v1.1.15 — redeeming a code while already a member of one or more other businesses is unremarked.** It adds a second (or further) membership exactly as F-0.3 would for a request, never merges the businesses, never asks which is "primary," and is never subject to the allowance (W-63) — the inviting owner already vouched for the person, which is precisely why invite redemption sits outside the threshold at all.
 
 #### F-1.5 See a vehicle's calendar
 *Actor:* Manager · *Source:* UC-95 · *Phase:* 1
@@ -1007,6 +1064,34 @@ Recipient and their number **at the time** · template name, language code and t
 
 ---
 
+### F-11 — Platform administration *(added v1.1.15)*
+
+Not a business role (§2.4) — every flow here runs above the business, for an actor who may or may not also hold a membership in one.
+
+#### F-11.1 Approve or reject a business-creation request
+*Actor:* Platform admin · *Source:* UC-103, W-63, W-65, W-67 · *Phase:* 1
+**Pre** a `pending` request exists (F-0.3).
+**Steps** 1. Open the request queue. 2. Approve — runs F-0.1's business-creation transaction exactly as it would have run unqueued — or reject with a reason. 3. Requester sees the outcome on next refresh or re-login (no notification, no email).
+**Writes** approve: F-0.1's own writes, plus `decided_by`/`decided_at` on the request. Reject: `decided_by`/`decided_at`/`rejection_reason` only — no business, no membership.
+**Alternates** · **Self-approval** — an admin approving their own request — is allowed and rendered visibly distinct from an arms-length decision, to every admin reading the platform log (W-67) · a rejected requester may request again (F-0.3, INV-41).
+**Accept**
+· The decision is made on the requester's name, email, and current membership count — **never anything from inside a business** (INV-38)
+· A rejected request creates nothing — no business, no membership, no partial row
+· Every decision, self-approved or not, is logged to the platform's own audit log, never `audit_log` (which is tenant-scoped, §2.4).
+
+#### F-11.2 Grant or revoke platform admin
+*Actor:* Platform admin · *Source:* UC-105, W-65 · *Phase:* 1
+**Pre** none for granting; INV-40 for revoking.
+**Steps** 1. Pick a signed-in identity. 2. Grant, or revoke an existing admin.
+**Writes** `PlatformAdmin` row (granted) or its `revoked_at` (revoked) — re-grantable, one row per identity, never a second row for the same person.
+**Alternates** **Refused** — revoking the platform's last active admin (INV-40).
+**Accept**
+· The platform always holds at least one active admin, the same shape INV-31 already takes for a business's last owner
+· Every grant and revoke is logged: who did it, to whom, and when
+· Granting admin to someone who also holds a business membership changes nothing about that membership — the two are entirely separate, and neither implies the other (§2.4).
+
+---
+
 ## 7. Screen-to-flow map
 
 Because the source document's usability contract is about *where* things live, not just what they do.
@@ -1034,6 +1119,8 @@ The ordering principle: *things that are silently getting worse* come before *th
 | **Money/cash** | F-7.2, F-7.4, F-7.5 | U-6 |
 | **Reports** | F-9.2, F-9.3 | degradation rule §6.9 |
 | **Settings** | F-10.2, thresholds (OQ-3), packages | U-2 level 3, set once |
+| **Get started / business picker** (added v1.1.15) | F-0.1, F-0.3, F-0.4 | U-1, M-1 (mobile-first, no exception for this screen) |
+| **Admin panel** (added v1.1.15) | F-11.1, F-11.2 | M-1, M-3 (a platform surface reached from within whichever shell the admin already has, or standing alone with none — never a fourth *role* shell, `ui-ux-guidelines.md` §1.1) |
 
 **The level rule is testable:** *nothing at level 2 or 3 is ever required to save a record* (U-2). Every create form must be savable with only level-1 fields. Make it an automated test over every form, not a design intention.
 
@@ -1069,6 +1156,8 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-1.11 | UC-100 | W-60, INV-35 |
 | F-8.5 | UC-96 | W-61, INV-36 |
 | F-4.8 | UC-101 | W-62, INV-37 |
+| F-0.3, F-0.4 | UC-102, UC-104 | W-63, W-64, W-66, INV-41, INV-42 |
+| F-11.1, F-11.2 | UC-103, UC-105 | W-63, W-65, W-67, INV-38, INV-40 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.
@@ -1165,6 +1254,13 @@ The last row is fully derivable and every step is an assertion: combined allowan
 | A-24 | Manager attempts a write-off, a receipt reversal and a period close | All three refused; each is an owner action (W-49) |
 | A-25 | Mileage package edited after a lease was agreed under it | The lease keeps its own terms — the ones the customer was messaged (F-1.9) |
 | A-26 | Driver settling weekly by agreement, checked on a Thursday | Not in arrears; ageing runs from the agreed settlement point (UC-78) |
+| A-27 *(added v1.1.15)* | A user in two businesses sends a header naming a third | 404, never 403 (INV-39) |
+| A-28 *(added v1.1.15)* | A valid token plus a header naming business A is used to request business B's data | 404 — the header narrows, it never grants (§2.4 step 5) |
+| A-29 *(added v1.1.15)* | A header names a business the identity was just revoked from | 404, indistinguishable from a business that never existed (INV-39) |
+| A-30 *(added v1.1.15)* | No header sent, and the identity holds two or more memberships | `BUSINESS_NOT_SELECTED`, never a guessed default (§2.4 step 5) |
+| A-31 *(added v1.1.15)* | A linked driver in two businesses opens the app with business A selected | Reads only his own driver record in A — his own record in B is unreachable while A is selected, exactly as if B did not exist (INV-25, INV-39) |
+| A-32 *(added v1.1.15)* | Two concurrent business-creation requests from an identity at its 4th active ownership (allowance 5) | At most one auto-approves under the allowance; the race is a recorded, accepted gap (`PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 20) — never both silently exceeding it undetected |
+| A-33 *(added v1.1.15)* | A platform admin's own credentials are used against any business endpoint | Refused structurally — `platformAdminMiddleware` never resolves a `businessId`, so there is no request shape by which one is acquired (INV-38) |
 
 ---
 
