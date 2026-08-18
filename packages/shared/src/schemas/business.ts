@@ -14,6 +14,7 @@ export const createBusinessRequestSchema = z.object({
 export type CreateBusinessRequest = z.infer<typeof createBusinessRequestSchema>;
 
 export const businessResponseSchema = z.object({
+  kind: z.literal("created"),
   id: z.string().uuid(),
   name: z.string(),
   currencyCode: z.string(),
@@ -21,3 +22,21 @@ export const businessResponseSchema = z.object({
   accountingPeriodId: z.string().uuid(),
 });
 export type BusinessResponse = z.infer<typeof businessResponseSchema>;
+
+/**
+ * Decision 22/W-64, Phase 2: at or above the requester's allowance, nothing
+ * is created — a `business_creation_request` is held instead (decision 2).
+ * `businessCreationResponseSchema` below is the union the handler and the
+ * client share; `CreateBusinessForm` branches on `kind`.
+ */
+export const businessCreationPendingResponseSchema = z.object({
+  kind: z.literal("pending"),
+  requestId: z.string().uuid(),
+});
+export type BusinessCreationPendingResponse = z.infer<typeof businessCreationPendingResponseSchema>;
+
+export const businessCreationResponseSchema = z.discriminatedUnion("kind", [
+  businessResponseSchema,
+  businessCreationPendingResponseSchema,
+]);
+export type BusinessCreationResponse = z.infer<typeof businessCreationResponseSchema>;

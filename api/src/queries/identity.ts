@@ -7,12 +7,14 @@ export type Membership =
   | {
       userId: string;
       businessId: string;
+      businessName: string;
       businessTimezone: string;
       role: "owner" | "owner_manager" | "manager";
     }
   | {
       userId: string;
       businessId: string;
+      businessName: string;
       businessTimezone: string;
       role: "driver";
       driverId: string;
@@ -46,6 +48,7 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
     .select({
       userId: appUser.id,
       businessId: businessMember.businessId,
+      businessName: business.name,
       role: businessMember.role,
       driverId: sql<string | null>`null`.as("driver_id"),
       businessTimezone: business.timezone,
@@ -62,6 +65,7 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
     .select({
       userId: appUser.id,
       businessId: driver.businessId,
+      businessName: business.name,
       role: sql<string>`'driver'`.as("role"),
       driverId: driver.id,
       businessTimezone: business.timezone,
@@ -78,6 +82,7 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
       ? {
           userId: row.userId,
           businessId: row.businessId,
+          businessName: row.businessName,
           businessTimezone: row.businessTimezone,
           role: "driver",
           driverId: row.driverId as string,
@@ -85,6 +90,7 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
       : {
           userId: row.userId,
           businessId: row.businessId,
+          businessName: row.businessName,
           businessTimezone: row.businessTimezone,
           role: row.role as "owner" | "owner_manager" | "manager",
         },

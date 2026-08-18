@@ -72,3 +72,12 @@ export function isBusinessHasNoOwnerViolation(err: unknown): boolean {
     (pgError.message?.includes("would have no active owner") ?? false)
   );
 }
+
+/** True if `err` is `assert_platform_has_admin()`'s `RAISE EXCEPTION` (INV-40, migrations/0030) — the identical shape as `isBusinessHasNoOwnerViolation` above, one level up. */
+export function isPlatformHasNoAdminViolation(err: unknown): boolean {
+  const pgError = pgErrorOf(err);
+  return (
+    pgError?.code === RAISE_EXCEPTION &&
+    (pgError.message?.includes("would have no active admin") ?? false)
+  );
+}

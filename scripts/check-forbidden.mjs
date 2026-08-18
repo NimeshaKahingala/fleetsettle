@@ -481,6 +481,87 @@ function checkVoidTableFilter(paths) {
   return findings;
 }
 
+/**
+ * IG §7.6/§16.1: `api/src/queries/platform/` may never import money-table
+ * schema — the structural half of "a platform admin can never read
+ * business money" (INV-38), enforced here rather than trusted to review.
+ *
+ * **An allowlist, deliberately, not a money-table denylist** — the shape
+ * `checkVoidTableFilter` above uses for a different problem. A denylist
+ * fails open: a new operational table added later (a lease, a trip, an
+ * incident — none strictly "money" by DM §13's `posted_period_id` test, but
+ * all business-internal data a platform admin must never see) would be
+ * importable from this directory by default until someone remembers to add
+ * it here. An allowlist fails closed — new schema is unreachable from this
+ * directory until someone deliberately widens the list, which is the
+ * correct default for a security boundary, not merely a stylistic choice.
+ */
+const PLATFORM_QUERY_SAFE_TABLES = [
+  "business",
+  "businessSettings",
+  "accountingPeriod",
+  "appUser",
+  "platformAdmin",
+  "businessCreationRequest",
+  "platformAuditLog",
+  "businessMember",
+  "businessMemberInvite",
+];
+
+function checkPlatformQueryImports(paths) {
+  const findings = [];
+  for (const path of paths) {
+    if (!/^api\/src\/queries\/platform\/.*\.ts$/.test(path)) continue;
+    if (/\.test\.ts$/.test(path)) continue;
+    const abs = resolve(ROOT, path);
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = readFileSync(abs, "utf8");
+    } catch {
+      continue; // binary, unreadable — not our business
+    }
+    if (OPT_OUT.test(text)) continue; // file-wide allow: — a deliberate, visible exception
+
+    // Every import from db/schema.js in the file, not just the first — a
+    // second, later import statement (however it got there) is exactly the
+    // shape a violation would actually take.
+    const importPattern = /import\s*\{([^}]*)\}\s*from\s*["']\.\.\/\.\.\/db\/schema\.js["']/g;
+    const imported = [];
+    let m;
+    while ((m = importPattern.exec(text)) !== null) {
+      imported.push(
+        ...m[1]
+          .split(",")
+          .map((s) =>
+            s
+              .trim()
+              .split(/\s+as\s+/)[0]
+              .trim(),
+          )
+          .filter(Boolean),
+      );
+    }
+    if (imported.length === 0) continue;
+    const forbidden = imported.filter((name) => !PLATFORM_QUERY_SAFE_TABLES.includes(name));
+    if (forbidden.length === 0) continue;
+
+    findings.push({
+      file: path,
+      line: 1,
+      column: 1,
+      id: "tenancy/platform-query-schema-import",
+      match: forbidden.join(", "),
+      message:
+        `api/src/queries/platform/ may only import ${PLATFORM_QUERY_SAFE_TABLES.join(", ")} ` +
+        `from db/schema.js — a platform admin can never read business money (INV-38). Move this ` +
+        "query out of queries/platform/, or add `-- allow: <reason>` (anywhere in the file) if " +
+        "this import is genuinely correct.",
+    });
+  }
+  return findings;
+}
+
 /** Positive assertions — things that must be present, not absent. */
 function checkRequired() {
   const findings = [];
@@ -527,6 +608,7 @@ const findings = [
   ...scanTargets.flatMap(scan),
   ...checkQueryErrorHandling(scanTargets),
   ...checkVoidTableFilter(scanTargets),
+  ...checkPlatformQueryImports(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
 

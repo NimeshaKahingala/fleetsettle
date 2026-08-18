@@ -372,6 +372,7 @@ test("creating a business from the first-run gate replaces it with the operate s
   post.mockImplementation(() => {
     hasBusiness = true;
     return Promise.resolve({
+      kind: "created",
       id: "b1",
       name: "Test Fleet",
       currencyCode: "LKR",

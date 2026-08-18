@@ -26,6 +26,62 @@ export interface CreatedBusiness {
   accountingPeriodId: string;
 }
 
+export interface CreateBusinessForUserInput {
+  userId: string;
+  name: string;
+  currencyCode: string;
+  timezone: string;
+  today: BusinessDate;
+}
+
+/**
+ * F-11.1's approval path — business, one owner-manager, settings, first
+ * period — for a `userId` that is already known to exist, so it never
+ * re-derives a `sub` it doesn't have: a `business_creation_request` names
+ * `requested_by` (a `userId`) directly, not the identity's Asgardeo `sub`.
+ *
+ * **Not a shared transaction body with `createBusiness` below**, despite
+ * the near-identical writes — `createBusiness` opens its own transaction to
+ * also cover the `app_user` resolution this function skips, and nesting a
+ * second `writer.transaction()` inside that one would open a separate
+ * connection rather than a savepoint, breaking the atomicity both functions
+ * exist to guarantee. A few lines of duplication is the safer trade against
+ * that risk, not an oversight.
+ */
+export async function createBusinessForUser(
+  writer: Writer,
+  input: CreateBusinessForUserInput,
+): Promise<CreatedBusiness> {
+  return await writer.transaction(async (tx) => {
+    const businessId = newId();
+    await insertBusiness(tx, {
+      id: businessId,
+      name: input.name,
+      currencyCode: input.currencyCode,
+      timezone: input.timezone,
+    });
+
+    // See createBusiness's own comment below for why owner_manager, not owner.
+    await insertBusinessMember(tx, {
+      id: newId(),
+      businessId,
+      userId: input.userId,
+      role: "owner_manager",
+    });
+    await insertBusinessSettings(tx, businessId);
+
+    const accountingPeriodId = newId();
+    await insertAccountingPeriod(tx, {
+      id: accountingPeriodId,
+      businessId,
+      periodStart: monthStart(input.today),
+      periodEnd: monthEnd(input.today),
+    });
+
+    return { businessId, accountingPeriodId };
+  });
+}
+
 /**
  * F-0.1 / UC-08, one transaction: the `app_user` row (created just-in-time if
  * this is the caller's first authenticated write — Asgardeo sign-up and

@@ -18,6 +18,7 @@ test("GAP-55: Business name carries an autocomplete token", () => {
 test("saves with the name field alone (level 1 only, U-2) — currency/timezone already default", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({
+    kind: "created",
     id: "b1",
     name: "Perera Transport",
     currencyCode: "LKR",
@@ -42,6 +43,21 @@ test("saves with the name field alone (level 1 only, U-2) — currency/timezone 
   // just the first argument rather than the full call signature.
   await vi.waitFor(() => expect(onCreated).toHaveBeenCalled());
   expect(onCreated.mock.calls[0]?.[0]).toMatchObject({ id: "b1" });
+});
+
+test("Phase 2 (18 Aug 2026): a pending response (at/over the allowance) never calls onCreated", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ kind: "pending", requestId: "r1" });
+  const onCreated = vi.fn();
+  renderWithProviders(<CreateBusinessForm onCreated={onCreated} />, { post });
+
+  await user.type(screen.getByLabelText("Business name"), "Perera Transport");
+  await user.click(screen.getByRole("button", { name: "Create business" }));
+
+  await vi.waitFor(() =>
+    expect(screen.getByText("Your request is being reviewed.")).toBeInTheDocument(),
+  );
+  expect(onCreated).not.toHaveBeenCalled();
 });
 
 test("a blank name is rejected client-side before ever reaching the API", async () => {
