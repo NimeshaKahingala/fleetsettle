@@ -43,8 +43,12 @@ export function asgardeoConfig(origin: string): AuthReactConfig {
     baseUrl: requireEnv("VITE_ASGARDEO_BASE_URL"),
     // Matches the app's registered scope. `openid` is what makes this OIDC
     // rather than bare OAuth, and `sub` — the claim the Worker resolves the
-    // business from — rides on it.
-    scope: ["openid", "profile"],
+    // business from — rides on it. `email` was missing until Track A
+    // (18 Aug 2026): `middleware/auth.ts`'s `verifyTokenMiddleware` has
+    // always read `payload.email`/`payload.name` off the access token, but
+    // an unrequested scope means Asgardeo never puts them there — the write
+    // path was innocent, the request was short.
+    scope: ["openid", "profile", "email"],
     enablePKCE: true,
   };
 }
