@@ -13,10 +13,11 @@ import {
   insertAppUser,
 } from "../queries/business.js";
 import {
+  claimRequestForApproval,
+  claimRequestForRejection,
   findRequestById,
   insertBusinessCreationRequest,
-  markRequestApproved,
-  markRequestRejected,
+  setRequestApprovedBusiness,
 } from "../queries/platform/business-creation-request.js";
 import { insertPlatformAuditEntry } from "../queries/platform/platform-admin.js";
 import {
@@ -108,6 +109,15 @@ export async function requestOrCreateBusiness(
  * the identity that requested it, using exactly the name/currency/timezone
  * it asked for. `actorId` is the deciding admin, for the audit entry and
  * `self_action` (W-67).
+ *
+ * **The claim, not the read, is the gate** (fixes a review finding on PR
+ * #73: `findRequestById` takes no row lock, so a pre-read `status !==
+ * "pending"` check lets two concurrent decide calls both pass and both
+ * create a business). `claimRequestForApproval` is the one conditional
+ * `UPDATE … WHERE status = 'pending'` that only one caller can win; losing
+ * it — including a request that was never pending, which still 404s above
+ * — throws `RequestAlreadyDecidedError` before `createBusinessForUser` ever
+ * runs.
  */
 export async function approveRequest(
   writer: Writer,
@@ -116,7 +126,9 @@ export async function approveRequest(
 ): Promise<CreatedBusiness> {
   const request = await findRequestById(writer, requestId);
   if (!request) throw new NotFoundError();
-  if (request.status !== "pending") throw new RequestAlreadyDecidedError();
+
+  const claimed = await claimRequestForApproval(writer, requestId, actorId);
+  if (!claimed) throw new RequestAlreadyDecidedError();
 
   const created = await createBusinessForUser(writer, {
     userId: request.requestedBy,
@@ -126,7 +138,7 @@ export async function approveRequest(
     today: businessToday(request.timezone),
   });
 
-  await markRequestApproved(writer, requestId, actorId, created.businessId);
+  await setRequestApprovedBusiness(writer, requestId, created.businessId);
   await insertPlatformAuditEntry(writer, {
     action: "request_approved",
     subjectId: requestId,
@@ -137,7 +149,14 @@ export async function approveRequest(
   return created;
 }
 
-/** F-11.1: reject a queued request, with a reason the requester will see (decision 12) — creates nothing. */
+/**
+ * F-11.1: reject a queued request, with a reason the requester will see
+ * (decision 12) — creates nothing, but still claims atomically
+ * (`claimRequestForRejection`), the same fix as `approveRequest` above: an
+ * unguarded reject racing an approve on the same request could otherwise
+ * overwrite an already-approved row back to "rejected" after the business
+ * it names had already been created.
+ */
 export async function rejectRequest(
   writer: Writer,
   requestId: string,
@@ -146,9 +165,10 @@ export async function rejectRequest(
 ): Promise<void> {
   const request = await findRequestById(writer, requestId);
   if (!request) throw new NotFoundError();
-  if (request.status !== "pending") throw new RequestAlreadyDecidedError();
 
-  await markRequestRejected(writer, requestId, actorId, reason);
+  const claimed = await claimRequestForRejection(writer, requestId, actorId, reason);
+  if (!claimed) throw new RequestAlreadyDecidedError();
+
   await insertPlatformAuditEntry(writer, {
     action: "request_rejected",
     subjectId: requestId,

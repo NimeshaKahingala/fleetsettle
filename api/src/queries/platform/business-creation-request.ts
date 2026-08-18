@@ -159,33 +159,68 @@ export async function findRequestById(
   return row ? { ...row, status: row.status as "pending" | "approved" | "rejected" } : undefined;
 }
 
-export async function markRequestApproved(
+/**
+ * Fixes a review finding on PR #73 (gitar-bot, 18 Aug 2026): the status
+ * transition is the gate, not a pre-read `status !== "pending"` check —
+ * `findRequestById` has no row lock, so two concurrent decide calls (or an
+ * admin double-click; the route has no idempotency guard) could otherwise
+ * both pass that check and both go on to create a business. Gating on this
+ * conditional `UPDATE … WHERE status = 'pending'` means only one caller's
+ * `.returning()` comes back non-empty — the loser gets `false` and throws
+ * `RequestAlreadyDecidedError` before touching `createBusinessForUser`.
+ * `business_id` is deliberately not set here: the business does not exist
+ * yet at claim time (`setRequestApprovedBusiness` backfills it once
+ * `createBusinessForUser` — its own top-level transaction, see setup.ts —
+ * returns), so the narrow window between a won claim and that insert is a
+ * request marked "approved" with no business yet, accepted the same way
+ * the count-then-decide race in `requestOrCreateBusiness` above is: judged
+ * cheaper than a distributed-transaction fix for a gap this narrow.
+ */
+export async function claimRequestForApproval(
   db: Db,
   id: string,
   decidedBy: string,
+): Promise<boolean> {
+  const claimed = await db
+    .update(businessCreationRequest)
+    .set({ status: "approved", decidedBy, decidedAt: sql`now()` })
+    .where(and(eq(businessCreationRequest.id, id), eq(businessCreationRequest.status, "pending")))
+    .returning({ id: businessCreationRequest.id });
+  return claimed.length > 0;
+}
+
+/** The other half of `claimRequestForApproval` — runs once the business it names actually exists. */
+export async function setRequestApprovedBusiness(
+  db: Db,
+  id: string,
   businessId: string,
 ): Promise<void> {
   await db
     .update(businessCreationRequest)
-    .set({ status: "approved", decidedBy, decidedAt: sql`now()`, businessId })
+    .set({ businessId })
     .where(eq(businessCreationRequest.id, id));
 }
 
-export async function markRequestRejected(
+/**
+ * The same atomic-claim shape as `claimRequestForApproval`, for the sibling
+ * function — rejection creates nothing, so there is no double-create risk,
+ * but an unguarded `UPDATE` here still let a reject racing an approve (both
+ * reading `status = "pending"` before either writes) leave the row saying
+ * "rejected" *after* `approveRequest` had already created a business for
+ * it — a real inconsistency of the same shape, fixed the same way.
+ */
+export async function claimRequestForRejection(
   db: Db,
   id: string,
   decidedBy: string,
   reason: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const claimed = await db
     .update(businessCreationRequest)
-    .set({
-      status: "rejected",
-      decidedBy,
-      decidedAt: sql`now()`,
-      rejectionReason: reason,
-    })
-    .where(eq(businessCreationRequest.id, id));
+    .set({ status: "rejected", decidedBy, decidedAt: sql`now()`, rejectionReason: reason })
+    .where(and(eq(businessCreationRequest.id, id), eq(businessCreationRequest.status, "pending")))
+    .returning({ id: businessCreationRequest.id });
+  return claimed.length > 0;
 }
 
 /** F-11.1's own boundary check: every business a platform admin may list — name, created, member count. Never a balance, a report, or a query touching a money table (INV-38). */

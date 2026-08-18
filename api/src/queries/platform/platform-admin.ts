@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../../db/client.js";
 import { appUser, businessMember, platformAdmin, platformAuditLog } from "../../db/schema.js";
 
@@ -35,6 +35,17 @@ export async function countActivePlatformAdmins(db: ReadDb): Promise<number> {
  * `platform_admin`'s PK is `user_id` itself (no surrogate — DM §3.2), so a
  * re-grant after a revoke is an UPSERT, never a second row. `platform_admin_audit`
  * (migration 0030) writes the log entry; this function's own job ends at the row.
+ *
+ * **The `ON CONFLICT … DO UPDATE` carries its own `WHERE revoked_at IS NOT
+ * NULL`** (fixes a review finding on PR #73): without it, granting a user
+ * who is already an active admin still runs the UPDATE — same values, but
+ * an UPDATE all the same — and `platform_admin_audit`'s trigger fires on
+ * every UPDATE, writing a second `admin_granted` entry into an append-only
+ * log for a grant that changed nothing. Gating the conflict action on "the
+ * existing row is currently revoked" means a no-op re-grant of an already-
+ * active admin does not touch the row and the trigger never fires; a brand
+ * new row (no conflict) or a genuine re-grant after revocation still insert
+ * or update exactly as before.
  */
 export async function upsertPlatformAdmin(
   db: Db,
@@ -47,6 +58,7 @@ export async function upsertPlatformAdmin(
     .onConflictDoUpdate({
       target: platformAdmin.userId,
       set: { grantedBy, grantedAt: sql`now()`, revokedAt: null },
+      where: isNotNull(platformAdmin.revokedAt),
     });
 }
 

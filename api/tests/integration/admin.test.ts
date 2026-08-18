@@ -8,6 +8,7 @@ import {
   businessCreationRequest,
   businessMember,
   businessSettings,
+  platformAdmin,
 } from "../../src/db/schema.js";
 import { mintPlatformAdmin, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
@@ -190,6 +191,137 @@ describe("/api/admin/* (Phase 2)", () => {
     await ctx.cleanup();
   });
 
+  it("409 — deciding an already-approved request again creates no second business (gitar-bot PR #73)", async () => {
+    const ctx = new TestContext(db);
+    const admin = await mintPlatformAdmin(db, ctx);
+    const adminToken = await signAccessToken(admin.asgardeoSub);
+
+    const sub = `test-sub-double-approve-${crypto.randomUUID()}`;
+    const requesterToken = await signAccessToken(sub);
+    await request("/api/session", bearer(requesterToken));
+    const userRows = await db.select().from(appUser).where(eq(appUser.asgardeoSub, sub));
+    const userId = userRows[0]!.id;
+    await db.update(appUser).set({ businessAllowance: 0 }).where(eq(appUser.id, userId));
+
+    const created = await postBusiness(requesterToken, "Only Approved Once");
+    const { requestId }: { kind: string; requestId: string } = await created.json();
+
+    const decide = (decision: "approve") =>
+      request(`/api/admin/requests/${requestId}/decide`, {
+        method: "POST",
+        ...bearerJson(adminToken),
+        body: JSON.stringify({ decision }),
+      });
+
+    const first = await decide("approve");
+    expect(first.status).toBe(200);
+
+    // The claim (`claimRequestForApproval`) is the gate, not a pre-read
+    // status check — a second decide call must 409 before it ever reaches
+    // createBusinessForUser, not silently create a second business.
+    const second = await decide("approve");
+    expect(second.status).toBe(409);
+    const secondBody: { code: string } = await second.json();
+    expect(secondBody).toMatchObject({ code: "REQUEST_ALREADY_DECIDED" });
+
+    const requestRows = await db
+      .select()
+      .from(businessCreationRequest)
+      .where(eq(businessCreationRequest.id, requestId));
+    const businessId = requestRows[0]!.businessId;
+    expect(businessId).not.toBeNull();
+
+    const memberRows = await db
+      .select()
+      .from(businessMember)
+      .where(eq(businessMember.userId, userId));
+    expect(memberRows).toHaveLength(1);
+
+    ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(businessMember).where(eq(businessMember.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db
+        .delete(businessSettings)
+        .where(eq(businessSettings.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db
+        .delete(accountingPeriod)
+        .where(eq(accountingPeriod.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(business).where(eq(business.id, businessId as string));
+    });
+    ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(businessCreationRequest).where(eq(businessCreationRequest.id, requestId));
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — rejecting an already-approved request, rather than overwriting it back to rejected (gitar-bot PR #73)", async () => {
+    const ctx = new TestContext(db);
+    const admin = await mintPlatformAdmin(db, ctx);
+    const adminToken = await signAccessToken(admin.asgardeoSub);
+
+    const sub = `test-sub-approve-then-reject-${crypto.randomUUID()}`;
+    const requesterToken = await signAccessToken(sub);
+    await request("/api/session", bearer(requesterToken));
+    const userRows = await db.select().from(appUser).where(eq(appUser.asgardeoSub, sub));
+    const userId = userRows[0]!.id;
+    await db.update(appUser).set({ businessAllowance: 0 }).where(eq(appUser.id, userId));
+
+    const created = await postBusiness(requesterToken, "Approved Then Race-Rejected");
+    const { requestId }: { kind: string; requestId: string } = await created.json();
+
+    const approve = await request(`/api/admin/requests/${requestId}/decide`, {
+      method: "POST",
+      ...bearerJson(adminToken),
+      body: JSON.stringify({ decision: "approve" }),
+    });
+    expect(approve.status).toBe(200);
+
+    const reject = await request(`/api/admin/requests/${requestId}/decide`, {
+      method: "POST",
+      ...bearerJson(adminToken),
+      body: JSON.stringify({ decision: "reject", reason: "too late" }),
+    });
+    expect(reject.status).toBe(409);
+    const rejectBody: { code: string } = await reject.json();
+    expect(rejectBody).toMatchObject({ code: "REQUEST_ALREADY_DECIDED" });
+
+    // The row must still say approved, with the business it actually
+    // created — not silently flipped to rejected after the fact.
+    const requestRows = await db
+      .select()
+      .from(businessCreationRequest)
+      .where(eq(businessCreationRequest.id, requestId));
+    const businessId = requestRows[0]!.businessId;
+    expect(requestRows[0]).toMatchObject({ status: "approved" });
+    expect(businessId).not.toBeNull();
+
+    ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(businessMember).where(eq(businessMember.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db
+        .delete(businessSettings)
+        .where(eq(businessSettings.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db
+        .delete(accountingPeriod)
+        .where(eq(accountingPeriod.businessId, businessId as string));
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(business).where(eq(business.id, businessId as string));
+    });
+    ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+      await db.delete(businessCreationRequest).where(eq(businessCreationRequest.id, requestId));
+    });
+
+    await ctx.cleanup();
+  });
+
   it("rejecting a request creates nothing, and the requester may request again", async () => {
     const ctx = new TestContext(db);
     const admin = await mintPlatformAdmin(db, ctx);
@@ -347,6 +479,44 @@ describe("/api/admin/* (Phase 2)", () => {
 
     // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
     await db.delete(businessMember).where(eq(businessMember.userId, target.userId));
+    await ctx.cleanup();
+  });
+
+  it("re-granting an already-active admin is a no-op — no duplicate admin_granted entry (gitar-bot PR #73)", async () => {
+    const ctx = new TestContext(db);
+    const admin = await mintPlatformAdmin(db, ctx);
+    const adminToken = await signAccessToken(admin.asgardeoSub);
+    const target = await mintUser(db, ctx, await ctx.createBusiness(), "owner");
+
+    const grant = () =>
+      request("/api/admin/admins", {
+        method: "POST",
+        ...bearerJson(adminToken),
+        body: JSON.stringify({ userId: target.userId }),
+      });
+
+    const first = await grant();
+    expect(first.status).toBe(200);
+    // Re-granting a user who is already an active admin — the
+    // `ON CONFLICT ... WHERE revoked_at IS NOT NULL` gate should skip the
+    // write entirely rather than run a no-op UPDATE that still fires
+    // platform_admin_audit's trigger.
+    const second = await grant();
+    expect(second.status).toBe(200);
+
+    const auditRes = await request("/api/admin/audit-log", bearer(adminToken));
+    const auditBody: { action: string; subjectId: string }[] = await auditRes.json();
+    const grantEntries = auditBody.filter(
+      (e) => e.subjectId === target.userId && e.action === "admin_granted",
+    );
+    expect(grantEntries).toHaveLength(1);
+
+    // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint wrote, not a money record
+    await db.delete(businessMember).where(eq(businessMember.userId, target.userId));
+    ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- test fixture teardown for a row the live endpoint (grant) wrote, not a money record
+      await db.delete(platformAdmin).where(eq(platformAdmin.userId, target.userId));
+    });
     await ctx.cleanup();
   });
 
