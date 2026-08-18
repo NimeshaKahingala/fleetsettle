@@ -284,5 +284,32 @@ describe("auth boundary (P1)", () => {
 
       await ctx.cleanup();
     });
+
+    it("owner also linked as a driver of the same business resolves as owner, not BUSINESS_NOT_SELECTED (gitar-bot PR #72)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const driverId = await ctx.createDriver(businessId, { name: "Owner, also driving" });
+      await linkExistingUserAsDriver(db, ctx, owner.userId, driverId);
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      // resolveMemberships used to return two rows sharing this businessId
+      // (one from business_member, one from driver.linked_user_id), which
+      // the no-header branch counted as "more than one membership" and
+      // refused with BUSINESS_NOT_SELECTED — even though there is only one
+      // real business here.
+      const noHeader = await request("/api/me", bearer(token));
+      expect(noHeader.status).toBe(200);
+      expect(await noHeader.json()).toMatchObject({ businessId, role: "owner" });
+
+      // The header path must resolve the same way — deterministically the
+      // member role, not whichever of the two UNION ALL rows happened to
+      // come back first.
+      const withHeader = await request("/api/me", bearerFor(token, businessId));
+      expect(withHeader.status).toBe(200);
+      expect(await withHeader.json()).toMatchObject({ businessId, role: "owner" });
+
+      await ctx.cleanup();
+    });
   });
 });

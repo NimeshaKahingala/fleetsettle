@@ -40,6 +40,22 @@ export type Membership =
  * scope anything by, which `authMiddleware` maps to the same 404 a foreign
  * business would (CLAUDE.md → Tenancy: a 403 confirms the row exists, and
  * there is no row here at all).
+ *
+ * **One row per businessId, even though nothing stops the same identity
+ * being both a `business_member` and a linked `driver` of the *same*
+ * business** (an owner who also drives one of the vehicles, in this
+ * two-car-and-a-bus product, is not far-fetched) — `business_member` and
+ * `driver.linked_user_id` are independent tables with no mutual-exclusivity
+ * constraint between them. Left undeduped, that identity would get two
+ * `Membership` rows sharing one `businessId`: `authMiddleware`'s no-header
+ * branch would wrongly refuse a single-business identity with
+ * `BUSINESS_NOT_SELECTED` (`memberships.length > 1` even though there is
+ * one real business), and its header branch would pick whichever row
+ * `UNION ALL` happened to return first — unordered, so not deterministic —
+ * silently deciding whether `driverId` gets set. Collapsing to one row per
+ * business, preferring the `business_member` shape, means an
+ * owner/manager who is also a linked driver of their own business keeps
+ * their full capability rather than being downgraded to driver-only.
  */
 export async function resolveMemberships(reader: Reader, sub: string): Promise<Membership[]> {
   const memberSelect = reader
@@ -73,20 +89,28 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
 
   const rows = await unionAll(memberSelect, driverSelect);
 
-  return rows.map((row): Membership =>
-    row.role === "driver"
-      ? {
-          userId: row.userId,
-          businessId: row.businessId,
-          businessTimezone: row.businessTimezone,
-          role: "driver",
-          driverId: row.driverId as string,
-        }
-      : {
-          userId: row.userId,
-          businessId: row.businessId,
-          businessTimezone: row.businessTimezone,
-          role: row.role as "owner" | "owner_manager" | "manager",
-        },
-  );
+  const byBusiness = new Map<string, Membership>();
+  for (const row of rows) {
+    const existing = byBusiness.get(row.businessId);
+    if (existing && existing.role !== "driver") continue; // a member row already won this business
+    byBusiness.set(
+      row.businessId,
+      row.role === "driver"
+        ? {
+            userId: row.userId,
+            businessId: row.businessId,
+            businessTimezone: row.businessTimezone,
+            role: "driver",
+            driverId: row.driverId as string,
+          }
+        : {
+            userId: row.userId,
+            businessId: row.businessId,
+            businessTimezone: row.businessTimezone,
+            role: row.role as "owner" | "owner_manager" | "manager",
+          },
+    );
+  }
+
+  return [...byBusiness.values()];
 }
