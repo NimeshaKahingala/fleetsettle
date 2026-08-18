@@ -361,8 +361,13 @@ Due when the work lands, not before — a change to mechanics that leaves its do
 - [ ] **2.** Enable self-registration in Asgardeo, deploy Phase 2.
 - [ ] **3.** Sign in once through the normal flow, and submit a business-creation request (or trigger `/api/session`'s own `app_user` upsert on first call, `IG §7.5`) — `app_user` is written just-in-time on the first authenticated *write*, so signing in alone creates nothing yet.
 - [ ] **4.** Confirm the row exists: `SELECT id, email FROM app_user WHERE asgardeo_sub = '…';`
-- [ ] **5.** Insert the first `platform_admin` row against that id.
-- [ ] **6.** **Verify it took** — `SELECT user_id FROM platform_admin WHERE revoked_at IS NULL;` A silent no-op here is the worst outcome available: the panel renders as "not an admin," with nothing telling whoever is looking why.
+- [ ] **5.** Insert the first `platform_admin` row against that id — **`set_config` first, in the same statement batch**, or the insert 500s:
+  ```sql
+  SELECT set_config('fleetsettle.actor_id', '<the-id-from-step-4>', false);
+  INSERT INTO platform_admin (user_id, granted_by) VALUES ('<the-id-from-step-4>', NULL);
+  ```
+  **Found running this against an ephemeral test branch, not assumed**: `platform_admin_audit` (migration 0030) writes `platform_audit_log.actor_id` from `audit_actor()`, which reads `fleetsettle.actor_id` — nothing sets that outside a real request's `withActor()` wrapper, and that column is `NOT NULL`. A bare `INSERT INTO platform_admin` with no `set_config` first fails on that constraint every time, self-grant or not. The bootstrap admin sets it to their own id — the same self-granted shape decision 11 already names.
+- [ ] **6.** **Verify it took** — `SELECT user_id FROM platform_admin WHERE revoked_at IS NULL;` A silent no-op here is the worst outcome available: the panel renders as "not an admin," with nothing telling whoever is looking why. `SELECT * FROM platform_audit_log ORDER BY created_at DESC LIMIT 1;` should show one `admin_granted` row with `self_action = true`.
 
 Record the actual ids and timestamps used, in this section, once run for real — the same discipline every other step in this checklist already keeps.
 
