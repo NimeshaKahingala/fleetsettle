@@ -24,20 +24,21 @@ Tooling: chrome-devtools MCP against the live site, cross-checked against the QA
 
 ---
 
-## Summary — 7 confirmed findings, ranked by severity
+## Summary — 8 confirmed findings, ranked by severity
 
-| # | Finding | Severity | Money-accuracy? |
-|---|---|---|---|
-| F-6 | Every write in the admin panel (grant/revoke admin, set allowance, approve/reject request) shows a raw JS error despite always succeeding | **High** | No — trust/UX |
-| F-7 | Home's "Rent due" goes stale after recording a payment via Quick Add *or* the lease hub — shows the pre-payment amount until a hard reload | **High** | **Yes** — wrong number shown, right number stored |
-| F-3 | Lease closure summary shows the gross obligation amount, not net outstanding, for any partially-paid due | **High** | **Yes** — overstates what's owed on the one screen gating a deposit release |
-| F-4 | A lease's `closed_at`, `final_period_treatment` and `closure_summary_shown_at` are solicited from the user then never written anywhere | Medium | No — audit-trail gap |
-| F-2 | Business switcher shows no indication of which business is currently selected | Medium | No — UX |
-| F-5 | Three of the admin panel's six screens show raw, unformatted Postgres timestamps | Low-medium | No — UX/polish |
-| F-1 | Home's "Rent due" row says "Due since {date}" even when the date is in the future | Low-medium | No — factual/trust, not money itself |
-| F-3b | `trip_fare` (and likely other obligation kinds) render as a raw enum string on the lease closure screen | Low | No — copy only |
+| # | Finding | Severity | Money-accuracy? | Status |
+|---|---|---|---|---|
+| F-8 | `GET /api/partner/{userId}` 500s for an active member with no ownership share on any vehicle | **High** | Availability, not a wrong figure | **Found only — not fixed** (found after F-1…F-7's fix pass was already merged) |
+| F-6 | Every write in the admin panel (grant/revoke admin, set allowance, approve/reject request) shows a raw JS error despite always succeeding | **High** | No — trust/UX | **Fixed**, GAP-143 |
+| F-7 | Home's "Rent due" goes stale after recording a payment via Quick Add *or* the lease hub — shows the pre-payment amount until a hard reload | **High** | **Yes** — wrong number shown, right number stored | **Fixed**, GAP-144 |
+| F-3 | Lease closure summary shows the gross obligation amount, not net outstanding, for any partially-paid due | **High** | **Yes** — overstates what's owed on the one screen gating a deposit release | **Fixed**, GAP-140 |
+| F-4 | A lease's `closed_at`, `final_period_treatment` and `closure_summary_shown_at` are solicited from the user then never written anywhere | Medium | No — audit-trail gap | **Fixed**, GAP-141 |
+| F-2 | Business switcher shows no indication of which business is currently selected | Medium | No — UX | **Fixed**, GAP-139 |
+| F-5 | Three of the admin panel's six screens show raw, unformatted Postgres timestamps | Low-medium | No — UX/polish | **Fixed**, GAP-142 |
+| F-1 | Home's "Rent due" row says "Due since {date}" even when the date is in the future | Low-medium | No — factual/trust, not money itself | **Fixed**, GAP-138 |
+| F-3b | `trip_fare` (and likely other obligation kinds) render as a raw enum string on the lease closure screen | Low | No — copy only | **Fixed**, GAP-140 |
 
-**Read together, F-3 and F-7 are the two that matter most against this codebase's own stated promise** ("being believed about money"): both are cases where the *stored* figure is correct but the *displayed* figure is not, on two different high-stakes screens (a deposit-release gate, and the daily Home glance). F-6 is the most severe in absolute terms — it breaks user trust in the brand-new admin surface's every single action — but carries no money risk since nothing it touches is a ledger figure (INV-38: admins never see money).
+**Read together, F-3 and F-7 are the two that matter most against this codebase's own stated promise** ("being believed about money"): both are cases where the *stored* figure is correct but the *displayed* figure is not, on two different high-stakes screens (a deposit-release gate, and the daily Home glance). F-6 is the most severe in absolute terms — it breaks user trust in the brand-new admin surface's every single action — but carries no money risk since nothing it touches is a ledger figure (INV-38: admins never see money). **F-8 was found in a second live pass, after F-1 through F-7 were already fixed, tested, and merged (PR #79)** — filed for a follow-up session rather than reopening an already-verified PR.
 
 ---
 
@@ -176,6 +177,18 @@ In every case `onSuccess` (which invalidates the relevant query cache and closes
 **Severity**: **High** — a live, confirmed "the number on screen disagrees with the number that's true" defect, on Home, immediately after the single most common money-recording action in the app, and reproducible from at least two independent entry points.
 
 **Fixed 19 Aug 2026, filed as GAP-144.** `["reports"]` invalidation added at all four `CollectPaymentSheet`/`QuickPaymentSheet` call sites (`QuickPaymentSheet.tsx`, `LeaseHubScreen.tsx`, `CustomerDetailScreen.tsx`, `TripDetailScreen.tsx` — the last also gained the `["payment"]`/`["home"]` invalidations it was missing entirely). Each site's own test asserts `queryClient.getQueryState(["reports", "receivables"])?.isInvalidated` flips to `true` after the payment mutation completes.
+
+### F-8 · `GET /api/partner/{userId}` 500s for an active member with no ownership share on any vehicle — found in a second pass, after the first seven were fixed
+
+**Where**: `api/src/domain/partner.ts:getPartnerSummary` (`api/src/handlers/partner.ts:getPartnerSummaryHandler`, the Cash screen's own partner-detail read) — root cause not fully isolated to one line; see below for what was checked and ruled out.
+
+**Repro, live, 100% reproducible**: signed in as `nimesha.isholi94@gmail.com`, owner-manager on `TESTA`. `Cash` → tapped my own name under "Partners holding cash" → the screen hangs on "Loading…" forever. Network tab: `GET /api/partner/019fd4c9-0322-70b9-ba08-7f72121b2aec` returns **500** four times in a row (the client's own retry), body `{"error":"Internal error","code":"INTERNAL_ERROR"}`. Confirmed against the database: this account is an active `business_member` on `TESTA` (not revoked — ruled out a GAP-90 regression by re-reading `findBusinessMemberUserId`, still correctly filters `revoked_at IS NULL`) but holds **zero `ownership_share` rows on any of TESTA's 6 vehicles** and **zero `management_fee_agreement` rows** either — an owner who was never assigned a fractional share of anything, which is a completely ordinary real-world state (nothing requires an owner-manager to also be a part-owner of a specific vehicle).
+
+**Elimination work, to save whoever picks this up the same search**: read every function `getPartnerSummary` calls. All of them handle a zero-row result defensively — `sumProfitShareForUser` uses `share?.profitShareMinor ?? 0n` (an explicit `allow:` comment cites W-56 for exactly this case), `computeOwnerShares` returns `[]` early when `shares.length === 0`, and every `sum*ForUser` query (`sumCapitalContributionsForUser`, `sumOutOfPocketExpensesForUser`, `sumPartnerPayoutsForUser`, `sumManagementFeeAsOfDate`, `sumVehicleEarnedForPeriod`, `sumVehicleCostsForPeriod`) fetches rows and reduces in JS rather than using a raw SQL `SUM()` that could return `NULL` into an unguarded `BigInt()` conversion. None of the read code inspected this session throws on a genuinely zero-share, zero-agreement user. The one place a matching row is asserted to exist rather than defended (`listPartnerCashPositions`'s `.find(...)!` in `getPartnerSummary` itself, `partner.ts:556`) is *supposed* to be safe by construction per its own comment (both queries scope to the same active-membership set) — worth re-checking whether `listPartnerCashPositions` genuinely returns a row for every active member on a business this size (6 vehicles, real trip/expense volume) or drops one under some condition not exercised by this session's own reading.
+
+**Why it matters**: this is a live 500 on a business-owner-facing screen, not an edge case requiring contrived data — any owner-manager who hasn't been assigned a specific vehicle's ownership share (a completely normal setup) cannot view their own partner summary. Money-adjacent (the screen itself is a money summary) but the *symptom* is availability, not a wrong figure — the screen never renders anything, honestly, rather than showing a wrong number.
+
+**Severity**: High (a real 500 on a live, owner-facing screen) but **not fixed this session** — found late, after the other seven fixes were already tested, pushed, and had a fully green PR (#79) waiting on the merge decision; filed here for a follow-up rather than reopening an already-verified PR mid-review. Recommend **GAP-145** on triage.
 
 ---
 
