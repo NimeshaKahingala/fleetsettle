@@ -1,4 +1,4 @@
-import type { MeResponse } from "@fleetsettle/shared/schemas";
+import type { SessionResponse } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
@@ -98,8 +98,9 @@ const GROUPS: {
  */
 export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps) {
   const queryClient = useQueryClient();
-  const me = queryClient.getQueryData<MeResponse>(["me"]);
-  const canSeeOwnerOnly = me !== undefined && can(me.role, "viewOwnerOnlyReports");
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  const role = session?.businesses[0]?.role;
+  const canSeeOwnerOnly = role !== undefined && can(role, "viewOwnerOnlyReports");
 
   return (
     <Screen title="Reports">

@@ -8,7 +8,14 @@ import type { ApiClient } from "../lib/api.js";
 import { App } from "./App.js";
 import { createAppRouteTree } from "./router.js";
 
-const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" as const };
+// Phase 2 (18 Aug 2026): FirstRunGate reads /api/session, not /api/me.
+const SESSION_OPERATE = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
+  pendingRequest: null,
+  hadMembership: true,
+};
 
 /**
  * GAP-134: a route `navigate()` and a `Sheet` closing in the same handler
@@ -40,7 +47,7 @@ test("opening and dismissing a sheet (via its visible close button) on a routed 
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     throw new Error(`unexpected path ${path}`);
   });
