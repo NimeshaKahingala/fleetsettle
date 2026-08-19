@@ -16,7 +16,7 @@ import {
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
 import { AdminHomeScreen } from "../features/admin/AdminHomeScreen.js";
 import { AdminManagementScreen } from "../features/admin/AdminManagementScreen.js";
@@ -28,6 +28,7 @@ import { CashScreen } from "../features/cash/CashScreen.js";
 import { MileagePackagesScreen } from "../features/cash/MileagePackagesScreen.js";
 import { PartnerDetailScreen } from "../features/cash/PartnerDetailScreen.js";
 import { PartnerSetupScreen } from "../features/cash/PartnerSetupScreen.js";
+import { BusinessSwitcherSheet } from "../features/setup/BusinessSwitcherSheet.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
@@ -68,6 +69,7 @@ import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
+import { useSelectedBusiness } from "../lib/useSelectedBusiness.js";
 import { NotBuiltYetScreen } from "./NotBuiltYetScreen.js";
 
 function HomeRoute() {
@@ -723,6 +725,64 @@ const REVIEW_TAB_PATH: Record<ReviewTabKey, string> = {
 };
 
 /**
+ * UI §3.1/M-33 (19 Aug 2026): the voluntary switch, distinct from
+ * `FirstRunGate`'s own mandatory one. `FirstRunGate`'s `remountGeneration`
+ * counter (see its own doc comment) is private to that component and
+ * private to the *mandatory* pre-shell case — there is no way to reach it
+ * from three render-prop layers down without threading a callback through
+ * `FirstRunGateProps` and every shell layout below it. A real navigation
+ * sidesteps the "hard remount" problem entirely rather than risking a
+ * fourth failed attempt at the in-app version: `queryClient.clear()` alone
+ * does not un-stick an already-mounted `useQuery(["session"])` observer
+ * (confirmed empirically, `FirstRunGate.tsx`'s own comment), and this
+ * component's `["session"]` read is exactly that observer, still mounted
+ * two layers up in `FirstRunGate` itself.
+ */
+function reloadAfterBusinessSwitch(): void {
+  window.location.reload();
+}
+
+/**
+ * Shared by every shell's own voluntary switcher (never `FirstRunGate`'s
+ * mandatory one, which needs none of this — its `onOpenChange` is inert).
+ *
+ * **Fixes a real race, gitar review on PR #78, 19 Aug 2026**:
+ * `BusinessSwitcherSheet.selectBusiness` calls `onSelected` then
+ * `onOpenChange(false)` — a real `onOpenChange` (a plain `setState`, unlike
+ * `FirstRunGate`'s inert one) re-renders this shell, which calls
+ * `useSelectedBusiness()` again, which throws: `queryClient.clear()` (also
+ * called by `selectBusiness`, just before either callback) has already
+ * emptied `["session"]`, and `window.location.reload()` — fired from
+ * `onSelected`, a moment earlier — does not synchronously halt the rest of
+ * this script, so that re-render can and does flush before the browser
+ * actually tears the page down. `reloadingRef` breaks the chain: once
+ * `onSelected` has fired, the following `onOpenChange(false)` is swallowed
+ * instead of reaching `setState`, so no re-render — and no throw — happens
+ * at all in the moment before reload.
+ */
+function useBusinessSwitcherToggle(): {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  openSwitcher: () => void;
+  onSelected: () => void;
+} {
+  const [open, setOpen] = useState(false);
+  const reloadingRef = useRef(false);
+  return {
+    open,
+    onOpenChange: (next) => {
+      if (reloadingRef.current) return;
+      setOpen(next);
+    },
+    openSwitcher: () => setOpen(true),
+    onSelected: () => {
+      reloadingRef.current = true;
+      reloadAfterBusinessSwitch();
+    },
+  };
+}
+
+/**
  * B0b: `owner`'s shell — its own component tree (§7.9), not Operate filtered
  * by role. `/review*` and `/reports*` are the only paths that belong to it;
  * anything else (most commonly the bare `/` an owner lands on straight out
@@ -735,6 +795,8 @@ function ReviewLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const inReview = pathname.startsWith("/review") || pathname.startsWith("/reports");
+  const selected = useSelectedBusiness();
+  const switcher = useBusinessSwitcherToggle();
 
   useEffect(() => {
     if (!inReview) void navigate({ to: "/review", replace: true });
@@ -747,8 +809,16 @@ function ReviewLayout() {
       onTabChange={(key) => {
         void navigate({ to: REVIEW_TAB_PATH[key as ReviewTabKey] });
       }}
+      businessName={selected.name}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
     >
       {inReview ? <Outlet /> : null}
+      <BusinessSwitcherSheet
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
+        businesses={selected.businesses}
+        onSelected={switcher.onSelected}
+      />
     </AppShell>
   );
 }
@@ -758,12 +828,28 @@ function MineLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const inMine = pathname === "/me";
+  const selected = useSelectedBusiness();
+  const switcher = useBusinessSwitcherToggle();
 
   useEffect(() => {
     if (!inMine) void navigate({ to: "/me", replace: true });
   }, [inMine, navigate]);
 
-  return <AppShell shell="mine">{inMine ? <Outlet /> : null}</AppShell>;
+  return (
+    <AppShell
+      shell="mine"
+      businessName={selected.name}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
+    >
+      {inMine ? <Outlet /> : null}
+      <BusinessSwitcherSheet
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
+        businesses={selected.businesses}
+        onSelected={switcher.onSelected}
+      />
+    </AppShell>
+  );
 }
 
 /**
@@ -783,14 +869,24 @@ function AdminLayout() {
   );
 }
 
-function RootLayout({ today }: { today: BusinessDate }) {
+/**
+ * B0b: `owner-manager`/`manager`'s shell. Extracted out of `RootLayout`'s
+ * own `renderOperate` closure (19 Aug 2026) rather than left inline — the
+ * business-switcher chrome needs `useSelectedBusiness()`, which throws
+ * unless a membership is already resolved (its own doc comment), a
+ * guarantee `RootLayout` itself cannot make (it wraps `FirstRunGate`, which
+ * is what resolves one). A real component here, matching
+ * `ReviewLayout`/`MineLayout`/`AdminLayout`'s own pattern, is what gives
+ * the hook somewhere legal to be called from — its own `pathname`
+ * subscription is the same independent-`useRouterState`-per-shell pattern
+ * those three already use, rather than threading it down as a prop.
+ */
+function OperateLayout({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
-  // The root route owns `<Outlet />` but has no match of its own to read
-  // params from — subscribing to the router's own location keeps the tab
-  // bar's `activeTab` derived from the URL rather than tracked state that
-  // could drift from it.
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [quickAddOpen, setQuickAddOpen] = useState(false);
+  const selected = useSelectedBusiness();
+  const switcher = useBusinessSwitcherToggle();
 
   // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
   // change while it's open (an iOS edge-swipe back — iOS has no hardware
@@ -803,34 +899,54 @@ function RootLayout({ today }: { today: BusinessDate }) {
   }, [pathname]);
 
   return (
+    <AppShell
+      shell="operate"
+      activeTab={tabForPathname(pathname)}
+      onTabChange={(key) => {
+        void navigate({ to: TAB_PATH[key as OperateTabKey] });
+      }}
+      onQuickAdd={() => setQuickAddOpen(true)}
+      businessName={selected.name}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
+    >
+      <Outlet />
+      <QuickAddSheet
+        open={quickAddOpen}
+        onOpenChange={setQuickAddOpen}
+        today={today}
+        onBookTrip={(vehicleId) => {
+          setQuickAddOpen(false);
+          void navigate({
+            to: "/vehicles/$vehicleId/trip/new",
+            params: { vehicleId },
+            search: {},
+          });
+        }}
+      />
+      <BusinessSwitcherSheet
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
+        businesses={selected.businesses}
+        onSelected={switcher.onSelected}
+      />
+    </AppShell>
+  );
+}
+
+function RootLayout({ today }: { today: BusinessDate }) {
+  const navigate = useNavigate();
+  // The root route owns `<Outlet />` but has no match of its own to read
+  // params from — subscribing to the router's own location keeps
+  // `FirstRunGate`'s own admin-pathname gate (and `OperateLayout`'s tab
+  // bar, via its own independent subscription) derived from the URL rather
+  // than tracked state that could drift from it.
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+
+  return (
     <FirstRunGate
       pathname={pathname}
       onOpenAdmin={() => void navigate({ to: "/admin" })}
-      renderOperate={() => (
-        <AppShell
-          shell="operate"
-          activeTab={tabForPathname(pathname)}
-          onTabChange={(key) => {
-            void navigate({ to: TAB_PATH[key as OperateTabKey] });
-          }}
-          onQuickAdd={() => setQuickAddOpen(true)}
-        >
-          <Outlet />
-          <QuickAddSheet
-            open={quickAddOpen}
-            onOpenChange={setQuickAddOpen}
-            today={today}
-            onBookTrip={(vehicleId) => {
-              setQuickAddOpen(false);
-              void navigate({
-                to: "/vehicles/$vehicleId/trip/new",
-                params: { vehicleId },
-                search: {},
-              });
-            }}
-          />
-        </AppShell>
-      )}
+      renderOperate={() => <OperateLayout today={today} />}
       renderReview={() => <ReviewLayout />}
       renderMine={() => <MineLayout />}
       renderAdmin={() => <AdminLayout />}

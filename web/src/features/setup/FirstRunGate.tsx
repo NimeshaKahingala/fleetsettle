@@ -11,7 +11,7 @@ import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { getSelectedBusinessId } from "../../lib/storage.js";
+import { clearSelectedBusinessId, getSelectedBusinessId } from "../../lib/storage.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
@@ -294,6 +294,22 @@ function FirstRunGateInner({
       // Unreachable: businesses.length === 0 already returned above. Guards
       // the array-index read for strict-null-checks rather than a `!`.
       return null;
+    }
+    // **Fixes a gitar-bot finding on PR #77, 19 Aug 2026**: a stored
+    // selection that no longer names this identity's one remaining
+    // membership (e.g. was multi-business, picked A, then got revoked from
+    // A and is left with only B) was never reconciled here — `api.ts`
+    // sends whatever `getSelectedBusinessId()` returns on every request
+    // regardless of membership count, so a stale id would keep going out
+    // as `X-Business-Id: A` even though B's shell is what actually renders.
+    // `authMiddleware` refuses an unmatched header with a plain 404 (IG
+    // §7.5 step 3), never `BUSINESS_NOT_SELECTED` — so `main.tsx`'s own
+    // recovery branch, which only watches for that specific code, never
+    // fires, and every request 404s until the user manually signs out.
+    // Idempotent and side-effect-only (never changes what this render
+    // returns), so safe to do inline rather than behind a `useEffect`.
+    if (getSelectedBusinessId() !== membership.businessId) {
+      clearSelectedBusinessId();
     }
     return <>{renderShellFor(membership, renderOperate, renderReview, renderMine)}</>;
   }

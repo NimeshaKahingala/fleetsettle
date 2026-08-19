@@ -1,4 +1,13 @@
-import { Home, MoreHorizontal, Plus, Truck, Users, Wallet, type LucideIcon } from "lucide-react";
+import {
+  ChevronsUpDown,
+  Home,
+  MoreHorizontal,
+  Plus,
+  Truck,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "../../lib/cn.js";
 import { ToastViewport } from "./Toast.js";
 
@@ -41,6 +50,19 @@ export interface AppShellProps {
   onTabChange?: (key: OperateTabKey | ReviewTabKey) => void;
   /** Operate's `＋` is a quick-add sheet trigger, not a destination — no route change (§3.1). */
   onQuickAdd?: () => void;
+  /**
+   * UI §3.1/M-33 (decided 18 Aug 2026): shell-level chrome, the same one
+   * line whichever screen is open — never `Screen`'s own `title`, which
+   * names the screen, not the business. `undefined` for a shell with
+   * nothing to name (the admin surface has no business selected).
+   */
+  businessName?: string;
+  /**
+   * Present only when the identity holds more than one membership — turns
+   * the name into a switcher affordance. Absent for a single-membership
+   * identity: the name renders unstyled, nothing to tap, per spec.
+   */
+  onSwitchBusiness?: () => void;
   children: React.ReactNode;
 }
 
@@ -51,6 +73,13 @@ export interface AppShellProps {
  * true flex sibling below `children` rather than a fixed overlay (see
  * `Screen.tsx`'s note on the same trade-off).
  *
+ * **The business-name strip (UI §3.1/M-33, 19 Aug 2026)** sits above
+ * `children`, its own flex sibling — a second, slimmer app bar rather than
+ * a slot inside `Screen`'s, since it names the *business*, the same one
+ * line regardless of which screen is open, where `Screen`'s own `title`
+ * names the screen and changes on every route.
+ *
+
  * §14/M-31 (GAP-124a, Wave 5 Step 0): at `lg`, the same tab bar becomes a
  * persistent left rail — same destinations, same order, `lg:order-first`
  * rather than a JSX reorder, since the DOM position (after `children`)
@@ -58,12 +87,42 @@ export interface AppShellProps {
  * from a top strip to a left-edge strip at that breakpoint; a strip on the
  * wrong edge of a vertical rail would read as broken, not merely unstyled.
  */
-export function AppShell({ shell, activeTab, onTabChange, onQuickAdd, children }: AppShellProps) {
+export function AppShell({
+  shell,
+  activeTab,
+  onTabChange,
+  onQuickAdd,
+  businessName,
+  onSwitchBusiness,
+  children,
+}: AppShellProps) {
   const tabs = shell === "operate" ? OPERATE_TABS : shell === "review" ? REVIEW_TABS : null;
 
   return (
     <div className="flex h-[100svh] flex-col bg-page pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] lg:flex-row">
-      <div className="min-h-0 flex-1">{children}</div>
+      <div className="flex min-h-0 flex-1 flex-col">
+        {businessName !== undefined ? (
+          onSwitchBusiness !== undefined ? (
+            <button
+              type="button"
+              onClick={onSwitchBusiness}
+              className="flex h-tap shrink-0 items-center gap-1.5 border-b border-line-hairline bg-surface px-4 text-left active:bg-brand-wash"
+            >
+              <span className="min-w-0 flex-1 truncate text-caption font-medium text-ink-secondary">
+                {businessName}
+              </span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-ink-secondary" aria-hidden />
+            </button>
+          ) : (
+            <div className="flex h-tap shrink-0 items-center border-b border-line-hairline bg-surface px-4">
+              <span className="truncate text-caption font-medium text-ink-secondary">
+                {businessName}
+              </span>
+            </div>
+          )
+        ) : null}
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
       {tabs !== null ? (
         <nav
           className="flex h-14 shrink-0 border-t border-line-hairline bg-surface pb-[env(safe-area-inset-bottom)] max-md:landscape:h-11 lg:order-first lg:h-full lg:w-20 lg:flex-col lg:justify-start lg:gap-1 lg:border-t-0 lg:border-r lg:pb-4 lg:pt-4"

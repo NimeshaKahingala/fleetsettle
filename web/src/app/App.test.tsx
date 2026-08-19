@@ -499,3 +499,103 @@ test("an admin holding no business membership at all still has a door into the a
   await waitFor(() => expect(router.state.location.pathname).toBe("/admin/businesses"));
   expect(await screen.findByText("No businesses yet.")).toBeInTheDocument();
 });
+
+test("UI §3.1/M-33: a single-membership identity sees the business name in the app bar, unstyled", async () => {
+  localStorage.clear();
+  const get = vi.fn();
+  get.mockResolvedValue(SESSION_OPERATE);
+
+  renderWithRouter("/", { get });
+
+  const name = await screen.findByText("Test Fleet");
+  expect(name.closest("button")).not.toBeInTheDocument();
+});
+
+test("UI §3.1/M-33: a multi-membership identity can voluntarily reopen the switcher from the app bar", async () => {
+  localStorage.clear();
+  const user = userEvent.setup();
+  const TWO_BUSINESSES: SessionResponse = {
+    userId: "u1",
+    isPlatformAdmin: false,
+    businesses: [
+      { businessId: "b1", name: "TESTA", role: "owner_manager" },
+      { businessId: "b2", name: "TestBusinesByChamath", role: "manager" },
+    ],
+    pendingRequest: null,
+    hadMembership: true,
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") return Promise.resolve(TWO_BUSINESSES);
+    if (path === "/api/vehicle") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithRouter("/vehicles", { get });
+
+  // Two memberships with no stored selection: FirstRunGate's own mandatory
+  // picker renders first (its own "Businesses" heading, held open with no
+  // dismiss) — pick one to reach a shell at all, matching how a real first
+  // visit behaves, before this test's own concern (the voluntary reopen).
+  const firstRow = (await screen.findByText("TESTA")).closest("button");
+  if (firstRow === null) throw new Error("business row button not found");
+  await user.click(firstRow);
+
+  const trigger = await screen.findByRole("button", { name: "TESTA" });
+  await user.click(trigger);
+
+  expect(await screen.findByText("TestBusinesByChamath")).toBeInTheDocument();
+  expect(screen.getByText("Manager")).toBeInTheDocument();
+});
+
+/**
+ * Gitar review on PR #78, 19 Aug 2026: `BusinessSwitcherSheet.selectBusiness`
+ * calls `queryClient.clear()` then (previously) `onOpenChange(false)` before
+ * `onSelected` — a real `onOpenChange` (unlike `FirstRunGate`'s inert one)
+ * re-renders the shell, which called `useSelectedBusiness()` again against
+ * the now-empty `["session"]` cache and threw, surfacing the error
+ * boundary's "Something went wrong!" fallback for a moment before
+ * `window.location.reload()` actually navigated away. Reproduces the full
+ * click-through this file's other switcher test stops short of (it only
+ * opens the sheet, never selects), with `reload` itself stubbed so the
+ * assertion is "no error boundary fired", not "jsdom navigated".
+ */
+test("UI §3.1/M-33: actually selecting a business from the voluntary switcher never trips the error boundary", async () => {
+  localStorage.clear();
+  const reload = vi.fn();
+  Object.defineProperty(window, "location", {
+    value: { ...window.location, reload },
+    writable: true,
+  });
+  const user = userEvent.setup();
+  const TWO_BUSINESSES: SessionResponse = {
+    userId: "u1",
+    isPlatformAdmin: false,
+    businesses: [
+      { businessId: "b1", name: "TESTA", role: "owner_manager" },
+      { businessId: "b2", name: "TestBusinesByChamath", role: "manager" },
+    ],
+    pendingRequest: null,
+    hadMembership: true,
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") return Promise.resolve(TWO_BUSINESSES);
+    if (path === "/api/vehicle") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithRouter("/vehicles", { get });
+
+  const firstRow = (await screen.findByText("TESTA")).closest("button");
+  if (firstRow === null) throw new Error("business row button not found");
+  await user.click(firstRow);
+
+  await user.click(await screen.findByRole("button", { name: "TESTA" }));
+  const secondRow = (await screen.findByText("TestBusinesByChamath")).closest("button");
+  if (secondRow === null) throw new Error("business row button not found");
+  await user.click(secondRow);
+
+  expect(reload).toHaveBeenCalledOnce();
+  expect(screen.queryByText("Something went wrong!")).not.toBeInTheDocument();
+});
