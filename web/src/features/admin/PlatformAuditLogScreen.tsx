@@ -52,7 +52,7 @@ export function PlatformAuditLogScreen({ onBack }: PlatformAuditLogScreenProps) 
                 {PLATFORM_AUDIT_ACTION_LABEL[entry.action]}
               </p>
               <p className="text-caption text-ink-muted">
-                {entry.actorName} · {formatTimestamp(entry.createdAt)}
+                {entry.actorName} · {formatTimestamp(entry.createdAt, { withTime: true })}
               </p>
               {entry.selfAction ? <Badge variant="neutral">Self</Badge> : null}
             </Card>

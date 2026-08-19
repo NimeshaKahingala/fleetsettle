@@ -41,7 +41,15 @@ import { BUSINESS_TIMEZONE } from "@fleetsettle/shared";
  */
 const BARE_OFFSET = /(T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2})$/;
 
-export function formatTimestamp(raw: string): string {
+/**
+ * `withTime` (gitar-bot review, PR #79): `PlatformAuditLogScreen` is the one
+ * caller where dropping to a bare calendar day loses something real — two
+ * admin actions on the same day are common, and their ordering is exactly
+ * what an audit log is for. `BusinessesListScreen`/`AdminManagementScreen`
+ * stay date-only on purpose: a business's creation date or an admin grant's
+ * start date has no comparable same-day-ordering need.
+ */
+export function formatTimestamp(raw: string, opts: { withTime?: boolean } = {}): string {
   const spaced = raw.includes("T") ? raw : raw.replace(" ", "T");
   const iso = spaced.replace(BARE_OFFSET, "$1:00");
   return new Intl.DateTimeFormat("en-GB", {
@@ -49,5 +57,6 @@ export function formatTimestamp(raw: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
+    ...(opts.withTime ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).format(new Date(iso));
 }

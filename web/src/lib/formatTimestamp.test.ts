@@ -32,3 +32,16 @@ test("GAP-142: a bare +00 offset (no minutes) — Postgres's own UTC form — do
 test("GAP-142: a bare YYYY-MM-DD date is not mistaken for a timestamp with a broken offset", () => {
   expect(formatTimestamp("2026-08-01")).toBe("1 Aug 2026");
 });
+
+// Gitar review, PR #79: PlatformAuditLogScreen is the one caller where a
+// bare calendar day loses something real — two admin actions on the same
+// day are common, and their ordering is exactly what an audit log is for.
+test("GAP-142: withTime adds hour/minute in the business timezone, still never the raw offset", () => {
+  expect(formatTimestamp("2026-08-18T10:00:00.000Z", { withTime: true })).toBe(
+    "18 Aug 2026, 15:30",
+  );
+});
+
+test("GAP-142: withTime is opt-in — every other caller stays date-only by default", () => {
+  expect(formatTimestamp("2026-08-18T10:00:00.000Z")).toBe("18 Aug 2026");
+});

@@ -42,11 +42,13 @@ test("a self-action entry carries a visible marker", async () => {
   expect(screen.getByText("Self")).toBeInTheDocument();
 });
 
-test("GAP-142: the entry's date is formatted, never the raw ISO/timestamptz text", async () => {
+test("GAP-142: the entry's date is formatted with its time, never the raw ISO/timestamptz text", async () => {
   const get = vi.fn().mockResolvedValue([APPROVED]);
   renderWithProviders(<PlatformAuditLogScreen onBack={vi.fn()} />, { get });
 
-  expect(await screen.findByText(/18 Aug 2026/)).toBeInTheDocument();
+  // Gitar review, PR #79: the audit log keeps time-of-day — two admin
+  // actions on the same day are common, and ordering is what an audit is for.
+  expect(await screen.findByText(/18 Aug 2026, 15:30/)).toBeInTheDocument();
   expect(screen.queryByText(/2026-08-18T10:00/)).not.toBeInTheDocument();
 });
 
