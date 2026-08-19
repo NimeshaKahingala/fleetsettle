@@ -5,6 +5,7 @@ import {
   billingPeriod as billingPeriodTable,
   deposit as depositTable,
   depositMovement,
+  lease as leaseTable,
   vehicleDayAllocation,
 } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
@@ -153,6 +154,20 @@ describe("close a lease (F-2.6/UC-16)", () => {
       const getRes = await get(`/api/lease/${started.id}`, token);
       const leaseBody: { status: string } = await getRes.json();
       expect(leaseBody.status).toBe("closing");
+
+      // GAP-141 (19 Aug 2026 live QA pass, F-4): the treatment chosen at step
+      // 1 is now actually recorded — not wire-exposed on `LeaseResponse` (no
+      // screen reads it back yet), so this checks the row directly.
+      // `closedAt` stays null here: this lease is only `closing`, not yet
+      // `closed` — that column is step 7's own, not step 1's.
+      const [leaseRow] = await db
+        .select({
+          finalPeriodTreatment: leaseTable.finalPeriodTreatment,
+          closedAt: leaseTable.closedAt,
+        })
+        .from(leaseTable)
+        .where(eq(leaseTable.id, started.id));
+      expect(leaseRow).toMatchObject({ finalPeriodTreatment: "days_used", closedAt: null });
 
       await ctx.cleanup();
     });
@@ -632,6 +647,15 @@ describe("close a lease (F-2.6/UC-16)", () => {
       expect(res.status).toBe(200);
       const body: { status: string; endDate: string } = await res.json();
       expect(body).toMatchObject({ status: "closed", endDate: "2026-01-21" });
+
+      // GAP-141 (19 Aug 2026 live QA pass, F-4): step 7 is what actually
+      // moves status to "closed" — this is the one moment `closedAt` gets
+      // written, confirmed against the row directly (not wire-exposed yet).
+      const [leaseRow] = await db
+        .select({ closedAt: leaseTable.closedAt })
+        .from(leaseTable)
+        .where(eq(leaseTable.id, started.id));
+      expect(leaseRow?.closedAt).not.toBeNull();
 
       // D-11/W-58: voided, never deleted — the freed dates stay as a trace,
       // just no longer live.
