@@ -128,7 +128,12 @@ describe("POST /api/business (P2, F-0.1/UC-08)", () => {
     expect(responseBody).toMatchObject({ code: "VALIDATION_ERROR" });
   });
 
-  it("409 — this identity already has a business (F-0.1: no multi-business membership)", async () => {
+  it("201 — a second business for the same identity is legal (Phase 1, 18 Aug 2026: W-63 to W-67, one_active_business_per_user dropped)", async () => {
+    // Inverted 18 Aug 2026 — this used to assert the opposite: a second
+    // business 409ing as BUSINESS_ALREADY_EXISTS. That constraint is gone;
+    // this is now the regression test that a second business succeeds,
+    // matching business.test.ts:149/invite.test.ts:149's own note in the
+    // design doc (§7.6) that both tests would need inverting, not deleting.
     const ctx = new TestContext(db);
     const sub = `test-sub-repeat-owner-${crypto.randomUUID()}`;
     const token = await signAccessToken(sub);
@@ -144,12 +149,13 @@ describe("POST /api/business (P2, F-0.1/UC-08)", () => {
       { name: "Second Fleet", currencyCode: "LKR", timezone: "Asia/Colombo" },
       token,
     );
-    expect(second.status).toBe(409);
-    const secondBody: { code: string } = await second.json();
-    expect(secondBody).toMatchObject({ code: "BUSINESS_ALREADY_EXISTS" });
+    expect(second.status).toBe(201);
+    const secondBody: { id: string; accountingPeriodId: string } = await second.json();
+    expect(secondBody.id).not.toBe(firstBody.id);
 
     const userRows = await db.select().from(appUser).where(eq(appUser.asgardeoSub, sub));
     ctx.trackCreatedBusiness(firstBody.id, userRows[0]!.id);
+    ctx.trackCreatedBusiness(secondBody.id, userRows[0]!.id);
     await ctx.cleanup();
   });
 });

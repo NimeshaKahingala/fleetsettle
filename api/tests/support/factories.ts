@@ -81,6 +81,8 @@ interface DriverOverrides {
   name?: string;
   dailyFeeMinor?: bigint;
   licenceExpiry?: string;
+  /** GAP-135: no endpoint writes this column, so a test that needs a non-`'daily'` driver has to set it here — which is exactly the state the confirm guard exists to refuse. */
+  settlementRhythm?: "daily" | "weekly";
 }
 
 interface CustomerOverrides {
@@ -271,6 +273,9 @@ export class TestContext {
       name: overrides.name ?? "Test Driver",
       driverDayFeeMinor: overrides.dailyFeeMinor ?? 100_00n,
       licenceExpiry: overrides.licenceExpiry,
+      ...(overrides.settlementRhythm !== undefined
+        ? { settlementRhythm: overrides.settlementRhythm }
+        : {}),
     });
     this.track(async () => {
       await this.#db.delete(driver).where(eq(driver.id, id));

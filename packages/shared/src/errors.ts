@@ -17,7 +17,18 @@ export const ERROR_CODES = [
   "FORBIDDEN_CAPABILITY",
   "PERIOD_CLOSED",
   "RATE_LIMITED",
-  "BUSINESS_ALREADY_EXISTS",
+  // Renamed from BUSINESS_ALREADY_EXISTS, Phase 1 (18 Aug 2026): the old
+  // name asserted a single-business premise this design retires — see
+  // AlreadyAMemberError. Still means "already a member of *this* business"
+  // (business_member_active_pair), never "already has a business, full stop".
+  "BUSINESS_ALREADY_MEMBER",
+  // IG §7.5 step 4b: more than one resolved membership, no X-Business-Id
+  // header to select between them.
+  "BUSINESS_NOT_SELECTED",
+  // Phase 2, platform tier (18 Aug 2026): W-63/W-64/decision 17.
+  "REQUEST_ALREADY_PENDING",
+  "REQUEST_ALREADY_DECIDED",
+  "LAST_PLATFORM_ADMIN_REQUIRED",
   "VEHICLE_ALREADY_EXISTS",
   "VEHICLE_DOUBLE_BOOKED",
   "DAILY_LEASE_OVERLAPS",
@@ -71,6 +82,12 @@ export const ERROR_CODES = [
   // GAP-26: off the road.
   "VEHICLE_UNAVAILABILITY_OVERLAPS",
   "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED",
+  // GAP-135/DM D-5/F-4.5: the day-fee write path refuses rather than
+  // computing an `effective_due_on` it cannot derive. Unlike every other
+  // 409 here this names an unbuilt capability rather than a bad request —
+  // the caller did nothing wrong, and the refusal exists so that a weekly
+  // settler never silently reads as overdue (W-56 applied to a write).
+  "SETTLEMENT_RHYTHM_UNSUPPORTED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

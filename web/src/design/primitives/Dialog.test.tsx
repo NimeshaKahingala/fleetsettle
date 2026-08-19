@@ -56,3 +56,30 @@ test("the confirm and cancel actions stack, never side by side (§4.3)", () => {
   const footer = screen.getByRole("button", { name: "Delete" }).parentElement;
   expect(footer).toHaveClass("flex-col");
 });
+
+test("confirmDisabled keeps the confirm action visible but inert (RequestQueueScreen's decline sheet, a required reason not yet filled in)", async () => {
+  const user = userEvent.setup();
+  const onConfirm = vi.fn();
+
+  render(
+    <Dialog
+      open
+      onOpenChange={vi.fn()}
+      title="Decline this request?"
+      footer={
+        <DialogConfirmFooter
+          confirmLabel="Decline request"
+          variant="destructive"
+          confirmDisabled
+          onConfirm={onConfirm}
+          onCancel={vi.fn()}
+        />
+      }
+    />,
+  );
+
+  const confirmButton = screen.getByRole("button", { name: "Decline request" });
+  expect(confirmButton).toBeDisabled();
+  await user.click(confirmButton);
+  expect(onConfirm).not.toHaveBeenCalled();
+});

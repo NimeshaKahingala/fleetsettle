@@ -1,67 +1,65 @@
 # FleetSettle Codex Instructions
 
-This file is the Codex entrypoint. It does not replace `CLAUDE.md`; it tells
-Codex how to use the project documents that already exist.
+This file is the Codex entrypoint. It does not replace `CLAUDE.md` — read
+[CLAUDE.md](CLAUDE.md) first, in full. Everything Codex needs (the read
+order, the money/time/tenancy/write rules, the interface rules, the
+commands) lives there.
 
-## Read Order
+**No second copy here, deliberately** — `.claude/rules/docs.md`'s own reason
+("two copies of a rule become two different rules") applies to a tool
+entrypoint exactly as it does to a specification document. This file used to
+restate CLAUDE.md's read order and core rules in full; that copy drifted out
+of date (it described `TRACKER.md`/`Plan.md` priority as fixed relative to
+`docs/` without ever tracking the phase model or the wave plan CLAUDE.md
+itself points at) while nothing kept the two in sync. Corrected 17 August
+2026, during the Wave 8b document-disposition pass.
 
-Before changing behavior, read the smallest set that owns the change:
+If a Codex-specific behaviour is ever genuinely needed — something true of
+running as Codex and not of running as any other agent — it belongs here,
+stated once, pointing at CLAUDE.md for everything else. Nothing like that
+exists yet.
 
-1. `CLAUDE.md` for project-wide rules.
-2. `docs/README.md` for the document map and citation prefixes.
-3. The owning document in `docs/`:
-   - Product behavior: `docs/product/use-cases.md`
-   - Exact flows and acceptance criteria: `docs/product/user-flows.md`
-   - Schema, constraints, and report queries: `docs/engineering/data-model.md`
-   - Stack constraints: `docs/engineering/tech-stack.md`
-   - Implementation and testing rules: `docs/engineering/implementation-guidelines.md`
-   - Screens, components, and tokens: `docs/design/ui-ux-guidelines.md`
-   - Brand, icons, and voice: `docs/design/brand-guidelines.md`
-4. `TRACKER.md` for what is done and every open gap.
-5. `Plan.md` for the current sequencing of remaining work.
-6. Source code and tests.
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
 
-When documents disagree, use this priority:
+This project is indexed by GitNexus as **fleetsettle** (5839 symbols, 18389 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
-`docs/` first, then `TRACKER.md`, then `Plan.md`, then source code.
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
-If a behavior change requires changing intent, update the owning document first
-and record the reason. Do not silently make the implementation become the spec.
+## Always Do
 
-## Core Rules
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
 
-- Money is `bigint`/minor units in storage and domain code, `string` on the
-  wire, never `number`.
-- Every money write is transactional and append-only; corrections void and
-  replace rather than overwrite.
-- Reports degrade to not-available, never a confident zero, unless zero is the
-  real fact.
-- Business identity comes from the verified token and resolved membership,
-  never from a request body or query parameter.
-- Cross-tenant rows return 404; missing capability returns 403.
-- "Today" means the business timezone's today, not device/server UTC.
-- No cron job is a prerequisite for a user action.
-- Phase-1 UI must work at 360 x 640, one thumb, no horizontal scroll.
-- Interface copy must use the reserved vocabulary in `CLAUDE.md` and the UI
-  guidelines. Do not introduce accounting words into the UI.
-- Colors come from `--color-*` tokens. Do not add raw hex values.
+## Never Do
 
-## What Counts As Done
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
 
-- The owning docs, `TRACKER.md`, and `Plan.md` are consistent with the change.
-- The relevant unit/integration/e2e tests are updated or added.
-- Money and security changes include regression coverage for the exact failure.
-- Golden fixtures remain unchanged unless the owning document deliberately
-  changes the expected business result.
-- The relevant gate is run, or the reason it could not be run is recorded.
-- Hosted QA or browser behavior is verified for user-facing fixes when the bug
-  was found live.
+## Resources
 
-## Working Style
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/fleetsettle/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/fleetsettle/clusters` | All functional areas |
+| `gitnexus://repo/fleetsettle/processes` | All execution flows |
+| `gitnexus://repo/fleetsettle/process/{name}` | Step-by-step execution trace |
 
-- Keep edits narrow and follow existing patterns.
-- Prefer shared schemas from `packages/shared`; do not hand-mirror wire types.
-- Prefer fixing the primitive or root cause over patching every call site.
-- Do not revert unrelated working-tree changes.
-- If an item is out of scope or deliberately deferred, record why so it is not
-  rediscovered as new work.
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

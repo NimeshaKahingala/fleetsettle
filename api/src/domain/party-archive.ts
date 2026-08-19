@@ -10,8 +10,14 @@ import {
   archiveCustomerRow,
   findCustomerForBusiness,
   unarchiveCustomerRow,
+  type CustomerRow,
 } from "../queries/customer.js";
-import { archiveDriverRow, findDriverForBusiness, unarchiveDriverRow } from "../queries/driver.js";
+import {
+  archiveDriverRow,
+  findDriverForBusiness,
+  unarchiveDriverRow,
+  type DriverRow,
+} from "../queries/driver.js";
 import {
   findOpenAdvancesForDriver,
   findOpenDepositsForParty,
@@ -69,11 +75,13 @@ export async function findOpenMoneyForParty(
   );
   if (payableMinor > 0n) items.push({ kind: "payable", amountMinor: payableMinor });
 
+  // GAP-132: a party normally holds few deposits, so this stays a handful of
+  // parallel reads rather than a full aggregate query — sequential awaits in
+  // a loop is the shape CLAUDE.md/api's own "no loop issuing one query per
+  // row" rule names, even at this small a scale.
   const openDeposits = await findOpenDepositsForParty(reader, businessId, partyType, partyId);
-  let depositMinor = 0n;
-  for (const d of openDeposits) {
-    depositMinor += await sumDepositMovements(reader, d.id);
-  }
+  const depositSums = await Promise.all(openDeposits.map((d) => sumDepositMovements(reader, d.id)));
+  const depositMinor = depositSums.reduce((sum, amount) => sum + amount, 0n);
   if (depositMinor > 0n) items.push({ kind: "deposit_held", amountMinor: depositMinor });
 
   if (partyType === "driver") {
@@ -125,11 +133,12 @@ async function assertArchivable(
   throw new PartyHasOpenMoneyError(message, openItems);
 }
 
+/** GAP-131: returns the row the caller already needed to fetch, post-write, so a handler that needs it for its response never re-fetches. */
 export async function archiveDriver(
   reader: Reader,
   writer: Writer,
   input: ArchivePartyInput,
-): Promise<{ voidedAt: string }> {
+): Promise<DriverRow> {
   const existing = await findDriverForBusiness(reader, input.businessId, input.partyId);
   if (!existing) throw new NotFoundError("No such driver in this business");
   if (existing.voidedAt !== null) throw new PartyAlreadyArchivedError();
@@ -151,25 +160,28 @@ export async function archiveDriver(
     }),
   );
   if (!voided) throw new PartyAlreadyArchivedError();
-  return voided;
+  return { ...existing, voidedAt: voided.voidedAt };
 }
 
+/** GAP-131: same as `archiveDriver` — returns the fetched row, post-write. */
 export async function unarchiveDriver(
   reader: Reader,
   writer: Writer,
   businessId: string,
   driverId: string,
-): Promise<void> {
+): Promise<DriverRow> {
   const existing = await findDriverForBusiness(reader, businessId, driverId);
   if (!existing) throw new NotFoundError("No such driver in this business");
   await writer.transaction((tx) => unarchiveDriverRow(tx, driverId));
+  return { ...existing, voidedAt: null };
 }
 
+/** GAP-131: returns the row the caller already needed to fetch, post-write, so a handler that needs it for its response never re-fetches. */
 export async function archiveCustomer(
   reader: Reader,
   writer: Writer,
   input: ArchivePartyInput,
-): Promise<{ voidedAt: string }> {
+): Promise<CustomerRow> {
   const existing = await findCustomerForBusiness(reader, input.businessId, input.partyId);
   if (!existing) throw new NotFoundError("No such customer in this business");
   if (existing.voidedAt !== null) throw new PartyAlreadyArchivedError();
@@ -186,16 +198,18 @@ export async function archiveCustomer(
     }),
   );
   if (!voided) throw new PartyAlreadyArchivedError();
-  return voided;
+  return { ...existing, voidedAt: voided.voidedAt };
 }
 
+/** GAP-131: same as `archiveDriver`'s twin — returns the fetched row, post-write. */
 export async function unarchiveCustomer(
   reader: Reader,
   writer: Writer,
   businessId: string,
   customerId: string,
-): Promise<void> {
+): Promise<CustomerRow> {
   const existing = await findCustomerForBusiness(reader, businessId, customerId);
   if (!existing) throw new NotFoundError("No such customer in this business");
   await writer.transaction((tx) => unarchiveCustomerRow(tx, customerId));
+  return { ...existing, voidedAt: null };
 }

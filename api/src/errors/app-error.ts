@@ -69,13 +69,53 @@ export class RateLimitedError extends AppError {
   }
 }
 
-// F-0.1: this product has no multi-business membership (DM §3's
-// `one_active_business_per_user` index). A second "create business" call
-// for the same identity — a double-submit, a client retry — is a conflict
-// with the caller's own existing business, not a validation error.
-export class BusinessAlreadyExistsError extends AppError {
-  constructor(message = "This account already belongs to a business") {
-    super(409, "BUSINESS_ALREADY_EXISTS", message);
+// Renamed from BusinessAlreadyExistsError, Phase 1 (18 Aug 2026, decision
+// 19/21): one_active_business_per_user is dropped — an identity may now
+// hold more than one business (W-63 to W-67). What survives is
+// business_member_active_pair, a narrower rule: the same identity cannot
+// join the *same* business twice (a double-submitted invite redemption is
+// the one live path that still hits this). No longer thrown by
+// createBusiness at all — a second business is legal, gated by the
+// allowance/threshold (Phase 2), not by this constraint.
+export class AlreadyAMemberError extends AppError {
+  constructor(message = "This account already belongs to this business") {
+    super(409, "BUSINESS_ALREADY_MEMBER", message);
+  }
+}
+
+// IG §7.5 step 4b: more than one resolved membership and no X-Business-Id
+// header to pick between them. Never guessed — the client must show the
+// switcher (user-flows.md F-0.4).
+export class BusinessNotSelectedError extends AppError {
+  constructor(message = "Select which business this request is for") {
+    super(400, "BUSINESS_NOT_SELECTED", message);
+  }
+}
+
+// INV-41, Phase 2: business_creation_request_one_pending — a rejected
+// requester may request again; a pending requester may not queue a second.
+export class RequestAlreadyPendingError extends AppError {
+  constructor(message = "A request is already being reviewed") {
+    super(409, "REQUEST_ALREADY_PENDING", message);
+  }
+}
+
+// F-11.1: a request already approved or rejected cannot be decided again —
+// the same "already voided" shape as ExpenseAlreadyVoidedError, applied to
+// a decision rather than a void.
+export class RequestAlreadyDecidedError extends AppError {
+  constructor(message = "This request has already been decided") {
+    super(409, "REQUEST_ALREADY_DECIDED", message);
+  }
+}
+
+// INV-40/migration 0030: assert_platform_has_admin() is the truth — a
+// revoke that would leave the platform with no active admin is refused
+// rather than merely warned, the same shape as LastOwnerRequiredError one
+// level up.
+export class LastPlatformAdminRequiredError extends AppError {
+  constructor(message = "The platform must always have at least one active admin") {
+    super(409, "LAST_PLATFORM_ADMIN_REQUIRED", message);
   }
 }
 
@@ -184,6 +224,33 @@ export class InsuranceClaimAlreadyExistsError extends AppError {
 export class PaymentAlreadyReversedError extends AppError {
   constructor(message = "This payment has already been fully reversed") {
     super(409, "PAYMENT_ALREADY_REVERSED", message);
+  }
+}
+
+// GAP-135/DM D-5. F-4.5 promises "a weekly settler is not in arrears on
+// Thursday": `obligation.effective_due_on` is meant to be derived from
+// `driver.settlement_rhythm`, and that derivation was never built —
+// `confirmDay` sets `effective_due_on = due_on` unconditionally. Harmless
+// while every driver is `'daily'` (where the two genuinely are equal), and
+// silently wrong the moment one is `'weekly'`: his day fee would read as
+// overdue on every day before the agreed settlement point, in the ageing
+// report and the driver-money screens alike, with nothing announced.
+//
+// So the write path refuses rather than computing a date it knows is wrong.
+// This is W-56's rule ("reports degrade to 'not available', never to a
+// confident wrong number") applied to a write: an admitted refusal a person
+// can act on, instead of a plausible figure nobody would question. It is
+// deliberately *not* a CHECK constraint pinning the column to `'daily'` —
+// that would contradict UC-31, UC-37 and F-4.5, which all describe weekly
+// settlement as a real arrangement this business has. The rhythm stays
+// licensed; only the unbuilt computation is blocked.
+export class SettlementRhythmUnsupportedError extends AppError {
+  constructor(rhythm: string) {
+    super(
+      409,
+      "SETTLEMENT_RHYTHM_UNSUPPORTED",
+      `This driver settles ${rhythm}, and due dates for that rhythm are not calculated yet — confirming the day would record a due date that reads as overdue when it is not. Set the driver to daily settlement, or record this day once the rhythm is supported.`,
+    );
   }
 }
 

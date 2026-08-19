@@ -42,6 +42,13 @@ describe("asgardeoConfig", () => {
     expect(asgardeoConfig("http://localhost:5173").scope).toContain("openid");
   });
 
+  it("requests email — middleware/auth.ts reads it off the access token to populate app_user (Track A)", () => {
+    vi.stubEnv("VITE_ASGARDEO_CLIENT_ID", "test-client-id");
+    vi.stubEnv("VITE_ASGARDEO_BASE_URL", "https://api.asgardeo.io/t/fleetsettle");
+
+    expect(asgardeoConfig("http://localhost:5173").scope).toContain("email");
+  });
+
   it("throws naming the variable when config is missing, rather than building a half-valid client", () => {
     vi.stubEnv("VITE_ASGARDEO_CLIENT_ID", "");
     vi.stubEnv("VITE_ASGARDEO_BASE_URL", "https://api.asgardeo.io/t/fleetsettle");

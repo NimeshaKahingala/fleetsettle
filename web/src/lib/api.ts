@@ -8,6 +8,21 @@ import type { ErrorBody, ErrorCode } from "@fleetsettle/shared";
  */
 export type TokenGetter = () => Promise<string>;
 
+/**
+ * Decision 23 (PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md §2):
+ * a second, *parallel* getter — not a widened `TokenGetter` — mirroring its
+ * shape exactly: read fresh on every call, never a value captured once at
+ * construction time. `auth-asgardeo.ts`/`auth-stub.ts` stay untouched;
+ * business selection is a membership fact resolved server-side, not an
+ * identity one, so it has no business living in the auth modules.
+ *
+ * `null` covers both "nothing selected yet" and "only one membership, so
+ * there is nothing to select" — sending no header in either case is what
+ * matches `authMiddleware`'s own step 4a (no header, one membership →
+ * resolve it anyway), not an omission.
+ */
+export type BusinessIdGetter = () => string | null;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly code: ErrorCode;
@@ -53,14 +68,20 @@ export interface ApiClient {
  * 401, is M-12's job (P12) — this client only does the one request it was
  * asked for.
  */
-export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClient {
+export function createApiClient(
+  baseUrl: string,
+  getToken: TokenGetter,
+  getBusinessId: BusinessIdGetter,
+): ApiClient {
   async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const token = await getToken();
+    const businessId = getBusinessId();
     const res = await fetch(`${baseUrl}${path}`, {
       ...init,
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
+        ...(businessId !== null ? { "X-Business-Id": businessId } : {}),
         ...init?.headers,
       },
     });
@@ -87,7 +108,13 @@ export function createApiClient(baseUrl: string, getToken: TokenGetter): ApiClie
    */
   async function requestBlob(path: string): Promise<BlobResponse> {
     const token = await getToken();
-    const res = await fetch(`${baseUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const businessId = getBusinessId();
+    const res = await fetch(`${baseUrl}${path}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(businessId !== null ? { "X-Business-Id": businessId } : {}),
+      },
+    });
 
     if (!res.ok) {
       const body = (await res.json().catch(() => null)) as Partial<ErrorBody> | null;

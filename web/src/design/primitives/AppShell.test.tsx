@@ -92,6 +92,53 @@ test("GAP-47: below-md landscape keeps the tab bar 44px high and icon-only visua
   expect(screen.getByText("Home")).toHaveClass("max-md:landscape:sr-only");
 });
 
+test("no businessName: no app-bar strip at all (the admin surface has no business selected)", () => {
+  const { container } = render(
+    <AppShell shell="admin">
+      <p>Requests</p>
+    </AppShell>,
+  );
+  expect(container.querySelector("button")).not.toBeInTheDocument();
+  expect(container.querySelectorAll(".border-b")).toHaveLength(0);
+});
+
+test("UI §3.1/M-33: single membership renders the business name unstyled, nothing to tap", () => {
+  render(
+    <AppShell shell="operate" activeTab="home" businessName="TESTA">
+      <p>Home content</p>
+    </AppShell>,
+  );
+  const name = screen.getByText("TESTA");
+  expect(name.closest("button")).not.toBeInTheDocument();
+});
+
+test("UI §3.1/M-33: more than one membership turns the name into a tappable switcher affordance", async () => {
+  const user = userEvent.setup();
+  const onSwitchBusiness = vi.fn();
+  render(
+    <AppShell
+      shell="operate"
+      activeTab="home"
+      businessName="TESTA"
+      onSwitchBusiness={onSwitchBusiness}
+    >
+      <p>Home content</p>
+    </AppShell>,
+  );
+  const trigger = screen.getByRole("button", { name: "TESTA" });
+  await user.click(trigger);
+  expect(onSwitchBusiness).toHaveBeenCalledOnce();
+});
+
+test("the business-name strip is shell-level chrome — same one line on every shell that has a business selected", () => {
+  render(
+    <AppShell shell="mine" businessName="TestBusinesByChamath">
+      <p>Statement</p>
+    </AppShell>,
+  );
+  expect(screen.getByText("TestBusinesByChamath")).toBeInTheDocument();
+});
+
 test("GAP-124a/§14: at lg the tab bar becomes a left rail, ahead of the bottom bar in source order", () => {
   const { container } = render(
     <AppShell shell="operate" activeTab="vehicles">

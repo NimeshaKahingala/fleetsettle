@@ -4,7 +4,7 @@ A ledger for a small Sri Lankan vehicle-rental business — a bus and two cars, 
 
 **Its whole promise is being believed about money.** Every rule below exists because breaking it produces a number that is wrong, plausible, and not noticed until someone argues about it months later.
 
-**Repository state: deployed and running.** The Worker is complete through P13, the React client through Web-P8b, and both environments are live — `fleetsettle.com` (production, migrations `0001`–`0014`) and `qa.fleetsettle.com` (QA, `0001`–`0023`), each backed by its own Neon branch. **The two are deliberately apart**: nothing goes to production until every phase-1 gap is fixed and tested, and production holds zero rows in the meantime. `docs/` remains the specification and still decides; the golden fixtures pass 39 of 39 against live Postgres 17.
+**Repository state: deployed and running.** The Worker is complete through P13, the React client through Web-P8b, and both environments are live — `fleetsettle.com` (production) and `qa.fleetsettle.com` (QA), each backed by its own Neon branch. **Migration numbers deliberately not quoted here, corrected 16 August 2026**: this paragraph said production was on `0001`–`0014` and QA on `0001`–`0023` long after both had moved — `main` and `develop` now carry the identical 28 migration files, `0001`–`0028`. A hand-copied number in the always-loaded context file is the worst place for this fact to live, because it is read constantly and updated never. **`npm run migrate:status` is the answer; this file is not.** **The two are deliberately apart**: nothing goes to production until every phase-1 gap is fixed and tested, and production holds zero rows in the meantime. `docs/` remains the specification and still decides; the golden fixtures pass 39 of 39 against live Postgres 17.
 
 [TRACKER.md](TRACKER.md) is what is built and every open gap; [Plan.md](Plan.md) is what remains; [DEPLOYMENT.md](DEPLOYMENT.md) is how it ships. **Merging to `main` deploys production automatically and nothing pauses afterwards** — the pull request is the deploy decision.
 
@@ -109,3 +109,48 @@ The workspaces (`api/`, `web/`, `packages/shared`) do not exist yet; `typecheck`
 Every check takes an inline exemption that requires a reason — `// eslint-disable-next-line … -- odometer km, not money`, or `-- allow: <reason>` in SQL. Use it rather than deleting a rule; the point is that the exception is visible in the diff.
 
 The first implementation tasks, in order, are in IG §12. The first two are not negotiable: apply the DM §16.0 DDL as migration `0001`, then the `audit_log` trigger as `0002`, **before any money table holds live data**.
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **fleetsettle** (5839 symbols, 18389 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows. For regression review, compare against the default branch: `detect_changes({scope: "compare", base_ref: "main"})`.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `query({search_query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `context({name: "symbolName"})`.
+- For security review, `explain({target: "fileOrSymbol"})` lists taint findings (source→sink flows; needs `analyze --pdg`).
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `rename` which understands the call graph.
+- NEVER commit changes without running `detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/fleetsettle/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/fleetsettle/clusters` | All functional areas |
+| `gitnexus://repo/fleetsettle/processes` | All execution flows |
+| `gitnexus://repo/fleetsettle/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+| Task | Read this skill file |
+|------|---------------------|
+| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+
+<!-- gitnexus:end -->

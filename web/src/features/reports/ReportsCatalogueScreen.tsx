@@ -1,9 +1,10 @@
-import type { MeResponse } from "@fleetsettle/shared/schemas";
+import type { SessionResponse } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Banknote,
   CalendarRange,
   ChevronRight,
+  Download,
   Fuel,
   Gift,
   History,
@@ -18,9 +19,11 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { can } from "../../lib/capabilities.js";
+import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 
 export type ReportKey =
   | "vehicle-month"
+  | "vehicle-year"
   | "trips"
   | "fuel-efficiency"
   | "receivables"
@@ -28,7 +31,8 @@ export type ReportKey =
   | "lost-days"
   | "ageing"
   | "goodwill"
-  | "utilisation";
+  | "utilisation"
+  | "export";
 
 export interface ReportsCatalogueScreenProps {
   onSelect: (key: ReportKey) => void;
@@ -57,6 +61,7 @@ const GROUPS: {
         icon: Hourglass,
         ownerOnly: true,
       },
+      { key: "vehicle-year", label: "How was the year", icon: CalendarRange, ownerOnly: true },
     ],
   },
   {
@@ -66,12 +71,19 @@ const GROUPS: {
       { key: "ageing", label: "Who is overdue, and by how long", icon: History },
       { key: "cash-position", label: "Where is our cash", icon: Banknote },
       { key: "goodwill", label: "Goodwill given", icon: Gift, ownerOnly: true },
+      {
+        key: "export",
+        label: "Export transactions (CSV)",
+        icon: Download,
+        ownerOnly: true,
+      },
     ],
   },
 ];
 
 /**
- * `/reports` — UI §5.1's catalogue. **Nine cards now, not six** (GAP-98):
+ * `/reports` — UI §5.1's catalogue. **Eleven cards now, not six** (GAP-98,
+ * then GAP-18 adding UC-73's yearly view and UC-99's CSV export):
  * UC-77 (goodwill) and UC-79 (utilisation) were the only two owner-only
  * reports and both were phase 2 — both moved to phase 1 with UC-78
  * (ageing) on 11 Aug 2026 (`use-cases.md` v1.2.5), and this catalogue is
@@ -87,8 +99,11 @@ const GROUPS: {
  */
 export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps) {
   const queryClient = useQueryClient();
-  const me = queryClient.getQueryData<MeResponse>(["me"]);
-  const canSeeOwnerOnly = me !== undefined && can(me.role, "viewOwnerOnlyReports");
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  // Phase 3: the selected membership's role, not businesses[0] unconditionally
+  // — see Can.tsx's identical note.
+  const role = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  const canSeeOwnerOnly = role !== undefined && can(role, "viewOwnerOnlyReports");
 
   return (
     <Screen title="Reports">

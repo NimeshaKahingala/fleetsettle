@@ -61,15 +61,18 @@ export function DialogConfirmFooter({
   onConfirm,
   onCancel,
   variant = "primary",
+  confirmDisabled = false,
 }: {
   confirmLabel: string;
   onConfirm: () => void;
   onCancel: () => void;
   variant?: "primary" | "destructive";
+  /** e.g. a required reason field not yet filled in (`RequestQueueScreen`'s decline sheet) — the confirm stays visible but inert rather than submitting an empty value the server would 400 on anyway. */
+  confirmDisabled?: boolean;
 }) {
   return (
     <>
-      <Button size="cta" variant={variant} onClick={onConfirm}>
+      <Button size="cta" variant={variant} onClick={onConfirm} disabled={confirmDisabled}>
         {confirmLabel}
       </Button>
       <Button variant="ghost" onClick={onCancel}>

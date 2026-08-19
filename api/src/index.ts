@@ -4,6 +4,7 @@ import { scheduled } from "./scheduled.js";
 import { requestLogger } from "./middleware/logger.js";
 import { dbMiddleware } from "./middleware/db.js";
 import { authMiddleware, verifyTokenMiddleware } from "./middleware/auth.js";
+import { platformAdminMiddleware } from "./middleware/platform-admin.js";
 import { rateLimitMiddleware } from "./middleware/rate-limit.js";
 import { errorHandler } from "./errors/handler.js";
 import { health } from "./routes/health.js";
@@ -47,6 +48,8 @@ import { postClosureCharge } from "./routes/post-closure-charge.js";
 import { reports } from "./routes/reports.js";
 import { driverView } from "./routes/driver-view.js";
 import { home } from "./routes/home.js";
+import { session } from "./routes/session.js";
+import { admin } from "./routes/admin.js";
 import { mountDocs } from "./routes/docs.js";
 
 const app = new OpenAPIHono<Env>();
@@ -69,16 +72,29 @@ app.route("/api/_probe", probe);
 
 // F-0.1: `verifyTokenMiddleware`, never `authMiddleware` — this route is
 // what creates the first business_member row for an identity, so there is
-// nothing yet for authMiddleware's resolveMembership to resolve.
+// nothing yet for authMiddleware's resolveMemberships to resolve.
 app.use("/api/business", dbMiddleware(), verifyTokenMiddleware());
 app.route("/api/business", business);
 
 // W-57: `verifyTokenMiddleware`, never `authMiddleware` — the same reasoning
 // as `/api/business` above. Redeeming a code is how a business_member row or
 // a driver's linked_user_id is created; there is nothing yet for
-// authMiddleware's resolveMembership to resolve for a brand-new identity.
+// authMiddleware's resolveMemberships to resolve for a brand-new identity.
 app.use("/api/invite/*", dbMiddleware(), verifyTokenMiddleware());
 app.route("/api/invite", invite);
+
+// IG §7.5/decision 17: the third and last route on `verifyTokenMiddleware`
+// — the one place an identity holding no membership, or more than one, can
+// be told so before any business is selected.
+app.use("/api/session", dbMiddleware(), verifyTokenMiddleware());
+app.route("/api/session", session);
+
+// IG §7.6: the load-bearing structural line in the whole platform-tier
+// design. `platformAdminMiddleware`, never `authMiddleware` — there is no
+// business in scope on this path, and no existing route composes the two
+// middlewares, so none should start here either.
+app.use("/api/admin/*", dbMiddleware(), platformAdminMiddleware());
+app.route("/api/admin", admin);
 
 app.use("/api/vehicle/*", dbMiddleware(), authMiddleware());
 app.route("/api/vehicle", vehicle);

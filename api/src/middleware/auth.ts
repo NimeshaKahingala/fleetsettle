@@ -1,18 +1,22 @@
 import type { MiddlewareHandler } from "hono";
 import { extractBearerToken, verifyAccessToken } from "../auth/verify.js";
-import { InvalidTokenError, NotFoundError } from "../errors/app-error.js";
-import { resolveMembership } from "../queries/identity.js";
+import { BusinessNotSelectedError, InvalidTokenError, NotFoundError } from "../errors/app-error.js";
+import { resolveMemberships, type Membership } from "../queries/identity.js";
 import type { Env } from "../types.js";
 
 /**
- * IG §7.1's chain, end to end: verify the Bearer token against JWKS, resolve
- * `sub` to a business (via `business_member` or a linked driver), and set
+ * IG §7.5's five-step chain: verify the Bearer token against JWKS, resolve
+ * `sub` to every membership this identity holds (via `business_member` or a
+ * linked driver — an identity may now hold both, in different businesses,
+ * W-66), pick which one is in scope for this request, and set
  * `businessId`/`userId`/`role`/`driverId` for everything downstream. Requires
  * `dbMiddleware` mounted first — this reads `c.get("reader")`.
  *
- * No membership resolves to 404, the same as a foreign business would
- * (CLAUDE.md → Tenancy): a verified identity with nothing to scope by has
- * nothing to see, and a 403 here would confirm a row that does not exist.
+ * **The header is a filter over memberships the server derived from the
+ * token, never a grant.** `X-Business-Id` narrows an already-resolved set;
+ * it is never itself the source of `businessId` — that always comes from
+ * the matched membership row (step 5), so no later refactor can reach for
+ * the header string directly.
  */
 export const authMiddleware = (): MiddlewareHandler<Env> => {
   return async (c, next) => {
@@ -21,9 +25,33 @@ export const authMiddleware = (): MiddlewareHandler<Env> => {
 
     if (typeof payload.sub !== "string" || !payload.sub) throw new InvalidTokenError();
 
-    const membership = await resolveMembership(c.get("reader"), payload.sub);
-    if (!membership) throw new NotFoundError();
+    // Step 2: every membership this identity holds, from the database —
+    // never from the token.
+    const memberships = await resolveMemberships(c.get("reader"), payload.sub);
 
+    const header = c.req.header("X-Business-Id"); // allow: this is the rule's own sanctioned resolution point (IG §7.5)
+    let membership: Membership;
+    if (header !== undefined) {
+      // Step 3: not in the resolved set → 404, never 403 (CLAUDE.md →
+      // Tenancy: a 403 confirms the business exists).
+      const matched = memberships.find((m) => m.businessId === header);
+      if (!matched) throw new NotFoundError();
+      membership = matched;
+    } else if (memberships.length === 1) {
+      // Step 4a: no header, exactly one membership — use it, unremarked.
+      const [only] = memberships;
+      if (!only) throw new NotFoundError();
+      membership = only;
+    } else if (memberships.length === 0) {
+      throw new NotFoundError();
+    } else {
+      // Step 4b: no header, more than one membership — refuse the guess.
+      throw new BusinessNotSelectedError();
+    }
+
+    // Step 5: businessId is set from the matched membership ROW, never from
+    // the header string — the difference between a validated selector and
+    // a trusted claim.
     c.set("userId", membership.userId);
     c.set("businessId", membership.businessId);
     c.set("businessTimezone", membership.businessTimezone);

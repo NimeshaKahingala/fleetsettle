@@ -65,6 +65,45 @@ export const appUser = pgTable("app_user", {
   asgardeoSub: text("asgardeo_sub").notNull(),
   email: text("email"),
   displayName: text("display_name"),
+  // W-64, migration 0030: active owner/owner-manager memberships below
+  // which POST /api/business is immediate.
+  businessAllowance: integer("business_allowance").notNull().default(5),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+// W-65, migration 0030. PRIMARY KEY on the parent's own id, matching
+// businessSettings above one level up — see data-model.md §3.2.
+export const platformAdmin = pgTable("platform_admin", {
+  userId: uuid("user_id").primaryKey(),
+  grantedBy: uuid("granted_by"),
+  grantedAt: timestamp("granted_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true, mode: "string" }),
+});
+
+// W-63/W-64, migration 0030. A held request, not a pending business row.
+export const businessCreationRequest = pgTable("business_creation_request", {
+  id: uuid("id").primaryKey(),
+  requestedBy: uuid("requested_by").notNull(),
+  name: text("name").notNull(),
+  currencyCode: char("currency_code", { length: 3 }).notNull(),
+  timezone: text("timezone").notNull(),
+  status: text("status").notNull().default("pending"),
+  decidedBy: uuid("decided_by"),
+  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "string" }),
+  rejectionReason: text("rejection_reason"),
+  businessId: uuid("business_id"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
+});
+
+// W-67, migration 0030. Separate from auditLog — business_id there is
+// NOT NULL, and platform actions have no business.
+export const platformAuditLog = pgTable("platform_audit_log", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(),
+  action: text("action").notNull(),
+  subjectId: uuid("subject_id").notNull(),
+  actorId: uuid("actor_id").notNull(),
+  selfAction: boolean("self_action").notNull().default(false),
+  detailJson: jsonb("detail_json"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 

@@ -11,6 +11,7 @@ import {
   receivablesResponseSchema,
   utilisationResponseSchema,
   vehicleMonthResponseSchema,
+  vehicleYearResponseSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
@@ -37,6 +38,14 @@ const vehicleWindowQuery = z
 
 const windowQuery = z
   .object({ from: businessDateSchema, to: businessDateSchema })
+  .refine((v) => v.from <= v.to, dateOrderRefinement);
+
+const vehicleYearQuery = z
+  .object({
+    vehicleId: z.string().uuid().optional(),
+    from: businessDateSchema,
+    to: businessDateSchema,
+  })
   .refine((v) => v.from <= v.to, dateOrderRefinement);
 
 const asOfQuery = z.object({ asOfDate: businessDateSchema });
@@ -197,5 +206,42 @@ export const getUtilisationReportRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read owner-only reports" },
     404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** GAP-18/UC-73: "as UC-70, with overheads (UC-66) beneath vehicle profit" — owners only (UC-73's own "Sees" line), never degrades (same basis as UC-70). */
+export const getVehicleYearReportRoute = createRoute({
+  method: "get",
+  path: "/vehicle-year",
+  request: { query: vehicleYearQuery },
+  responses: {
+    200: {
+      content: { "application/json": { schema: vehicleYearResponseSchema } },
+      description:
+        "Earned, costs, profit and each owner's share per vehicle, plus overheads, for the window",
+    },
+    400: { description: "from is after to (GAP-92)" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read owner-only reports" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/**
+ * GAP-18/UC-99 (CSV half — the PDF half is GAP-136, phase 2): "a year of
+ * transactions to CSV" — owners only, W-49 checked at the same capability
+ * gate every other report uses. No JSON body: `getAttachmentRoute`'s own
+ * precedent for a non-JSON 200 (declared with a `description`, no `content`
+ * schema) is what this follows for a raw `text/csv` response.
+ */
+export const exportTransactionsCsvRoute = createRoute({
+  method: "get",
+  path: "/export",
+  request: { query: windowQuery },
+  responses: {
+    200: { description: "A year of transactions as `text/csv`, oldest first" },
+    400: { description: "from is after to (GAP-92)" },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot export" },
   },
 });

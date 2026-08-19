@@ -22,8 +22,9 @@ export const redeemInviteRoute = createRoute({
     },
     400: { description: "This code is invalid or has expired" },
     401: { description: "Missing or invalid access token" },
-    // F-0.1/DM §3: this identity already belongs to a business — the same
-    // conflict createBusiness maps, not a reason to invent a second code.
-    409: { description: "This account already belongs to a business" },
+    // Phase 1 (18 Aug 2026, W-63/W-66): a different business is no longer a
+    // conflict — an identity may hold several. Only business_member_active_pair
+    // survives: the identical business, redeemed twice.
+    409: { description: "This account already belongs to this business" },
   },
 });

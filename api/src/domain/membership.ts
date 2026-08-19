@@ -3,7 +3,7 @@ import type { BusinessMemberRole } from "@fleetsettle/shared/schemas";
 import type { Writer } from "../db/client.js";
 import { isBusinessHasNoOwnerViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
-  BusinessAlreadyExistsError,
+  AlreadyAMemberError,
   InviteCodeInvalidError,
   LastOwnerRequiredError,
 } from "../errors/app-error.js";
@@ -249,11 +249,26 @@ export async function redeemInvite(
       throw new InviteCodeInvalidError();
     });
   } catch (err) {
-    // one_active_business_per_user (DM §3): this identity already belongs to
-    // a business — the same conflict F-0.1 maps for createBusiness, not a
-    // reason to invent a second code for the identical fact.
-    if (isUniqueViolation(err, "one_active_business_per_user")) {
-      throw new BusinessAlreadyExistsError();
+    // Phase 1 (18 Aug 2026, decision 19): one_active_business_per_user is
+    // gone. business_member_active_pair, which survives it, is a narrower
+    // rule — "not the same business twice" — and it is what this branch
+    // now maps: redeeming a business_member_invite for a business this
+    // identity already actively belongs to (owner/owner-manager/manager,
+    // not revoked). A different business is no longer a conflict at all
+    // (W-63/W-66) — only the identical one is.
+    if (isUniqueViolation(err, "business_member_active_pair")) {
+      throw new AlreadyAMemberError();
+    }
+    // W-66, added 18 Aug 2026: driver.linked_user_id is now business-scoped
+    // (driver_linked_user_per_business, migration 0029) rather than a
+    // global UNIQUE. A second driver-link redemption for the same identity
+    // in a *different* business is legal and lands here without error; this
+    // branch only catches the same shape one level down — linking the same
+    // identity to two driver records inside the one business the invite
+    // names, confirmed by an independent sweep of this function rather than
+    // assumed (implementation plan §2, Phase 1).
+    if (isUniqueViolation(err, "driver_linked_user_per_business")) {
+      throw new AlreadyAMemberError("This account is already linked to a driver in this business");
     }
     throw err;
   }
