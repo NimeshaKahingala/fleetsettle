@@ -216,6 +216,10 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               void queryClient.invalidateQueries({ queryKey: ["customer", customerId, "payment"] });
               void queryClient.invalidateQueries({ queryKey: ["payment"] });
               void queryClient.invalidateQueries({ queryKey: ["home"] });
+              // GAP-144 (19 Aug 2026 live QA pass, F-7): same gap as
+              // QuickPaymentSheet's own fix — Home's "Rent due" list reads
+              // `["reports", "receivables"]`, which `["home"]` never reaches.
+              void queryClient.invalidateQueries({ queryKey: ["reports"] });
             }}
           />
         </div>

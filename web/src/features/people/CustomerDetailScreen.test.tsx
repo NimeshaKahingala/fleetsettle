@@ -200,3 +200,33 @@ test("collect payment reuses the party-level payment write and refreshes custome
     ),
   );
 });
+
+test("GAP-144: collecting payment here also invalidates Home's own receivables read", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "p2",
+    amountMinor: "400000",
+    occurredOn: "2026-08-11",
+    allocations: [],
+    unallocatedMinor: "0",
+  });
+  const { queryClient } = renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    {
+      get: baseGet(),
+      post,
+    },
+  );
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(await screen.findByRole("button", { name: "Collect payment" }));
+  await screen.findByRole("textbox", { name: "Amount received" });
+  for (const digit of "400000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
