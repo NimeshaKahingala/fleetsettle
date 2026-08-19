@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { resolveSelectedMembership } from "./selectedMembership.js";
 
 export interface SelectedBusiness {
+  businessId: string;
   name: string;
   businesses: SessionResponse["businesses"];
 }
@@ -21,6 +22,9 @@ export interface SelectedBusiness {
  * called from `renderAdmin`: the admin surface has no business selected,
  * `AppShell`'s `businessName` prop stays `undefined` there by construction
  * rather than by a guard here.
+ *
+ * `businessId` added GAP-139 (19 Aug 2026 live QA pass, F-2): the switcher
+ * sheet had no way to mark which row is already selected without it.
  */
 export function useSelectedBusiness(): SelectedBusiness {
   const queryClient = useQueryClient();
@@ -31,5 +35,9 @@ export function useSelectedBusiness(): SelectedBusiness {
       "useSelectedBusiness() called before FirstRunGate resolved a role — is it nested wrong?",
     );
   }
-  return { name: membership.name, businesses: session.businesses };
+  return {
+    businessId: membership.businessId,
+    name: membership.name,
+    businesses: session.businesses,
+  };
 }

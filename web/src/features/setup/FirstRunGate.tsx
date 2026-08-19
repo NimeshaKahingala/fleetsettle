@@ -341,6 +341,7 @@ function FirstRunGateInner({
             // does nothing rather than revealing nothing behind it.
           }}
           businesses={businesses}
+          currentBusinessId={getSelectedBusinessId()}
           onSelected={onBusinessSwitched}
         />
       </div>

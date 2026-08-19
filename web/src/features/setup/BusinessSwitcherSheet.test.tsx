@@ -67,6 +67,24 @@ test("selecting a row calls the optional onSelected callback after clearing", as
   expect(onSelected).toHaveBeenCalledTimes(1);
 });
 
+test("GAP-139: marks the current business, and only the current business", () => {
+  renderSheet({ currentBusinessId: "b2" });
+
+  const current = screen.getByRole("button", { name: /Second Fleet/ });
+  const other = screen.getByRole("button", { name: /First Fleet/ });
+  expect(current).toHaveAttribute("aria-current", "true");
+  expect(other).not.toHaveAttribute("aria-current");
+  expect(screen.getByText("Driver · Current")).toBeInTheDocument();
+  expect(screen.queryByText("Owner · Current")).not.toBeInTheDocument();
+});
+
+test("GAP-139: no currentBusinessId (or one that matches nothing) marks nothing as current", () => {
+  renderSheet({ currentBusinessId: "not-a-real-id" });
+
+  expect(screen.getByRole("button", { name: /First Fleet/ })).not.toHaveAttribute("aria-current");
+  expect(screen.getByRole("button", { name: /Second Fleet/ })).not.toHaveAttribute("aria-current");
+});
+
 /**
  * Design doc open question 19 / implementation plan §5: the concrete,
  * named regression case. `PartnerDetailScreen.tsx:208,212,217,221` keys
