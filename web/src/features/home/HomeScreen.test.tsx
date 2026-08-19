@@ -24,6 +24,14 @@ function formatTestHomeDate(date: string): string {
   }).format(new Date(`${date}T00:00:00`));
 }
 
+/** Matches `HomeScreen.tsx`'s own private `formatShortDate` — no weekday, unlike `formatTestHomeDate` above. */
+function formatTestShortDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
 /**
  * Every path this screen never asks about resolves to empty, so a test only
  * has to say what it cares about. `ConfirmDayCard` (used by both item 3 and
@@ -128,6 +136,36 @@ test("GAP-101: every read failing shows a failure notice per section, never 'Not
   expect(screen.getByText("Something went wrong loading deposits to release.")).toBeInTheDocument();
   expect(screen.getByText("Something went wrong loading trips in progress.")).toBeInTheDocument();
   expect(screen.queryByText("Nothing needs you today")).not.toBeInTheDocument();
+});
+
+test("GAP-138: a rent-due row not yet due reads 'Due on', never 'Due since'", async () => {
+  const receivables: ReceivableRow[] = [
+    {
+      partyType: "customer",
+      partyId: "c1",
+      partyName: "Future Customer",
+      outstandingMinor: "300000",
+      oldestDueOn: addDays(today, 3),
+    },
+    {
+      partyType: "customer",
+      partyId: "c2",
+      partyName: "Overdue Customer",
+      outstandingMinor: "150000",
+      oldestDueOn: addDays(today, -3),
+    },
+  ];
+  const get = baseGet({ "/api/reports/receivables": receivables });
+  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Future Customer")).toBeInTheDocument();
+  expect(screen.getByText(`Due on ${formatTestShortDate(addDays(today, 3))}`)).toBeInTheDocument();
+  expect(
+    screen.getByText(`Due since ${formatTestShortDate(addDays(today, -3))}`),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByText(`Due since ${formatTestShortDate(addDays(today, 3))}`),
+  ).not.toBeInTheDocument();
 });
 
 test("a paperwork warning renders as an alert strip, styled by isExpired, with a vehicle action but not a driver one", async () => {
