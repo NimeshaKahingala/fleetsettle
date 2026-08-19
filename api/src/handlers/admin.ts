@@ -68,7 +68,7 @@ export const decideRequestHandler: RouteHandler<typeof decideRequestRoute, Env> 
     await rejectRequest(c.get("writer"), id, actorId, input.reason);
   }
 
-  return c.body(null, 200);
+  return c.body(null, 204);
 };
 
 export const listBusinessesHandler: RouteHandler<typeof listBusinessesRoute, Env> = async (c) => {
@@ -86,7 +86,7 @@ export const setAllowanceHandler: RouteHandler<typeof setAllowanceRoute, Env> = 
   const { businessAllowance } = c.req.valid("json");
   const actorId = requireUserId(c);
   await setBusinessAllowance(c.get("writer"), id, actorId, businessAllowance);
-  return c.body(null, 200);
+  return c.body(null, 204);
 };
 
 export const listAdminsHandler: RouteHandler<typeof listAdminsRoute, Env> = async (c) => {
@@ -106,14 +106,14 @@ export const grantAdminHandler: RouteHandler<typeof grantAdminRoute, Env> = asyn
   const { userId } = c.req.valid("json");
   const actorId = requireUserId(c);
   await grantPlatformAdmin(c.get("writer"), userId, actorId);
-  return c.body(null, 200);
+  return c.body(null, 204);
 };
 
 export const revokeAdminHandler: RouteHandler<typeof revokeAdminRoute, Env> = async (c) => {
   const { id } = c.req.valid("param");
   const actorId = requireUserId(c);
   await revokePlatformAdminGrant(c.get("writer"), id, actorId);
-  return c.body(null, 200);
+  return c.body(null, 204);
 };
 
 export const getAuditLogHandler: RouteHandler<typeof getAuditLogRoute, Env> = async (c) => {
