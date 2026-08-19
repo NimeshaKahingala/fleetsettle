@@ -13,13 +13,32 @@ export const SELECTED_BUSINESS_ID_KEY = "fleetsettle.selectedBusinessId";
  * `BusinessIdGetter`, and it must see a same-tick change (e.g. right after
  * `setSelectedBusinessId` in the switcher's own select handler) exactly the
  * same way `TokenGetter` is read fresh on every request.
+ *
+ * **Fixes a review finding on PR #76 (gitar-bot)**: `localStorage` throws a
+ * `SecurityError` in a storage-blocked environment (historically Safari
+ * private mode; any "block all cookies/site data" setting) — and this
+ * getter runs synchronously inside `request()`/`requestBlob()` on *every*
+ * API call, so an unguarded throw here would have failed every request in
+ * such an environment, not just the switcher. The selection is best-effort,
+ * never load-bearing (a business with one membership sends no header either
+ * way; a multi-membership user just gets asked again) — degrading to "no
+ * stored selection" is always safe, an app-wide outage never is.
  */
 export function getSelectedBusinessId(): string | null {
-  return localStorage.getItem(SELECTED_BUSINESS_ID_KEY);
+  try {
+    return localStorage.getItem(SELECTED_BUSINESS_ID_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setSelectedBusinessId(id: string): void {
-  localStorage.setItem(SELECTED_BUSINESS_ID_KEY, id);
+  try {
+    localStorage.setItem(SELECTED_BUSINESS_ID_KEY, id);
+  } catch {
+    // Storage unavailable — the switcher's own selection is best-effort;
+    // see the getter's own comment for why a throw here must not propagate.
+  }
 }
 
 /**
@@ -30,5 +49,9 @@ export function setSelectedBusinessId(id: string): void {
  * out from under a live session.
  */
 export function clearSelectedBusinessId(): void {
-  localStorage.removeItem(SELECTED_BUSINESS_ID_KEY);
+  try {
+    localStorage.removeItem(SELECTED_BUSINESS_ID_KEY);
+  } catch {
+    // Nothing to clean up if storage was never reachable in the first place.
+  }
 }
