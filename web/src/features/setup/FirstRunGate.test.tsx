@@ -111,6 +111,30 @@ test.each([
   expect(await screen.findByText(expected)).toBeInTheDocument();
 });
 
+/**
+ * Gitar review on PR #77, 19 Aug 2026: a stored selection surviving from a
+ * time this identity held more than one membership (picked business A, then
+ * got revoked from it, left with only B) was never reconciled here — `B`'s
+ * shell rendered regardless, but `api.ts` kept sending the stale `A` as
+ * `X-Business-Id` on every request, and `authMiddleware` 404s an unmatched
+ * header unconditionally (never `BUSINESS_NOT_SELECTED`), so `main.tsx`'s
+ * own recovery branch — which only watches for that specific code — never
+ * fired. Every request 404ing forever, with no way out but a manual sign-out,
+ * is exactly the class of bug this test exists to catch before it recurs.
+ */
+test("gitar/PR #77: a stale stored selection from a since-revoked business is cleared when only one membership remains", async () => {
+  setSelectedBusinessId("b-revoked");
+  const get = vi
+    .fn()
+    .mockResolvedValue(
+      session({ businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" }] }),
+    );
+  renderGate(get);
+
+  expect(await screen.findByText("Operate")).toBeInTheDocument();
+  expect(getSelectedBusinessId()).not.toBe("b-revoked");
+});
+
 const TWO_BUSINESSES = [
   { businessId: "b1", name: "First Fleet", role: "owner" as const },
   { businessId: "b2", name: "Second Fleet", role: "driver" as const, driverId: "d1" },
