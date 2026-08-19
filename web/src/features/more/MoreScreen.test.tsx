@@ -84,6 +84,16 @@ describe("MoreScreen", () => {
     expect(screen.queryByText("Sign out?")).not.toBeInTheDocument();
   });
 
+  test("UI §3.1: a platform admin sees the Admin panel row; an ordinary owner-manager does not", () => {
+    renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), OWNER_MANAGER);
+    expect(screen.queryByText("Admin panel")).not.toBeInTheDocument();
+  });
+
+  test("UI §3.1: the Admin panel row appears when /api/session reports isPlatformAdmin", () => {
+    renderWithProviders(<MoreScreen />, {}, () => Promise.resolve(), OWNER_MANAGER, true);
+    expect(screen.getByText("Admin panel")).toBeInTheDocument();
+  });
+
   test("confirming calls the injected sign-out and clears the query cache (GAP-40)", async () => {
     const user = userEvent.setup();
     const signOut = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
