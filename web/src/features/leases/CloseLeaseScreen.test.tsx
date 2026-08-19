@@ -195,6 +195,40 @@ test("the closure summary lists unpaid dues and any open incident", async () => 
   expect(screen.getByText("Open incidents · 1")).toBeInTheDocument();
 });
 
+test("GAP-140: an unpaid due's row shows what's still outstanding, not the original gross amount, and trip_fare gets a real label", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({
+    "/api/lease/l1/closure-summary": {
+      unpaidObligations: [
+        {
+          id: "o3",
+          kind: "trip_fare",
+          dueOn: "2026-06-11",
+          amountMinor: "56990",
+          settledMinor: "145",
+          waivedMinor: "0",
+        },
+      ],
+      totalUnpaidMinor: "56845",
+      openIncidents: [],
+    } satisfies LeaseClosureSummaryResponse,
+  });
+  const post = vi.fn().mockResolvedValue({ finalPeriod });
+  renderWithProviders(
+    <CloseLeaseScreen leaseId="l1" today={today} onBack={() => {}} onClosed={() => {}} />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Stop the clock" }));
+
+  expect(await screen.findByText("Trip fare")).toBeInTheDocument();
+  expect(screen.queryByText("trip_fare")).not.toBeInTheDocument();
+  // Total (Rs 568.45) and the one row's own outstanding figure must agree —
+  // both net settledMinor, neither shows the gross Rs 569.90 amountMinor.
+  expect(screen.getAllByText("Rs 568.45")).toHaveLength(2);
+  expect(screen.queryByText("Rs 569.90")).not.toBeInTheDocument();
+});
+
 test("GAP-101: a failed closure-summary read shows a failure notice, never an eternal spinner", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockImplementation((path: string) => {
