@@ -12,6 +12,29 @@ import { expect, test, type Page } from "@playwright/test";
  * opt-in via an env var a real deployment doesn't set.
  */
 const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
+/**
+ * `FirstRunGate` (Phase 2, 18 Aug 2026) resolves off `/api/session`, not
+ * `/api/me` — `/api/me` still exists and is mocked alongside it below for
+ * anything that reads it directly, but every gating decision in this suite
+ * now needs a matching `/api/session` response too, or the app hangs on an
+ * unmocked `fetch` (confirmed empirically: without this, every test below
+ * timed out waiting on its first assertion — `ECONNREFUSED` against
+ * `/api/session`, no backend running here).
+ */
+const SESSION_OPERATE = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
+  pendingRequest: null,
+  hadMembership: true,
+};
+const SESSION_NO_BUSINESS = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [] as const,
+  pendingRequest: null,
+  hadMembership: false,
+};
 
 async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
   await page.route(urlPattern, async (route) => {
@@ -29,14 +52,10 @@ async function expectNoHorizontalScrollAt360And320(page: Page): Promise<void> {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 }
 
-test("no business yet (404 from /api/me): the create-business form loads, fits 360×640, and still fits at 320px", async ({
+test("no business yet: the create-business form loads, fits 360×640, and still fits at 320px", async ({
   page,
 }) => {
-  await mockJson(page, "**/api/me", 404, {
-    code: "NOT_FOUND",
-    error: "not found",
-    requestId: "req-1",
-  });
+  await mockJson(page, "**/api/session", 200, SESSION_NO_BUSINESS);
 
   await page.goto("/");
 
@@ -48,6 +67,7 @@ test("a deep link straight to a vehicle's detail route renders it directly, with
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle/v1", 200, {
     id: "v1",
     registration: "CAB-1234",
@@ -67,6 +87,7 @@ test("the browser back button returns from a vehicle detail to the list — the 
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, [
     { id: "v1", registration: "CAB-1234", vehicleType: "Bus", lifecycle: "active" },
   ]);
@@ -91,6 +112,7 @@ test("tapping a tab changes the URL, so a reload keeps the manager where they we
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, []);
   await mockJson(page, "**/api/driver", 200, []);
   await mockJson(page, "**/api/customer", 200, []);
@@ -109,6 +131,7 @@ test("F-1.7: a manager can start a daily lease from a vehicle, the flow GAP-51 f
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle/v1", 200, {
     id: "v1",
     registration: "CAB-1234",

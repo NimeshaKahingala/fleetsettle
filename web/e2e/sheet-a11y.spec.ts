@@ -20,6 +20,13 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
+const SESSION_OPERATE = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
+  pendingRequest: null,
+  hadMembership: true,
+};
 
 async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
   await page.route(urlPattern, async (route) => {
@@ -62,6 +69,7 @@ test("opening and closing a sheet leaves no aria-hidden-on-focused-element warni
   const log = await collectConsoleWithA11y(page);
 
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, []);
 
   await page.goto("/vehicles");
@@ -83,6 +91,7 @@ test("a sheet opened from inside another sheet is clean too", async ({ page }) =
   const log = await collectConsoleWithA11y(page);
 
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/driver", 200, []);
   await mockJson(page, "**/api/customer", 200, []);
 
@@ -105,6 +114,7 @@ test("a sheet opened from inside another sheet is clean too", async ({ page }) =
 
 test("focus returns to the control that opened the sheet", async ({ page }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, []);
 
   await page.goto("/vehicles");

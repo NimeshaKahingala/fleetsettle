@@ -22,6 +22,13 @@ import { expect, test, type Page } from "@playwright/test";
  * this path at all.
  */
 const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
+const SESSION_OPERATE = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
+  pendingRequest: null,
+  hadMembership: true,
+};
 
 async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
   await page.route(urlPattern, async (route) => {
@@ -37,6 +44,7 @@ test("Quick Add → Fuel opens the fuel-fill sheet and it stays open on a touch 
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, []);
 
   await page.goto("/vehicles");
@@ -60,6 +68,7 @@ test("Quick Add → Expense opens the record-expense sheet and it stays open on 
   page,
 }) => {
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, []);
 
   await page.goto("/vehicles");
@@ -101,6 +110,7 @@ test("Quick Add → New trip → pick a vehicle reaches the trip form and stays 
     arrangement: "B",
   };
   await mockJson(page, "**/api/me", 200, ME_OPERATE);
+  await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, [vehicle]);
   await mockJson(page, "**/api/vehicle/v1", 200, vehicle);
   await mockJson(page, "**/api/customer", 200, []);

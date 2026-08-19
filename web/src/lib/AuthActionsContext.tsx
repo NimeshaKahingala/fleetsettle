@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { createContext, useContext } from "react";
+import { clearSelectedBusinessId } from "./storage.js";
 
 export interface AuthActions {
   /**
@@ -8,6 +9,13 @@ export interface AuthActions {
    * behind it would never run. TanStack Query holds one person's money on
    * screen; the next sign-in on the same device must not paint it before
    * the first fetch returns (GAP-40's trap).
+   *
+   * Decision 25: also clears the stored business selection, here and only
+   * here — this is the one path both `auth-asgardeo.ts`'s and
+   * `auth-stub.ts`'s `signOut` route through, so neither can forget it.
+   * **Not** `AuthGate.tsx`: that fires on every unauthenticated render,
+   * including a transient token refresh, and would wipe the selection out
+   * from under a still-live session.
    */
   signOut: () => Promise<void>;
 }
@@ -31,6 +39,7 @@ export function AuthActionsProvider({
 }) {
   const signOut = async () => {
     queryClient.clear();
+    clearSelectedBusinessId();
     await rawSignOut();
   };
   return <AuthActionsContext.Provider value={{ signOut }}>{children}</AuthActionsContext.Provider>;

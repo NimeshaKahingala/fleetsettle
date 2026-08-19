@@ -14,6 +14,7 @@ import {
 } from "./lib/auth-asgardeo.js";
 import { createStubSignOut, createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
 import { shouldRetryQuery } from "./lib/queryRetry.js";
+import { clearSelectedBusinessId, getSelectedBusinessId } from "./lib/storage.js";
 import "./design/tokens.css";
 
 const root = document.getElementById("root");
@@ -32,15 +33,30 @@ const signOut = stubbed ? createStubSignOut() : createAsgardeoSignOutGetter();
 // A11: a role change never invalidates a token — resolveMembership runs per
 // request (api/src/queries/identity.ts), so the server side of a demotion is
 // already live on the next call. The client's own stale copy of "what can I
-// do" is `["me"]`'s cached role, and nothing refetches it on its own; without
-// this, a demoted user keeps seeing affordances they can no longer use until
-// they happen to reload. One handler here covers every screen, rather than
-// each mutation remembering to invalidate ["me"] on its own 403.
+// do" is `["session"]`'s cached role (`useMe()`/`<Can>`'s own source since
+// Phase 2 — was `["me"]`, corrected here: that key stopped being populated
+// the moment `FirstRunGate` moved onto `/api/session`, so this invalidation
+// had been a silent no-op, found while extending this file for Phase 3, not
+// something Phase 3 introduced), and nothing refetches it on its own;
+// without this, a demoted user keeps seeing affordances they can no longer
+// use until they happen to reload. One handler here covers every screen,
+// rather than each mutation remembering to invalidate it on its own 403.
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (err) => {
       if (err instanceof ApiError && err.status === 403) {
-        void queryClient.invalidateQueries({ queryKey: ["me"] });
+        void queryClient.invalidateQueries({ queryKey: ["session"] });
+      }
+      // IG §7.5 step 4b / decision 9: the server refuses to guess between
+      // more than one membership when the client sends no header — this
+      // should be rare (the client sends one whenever a selection exists),
+      // but can happen, e.g. a stored selection that raced a revocation.
+      // The stored choice is no longer trustworthy, so drop it and let
+      // FirstRunGate re-resolve — its own re-render is what gives the
+      // switcher a reason to open, never an error screen.
+      if (err instanceof ApiError && err.code === "BUSINESS_NOT_SELECTED") {
+        clearSelectedBusinessId();
+        void queryClient.invalidateQueries({ queryKey: ["session"] });
       }
     },
   }),
@@ -49,7 +65,7 @@ const queryClient = new QueryClient({
   // backoff before isError ever turns true, on every read in the client.
   defaultOptions: { queries: { retry: shouldRetryQuery } },
 });
-const apiClient = createApiClient(apiBaseUrl, getToken);
+const apiClient = createApiClient(apiBaseUrl, getToken, getSelectedBusinessId);
 const router = createAppRouteTree(businessToday());
 const app = (
   <App router={router} queryClient={queryClient} apiClient={apiClient} signOut={signOut} />
