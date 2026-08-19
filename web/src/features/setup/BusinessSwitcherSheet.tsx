@@ -55,8 +55,18 @@ export function BusinessSwitcherSheet({
   function selectBusiness(businessId: string) {
     setSelectedBusinessId(businessId);
     queryClient.clear();
-    onOpenChange(false);
+    // `onSelected` before `onOpenChange`, deliberately (19 Aug 2026, gitar
+    // review on PR #78): `FirstRunGate`'s own usage passes an inert
+    // `onOpenChange`, so this order never mattered there — but the
+    // voluntary switcher (`OperateLayout`/`ReviewLayout`/`MineLayout`)
+    // passes a real state setter, and a real `onOpenChange(false)` re-
+    // renders a component that calls `useSelectedBusiness()`, which throws
+    // against the cache `clear()` just emptied. Firing `onSelected` first
+    // gives those callers a chance to flag "a reload is coming, ignore the
+    // next `onOpenChange`" before that re-render can happen — see their
+    // own comment on why `window.location.reload()` alone doesn't stop it.
     onSelected?.();
+    onOpenChange(false);
   }
 
   return (

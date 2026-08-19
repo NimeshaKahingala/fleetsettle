@@ -16,7 +16,7 @@ import {
   useSearch,
   type RouterHistory,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
 import { AdminHomeScreen } from "../features/admin/AdminHomeScreen.js";
 import { AdminManagementScreen } from "../features/admin/AdminManagementScreen.js";
@@ -725,15 +725,6 @@ const REVIEW_TAB_PATH: Record<ReviewTabKey, string> = {
 };
 
 /**
- * B0b: `owner`'s shell — its own component tree (§7.9), not Operate filtered
- * by role. `/review*` and `/reports*` are the only paths that belong to it;
- * anything else (most commonly the bare `/` an owner lands on straight out
- * of `FirstRunGate`, since `/` is Operate's Home in the shared route tree)
- * redirects to the default tab. An effect, not a render-time redirect, for
- * the same reason `FirstRunGate` already defers routing decisions until its
- * own data is ready — one redirect pattern in this file, not two.
- */
-/**
  * UI §3.1/M-33 (19 Aug 2026): the voluntary switch, distinct from
  * `FirstRunGate`'s own mandatory one. `FirstRunGate`'s `remountGeneration`
  * counter (see its own doc comment) is private to that component and
@@ -751,12 +742,61 @@ function reloadAfterBusinessSwitch(): void {
   window.location.reload();
 }
 
+/**
+ * Shared by every shell's own voluntary switcher (never `FirstRunGate`'s
+ * mandatory one, which needs none of this — its `onOpenChange` is inert).
+ *
+ * **Fixes a real race, gitar review on PR #78, 19 Aug 2026**:
+ * `BusinessSwitcherSheet.selectBusiness` calls `onSelected` then
+ * `onOpenChange(false)` — a real `onOpenChange` (a plain `setState`, unlike
+ * `FirstRunGate`'s inert one) re-renders this shell, which calls
+ * `useSelectedBusiness()` again, which throws: `queryClient.clear()` (also
+ * called by `selectBusiness`, just before either callback) has already
+ * emptied `["session"]`, and `window.location.reload()` — fired from
+ * `onSelected`, a moment earlier — does not synchronously halt the rest of
+ * this script, so that re-render can and does flush before the browser
+ * actually tears the page down. `reloadingRef` breaks the chain: once
+ * `onSelected` has fired, the following `onOpenChange(false)` is swallowed
+ * instead of reaching `setState`, so no re-render — and no throw — happens
+ * at all in the moment before reload.
+ */
+function useBusinessSwitcherToggle(): {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  openSwitcher: () => void;
+  onSelected: () => void;
+} {
+  const [open, setOpen] = useState(false);
+  const reloadingRef = useRef(false);
+  return {
+    open,
+    onOpenChange: (next) => {
+      if (reloadingRef.current) return;
+      setOpen(next);
+    },
+    openSwitcher: () => setOpen(true),
+    onSelected: () => {
+      reloadingRef.current = true;
+      reloadAfterBusinessSwitch();
+    },
+  };
+}
+
+/**
+ * B0b: `owner`'s shell — its own component tree (§7.9), not Operate filtered
+ * by role. `/review*` and `/reports*` are the only paths that belong to it;
+ * anything else (most commonly the bare `/` an owner lands on straight out
+ * of `FirstRunGate`, since `/` is Operate's Home in the shared route tree)
+ * redirects to the default tab. An effect, not a render-time redirect, for
+ * the same reason `FirstRunGate` already defers routing decisions until its
+ * own data is ready — one redirect pattern in this file, not two.
+ */
 function ReviewLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const inReview = pathname.startsWith("/review") || pathname.startsWith("/reports");
   const selected = useSelectedBusiness();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcher = useBusinessSwitcherToggle();
 
   useEffect(() => {
     if (!inReview) void navigate({ to: "/review", replace: true });
@@ -770,14 +810,14 @@ function ReviewLayout() {
         void navigate({ to: REVIEW_TAB_PATH[key as ReviewTabKey] });
       }}
       businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: () => setSwitcherOpen(true) } : {})}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
     >
       {inReview ? <Outlet /> : null}
       <BusinessSwitcherSheet
-        open={switcherOpen}
-        onOpenChange={setSwitcherOpen}
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
-        onSelected={reloadAfterBusinessSwitch}
+        onSelected={switcher.onSelected}
       />
     </AppShell>
   );
@@ -789,7 +829,7 @@ function MineLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const inMine = pathname === "/me";
   const selected = useSelectedBusiness();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcher = useBusinessSwitcherToggle();
 
   useEffect(() => {
     if (!inMine) void navigate({ to: "/me", replace: true });
@@ -799,14 +839,14 @@ function MineLayout() {
     <AppShell
       shell="mine"
       businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: () => setSwitcherOpen(true) } : {})}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
     >
       {inMine ? <Outlet /> : null}
       <BusinessSwitcherSheet
-        open={switcherOpen}
-        onOpenChange={setSwitcherOpen}
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
-        onSelected={reloadAfterBusinessSwitch}
+        onSelected={switcher.onSelected}
       />
     </AppShell>
   );
@@ -846,7 +886,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const selected = useSelectedBusiness();
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcher = useBusinessSwitcherToggle();
 
   // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
   // change while it's open (an iOS edge-swipe back — iOS has no hardware
@@ -867,7 +907,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
       }}
       onQuickAdd={() => setQuickAddOpen(true)}
       businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: () => setSwitcherOpen(true) } : {})}
+      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
     >
       <Outlet />
       <QuickAddSheet
@@ -884,10 +924,10 @@ function OperateLayout({ today }: { today: BusinessDate }) {
         }}
       />
       <BusinessSwitcherSheet
-        open={switcherOpen}
-        onOpenChange={setSwitcherOpen}
+        open={switcher.open}
+        onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
-        onSelected={reloadAfterBusinessSwitch}
+        onSelected={switcher.onSelected}
       />
     </AppShell>
   );
