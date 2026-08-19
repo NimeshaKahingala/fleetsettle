@@ -14,6 +14,7 @@ import {
 } from "./lib/auth-asgardeo.js";
 import { createStubSignOut, createStubTokenGetter, isStubAuthEnabled } from "./lib/auth-stub.js";
 import { shouldRetryQuery } from "./lib/queryRetry.js";
+import { clearSelectedBusinessId, getSelectedBusinessId } from "./lib/storage.js";
 import "./design/tokens.css";
 
 const root = document.getElementById("root");
@@ -42,6 +43,17 @@ const queryClient = new QueryClient({
       if (err instanceof ApiError && err.status === 403) {
         void queryClient.invalidateQueries({ queryKey: ["me"] });
       }
+      // IG §7.5 step 4b / decision 9: the server refuses to guess between
+      // more than one membership when the client sends no header — this
+      // should be rare (the client sends one whenever a selection exists),
+      // but can happen, e.g. a stored selection that raced a revocation.
+      // The stored choice is no longer trustworthy, so drop it and let
+      // FirstRunGate re-resolve — its own re-render is what gives the
+      // switcher a reason to open, never an error screen.
+      if (err instanceof ApiError && err.code === "BUSINESS_NOT_SELECTED") {
+        clearSelectedBusinessId();
+        void queryClient.invalidateQueries({ queryKey: ["session"] });
+      }
     },
   }),
   // GAP-101/UI §9.5: a 4xx is a decided answer, not a hiccup — without this,
@@ -49,7 +61,7 @@ const queryClient = new QueryClient({
   // backoff before isError ever turns true, on every read in the client.
   defaultOptions: { queries: { retry: shouldRetryQuery } },
 });
-const apiClient = createApiClient(apiBaseUrl, getToken);
+const apiClient = createApiClient(apiBaseUrl, getToken, getSelectedBusinessId);
 const router = createAppRouteTree(businessToday());
 const app = (
   <App router={router} queryClient={queryClient} apiClient={apiClient} signOut={signOut} />
