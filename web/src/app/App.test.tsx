@@ -1,15 +1,56 @@
-import type { BusinessResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type {
+  BusinessResponse,
+  SessionResponse,
+  VehicleResponse,
+} from "@fleetsettle/shared/schemas";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../lib/api.js";
 import { renderWithRouter } from "../test/renderWithRouter.js";
 
-const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" as const };
+/**
+ * Phase 2 (18 Aug 2026): `FirstRunGate` reads `/api/session`, not `/api/me`
+ * — see `FirstRunGate.tsx`'s own doc comment. `sessionFor` builds the
+ * `SessionResponse` shape these tests need from the same
+ * `{ userId, businessId, role, driverId? }` quad the old `/api/me` mocks
+ * used, so each test below reads the same way it always did.
+ */
+function sessionFor(
+  userId: string,
+  businessId: string,
+  role: "owner" | "owner_manager" | "manager" | "driver",
+  extra: { driverId?: string; isPlatformAdmin?: boolean } = {},
+): SessionResponse {
+  return {
+    userId,
+    isPlatformAdmin: extra.isPlatformAdmin ?? false,
+    businesses: [
+      {
+        businessId,
+        name: "Test Fleet",
+        role,
+        ...(extra.driverId !== undefined ? { driverId: extra.driverId } : {}),
+      },
+    ],
+    pendingRequest: null,
+    hadMembership: true,
+  };
+}
 
-test("no business yet (404 from /api/me) shows the create-business form, not the shell", async () => {
+const SESSION_OPERATE = sessionFor("u1", "b1", "owner_manager");
+
+const NO_BUSINESS: SessionResponse = {
+  userId: "u1",
+  isPlatformAdmin: false,
+  businesses: [],
+  pendingRequest: null,
+  hadMembership: false,
+};
+
+test("no business yet shows the create-business form, not the shell", async () => {
   const get = vi.fn();
-  get.mockRejectedValue(new ApiError(404, "NOT_FOUND", "not found", "req-1"));
+  get.mockResolvedValue(NO_BUSINESS);
 
   renderWithRouter("/vehicles", { get });
 
@@ -19,7 +60,7 @@ test("no business yet (404 from /api/me) shows the create-business form, not the
 test("owner_manager renders the operate shell at the deep-linked path, with no list visit first", async () => {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle/v1") {
       return Promise.resolve({
         id: "v1",
@@ -48,7 +89,7 @@ test("tapping a vehicle row navigates to its detail route", async () => {
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") {
       return Promise.resolve([
         {
@@ -83,7 +124,7 @@ test("Screen's back button from a vehicle detail returns to the list", async () 
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     if (path === "/api/vehicle/v1") {
       return Promise.resolve({
@@ -110,7 +151,7 @@ test("tapping a tab navigates and the tab bar's active state follows the URL", a
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/driver") return Promise.resolve([]);
     if (path === "/api/customer") return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
@@ -129,7 +170,7 @@ test("the More tab reaches the /more hub (GAP-37), no longer NotBuiltYetScreen",
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     throw new Error(`unexpected path ${path}`);
   });
@@ -148,7 +189,7 @@ test("B12/GAP-61 — More → Opening balances reaches the real screen, not a pl
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     if (path === "/api/opening-balance") {
       return Promise.reject(new ApiError(404, "NOT_FOUND", "no batch yet", "req-ob"));
@@ -167,7 +208,7 @@ test("B3/F-9.1 — More → Close the month reaches the real screen, not a place
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     if (path === "/api/accounting-period/checklist") {
       return Promise.resolve({
@@ -196,7 +237,7 @@ test('the quick-add ("+") tab never changes the route (§3.1: "no route change" 
   const user = userEvent.setup();
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") return Promise.resolve(SESSION_OPERATE);
     if (path === "/api/vehicle") return Promise.resolve([] satisfies VehicleResponse[]);
     throw new Error(`unexpected path ${path}`);
   });
@@ -211,7 +252,7 @@ test('the quick-add ("+") tab never changes the route (§3.1: "no route change" 
 
 test("an unknown path renders the not-found placeholder, not a blank screen", async () => {
   const get = vi.fn();
-  get.mockResolvedValue(ME_OPERATE);
+  get.mockResolvedValue(SESSION_OPERATE);
   renderWithRouter("/this-route-does-not-exist", { get });
 
   expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
@@ -220,8 +261,7 @@ test("an unknown path renders the not-found placeholder, not a blank screen", as
 /** B4: every Review-shell tab this file exercises reads through these five endpoints — one owner, no vehicles, so each resolves to its own honest-empty shape rather than crashing on a wrong one. */
 function mockReviewEndpoints(get: ReturnType<typeof vi.fn>, ownerUserId: string) {
   get.mockImplementation((path: string) => {
-    if (path === "/api/me")
-      return Promise.resolve({ userId: ownerUserId, businessId: "b1", role: "owner" });
+    if (path === "/api/session") return Promise.resolve(sessionFor(ownerUserId, "b1", "owner"));
     if (path === "/api/accounting-period") {
       return Promise.resolve([
         {
@@ -270,12 +310,7 @@ test("owner lands in the Review shell (redirected from / to its default tab), dr
   unmount();
 
   const getDriver = vi.fn();
-  getDriver.mockResolvedValue({
-    userId: "u3",
-    businessId: "b1",
-    role: "driver",
-    driverId: "d1",
-  });
+  getDriver.mockResolvedValue(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
   const { router: driverRouter } = renderWithRouter("/", { get: getDriver });
   expect(await screen.findByRole("heading", { name: "Mine" })).toBeInTheDocument();
   await waitFor(() => expect(driverRouter.state.location.pathname).toBe("/me"));
@@ -299,7 +334,7 @@ test("Review's tabs navigate between its own routes, and owner_manager never rea
 /** B4-REPORTS-DESIGN.md §10: route-level, since `<Can>` around a card does nothing if the route itself renders for a role holding only `viewOwnData` — a `driver` reaching `/reports` must redirect to `/me`, the same way any non-`/me` path already does for that shell (B0b's `MineLayout`). */
 test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)", async () => {
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u3", businessId: "b1", role: "driver", driverId: "d1" });
+  get.mockResolvedValue(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
 
   const { router } = renderWithRouter("/reports", { get });
 
@@ -311,7 +346,7 @@ test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)",
 /** GAP-98/B4-REPORTS-DESIGN.md §5.1: the phase-1 nine, now that UC-77/78/79 moved to phase 1 (11 Aug 2026) and this catalogue caught up — a plain `manager` (`viewOwnerOnlyReports`'s `OWNERS` set is `owner`/`owner_manager` only, per UC-77/79's own "Sees: owner, owner-manager") sees the staff-visible seven but not the two owner-only ones. */
 test("the catalogue renders the nine phase-1 cards, owner-only ones filtered for a plain manager", async () => {
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "manager" });
+  get.mockResolvedValue(sessionFor("u1", "b1", "manager"));
 
   renderWithRouter("/reports", { get });
 
@@ -331,7 +366,7 @@ test("the catalogue renders the nine phase-1 cards, owner-only ones filtered for
 /** GAP-98: the owner-only pair does render for owner_manager — `viewOwnerOnlyReports`'s own `OWNERS` set includes it, and the filter is role-based, not a permanent absence. "Money questions" now has 4 cards, one over `Section`'s own `maxVisible=3`, so its own "Show all" needs a tap first — unrelated to the owner-only filter this test is pinning. */
 test("the catalogue also shows the owner-only pair for owner_manager", async () => {
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner_manager" });
+  get.mockResolvedValue(sessionFor("u1", "b1", "owner_manager"));
 
   renderWithRouter("/reports", { get });
 
@@ -347,7 +382,7 @@ test("the catalogue also shows the owner-only pair for owner_manager", async () 
 /** GAP-98: a route that used to 404 as unshipped now resolves to the real screen — the scope moved, and this pins the new permanent shape rather than leaving the old absence assertion to rot. */
 test("the ageing/goodwill/utilisation report routes all resolve now, not 'Not found'", async () => {
   const get = vi.fn();
-  get.mockResolvedValue({ userId: "u1", businessId: "b1", role: "owner" });
+  get.mockResolvedValue(sessionFor("u1", "b1", "owner"));
 
   const { router } = renderWithRouter("/reports/goodwill", { get });
 
@@ -361,9 +396,8 @@ test("creating a business from the first-run gate replaces it with the operate s
   let hasBusiness = false;
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") {
-      if (!hasBusiness) throw new ApiError(404, "NOT_FOUND", "not found", "req-1");
-      return Promise.resolve(ME_OPERATE);
+    if (path === "/api/session") {
+      return Promise.resolve(hasBusiness ? SESSION_OPERATE : NO_BUSINESS);
     }
     if (path === "/api/vehicle") return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
@@ -383,10 +417,10 @@ test("creating a business from the first-run gate replaces it with the operate s
 
   renderWithRouter("/vehicles", { get, post });
 
-  // The form is behind FirstRunGate's own /api/me query — it isn't in the
-  // DOM on the first, pending render, so it has to be awaited before typing
-  // into it (unlike CreateBusinessForm.test.tsx, where the form is the
-  // whole subject under test and needs no query to appear first).
+  // The form is behind FirstRunGate's own /api/session query — it isn't in
+  // the DOM on the first, pending render, so it has to be awaited before
+  // typing into it (unlike CreateBusinessForm.test.tsx, where the form is
+  // the whole subject under test and needs no query to appear first).
   await user.type(await screen.findByLabelText("Business name"), "Test Fleet");
   await user.click(screen.getByRole("button", { name: "Create business" }));
 
@@ -398,9 +432,8 @@ test("redeeming an invite code from the first-run gate replaces it with the oper
   let hasAccess = false;
   const get = vi.fn();
   get.mockImplementation((path: string) => {
-    if (path === "/api/me") {
-      if (!hasAccess) throw new ApiError(404, "NOT_FOUND", "not found", "req-1");
-      return Promise.resolve({ userId: "u2", businessId: "b1", role: "manager" as const });
+    if (path === "/api/session") {
+      return Promise.resolve(hasAccess ? sessionFor("u2", "b1", "manager") : NO_BUSINESS);
     }
     if (path === "/api/vehicle") return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
@@ -420,4 +453,49 @@ test("redeeming an invite code from the first-run gate replaces it with the oper
   await user.click(screen.getByRole("button", { name: "Join" }));
 
   expect(await screen.findByText("No vehicles yet.")).toBeInTheDocument();
+});
+
+/** UI §3.1 (added 18 Aug 2026): the platform admin surface — reached from `/more`'s own row, and reachable even for an admin with no business memberships at all. */
+test("a platform admin with a business reaches the admin panel via More, and it lives outside the tab bar", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") {
+      return Promise.resolve(sessionFor("u1", "b1", "owner_manager", { isPlatformAdmin: true }));
+    }
+    if (path === "/api/vehicle") return Promise.resolve([]);
+    if (path === "/api/admin/requests") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/more", { get });
+  await user.click(await screen.findByText("Admin panel"));
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/admin"));
+  expect(await screen.findByRole("heading", { name: "Admin panel" })).toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+
+  await user.click(screen.getByText("Request queue"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/admin/requests"));
+  expect(await screen.findByText("No requests yet.")).toBeInTheDocument();
+});
+
+test("an admin holding no business membership at all still has a door into the admin panel", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") {
+      return Promise.resolve({ ...NO_BUSINESS, isPlatformAdmin: true } satisfies SessionResponse);
+    }
+    if (path === "/api/admin/businesses") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/vehicles", { get });
+  await user.click(await screen.findByText("Open the admin panel"));
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/admin"));
+  await user.click(await screen.findByText("Businesses"));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/admin/businesses"));
+  expect(await screen.findByText("No businesses yet.")).toBeInTheDocument();
 });

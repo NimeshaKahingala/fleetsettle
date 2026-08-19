@@ -28,8 +28,15 @@ const REVIEW_TABS: TabDef[] = [
 ];
 
 export interface AppShellProps {
-  /** §3.1: three shells, never a fourth — the owner-manager gets `operate`, not a mode switch (M-3). */
-  shell: "operate" | "review" | "mine";
+  /**
+   * §3.1: three shells, never a fourth — the owner-manager gets `operate`,
+   * not a mode switch (M-3). `"admin"` (added 18 Aug 2026, decision/UI §3.1
+   * "The admin panel is not a fourth shell") is not a fourth business role
+   * shell — it is the platform surface, and behaves identically to `"mine"`
+   * below: the 100svh frame and toast host, no tab bar, since a role held
+   * by very few identities does not earn permanent navigation real estate.
+   */
+  shell: "operate" | "review" | "mine" | "admin";
   activeTab?: OperateTabKey | ReviewTabKey;
   onTabChange?: (key: OperateTabKey | ReviewTabKey) => void;
   /** Operate's `＋` is a quick-add sheet trigger, not a destination — no route change (§3.1). */

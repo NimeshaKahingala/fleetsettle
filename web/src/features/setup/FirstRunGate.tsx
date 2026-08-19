@@ -1,13 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BusinessResponse,
-  MeResponse,
   RedeemInviteResponse,
+  SessionPendingRequest,
+  SessionResponse,
 } from "@fleetsettle/shared/schemas";
-import { Building2, KeyRound } from "lucide-react";
+import { Building2, KeyRound, ShieldCheck } from "lucide-react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
-import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
@@ -40,128 +40,218 @@ function FleetSettleSetupLockup() {
   );
 }
 
+/**
+ * Design §8.2/UI §3.1: reachable regardless of business membership, so a
+ * platform admin holding zero memberships still has a door to walk
+ * through. A plain `Card` row button, matching `MoreScreen`'s own row
+ * pattern — not styled as an alert or a primary action, since holding this
+ * role is unrelated to whatever get-started/revoked state is showing above
+ * or below it.
+ */
+function AdminEntry({ onOpenAdmin }: { onOpenAdmin: () => void }) {
+  return (
+    <button type="button" onClick={onOpenAdmin} className="w-full text-left">
+      <Card className="flex items-center gap-3">
+        <ShieldCheck className="size-5 text-brand-ink" aria-hidden />
+        <span className="flex-1 text-body text-ink-primary">Open the admin panel</span>
+      </Card>
+    </button>
+  );
+}
+
+/**
+ * The create/redeem slot — F-0.1's own two options. Rendered both when this
+ * identity has never requested a business (`pendingRequest === null`) and
+ * when it has an outstanding request (`pendingRequest !== null`):
+ * `CreateBusinessForm` owns rendering the default form vs. the
+ * pending/rejected states itself (decision 17), fed the already-fetched
+ * `pendingRequest` rather than this component re-querying `/api/session` —
+ * `FirstRunGate` already has the answer, so nothing here duplicates the
+ * read. `RedeemInviteForm` is unconditional either way: an outstanding
+ * creation request has nothing to do with whether an invite code works.
+ */
+function GetStartedCards({
+  pendingRequest,
+  adminEntry,
+  onCreated,
+  onRedeemed,
+}: {
+  pendingRequest: SessionPendingRequest | null;
+  adminEntry: React.ReactNode;
+  onCreated: (business: BusinessResponse) => void;
+  onRedeemed: (result: RedeemInviteResponse) => void;
+}) {
+  return (
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4">
+      <div className="flex flex-col gap-3">
+        <FleetSettleSetupLockup />
+        <div>
+          <h1 className="text-title-lg text-ink-primary">Get started</h1>
+          <p className="text-body-sm text-ink-muted">
+            Create your business, or use an invite code someone gave you.
+          </p>
+        </div>
+      </div>
+
+      {adminEntry}
+
+      <div className="grid gap-4 md:grid-cols-2 md:items-start">
+        <Card className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <Building2 className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+            <div>
+              <h2 className="text-title text-ink-primary">Create a business</h2>
+              <p className="text-body-sm text-ink-muted">
+                Start a new FleetSettle business record.
+              </p>
+            </div>
+          </div>
+          <CreateBusinessForm pendingRequest={pendingRequest} onCreated={onCreated} />
+        </Card>
+        <Card className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <KeyRound className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+            <div>
+              <h2 className="text-title text-ink-primary">Join a business</h2>
+              <p className="text-body-sm text-ink-muted">Enter the code you were given.</p>
+            </div>
+          </div>
+          <RedeemInviteForm onRedeemed={onRedeemed} />
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 export interface FirstRunGateProps {
-  /** Rendered once `/api/me` resolves to `owner_manager`/`manager` (UI §1.1, M-3: the owner-manager is never routed into Review). */
+  /** RootLayout's own `useRouterState` read, passed down rather than read here — FirstRunGate is not itself a route component (M-3's shells are), so it takes navigation/location as props the same way every non-route screen in `router.tsx` does, and stays free of a `<RouterProvider>` dependency in its own unit tests. */
+  pathname: string;
+  /** Design §8.2: admin routes are reached by pathname, from any business-membership state — `RootLayout` supplies `() => navigate({ to: "/admin" })`. */
+  onOpenAdmin: () => void;
+  /** Rendered once `/api/session` resolves to `owner_manager`/`manager` (UI §1.1, M-3: the owner-manager is never routed into Review). */
   renderOperate: () => React.ReactNode;
   /** B0b: rendered for `owner` — the Review shell, its own component tree (§7.9). */
   renderReview: () => React.ReactNode;
   /** B0b: rendered for `driver` — the Mine shell, its own component tree, no tab bar. */
   renderMine: () => React.ReactNode;
+  /** UI §3.1 (added 18 Aug 2026): the platform admin surface — not a fourth business-role shell, reached by pathname alone once `isPlatformAdmin` is true (see the precedence note below). */
+  renderAdmin: () => React.ReactNode;
 }
 
 /**
- * F-0.1's own documented exception: a brand-new identity has no
- * `business_member` row yet, so `authMiddleware` throws the same 404 a
- * foreign business would (`api/src/middleware/auth.ts`). That 404 is the
- * signal this identity has no access yet — not an error to surface, the
- * expected first-run state.
+ * Rebuilt onto `GET /api/session` (Phase 2, 18 Aug 2026 — design doc
+ * decision 17/26, implementation plan §2 Phase 2). `/api/session` never
+ * 404s the way the old `/api/me`-based first-run sniff did — it always
+ * resolves for any verified token — so the branching here is a real
+ * discriminated read of `{ businesses, pendingRequest, hadMembership,
+ * isPlatformAdmin }`, not an absence inferred from a caught error.
  *
- * A11/W-57: this is also where a *revoked* member lands, and deliberately
- * not distinguished from brand-new — `resolveMembership` filters
- * `revoked_at IS NULL` and returns the same `null` for both, on the hottest
- * query in the system, so telling them apart would cost a join for a purely
- * cosmetic difference. One honest screen — create a business, or redeem a
- * code someone already gave you — serves both.
- *
- * Role → shell per UI §1.1: `owner_manager`/`manager` get Operate, `owner`
- * gets Review, `driver` gets Mine (B0b) — three shells, never a fourth
- * (M-3), and never a role switcher (TRACKER.md's A11 access-design pass:
- * cosmetic if the audit row agrees regardless, ambiguous "who did this" if
- * it doesn't — the last field to make ambiguous in a ledger).
+ * Precedence, in order:
+ * 1. `isPlatformAdmin && pathname` under `/admin` → the admin surface,
+ *    regardless of business count (design §7.1: an admin holding no
+ *    membership at all has nowhere else `/api/session` gives them to open).
+ * 2. `businesses.length === 0`:
+ *    - `pendingRequest !== null` → the create/redeem cards, with
+ *      `CreateBusinessForm` itself rendering the pending/rejected state.
+ *    - else `hadMembership` (decision 26) → the distinct revoked message —
+ *      never the business name or the actor, the same disclosure
+ *      discipline as 404-not-403, and deliberately not the same screen as
+ *      the create/redeem cards: a revoked user is not invited to create a
+ *      new business as if nothing happened.
+ *    - else → today's create/redeem cards, unchanged.
+ * 3. `businesses.length === 1` → straight into that membership's shell.
+ * 4. `businesses.length > 1` → **Phase 3 stopgap, not a decision**: picks
+ *    `businesses[0]` deterministically so a multi-membership identity does
+ *    not crash. Phase 3 (the business switcher, `X-Business-Id`,
+ *    `localStorage`) replaces this with a real selection — this seam is
+ *    left deliberately thin for that PR, not solved here.
  */
-export function FirstRunGate({ renderOperate, renderReview, renderMine }: FirstRunGateProps) {
+export function FirstRunGate({
+  pathname,
+  onOpenAdmin,
+  renderOperate,
+  renderReview,
+  renderMine,
+  renderAdmin,
+}: FirstRunGateProps) {
   const api = useApi();
   const queryClient = useQueryClient();
 
-  const meQuery = useQuery({
-    queryKey: ["me"],
-    queryFn: async () => {
-      try {
-        return await api.get<MeResponse>("/api/me");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 404) return null;
-        throw err;
-      }
-    },
-    // The 404 first-run case is already handled above, inside the query
-    // function itself — anything that still reaches `isError` is a real
-    // server error or the injected token getter throwing outright. No local
-    // `retry: false` override needed here any more: `main.tsx`'s
-    // `shouldRetryQuery` (GAP-101) already skips the retry ladder for every
-    // 4xx `ApiError`, which is this query's own case, project-wide — one
-    // statement of the policy instead of two that could drift apart.
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: () => api.get<SessionResponse>("/api/session"),
   });
-  const meState = useQueryState(meQuery);
+  const sessionState = useQueryState(sessionQuery);
 
   // GAP-101/M-28: `QueryState`'s own idle/pending/error/ready split, applied
   // to the very first read in the app — its error branch is what matters
-  // here: this used to be one of the two hand-rolled `isError` checks
-  // anywhere in the client (the other was `CloseMonthScreen`'s). `idle` is
-  // unreachable — this query carries no `enabled:`, so it folds into the
-  // same fallback as `pending` rather than adding a branch nothing reaches.
-  if (meState.kind === "error") {
+  // here. `idle` is unreachable — this query carries no `enabled:`, so it
+  // folds into the same fallback as `pending` rather than adding a branch
+  // nothing reaches.
+  if (sessionState.kind === "error") {
     return (
       <div className="p-4">
-        <QueryStateFailure error={meState.error} retry={meState.retry} of="your account" />
+        <QueryStateFailure
+          error={sessionState.error}
+          retry={sessionState.retry}
+          of="your account"
+        />
       </div>
     );
   }
 
-  if (meState.kind !== "ready") {
+  if (sessionState.kind !== "ready") {
     return <p className="p-4 text-body-sm text-ink-muted">Loading…</p>;
   }
 
-  if (meState.data === null) {
-    return (
-      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4">
-        <div className="flex flex-col gap-3">
-          <FleetSettleSetupLockup />
-          <div>
-            <h1 className="text-title-lg text-ink-primary">Get started</h1>
-            <p className="text-body-sm text-ink-muted">
-              Create your business, or use an invite code someone gave you.
-            </p>
-          </div>
-        </div>
+  const { businesses, isPlatformAdmin, pendingRequest, hadMembership } = sessionState.data;
 
-        <div className="grid gap-4 md:grid-cols-2 md:items-start">
-          <Card className="flex flex-col gap-4">
-            <div className="flex items-start gap-3">
-              <Building2 className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
-              <div>
-                <h2 className="text-title text-ink-primary">Create a business</h2>
-                <p className="text-body-sm text-ink-muted">
-                  Start a new FleetSettle business record.
-                </p>
-              </div>
-            </div>
-            <CreateBusinessForm
-              onCreated={(_business: BusinessResponse) => {
-                void queryClient.invalidateQueries({ queryKey: ["me"] });
-              }}
-            />
-          </Card>
-          <Card className="flex flex-col gap-4">
-            <div className="flex items-start gap-3">
-              <KeyRound className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
-              <div>
-                <h2 className="text-title text-ink-primary">Join a business</h2>
-                <p className="text-body-sm text-ink-muted">Enter the code you were given.</p>
-              </div>
-            </div>
-            <RedeemInviteForm
-              onRedeemed={(_result: RedeemInviteResponse) => {
-                void queryClient.invalidateQueries({ queryKey: ["me"] });
-              }}
-            />
+  if (isPlatformAdmin && pathname.startsWith("/admin")) {
+    return <>{renderAdmin()}</>;
+  }
+
+  const refreshSession = () => {
+    void queryClient.invalidateQueries({ queryKey: ["session"] });
+  };
+
+  if (businesses.length === 0) {
+    const adminEntry = isPlatformAdmin ? <AdminEntry onOpenAdmin={onOpenAdmin} /> : null;
+
+    if (pendingRequest === null && hadMembership) {
+      return (
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4">
+          <FleetSettleSetupLockup />
+          {adminEntry}
+          <Card>
+            <p className="text-body text-ink-secondary">
+              You no longer have access to any business. Contact the business owner.
+            </p>
           </Card>
         </div>
-      </div>
+      );
+    }
+
+    return (
+      <GetStartedCards
+        pendingRequest={pendingRequest}
+        adminEntry={adminEntry}
+        onCreated={() => refreshSession()}
+        onRedeemed={() => refreshSession()}
+      />
     );
   }
 
-  const { role } = meState.data;
-  if (role === "owner_manager" || role === "manager") return <>{renderOperate()}</>;
-  if (role === "owner") return <>{renderReview()}</>;
+  // Phase 3 stopgap (see the doc comment above) — businesses[0] stands in
+  // for "the selected business" until the switcher exists.
+  const membership = businesses[0];
+  if (membership === undefined) {
+    // Unreachable: businesses.length === 0 already returned above. Guards
+    // the array-index read for strict-null-checks rather than a `!`.
+    return null;
+  }
+  if (membership.role === "owner_manager" || membership.role === "manager") {
+    return <>{renderOperate()}</>;
+  }
+  if (membership.role === "owner") return <>{renderReview()}</>;
   return <>{renderMine()}</>;
 }

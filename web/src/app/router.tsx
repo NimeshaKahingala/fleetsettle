@@ -18,6 +18,12 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { AppShell, type OperateTabKey, type ReviewTabKey } from "../design/primitives/AppShell.js";
+import { AdminHomeScreen } from "../features/admin/AdminHomeScreen.js";
+import { AdminManagementScreen } from "../features/admin/AdminManagementScreen.js";
+import { BusinessesListScreen } from "../features/admin/BusinessesListScreen.js";
+import { PlatformAuditLogScreen } from "../features/admin/PlatformAuditLogScreen.js";
+import { RequestQueueScreen } from "../features/admin/RequestQueueScreen.js";
+import { UsersListScreen } from "../features/admin/UsersListScreen.js";
 import { CashScreen } from "../features/cash/CashScreen.js";
 import { MileagePackagesScreen } from "../features/cash/MileagePackagesScreen.js";
 import { PartnerDetailScreen } from "../features/cash/PartnerDetailScreen.js";
@@ -627,6 +633,32 @@ function MineRoute({ today }: { today: BusinessDate }) {
   return <MineScreen today={today} />;
 }
 
+/** UI §3.1 (added 18 Aug 2026): `/admin/*`, reached only once `FirstRunGate` has already gated on `isPlatformAdmin` — every sub-screen's own `onBack` returns to the hub, matching every other `/more`-owned sub-screen's convention. */
+function AdminRequestsRoute() {
+  const navigate = useNavigate();
+  return <RequestQueueScreen onBack={() => void navigate({ to: "/admin" })} />;
+}
+
+function AdminBusinessesRoute() {
+  const navigate = useNavigate();
+  return <BusinessesListScreen onBack={() => void navigate({ to: "/admin" })} />;
+}
+
+function AdminUsersRoute() {
+  const navigate = useNavigate();
+  return <UsersListScreen onBack={() => void navigate({ to: "/admin" })} />;
+}
+
+function AdminAdminsRoute() {
+  const navigate = useNavigate();
+  return <AdminManagementScreen onBack={() => void navigate({ to: "/admin" })} />;
+}
+
+function AdminAuditLogRoute() {
+  const navigate = useNavigate();
+  return <PlatformAuditLogScreen onBack={() => void navigate({ to: "/admin" })} />;
+}
+
 /**
  * Maps a pathname onto the operate shell's tab bar (§3.1's five fixed
  * tabs). `＋` (quick-add) is deliberately absent from this map — it is a
@@ -734,6 +766,23 @@ function MineLayout() {
   return <AppShell shell="mine">{inMine ? <Outlet /> : null}</AppShell>;
 }
 
+/**
+ * UI §3.1 (added 18 Aug 2026): the platform admin surface — not a fourth
+ * business-role shell (M-3). No redirect effect the way `ReviewLayout`/
+ * `MineLayout` have: those exist because their shell renders unconditionally
+ * once a role resolves, regardless of pathname, so an out-of-shell URL needs
+ * steering back in. This shell only ever mounts because `FirstRunGate`
+ * already gated it on the pathname being under `/admin` (see `RootLayout`
+ * below), so there is nothing to redirect from.
+ */
+function AdminLayout() {
+  return (
+    <AppShell shell="admin">
+      <Outlet />
+    </AppShell>
+  );
+}
+
 function RootLayout({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
   // The root route owns `<Outlet />` but has no match of its own to read
@@ -755,6 +804,8 @@ function RootLayout({ today }: { today: BusinessDate }) {
 
   return (
     <FirstRunGate
+      pathname={pathname}
+      onOpenAdmin={() => void navigate({ to: "/admin" })}
       renderOperate={() => (
         <AppShell
           shell="operate"
@@ -782,6 +833,7 @@ function RootLayout({ today }: { today: BusinessDate }) {
       )}
       renderReview={() => <ReviewLayout />}
       renderMine={() => <MineLayout />}
+      renderAdmin={() => <AdminLayout />}
     />
   );
 }
@@ -1138,6 +1190,45 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: () => <MineRoute today={today} />,
   });
 
+  // UI §3.1: the platform admin surface — six routes (the hub plus five
+  // screens), reached only once `FirstRunGate` gates on `isPlatformAdmin`
+  // and the pathname (see `RootLayout`'s own `renderAdmin`).
+  const adminHomeRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin",
+    component: AdminHomeScreen,
+  });
+
+  const adminRequestsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin/requests",
+    component: AdminRequestsRoute,
+  });
+
+  const adminBusinessesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin/businesses",
+    component: AdminBusinessesRoute,
+  });
+
+  const adminUsersRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin/users",
+    component: AdminUsersRoute,
+  });
+
+  const adminAdminsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin/admins",
+    component: AdminAdminsRoute,
+  });
+
+  const adminAuditLogRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/admin/audit-log",
+    component: AdminAuditLogRoute,
+  });
+
   const routeTree = rootRoute.addChildren([
     homeRoute,
     vehiclesRoute,
@@ -1178,6 +1269,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     vehicleYearReportRoute,
     exportTransactionsRoute,
     mineRoute,
+    adminHomeRoute,
+    adminRequestsRoute,
+    adminBusinessesRoute,
+    adminUsersRoute,
+    adminAdminsRoute,
+    adminAuditLogRoute,
   ]);
 
   return createRouter({
