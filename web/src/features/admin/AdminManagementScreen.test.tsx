@@ -39,6 +39,16 @@ test("decision 28: lists active admins, falling back displayName ?? email ?? 'Un
   expect(screen.getByText("Unnamed user")).toBeInTheDocument();
 });
 
+test("GAP-142: 'Admin since' shows a formatted date, never the raw timestamptz text", async () => {
+  const get = vi
+    .fn()
+    .mockResolvedValue([{ ...ADMIN_ONE, grantedAt: "2026-08-18 06:44:12.905112+00" }]);
+  renderWithProviders(<AdminManagementScreen onBack={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Admin since 18 Aug 2026")).toBeInTheDocument();
+  expect(screen.queryByText(/06:44:12/)).not.toBeInTheDocument();
+});
+
 test("a failed read shows a failure notice, never an eternal spinner (GAP-101)", async () => {
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
   renderWithProviders(<AdminManagementScreen onBack={vi.fn()} />, { get });

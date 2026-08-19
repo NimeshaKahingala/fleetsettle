@@ -42,6 +42,14 @@ test("a self-action entry carries a visible marker", async () => {
   expect(screen.getByText("Self")).toBeInTheDocument();
 });
 
+test("GAP-142: the entry's date is formatted, never the raw ISO/timestamptz text", async () => {
+  const get = vi.fn().mockResolvedValue([APPROVED]);
+  renderWithProviders(<PlatformAuditLogScreen onBack={vi.fn()} />, { get });
+
+  expect(await screen.findByText(/18 Aug 2026/)).toBeInTheDocument();
+  expect(screen.queryByText(/2026-08-18T10:00/)).not.toBeInTheDocument();
+});
+
 test("a genuinely empty log is a real empty state, not a failure", async () => {
   const get = vi.fn().mockResolvedValue([]);
   renderWithProviders(<PlatformAuditLogScreen onBack={vi.fn()} />, { get });
