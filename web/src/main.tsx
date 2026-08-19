@@ -33,15 +33,19 @@ const signOut = stubbed ? createStubSignOut() : createAsgardeoSignOutGetter();
 // A11: a role change never invalidates a token — resolveMembership runs per
 // request (api/src/queries/identity.ts), so the server side of a demotion is
 // already live on the next call. The client's own stale copy of "what can I
-// do" is `["me"]`'s cached role, and nothing refetches it on its own; without
-// this, a demoted user keeps seeing affordances they can no longer use until
-// they happen to reload. One handler here covers every screen, rather than
-// each mutation remembering to invalidate ["me"] on its own 403.
+// do" is `["session"]`'s cached role (`useMe()`/`<Can>`'s own source since
+// Phase 2 — was `["me"]`, corrected here: that key stopped being populated
+// the moment `FirstRunGate` moved onto `/api/session`, so this invalidation
+// had been a silent no-op, found while extending this file for Phase 3, not
+// something Phase 3 introduced), and nothing refetches it on its own;
+// without this, a demoted user keeps seeing affordances they can no longer
+// use until they happen to reload. One handler here covers every screen,
+// rather than each mutation remembering to invalidate it on its own 403.
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (err) => {
       if (err instanceof ApiError && err.status === 403) {
-        void queryClient.invalidateQueries({ queryKey: ["me"] });
+        void queryClient.invalidateQueries({ queryKey: ["session"] });
       }
       // IG §7.5 step 4b / decision 9: the server refuses to guess between
       // more than one membership when the client sends no header — this
