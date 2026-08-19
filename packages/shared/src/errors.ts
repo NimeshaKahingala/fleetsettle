@@ -25,6 +25,10 @@ export const ERROR_CODES = [
   // IG §7.5 step 4b: more than one resolved membership, no X-Business-Id
   // header to select between them.
   "BUSINESS_NOT_SELECTED",
+  // Phase 2, platform tier (18 Aug 2026): W-63/W-64/decision 17.
+  "REQUEST_ALREADY_PENDING",
+  "REQUEST_ALREADY_DECIDED",
+  "LAST_PLATFORM_ADMIN_REQUIRED",
   "VEHICLE_ALREADY_EXISTS",
   "VEHICLE_DOUBLE_BOOKED",
   "DAILY_LEASE_OVERLAPS",

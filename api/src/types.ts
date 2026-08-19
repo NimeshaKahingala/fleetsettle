@@ -37,6 +37,11 @@ export interface Variables {
   authSub?: string;
   authEmail?: string;
   authName?: string;
+  // Set by platformAdminMiddleware only (middleware/platform-admin.ts) —
+  // never alongside businessId/role; the two tiers are mutually exclusive
+  // per route (IG §7.6). Absent, not false, when unset — mirrors businessId
+  // above rather than defaulting a security-relevant flag to a value.
+  isPlatformAdmin?: true;
   // Set by the global error handler so the request logger does not emit a
   // second, duplicate line for a request it has already logged with a stack.
   errorLogged?: boolean;

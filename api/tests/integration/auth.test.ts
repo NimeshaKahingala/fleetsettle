@@ -309,6 +309,13 @@ describe("auth boundary (P1)", () => {
       expect(withHeader.status).toBe(200);
       expect(await withHeader.json()).toMatchObject({ businessId, role: "owner" });
 
+      // Phase 2's /api/session maps resolveMemberships straight into its
+      // `businesses` array — the same dedup fix means the switcher never
+      // shows this business twice.
+      const session = await request("/api/session", bearer(token));
+      const sessionBody: { businesses: { businessId: string }[] } = await session.json();
+      expect(sessionBody.businesses.filter((b) => b.businessId === businessId)).toHaveLength(1);
+
       await ctx.cleanup();
     });
   });
