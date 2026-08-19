@@ -78,6 +78,42 @@ test("decision 22: setting a user's business allowance", async () => {
   );
 });
 
+test("fixes a review finding on PR #75: a blank allowance is rejected, never silently submitted as zero", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([NAMED_USER]);
+  const post = vi.fn().mockResolvedValue(undefined);
+  renderWithProviders(<UsersListScreen onBack={vi.fn()} />, { get, post });
+
+  await user.click(await screen.findByText("Nimal Perera"));
+  await user.click(await screen.findByRole("button", { name: "Set business allowance" }));
+
+  const input = await screen.findByLabelText("Allowance");
+  await user.clear(input);
+  expect(await screen.findByText("Enter a number")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save allowance" })).toBeDisabled();
+
+  await user.click(screen.getByRole("button", { name: "Save allowance" }));
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("fixes a review finding on PR #75: a non-numeric allowance shows an inline error rather than a silent no-op", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([NAMED_USER]);
+  const post = vi.fn().mockResolvedValue(undefined);
+  renderWithProviders(<UsersListScreen onBack={vi.fn()} />, { get, post });
+
+  await user.click(await screen.findByText("Nimal Perera"));
+  await user.click(await screen.findByRole("button", { name: "Set business allowance" }));
+
+  const input = await screen.findByLabelText("Allowance");
+  await user.clear(input);
+  await user.type(input, "abc");
+
+  expect(await screen.findByText("Enter a whole number from 0 to 1000")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save allowance" })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("granting admin is reachable from a user row, and hidden for an existing admin", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue([NAMED_USER, ADMIN_USER]);

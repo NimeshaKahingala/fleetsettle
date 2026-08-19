@@ -15,7 +15,26 @@ import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { adminIdentityLabel } from "../../lib/adminIdentityLabel.js";
+import { fieldErrorId } from "../../lib/fieldErrorId.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+
+/**
+ * Fixes a review finding on PR #75 (gitar-bot): `Number("")` is `0`, an
+ * integer, so a blank field used to submit a real zero allowance rather
+ * than being rejected, and `Number("abc")` (`NaN`) failed the guard with no
+ * feedback at all — a silent no-op. Mirrors `setBusinessAllowanceInputSchema`'s
+ * own bounds (`packages/shared/src/schemas/admin.ts`) so the client never
+ * submits something the server would 400 on anyway.
+ */
+function validateAllowance(value: string): { parsed: number } | { error: string } {
+  if (value.trim() === "") return { error: "Enter a number" };
+  // eslint-disable-next-line no-restricted-syntax -- decision 22's allowance, a count, not money
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 1000) {
+    return { error: "Enter a whole number from 0 to 1000" };
+  }
+  return { parsed };
+}
 
 export interface UsersListScreenProps {
   onBack: () => void;
@@ -148,40 +167,50 @@ export function UsersListScreen({ onBack }: UsersListScreenProps) {
       />
 
       <Sheet open={allowanceOpen} onOpenChange={setAllowanceOpen} title="Business allowance">
-        <form
-          className="flex flex-col gap-4 pb-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // eslint-disable-next-line no-restricted-syntax -- decision 22's allowance, a count, not money
-            const parsed = Number(allowanceValue);
-            if (selected !== null && Number.isInteger(parsed)) {
-              allowanceMutation.mutate({
-                id: selected.id,
-                input: { businessAllowance: parsed },
-              });
-            }
-          }}
-        >
-          <p className="text-body-sm text-ink-secondary">
-            How many businesses {selected !== null ? adminIdentityLabel(selected) : "this user"} may
-            own before a new one queues for review.
-          </p>
-          <Field label="Allowance" htmlFor="allowance">
-            <Input
-              id="allowance"
-              type="text"
-              inputMode="numeric"
-              value={allowanceValue}
-              onChange={(e) => setAllowanceValue(e.target.value)}
-            />
-          </Field>
-          {allowanceMutation.isError ? (
-            <p className="text-body-sm text-critical-ink">{allowanceMutation.error.message}</p>
-          ) : null}
-          <Button type="submit" size="cta" disabled={allowanceMutation.isPending}>
-            Save allowance
-          </Button>
-        </form>
+        {(() => {
+          const validated = validateAllowance(allowanceValue);
+          const allowanceError = "error" in validated ? validated.error : undefined;
+          return (
+            <form
+              className="flex flex-col gap-4 pb-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (selected !== null && "parsed" in validated) {
+                  allowanceMutation.mutate({
+                    id: selected.id,
+                    input: { businessAllowance: validated.parsed },
+                  });
+                }
+              }}
+            >
+              <p className="text-body-sm text-ink-secondary">
+                How many businesses {selected !== null ? adminIdentityLabel(selected) : "this user"}{" "}
+                may own before a new one queues for review.
+              </p>
+              <Field label="Allowance" htmlFor="allowance" error={allowanceError}>
+                <Input
+                  id="allowance"
+                  type="text"
+                  inputMode="numeric"
+                  value={allowanceValue}
+                  onChange={(e) => setAllowanceValue(e.target.value)}
+                  aria-invalid={allowanceError !== undefined}
+                  aria-describedby={fieldErrorId("allowance")}
+                />
+              </Field>
+              {allowanceMutation.isError ? (
+                <p className="text-body-sm text-critical-ink">{allowanceMutation.error.message}</p>
+              ) : null}
+              <Button
+                type="submit"
+                size="cta"
+                disabled={allowanceMutation.isPending || allowanceError !== undefined}
+              >
+                Save allowance
+              </Button>
+            </form>
+          );
+        })()}
       </Sheet>
 
       <Sheet open={grantOpen} onOpenChange={setGrantOpen} title="Grant admin access?">

@@ -107,6 +107,30 @@ test("declining requires a reason and shows it was declined", async () => {
   );
 });
 
+test("fixes a review finding on PR #75: the approve button disables while the decide is in flight, so a second tap can't double-submit", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([PENDING]);
+  let resolvePost: (() => void) | undefined;
+  const post = vi.fn().mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        resolvePost = resolve;
+      }),
+  );
+  renderWithProviders(<RequestQueueScreen onBack={vi.fn()} />, { get, post });
+
+  await user.click(await screen.findByText("Perera Transport"));
+  await user.click(await screen.findByRole("button", { name: "Approve" }));
+  const confirmButton = await screen.findByRole("button", { name: "Approve request" });
+  await user.click(confirmButton);
+
+  expect(confirmButton).toBeDisabled();
+  expect(post).toHaveBeenCalledTimes(1);
+
+  resolvePost?.();
+  await vi.waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+});
+
 test("INV-40-adjacent: a decide failure shows the server's own message, not a generic toast", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue([PENDING]);

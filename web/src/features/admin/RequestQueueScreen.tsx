@@ -173,6 +173,7 @@ export function RequestQueueScreen({ onBack }: RequestQueueScreenProps) {
           ) : null}
           <DialogConfirmFooter
             confirmLabel="Approve request"
+            confirmDisabled={decideMutation.isPending}
             onConfirm={() => {
               if (selected !== null) {
                 decideMutation.mutate({ id: selected.id, input: { decision: "approve" } });
