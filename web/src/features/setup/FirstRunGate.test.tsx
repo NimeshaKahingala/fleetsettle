@@ -1,10 +1,15 @@
 import type { SessionResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
+import { getSelectedBusinessId, setSelectedBusinessId } from "../../lib/storage.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { FirstRunGate, type FirstRunGateProps } from "./FirstRunGate.js";
+
+beforeEach(() => {
+  localStorage.clear();
+});
 
 function session(overrides: Partial<SessionResponse> = {}): SessionResponse {
   return {
@@ -106,18 +111,48 @@ test.each([
   expect(await screen.findByText(expected)).toBeInTheDocument();
 });
 
-test("Phase 3 stopgap: more than one membership does not crash — picks businesses[0] deterministically", async () => {
-  const get = vi.fn().mockResolvedValue(
-    session({
-      businesses: [
-        { businessId: "b1", name: "First", role: "owner" },
-        { businessId: "b2", name: "Second", role: "driver", driverId: "d1" },
-      ],
-    }),
-  );
+const TWO_BUSINESSES = [
+  { businessId: "b1", name: "First Fleet", role: "owner" as const },
+  { businessId: "b2", name: "Second Fleet", role: "driver" as const, driverId: "d1" },
+];
+
+test("more than one membership, nothing stored yet: shows the switcher, not a shell — a real choice exists", async () => {
+  const get = vi.fn().mockResolvedValue(session({ businesses: TWO_BUSINESSES }));
   renderGate(get);
 
-  expect(await screen.findByText("Review")).toBeInTheDocument();
+  expect(await screen.findByText("Choose a business")).toBeInTheDocument();
+  expect(screen.getByText("First Fleet")).toBeInTheDocument();
+  expect(screen.getByText("Second Fleet")).toBeInTheDocument();
+  expect(screen.queryByText("Review")).not.toBeInTheDocument();
+  expect(screen.queryByText("Mine")).not.toBeInTheDocument();
+});
+
+test("more than one membership, a valid stored selection: routes straight into that membership's shell, no prompt", async () => {
+  setSelectedBusinessId("b2");
+  const get = vi.fn().mockResolvedValue(session({ businesses: TWO_BUSINESSES }));
+  renderGate(get);
+
+  expect(await screen.findByText("Mine")).toBeInTheDocument();
+  expect(screen.queryByText("Choose a business")).not.toBeInTheDocument();
+});
+
+test("more than one membership, a stored selection that no longer names a current business (revoked since it was picked): shows the switcher again", async () => {
+  setSelectedBusinessId("b-revoked");
+  const get = vi.fn().mockResolvedValue(session({ businesses: TWO_BUSINESSES }));
+  renderGate(get);
+
+  expect(await screen.findByText("Choose a business")).toBeInTheDocument();
+});
+
+test("picking a business in the switcher persists it and proceeds into that membership's shell", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(session({ businesses: TWO_BUSINESSES }));
+  renderGate(get);
+
+  await user.click(await screen.findByText("Second Fleet"));
+
+  expect(getSelectedBusinessId()).toBe("b2");
+  expect(await screen.findByText("Mine")).toBeInTheDocument();
 });
 
 test("design §7.1: an admin with zero memberships gets a door into the admin panel", async () => {

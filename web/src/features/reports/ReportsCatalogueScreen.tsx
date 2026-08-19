@@ -19,6 +19,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { can } from "../../lib/capabilities.js";
+import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 
 export type ReportKey =
   | "vehicle-month"
@@ -99,7 +100,9 @@ const GROUPS: {
 export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps) {
   const queryClient = useQueryClient();
   const session = queryClient.getQueryData<SessionResponse>(["session"]);
-  const role = session?.businesses[0]?.role;
+  // Phase 3: the selected membership's role, not businesses[0] unconditionally
+  // — see Can.tsx's identical note.
+  const role = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
   const canSeeOwnerOnly = role !== undefined && can(role, "viewOwnerOnlyReports");
 
   return (

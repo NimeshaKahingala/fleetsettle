@@ -2,14 +2,18 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   BusinessResponse,
   RedeemInviteResponse,
+  SessionMembership,
   SessionPendingRequest,
   SessionResponse,
 } from "@fleetsettle/shared/schemas";
 import { Building2, KeyRound, ShieldCheck } from "lucide-react";
+import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { getSelectedBusinessId } from "../../lib/storage.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
 
@@ -159,21 +163,64 @@ export interface FirstRunGateProps {
  *      the create/redeem cards: a revoked user is not invited to create a
  *      new business as if nothing happened.
  *    - else → today's create/redeem cards, unchanged.
- * 3. `businesses.length === 1` → straight into that membership's shell.
- * 4. `businesses.length > 1` → **Phase 3 stopgap, not a decision**: picks
- *    `businesses[0]` deterministically so a multi-membership identity does
- *    not crash. Phase 3 (the business switcher, `X-Business-Id`,
- *    `localStorage`) replaces this with a real selection — this seam is
- *    left deliberately thin for that PR, not solved here.
+ * 3. `businesses.length === 1` → straight into that membership's shell —
+ *    unremarked, matching `authMiddleware`'s own step 4a (no header needed
+ *    when there is nothing to choose between).
+ * 4. `businesses.length > 1`:
+ *    - `getSelectedBusinessId()` names one of the returned `businesses` →
+ *      straight into that membership's shell, no prompt — a switch already
+ *      happened in a previous session, and there is nothing left to decide.
+ *    - unset, or names a business no longer in the list (revoked from it
+ *      since the last selection) → the switcher, held open with no escape
+ *      hatch (see `FirstRunGateInner`'s own comment on why).
  */
-export function FirstRunGate({
+export function FirstRunGate(props: FirstRunGateProps) {
+  // Phase 3: forces a genuinely fresh `["session"]` subscription once the
+  // switcher's `queryClient.clear()` runs. Verified empirically (not
+  // assumed) that a mounted `useQuery` observer does **not** recover on its
+  // own after `clear()` — neither `invalidateQueries` nor `refetchQueries`
+  // nor `resetQueries`, called immediately after, un-sticks it; only an
+  // actual React unmount/remount does. This is the "hard remount" design
+  // §8.1 calls for, scoped to just this component: the switcher can only
+  // ever be showing before any shell has rendered (see the precedence
+  // above), so `FirstRunGateInner`'s own session query is the only thing
+  // mounted anywhere in the tree at that point — nothing else needs it.
+  const [remountGeneration, setRemountGeneration] = useState(0);
+  return (
+    <FirstRunGateInner
+      key={remountGeneration}
+      {...props}
+      onBusinessSwitched={() => setRemountGeneration((g) => g + 1)}
+    />
+  );
+}
+
+/** Picks the shell for a resolved membership — shared between the single-membership path and the multi-membership-with-a-valid-selection path so the role→shell rule lives in exactly one place. */
+function renderShellFor(
+  membership: SessionMembership,
+  renderOperate: () => React.ReactNode,
+  renderReview: () => React.ReactNode,
+  renderMine: () => React.ReactNode,
+): React.ReactNode {
+  if (membership.role === "owner_manager" || membership.role === "manager") {
+    return renderOperate();
+  }
+  if (membership.role === "owner") return renderReview();
+  return renderMine();
+}
+
+function FirstRunGateInner({
   pathname,
   onOpenAdmin,
   renderOperate,
   renderReview,
   renderMine,
   renderAdmin,
-}: FirstRunGateProps) {
+  onBusinessSwitched,
+}: FirstRunGateProps & {
+  /** Called once the switcher has persisted a selection and cleared the cache — see `FirstRunGate`'s own comment for why this needs to force a remount rather than just re-rendering. */
+  onBusinessSwitched: () => void;
+}) {
   const api = useApi();
   const queryClient = useQueryClient();
 
@@ -241,17 +288,48 @@ export function FirstRunGate({
     );
   }
 
-  // Phase 3 stopgap (see the doc comment above) — businesses[0] stands in
-  // for "the selected business" until the switcher exists.
-  const membership = businesses[0];
-  if (membership === undefined) {
-    // Unreachable: businesses.length === 0 already returned above. Guards
-    // the array-index read for strict-null-checks rather than a `!`.
-    return null;
+  if (businesses.length === 1) {
+    const [membership] = businesses;
+    if (membership === undefined) {
+      // Unreachable: businesses.length === 0 already returned above. Guards
+      // the array-index read for strict-null-checks rather than a `!`.
+      return null;
+    }
+    return <>{renderShellFor(membership, renderOperate, renderReview, renderMine)}</>;
   }
-  if (membership.role === "owner_manager" || membership.role === "manager") {
-    return <>{renderOperate()}</>;
+
+  // businesses.length > 1: a real choice exists. Proceed straight through
+  // only when a *valid* stored selection already names one of these
+  // businesses — otherwise this is exactly "must choose before proceeding".
+  const selectedId = getSelectedBusinessId();
+  const selected =
+    selectedId !== null ? businesses.find((b) => b.businessId === selectedId) : undefined;
+
+  if (selected === undefined) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4">
+        <FleetSettleSetupLockup />
+        <div>
+          <h1 className="text-title-lg text-ink-primary">Choose a business</h1>
+          <p className="text-body-sm text-ink-muted">
+            You belong to more than one business. Pick which one to open.
+          </p>
+        </div>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={() => {
+            // Intentionally inert: design §8.1 — "not a dismissible sheet
+            // with an escape hatch". There is no valid state to fall back
+            // to until a business is actually picked, so a close attempt
+            // (the visible X, a swipe, Escape, the mobile back gesture)
+            // does nothing rather than revealing nothing behind it.
+          }}
+          businesses={businesses}
+          onSelected={onBusinessSwitched}
+        />
+      </div>
+    );
   }
-  if (membership.role === "owner") return <>{renderReview()}</>;
-  return <>{renderMine()}</>;
+
+  return <>{renderShellFor(selected, renderOperate, renderReview, renderMine)}</>;
 }

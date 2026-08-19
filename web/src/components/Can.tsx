@@ -1,6 +1,7 @@
 import type { SessionResponse } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { can, type Capability } from "../lib/capabilities.js";
+import { resolveSelectedMembership } from "../lib/selectedMembership.js";
 
 export interface CanProps {
   cap: Capability;
@@ -22,11 +23,17 @@ export interface CanProps {
  * still-mounted `<Can>` must degrade to "hide", not crash the screen it's
  * gating — the same fail-closed instinct M-22 already applies to the
  * capability check itself.
+ *
+ * Role comes from `resolveSelectedMembership` (Phase 3), not
+ * `businesses[0]` unconditionally — a multi-membership user's capabilities
+ * must follow whichever business they actually switched into, or `<Can>`
+ * would keep gating on the first business's role after a switch to the
+ * second.
  */
 export function Can({ cap, children }: CanProps) {
   const queryClient = useQueryClient();
   const session = queryClient.getQueryData<SessionResponse>(["session"]);
-  const role = session?.businesses[0]?.role;
+  const role = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
   if (role === undefined || !can(role, cap)) return null;
   return <>{children}</>;
 }
