@@ -37,7 +37,11 @@ import {
   type LeaseDayExceptionRow,
 } from "../queries/dailyLease.js";
 import { releaseExpiredHolds } from "../queries/trip.js";
-import { restoreDailyLeaseOccupancy } from "./trip.js";
+import {
+  logUnrestorableDailyLeaseDates,
+  restoreDailyLeaseOccupancy,
+  type RestoreDailyLeaseOccupancyResult,
+} from "./trip.js";
 
 export interface StartDailyLeaseInput {
   businessId: string;
@@ -73,8 +77,9 @@ export async function startDailyLease(
   writer: Writer,
   input: StartDailyLeaseInput,
 ): Promise<StartedDailyLease> {
+  let restoreResult: RestoreDailyLeaseOccupancyResult | undefined;
   try {
-    return await writer.transaction(async (tx) => {
+    const started = await writer.transaction(async (tx) => {
       // GAP-7: this vehicle's own expired holds release before the horizon
       // below claims their dates — the same synchronous-ahead-of-conflict
       // relationship `bookTrip` gives its own booking.
@@ -84,12 +89,11 @@ export async function startDailyLease(
         input.vehicleId,
         input.userId,
       );
-      // GAP-7: undo any calendar hole the just-released hold(s) left in
-      // whatever daily lease was current on this vehicle before this new one
-      // — the horizon materialised below only ever fills forward from
-      // `input.today`, so a hold whose dates fell before today is not
-      // otherwise re-covered.
-      await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
+      // GAP-7/GAP-146: undo any calendar hole the just-released hold(s)
+      // left in whatever daily lease was current on this vehicle before
+      // this new one, backfilling from wherever each hold actually started
+      // rather than only from `input.today`.
+      restoreResult = await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
 
       const dailyLeaseId = newId();
       const effectiveTo = input.effectiveTo ?? null;
@@ -137,6 +141,13 @@ export async function startDailyLease(
 
       return { dailyLeaseId };
     });
+    if (restoreResult) {
+      logUnrestorableDailyLeaseDates(restoreResult, {
+        businessId: input.businessId,
+        reason: "hold_expired_on_daily_lease_start",
+      });
+    }
+    return started;
   } catch (err) {
     if (isExclusionViolation(err, "daily_lease_vehicle_id_daterange_excl")) {
       throw new DailyLeaseOverlapsError();
