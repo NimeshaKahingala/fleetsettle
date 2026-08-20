@@ -42,6 +42,38 @@ test("shows the arrears option in Rs, not raw minor units", async () => {
   expect(screen.queryByText(/6000000/)).not.toBeInTheDocument();
 });
 
+test("submitting 'Apply to arrears' with nothing chosen shows the friendly required message, not Zod's raw Invalid UUID", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <DepositMovementSheet
+      open
+      onOpenChange={vi.fn()}
+      driverId="d1"
+      depositId="dep1"
+      obligations={[obligation]}
+      today={today}
+    />,
+  );
+
+  await user.selectOptions(screen.getByLabelText("Movement"), "applied");
+  expect(screen.getByLabelText("Arrears")).toHaveValue("");
+  // amountMinor is its own required field (z.custom, no message of its own)
+  // -- Zod skips the object-level .refine() below entirely when any sibling
+  // field already failed its own check, so this must be valid first or the
+  // refine (and the bug it fixes) never runs at all.
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  for (const digit of "5000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Record movement" }));
+
+  expect(
+    await screen.findByText("Choose the arrears this deposit is being applied to"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText(/invalid uuid/i)).not.toBeInTheDocument();
+});
+
 const apiClient = {} as unknown as ApiClient;
 
 function tree(open: boolean, onOpenChange: (open: boolean) => void, queryClient: QueryClient) {

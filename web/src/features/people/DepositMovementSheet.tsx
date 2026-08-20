@@ -33,7 +33,14 @@ const depositMovementFormSchema = z
     movementType: z.enum(["topped_up", "reduced", "applied", "refunded", "retained"]),
     amountMinor: z.custom<Minor>((v) => typeof v === "bigint" && v > 0n),
     occurredOn: z.custom<BusinessDate>((v) => typeof v === "string"),
-    obligationId: z.string().uuid().optional(),
+    // The native select's unset option is "", not absent — .uuid() would
+    // fail on that before .refine() below ever runs, surfacing Zod's raw
+    // "Invalid UUID" instead of the friendly required-selection message.
+    obligationId: z
+      .string()
+      .transform((v) => (v === "" ? undefined : v))
+      .pipe(z.string().uuid().optional())
+      .optional(),
     reason: z.string().trim().max(500).optional(),
   })
   .refine((v) => v.movementType !== "applied" || v.obligationId !== undefined, {
