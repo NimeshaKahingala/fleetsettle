@@ -108,12 +108,12 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   });
   const session = queryClient.getQueryData<SessionResponse>(["session"]);
   const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  // GAP-155: `listWriteOffsHandler` is `dailyOperations` — the same gate as
+  // recording the recovery it exists to serve for a manager — so this reuses
+  // `canRecordRecovery` rather than a second identical check. Creating and
+  // voiding a write-off stay `writeOffOrWaiveAboveThreshold` (`canWriteOff`,
+  // below): only who can *see* widened, not who can create or reverse one.
   const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
-  // `listWriteOffsHandler` is `writeOffOrWaiveAboveThreshold` (owners only), so
-  // a `manager` — STAFF, and therefore holding `canRecordRecovery` — would
-  // otherwise fire this query on every customer and render its 403 as a
-  // permanent failure banner. Voiding is gated by the same capability the
-  // Worker uses for both (`api/src/handlers/write-off.ts`).
   const canWriteOff =
     selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
   const writeOffsQuery = useQuery({
@@ -122,7 +122,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
       api.get<ListWriteOffsResponse>(
         `/api/write-off?partyType=customer&partyCustomerId=${encodeURIComponent(customerId)}`,
       ),
-    enabled: canWriteOff,
+    enabled: canRecordRecovery,
   });
 
   const customerState = useQueryState(customerQuery);
@@ -314,13 +314,13 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
             />
           )}
 
-          {canWriteOff && writeOffsState.kind === "error" ? (
+          {canRecordRecovery && writeOffsState.kind === "error" ? (
             <QueryStateFailure
               error={writeOffsState.error}
               retry={writeOffsState.retry}
               of="this customer's write-offs"
             />
-          ) : canWriteOff && writeOffs.length > 0 ? (
+          ) : canRecordRecovery && writeOffs.length > 0 ? (
             <Section
               title="Written off losses"
               count={writeOffs.length}

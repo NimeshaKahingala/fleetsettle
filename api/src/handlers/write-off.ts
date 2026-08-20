@@ -43,9 +43,20 @@ function toListRow(row: WriteOffListRow) {
   };
 }
 
-/** A3: same audience as recording one — reviewing write-off history is as sensitive as creating a write-off. */
+/**
+ * A3/GAP-155: originally `writeOffOrWaiveAboveThreshold` — "same audience
+ * as recording one," A3's own rule, correct when creating a write-off was
+ * the only "recording" this list served. `recordWriteOffRecoveryHandler`
+ * later gave recovery its own, correctly-reasoned `dailyOperations` (money
+ * arriving is an ordinary operational entry, INV-15) — but nobody revisited
+ * this list, so a manager could call the recovery endpoint and had no route
+ * to a write-off id to call it against. `dailyOperations` still satisfies
+ * A3's own rule: it is the same gate as recording a *recovery*, the write
+ * this list now primarily exists to serve for a manager. Create and void
+ * stay `writeOffOrWaiveAboveThreshold` — this only widens who can *see*.
+ */
 export const listWriteOffsHandler: RouteHandler<typeof listWriteOffsRoute, Env> = async (c) => {
-  requireCapability(c, "writeOffOrWaiveAboveThreshold");
+  requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const query = c.req.valid("query");
 

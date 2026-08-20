@@ -11,6 +11,7 @@ import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { DriverDetailScreen } from "./DriverDetailScreen.js";
 
 const owner = { userId: "u1", businessId: "b1", role: "owner" as const };
+const manager = { userId: "u1", businessId: "b1", role: "manager" as const };
 
 const emptyHistory: DriverViewResponse = {
   owedToUsMinor: "0",
@@ -671,6 +672,68 @@ test("UC-90/GAP-148: a driver write-off can be recovered from driver detail", as
   const recoveryCall = postCalls.find(({ path }) => path === "/api/write-off/wo1/recovery");
   if (recoveryCall === undefined) throw new Error("expected driver write-off recovery request");
   expect(recoveryCall.body).toMatchObject({ amountMinor: "25000" });
+});
+
+test("GAP-155: a manager sees the write-off section and can record a recovery, but not void", async () => {
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
+    // listWriteOffsHandler is dailyOperations (GAP-155) — the same gate as
+    // recording the recovery it exists to serve for a manager — so unlike
+    // the pre-GAP-155 shape this request now succeeds for a manager.
+    if (path.startsWith("/api/write-off?")) {
+      return Promise.resolve([
+        {
+          id: "wo1",
+          obligationId: null,
+          partyType: "driver",
+          partyCustomerId: null,
+          partyDriverId: "d1",
+          vehicleId: "v1",
+          amountMinor: "50000",
+          reason: "Unrecoverable shortage",
+          writtenOffOn: "2026-08-10",
+          voidedAt: null,
+          voidedReason: null,
+          replacesId: null,
+        },
+      ]);
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithProviders(
+    <DriverDetailScreen driverId="d1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Record recovery" })).toBeInTheDocument();
+  // Voiding stays writeOffOrWaiveAboveThreshold (owners only) — unaffected
+  // by GAP-155, which only widened who can see, not who can void. Also the
+  // regression case for the missing `canWriteOff` guard this same change
+  // exposed: DriverDetailScreen's void button had no capability check at
+  // all, moot only because a manager could never reach this section before.
+  expect(screen.queryByRole("button", { name: "Void write-off" })).not.toBeInTheDocument();
 });
 
 test("GAP-147/GAP-148: a driver write-off can be voided from driver detail", async () => {

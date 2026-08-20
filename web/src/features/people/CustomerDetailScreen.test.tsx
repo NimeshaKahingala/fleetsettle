@@ -466,17 +466,16 @@ test("GAP-147/GAP-148: an owner can void a customer write-off from customer deta
   );
 });
 
-test("GAP-148: a manager sees no write-off section and no failure banner on customer detail", async () => {
+test("GAP-155: a manager sees the write-off section and can record a recovery, but not void", async () => {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
     if (path === "/api/customer/c1") return Promise.resolve(customer);
     if (path === "/api/customer/c1/obligation") return Promise.resolve([due]);
     if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
-    // `listWriteOffsHandler` is `writeOffOrWaiveAboveThreshold` — owners only —
-    // so a manager's request 403s. The screen must not make it in the first
-    // place, and must not render the refusal as a broken-page banner.
-    if (path.startsWith("/api/write-off?"))
-      return Promise.reject(new ApiError(403, "FORBIDDEN_CAPABILITY", "boom", "req-wo"));
+    // listWriteOffsHandler is dailyOperations (GAP-155) — the same gate as
+    // recording the recovery it exists to serve for a manager — so unlike
+    // the pre-GAP-155 shape this request now succeeds for a manager.
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
     throw new Error(`unexpected path ${path}`);
   });
 
@@ -487,13 +486,9 @@ test("GAP-148: a manager sees no write-off section and no failure banner on cust
     manager,
   );
 
-  expect(await screen.findByRole("heading", { name: "Acme Tours" })).toBeInTheDocument();
-  expect(screen.getByText("Payments · 1")).toBeInTheDocument();
-  expect(
-    get.mock.calls.some(
-      (call) => typeof call[0] === "string" && call[0].startsWith("/api/write-off?"),
-    ),
-  ).toBe(false);
-  expect(screen.queryByText(/write-offs/)).not.toBeInTheDocument();
-  expect(screen.queryByText(/Written off losses/)).not.toBeInTheDocument();
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Record recovery" })).toBeInTheDocument();
+  // Voiding stays writeOffOrWaiveAboveThreshold (owners only) — unaffected
+  // by GAP-155, which only widened who can see, not who can void.
+  expect(screen.queryByRole("button", { name: "Void write-off" })).not.toBeInTheDocument();
 });

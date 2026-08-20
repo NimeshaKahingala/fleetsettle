@@ -354,15 +354,30 @@ describe("GET /api/write-off (A3)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("403 — a manager cannot view write-offs (owners only)", async () => {
+  it("GAP-155 — a manager can view write-offs (dailyOperations, same gate as recording a recovery)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
-    const manager = await mintUser(db, ctx, businessId, "manager");
-    const token = await signAccessToken(manager.asgardeoSub);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const writeOffRes = await postWriteOff(ownerToken, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "1000",
+      reason: "customer vanished",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(writeOffRes.status).toBe(201);
+    const writeOffBody: WriteOffResponseBody = await writeOffRes.json();
+    ctx.trackCreatedWriteOff(writeOffBody.id);
 
-    const res = await listWriteOffs(token);
-    expect(res.status).toBe(403);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const managerToken = await signAccessToken(manager.asgardeoSub);
+    const res = await listWriteOffs(managerToken);
+    expect(res.status).toBe(200);
+    const body: WriteOffListRowBody[] = await res.json();
+    expect(body.map((r) => r.id)).toContain(writeOffBody.id);
 
     await ctx.cleanup();
   });

@@ -120,6 +120,11 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
   });
   const session = queryClient.getQueryData<SessionResponse>(["session"]);
   const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  // GAP-155: `listWriteOffsHandler` is `dailyOperations` — the same gate as
+  // recording the recovery it exists to serve for a manager — so this reuses
+  // `canRecordRecovery` rather than a second identical check. Creating and
+  // voiding a write-off stay `writeOffOrWaiveAboveThreshold` (`canWriteOff`,
+  // below): only who can *see* widened, not who can create or reverse one.
   const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
   const canWriteOff =
     selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
@@ -129,7 +134,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
       api.get<ListWriteOffsResponse>(
         `/api/write-off?partyType=driver&partyDriverId=${encodeURIComponent(driverId)}`,
       ),
-    enabled: canWriteOff,
+    enabled: canRecordRecovery,
   });
   const driverState = useQueryState(driverQuery);
   const balancesState = useQueryState(balancesQuery);
@@ -318,13 +323,13 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
               onVoidDepositMovement={(movement) => setVoidDepositMovementTarget(movement)}
             />
           )}
-          {canWriteOff && writeOffsState.kind === "error" ? (
+          {canRecordRecovery && writeOffsState.kind === "error" ? (
             <QueryStateFailure
               error={writeOffsState.error}
               retry={writeOffsState.retry}
               of="this driver's write-offs"
             />
-          ) : canWriteOff && writeOffs.length > 0 ? (
+          ) : canRecordRecovery && writeOffs.length > 0 ? (
             <Section
               title="Written off losses"
               count={writeOffs.length}
@@ -352,7 +357,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
                         Record recovery
                       </button>
                     ) : null}
-                    {writeOff.voidedAt === null ? (
+                    {canWriteOff && writeOff.voidedAt === null ? (
                       <button
                         type="button"
                         onClick={() => setVoidWriteOffTarget(writeOff)}
