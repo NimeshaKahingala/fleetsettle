@@ -13,20 +13,20 @@ import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
-export interface WriteOffCustomerBalanceSheetProps {
+export interface WriteOffBalanceSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  customerId: string;
+  party: { type: "customer" | "driver"; id: string };
   today: BusinessDate;
 }
 
-/** F-8.3/UC-90: standalone customer loss, not tied to one visible due. */
-export function WriteOffCustomerBalanceSheet({
+/** F-8.3/UC-90: standalone customer/driver loss, not tied to one visible due or obligation. */
+export function WriteOffBalanceSheet({
   open,
   onOpenChange,
-  customerId,
+  party,
   today,
-}: WriteOffCustomerBalanceSheetProps) {
+}: WriteOffBalanceSheetProps) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [amountMinor, setAmountMinor] = useState<Minor | null>(null);
@@ -57,8 +57,10 @@ export function WriteOffCustomerBalanceSheet({
   const mutation = useMutation({
     mutationFn: (value: Minor) =>
       api.post<WriteOffResponse>("/api/write-off", {
-        partyType: "customer",
-        partyCustomerId: customerId,
+        partyType: party.type,
+        ...(party.type === "customer"
+          ? { partyCustomerId: party.id }
+          : { partyDriverId: party.id }),
         amountMinor: toWire(value),
         reason: reason.trim(),
         writtenOffOn,
@@ -66,7 +68,12 @@ export function WriteOffCustomerBalanceSheet({
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["write-off"] });
-      void queryClient.invalidateQueries({ queryKey: ["customer", customerId, "obligation"] });
+      if (party.type === "customer") {
+        void queryClient.invalidateQueries({ queryKey: ["customer", party.id, "obligation"] });
+      } else {
+        void queryClient.invalidateQueries({ queryKey: ["driver", party.id, "balances"] });
+        void queryClient.invalidateQueries({ queryKey: ["driver", party.id, "view"] });
+      }
       void queryClient.invalidateQueries({ queryKey: ["reports"] });
       void queryClient.invalidateQueries({ queryKey: ["home"] });
       onOpenChange(false);
@@ -83,9 +90,9 @@ export function WriteOffCustomerBalanceSheet({
         }}
       >
         <MoneyField label="Amount" valueMinor={amountMinor} onChange={setAmountMinor} />
-        <Field label="Reason" htmlFor="writeOffCustomerReason">
+        <Field label="Reason" htmlFor="writeOffBalanceReason">
           <Input
-            id="writeOffCustomerReason"
+            id="writeOffBalanceReason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
           />

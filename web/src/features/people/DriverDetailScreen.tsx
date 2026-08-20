@@ -51,7 +51,7 @@ import { VoidAdvanceSheet } from "./VoidAdvanceSheet.js";
 import { VoidDepositMovementSheet } from "./VoidDepositMovementSheet.js";
 import { VoidOffsetSheet } from "./VoidOffsetSheet.js";
 import { VoidWriteOffSheet } from "./VoidWriteOffSheet.js";
-import { WriteOffDriverBalanceSheet } from "./WriteOffDriverBalanceSheet.js";
+import { WriteOffBalanceSheet } from "./WriteOffBalanceSheet.js";
 import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
 
 export interface DriverDetailScreenProps {
@@ -518,10 +518,10 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         depositId={historyQuery.data?.deposit?.id ?? null}
         movement={voidDepositMovementTarget}
       />
-      <WriteOffDriverBalanceSheet
+      <WriteOffBalanceSheet
         open={writeOffOpen}
         onOpenChange={setWriteOffOpen}
-        driverId={driverId}
+        party={{ type: "driver", id: driverId }}
         today={today}
       />
       {recoveryTarget !== null ? (

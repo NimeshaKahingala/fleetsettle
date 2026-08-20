@@ -32,7 +32,7 @@ import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { VoidWriteOffSheet } from "./VoidWriteOffSheet.js";
-import { WriteOffCustomerBalanceSheet } from "./WriteOffCustomerBalanceSheet.js";
+import { WriteOffBalanceSheet } from "./WriteOffBalanceSheet.js";
 import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
 
 export interface CustomerDetailScreenProps {
@@ -382,10 +382,10 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               void queryClient.invalidateQueries({ queryKey: ["reports"] });
             }}
           />
-          <WriteOffCustomerBalanceSheet
+          <WriteOffBalanceSheet
             open={writeOffOpen}
             onOpenChange={setWriteOffOpen}
-            customerId={customerId}
+            party={{ type: "customer", id: customerId }}
             today={today}
           />
           {recoveryTarget !== null ? (
