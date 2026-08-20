@@ -11,6 +11,9 @@ import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { LeaseHubScreen } from "./LeaseHubScreen.js";
 
+const owner = { userId: "u1", businessId: "b1", role: "owner" as const };
+const manager = { userId: "u1", businessId: "b1", role: "manager" as const };
+
 const lease: LeaseResponse = {
   id: "l1",
   vehicleId: "v1",
@@ -171,6 +174,32 @@ test("collect payment from an action sheet opens the amount step, pre-filled fro
   expect(screen.getByRole("textbox", { name: "Amount received" })).toHaveTextContent("Rs 70,000");
 });
 
+test("GAP-144: collecting payment here invalidates Home's own receivables read, not just this lease's own obligation list", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues });
+  const post = vi.fn().mockResolvedValue({
+    id: "p1",
+    amountMinor: "7000000",
+    occurredOn: "2026-08-01",
+    allocations: [],
+    unallocatedMinor: "0",
+  });
+  const { queryClient } = renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get, post },
+  );
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(await screen.findByText("Rent"));
+  await user.click(screen.getByRole("button", { name: "Collect payment" }));
+  await screen.findByText("Amount received");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
 test("adjust or waive from an action sheet opens the adjust sheet for that due", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });
@@ -183,6 +212,64 @@ test("adjust or waive from an action sheet opens the adjust sheet for that due",
 
   expect(await screen.findByText("Type")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Waive" })).toBeInTheDocument();
+});
+
+test("F-8.3/GAP-148: an owner can write off a selected due from the lease hub", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues });
+  const post = vi.fn().mockResolvedValue({
+    id: "wo1",
+    obligationId: "o1",
+    partyType: "customer",
+    partyCustomerId: "c1",
+    partyDriverId: null,
+    vehicleId: "v1",
+    amountMinor: "7000000",
+    reason: "Customer disappeared",
+    writtenOffOn: "2026-08-20",
+    replacesId: null,
+  });
+  renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get, post },
+    undefined,
+    owner,
+  );
+
+  await user.click(await screen.findByText("Rent"));
+  await user.click(screen.getByRole("button", { name: "Write off" }));
+  await user.type(screen.getByLabelText("Reason"), "Customer disappeared");
+  await user.click(screen.getByRole("button", { name: "Write off" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/write-off",
+      expect.objectContaining({
+        obligationId: "o1",
+        partyType: "customer",
+        partyCustomerId: "c1",
+        vehicleId: "v1",
+        amountMinor: "7000000",
+        reason: "Customer disappeared",
+      }),
+    ),
+  );
+});
+
+test("F-8.3/M-22: a manager does not see the owner-only write-off action", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues });
+  renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get },
+    undefined,
+    manager,
+  );
+
+  await user.click(await screen.findByText("Rent"));
+
+  expect(screen.queryByRole("button", { name: "Write off" })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Adjust or waive" })).toBeInTheDocument();
 });
 
 test("the sticky Collect payment action opens the amount step with nothing pre-filled", async () => {
@@ -253,4 +340,87 @@ test("Close the lease, from the lease-actions sheet, calls onCloseLease", async 
   await user.click(screen.getByRole("button", { name: "Close the lease" }));
 
   expect(onCloseLease).toHaveBeenCalledOnce();
+});
+
+test("F-8.4/GAP-148: a closed lease can record a late charge from lease actions", async () => {
+  const user = userEvent.setup();
+  const closedLease: LeaseResponse = { ...lease, status: "closed", endDate: "2026-07-31" };
+  const get = baseGet({
+    "/api/lease/l1": closedLease,
+    "/api/lease/l1/obligation": dues,
+  });
+  const post = vi.fn().mockResolvedValue({
+    obligationId: "o-late",
+    partyType: "customer",
+    amountMinor: "125000",
+    dueOn: "2026-08-20",
+    status: "pending",
+    replacesId: null,
+    deductedFromFeeOffsetId: null,
+  });
+  renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get, post },
+    undefined,
+    manager,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+
+  expect(screen.getByRole("button", { name: "Record late charge" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Close the lease" })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Record late charge" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  for (const digit of "125000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.type(screen.getByLabelText("Note"), "Parking ticket after return");
+  await user.click(screen.getByRole("button", { name: "Record charge" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/post-closure-charge",
+      expect.objectContaining({
+        partyType: "customer",
+        partyCustomerId: "c1",
+        vehicleId: "v1",
+        sourceType: "lease",
+        sourceId: "l1",
+        amountMinor: "125000",
+        note: "Parking ticket after return",
+      }),
+    ),
+  );
+});
+
+test("F-8.4: an active lease does not expose the post-closure charge action", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues });
+  renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get },
+    undefined,
+    manager,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Lease actions" }));
+
+  expect(screen.getByRole("button", { name: "Close the lease" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Record late charge" })).not.toBeInTheDocument();
+});
+
+test("GAP-147: View adjustments opens the adjustments sheet for the right due", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues, "/api/adjustment?obligationId=o1": [] });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  await user.click(await screen.findByText("Rent"));
+  await user.click(screen.getByRole("button", { name: "View adjustments" }));
+
+  expect(await screen.findByText("No adjustments recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/adjustment?obligationId=o1")).toBe(true);
 });

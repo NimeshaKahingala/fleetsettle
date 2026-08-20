@@ -2,6 +2,7 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   advanceResponseSchema,
   issueAdvanceRequestSchema,
+  listAdvanceSettlementsResponseSchema,
   settleAdvanceRequestSchema,
   settledAdvanceResponseSchema,
   voidedAdvanceResponseSchema,
@@ -63,6 +64,22 @@ export const settleAdvanceRoute = createRoute({
       description:
         "That accounting period is closed, replacesId names a settlement that isn't voided yet, or it has already been replaced (GAP-60)",
     },
+  },
+});
+
+/** GAP-147: every settlement recorded against one advance, newest first — the read a manager needs to find one to void, `dailyOperations` matching the endpoint it exists to serve. */
+export const listAdvanceSettlementsRoute = createRoute({
+  method: "get",
+  path: "/{id}/settlement",
+  request: { params: advanceIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listAdvanceSettlementsResponseSchema } },
+      description: "Every settlement against this advance, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view advance settlements" },
+    404: { description: "No such advance in this business" },
   },
 });
 

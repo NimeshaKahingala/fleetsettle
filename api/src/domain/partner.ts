@@ -1,4 +1,4 @@
-import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { newId, splitInteger, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Reader, Writer } from "../db/client.js";
 import {
   isExclusionViolation,
@@ -32,6 +32,7 @@ import {
   insertManagementFeeAgreement,
   insertOwnershipShares,
   insertPartnerPayout,
+  listManagementFeeAgreementHistoryForManager,
   revokeManagementFeeAgreement,
   sumCapitalContributionsForUser,
   sumManagementFeeAsOfDate,
@@ -41,8 +42,14 @@ import {
   voidPartnerPayoutRow,
   type OwnershipShareRow,
 } from "../queries/partner.js";
-import { listPartnerCashPositions } from "../queries/reports.js";
-import { getVehicleMonthReport } from "./reports.js";
+import {
+  listOwnershipShareHistoryForVehicles,
+  listPartnerCashPositions,
+  sumVehicleCostsForPeriodsBulk,
+  sumVehicleEarnedForPeriodsBulk,
+} from "../queries/reports.js";
+import { listVehiclesForBusiness } from "../queries/vehicle.js";
+import { getVehicleMonthReport, readBulkMinor } from "./reports.js";
 
 export interface SetOwnershipSharesInput {
   vehicleId: string;
@@ -480,15 +487,24 @@ function sumProfitShareForUser(
 /**
  * GAP-74: profit share is a period fact, not a standing balance — no row
  * anywhere holds what a closed period already settled, so an all-time
- * figure means replaying every period this business has ever had. The
- * naive fix, exactly as sized when this gap was scoped: a bounded loop
- * over `listAccountingPeriodsForBusiness` (one row per month a real
- * business has run, not one per money record) calling the same two reads
- * `getPartnerSummary`'s own open-period `earned` already calls. **Not**
+ * figure means replaying every period this business has ever had. **Not**
  * the eventual shape — a snapshot taken at period close, so a closed
  * period's share becomes a settled fact recomputation cannot move
  * (INV-16's own instinct) — that needs a migration and a backfill and is
- * deliberately not this. This must not gate B4, so it ships now.
+ * deliberately not this.
+ *
+ * GAP-145: originally shipped as a bounded loop calling `getVehicleMonthReport`
+ * once per accounting period — `O(vehicles × periods)` round trips on the
+ * exact endpoint that later hit Workers Free's 50-subrequest ceiling (`GET
+ * /api/partner/{userId}`, 79 subrequests for one six-vehicle business, one
+ * open period). Replaced with five flat queries regardless of how many
+ * periods or vehicles this business has ever had: every vehicle, every
+ * period's own earned/costs (grouped by vehicle *and* period in one round
+ * trip each), the full ownership-share history, and the full
+ * management-fee-agreement history for this manager. INV-16's
+ * effective-dating — which shares applied as of a given period's own end —
+ * is then evaluated per period in memory, the same replay the original
+ * loop did, just without a round trip per period to do it.
  */
 async function sumAllTimeEarnedForUser(
   db: Reader,
@@ -496,16 +512,51 @@ async function sumAllTimeEarnedForUser(
   userId: string,
 ): Promise<bigint> {
   const periods = await listAccountingPeriodsForBusiness(db, businessId);
-  const perPeriod = await Promise.all(
-    periods.map(async (period) => {
-      const [vehicleMonth, managementFeeMinor] = await Promise.all([
-        getVehicleMonthReport(db, businessId, period.id, undefined),
-        sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
-      ]);
-      return sumProfitShareForUser(vehicleMonth, userId) + managementFeeMinor;
-    }),
-  );
-  return perPeriod.reduce((sum, earned) => sum + earned, 0n);
+  if (periods.length === 0) return 0n;
+
+  const vehicles = await listVehiclesForBusiness(db, businessId);
+  const vehicleIds = vehicles.map((v) => v.id);
+  const periodIds = periods.map((p) => p.id);
+
+  const [earnedByPeriod, costsByPeriod, sharesByVehicle, feeAgreements] = await Promise.all([
+    sumVehicleEarnedForPeriodsBulk(db, vehicleIds, periodIds),
+    sumVehicleCostsForPeriodsBulk(db, vehicleIds, periodIds),
+    listOwnershipShareHistoryForVehicles(db, vehicleIds),
+    listManagementFeeAgreementHistoryForManager(db, businessId, userId),
+  ]);
+
+  let total = 0n;
+  for (const period of periods) {
+    const earnedByVehicle = earnedByPeriod.get(period.id) ?? new Map<string, bigint>();
+    const costsByVehicle = costsByPeriod.get(period.id) ?? new Map<string, bigint>();
+
+    for (const vehicleId of vehicleIds) {
+      const profitMinor =
+        readBulkMinor(earnedByVehicle, vehicleId) - readBulkMinor(costsByVehicle, vehicleId);
+      const shares = (sharesByVehicle.get(vehicleId) ?? []).filter(
+        (s) =>
+          s.effectiveFrom <= period.periodEnd &&
+          (s.effectiveTo === null || s.effectiveTo >= period.periodEnd),
+      );
+      if (shares.length === 0) continue;
+      const splitAmounts = splitInteger(
+        profitMinor,
+        shares.map((s) => BigInt(s.shareBp)),
+      );
+      const idx = shares.findIndex((s) => s.userId === userId);
+      // No row for this user on this vehicle in this period is a real 0% share (W-56), not a missing figure — findIndex's -1 skips the add rather than reading a fabricated splitAmounts[-1].
+      if (idx !== -1) total += splitAmounts[idx] as bigint;
+    }
+
+    total += feeAgreements
+      .filter(
+        (a) =>
+          a.effectiveFrom <= period.periodEnd &&
+          (a.effectiveTo === null || a.effectiveTo >= period.periodEnd),
+      )
+      .reduce((sum, a) => sum + a.monthlyAmountMinor, 0n);
+  }
+  return total;
 }
 
 /**

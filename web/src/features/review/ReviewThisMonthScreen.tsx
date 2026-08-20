@@ -20,6 +20,7 @@ import { VehiclePerformanceCard } from "./VehiclePerformanceCard.js";
 export interface ReviewThisMonthScreenProps {
   onSelectVehicle: (vehicleId: string, periodId: string) => void;
   onSelectMyMoney: () => void;
+  onBack?: () => void;
 }
 
 /** This signed-in user's own share of one period's combined profit — the sum of every vehicle's own `ownerShares` row matching `userId`, zero if they hold no share anywhere this period. */
@@ -69,6 +70,7 @@ export function computeDeltaPercent(current: Minor, previous: Minor | undefined)
 export function ReviewThisMonthScreen({
   onSelectVehicle,
   onSelectMyMoney,
+  onBack,
 }: ReviewThisMonthScreenProps) {
   const api = useApi();
   const me = useMe();
@@ -134,7 +136,7 @@ export function ReviewThisMonthScreen({
   // the same honest omission a genuinely first period gets.
   if (periodsState.kind === "error") {
     return (
-      <Screen title="This month">
+      <Screen title="This month" {...(onBack !== undefined ? { onBack } : {})}>
         <QueryStateFailure
           error={periodsState.error}
           retry={periodsState.retry}
@@ -145,7 +147,7 @@ export function ReviewThisMonthScreen({
   }
   if (currentReportState.kind === "error") {
     return (
-      <Screen title="This month">
+      <Screen title="This month" {...(onBack !== undefined ? { onBack } : {})}>
         <QueryStateFailure
           error={currentReportState.error}
           retry={currentReportState.retry}
@@ -156,7 +158,7 @@ export function ReviewThisMonthScreen({
   }
   if (currentReportState.kind !== "ready") {
     return (
-      <Screen title="This month">
+      <Screen title="This month" {...(onBack !== undefined ? { onBack } : {})}>
         <p className="text-body text-ink-muted">Loading…</p>
       </Screen>
     );
@@ -183,7 +185,7 @@ export function ReviewThisMonthScreen({
   );
 
   return (
-    <Screen title="This month">
+    <Screen title="This month" {...(onBack !== undefined ? { onBack } : {})}>
       <div className="flex flex-col gap-4">
         <StatTile
           label="My share this month"

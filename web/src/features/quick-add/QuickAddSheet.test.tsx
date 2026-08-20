@@ -183,6 +183,27 @@ test("B15/GAP-82: Payment received picks a customer and posts a received payment
   );
 });
 
+test("GAP-144: recording a payment invalidates Home's own receivables read, not just ['payment']/['home']", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "p1",
+    amountMinor: "5",
+    occurredOn: today,
+    allocations: [],
+    unallocatedMinor: "500",
+  });
+  const { queryClient } = renderWithProviders(<QuickAddSheetHarness />, { get: baseGet, post });
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(screen.getByRole("button", { name: "Payment received" }));
+  await user.click(await screen.findByRole("button", { name: "Customer - Nimal" }));
+  await enterAmount(user, "5");
+  await user.click(screen.getByRole("button", { name: "Record payment" }));
+
+  await waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
 test("B15/GAP-82: Payment made picks a driver and posts a paid payment", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({

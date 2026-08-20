@@ -5,6 +5,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { formatTimestamp } from "../../lib/formatTimestamp.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface BusinessesListScreenProps {
@@ -50,7 +51,9 @@ export function BusinessesListScreen({ onBack }: BusinessesListScreenProps) {
             <Card key={business.id} className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="truncate text-body text-ink-primary">{business.name}</p>
-                <p className="text-caption text-ink-muted">Created {business.createdAt}</p>
+                <p className="text-caption text-ink-muted">
+                  Created {formatTimestamp(business.createdAt)}
+                </p>
               </div>
               <p className="shrink-0 text-body-sm text-ink-secondary">
                 {business.memberCount} {business.memberCount === 1 ? "member" : "members"}

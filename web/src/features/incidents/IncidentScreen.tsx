@@ -6,12 +6,13 @@ import type {
   InsuranceClaimResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, MoreVertical, TriangleAlert, Wallet } from "lucide-react";
+import { AlertCircle, MoreVertical, TriangleAlert, Wallet, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Badge } from "../../design/primitives/Badge.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
@@ -24,6 +25,7 @@ import { InsuranceClaimSheet } from "./InsuranceClaimSheet.js";
 import { OffRoadSheet } from "./OffRoadSheet.js";
 import { RecoveryReceivedSheet } from "./RecoveryReceivedSheet.js";
 import { SettleInsuranceClaimSheet } from "./SettleInsuranceClaimSheet.js";
+import { VoidIncidentRecoverySheet } from "./VoidIncidentRecoverySheet.js";
 
 export interface IncidentScreenProps {
   incidentId: string;
@@ -67,7 +69,18 @@ function formatShortDate(date: string): string {
 }
 
 function isReceivable(recovery: IncidentRecoveryResponse): boolean {
-  return parse(recovery.receivedAmountMinor) < parse(recovery.agreedAmountMinor);
+  return (
+    recovery.voidedAt === null &&
+    parse(recovery.receivedAmountMinor) < parse(recovery.agreedAmountMinor)
+  );
+}
+
+function isVoidable(recovery: IncidentRecoveryResponse): boolean {
+  return (
+    recovery.voidedAt === null &&
+    recovery.source === "customer" &&
+    recovery.receivedAmountMinor === "0"
+  );
 }
 
 function InsuranceClaimCard({ claim }: { claim: InsuranceClaimResponse }) {
@@ -113,6 +126,9 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
   const [contributionOpen, setContributionOpen] = useState(false);
   const [claimOpen, setClaimOpen] = useState(false);
   const [receiveTarget, setReceiveTarget] = useState<IncidentRecoveryResponse | null>(null);
+  const [voidRecoveryTarget, setVoidRecoveryTarget] = useState<IncidentRecoveryResponse | null>(
+    null,
+  );
   const [settleOpen, setSettleOpen] = useState(false);
 
   const incidentQuery = useQuery({
@@ -265,28 +281,59 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               title="Customer contributions"
               count={customerRecoveries.length}
               items={customerRecoveries.map((recovery) => {
-                const row = (
-                  <Card className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-body text-ink-primary">Agreed</p>
-                      <p className="text-caption text-ink-muted">
-                        Received <Money value={parse(recovery.receivedAmountMinor)} />
-                      </p>
+                const voided = recovery.voidedAt !== null;
+                return (
+                  <Card key={recovery.id} className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <p
+                          className={
+                            voided
+                              ? "text-body text-ink-muted line-through"
+                              : "text-body text-ink-primary"
+                          }
+                        >
+                          Agreed
+                        </p>
+                        <p className="text-caption text-ink-muted">
+                          Received <Money value={parse(recovery.receivedAmountMinor)} />
+                        </p>
+                      </div>
+                      <Money value={parse(recovery.agreedAmountMinor)} />
                     </div>
-                    <Money value={parse(recovery.agreedAmountMinor)} />
+                    {voided ? (
+                      <div className="border-t border-line-soft pt-2">
+                        <p className="text-caption font-medium text-critical-ink">Voided</p>
+                        {recovery.voidedReason !== null ? (
+                          <p className="text-caption text-ink-muted">{recovery.voidedReason}</p>
+                        ) : null}
+                      </div>
+                    ) : isReceivable(recovery) || isVoidable(recovery) ? (
+                      <div className="flex flex-wrap justify-end gap-4 border-t border-line-soft pt-3">
+                        {isReceivable(recovery) ? (
+                          <Button
+                            type="button"
+                            size="default"
+                            variant="outline"
+                            onClick={() => setReceiveTarget(recovery)}
+                          >
+                            Mark received
+                          </Button>
+                        ) : null}
+                        {isVoidable(recovery) ? (
+                          <Button
+                            type="button"
+                            size="default"
+                            variant="destructive"
+                            onClick={() => setVoidRecoveryTarget(recovery)}
+                          >
+                            <XCircle className="size-4" aria-hidden="true" />
+                            Void
+                          </Button>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </Card>
-                );
-                return isReceivable(recovery) ? (
-                  <button
-                    key={recovery.id}
-                    type="button"
-                    onClick={() => setReceiveTarget(recovery)}
-                    className="w-full text-left"
-                  >
-                    {row}
-                  </button>
-                ) : (
-                  <div key={recovery.id}>{row}</div>
                 );
               })}
             />
@@ -363,6 +410,17 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               receivedAmountMinor={parse(receiveTarget.receivedAmountMinor)}
               today={today}
               onRecorded={() => setReceiveTarget(null)}
+            />
+          ) : null}
+          {voidRecoveryTarget !== null ? (
+            <VoidIncidentRecoverySheet
+              open={voidRecoveryTarget !== null}
+              onOpenChange={(next) => {
+                if (!next) setVoidRecoveryTarget(null);
+              }}
+              incidentId={incidentId}
+              vehicleId={incident.vehicleId}
+              recovery={voidRecoveryTarget}
             />
           ) : null}
           {incident.insuranceClaim !== null ? (

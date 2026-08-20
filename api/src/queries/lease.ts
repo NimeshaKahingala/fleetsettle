@@ -99,16 +99,34 @@ export async function updateLeaseEndDate(
   await db.update(lease).set({ endDate }).where(eq(lease.id, leaseId));
 }
 
-/** F-2.6/UC-16 step 1: "stop the clock" — no further billing periods generate once status leaves `active` (`generateNextBillingPeriodTx`'s own guard), so this single update is the entire step. */
+/**
+ * F-2.6/UC-16 step 1: "stop the clock" — no further billing periods generate
+ * once status leaves `active` (`generateNextBillingPeriodTx`'s own guard),
+ * so this single update is the entire step.
+ *
+ * `finalPeriodTreatment` (step 1's own choice — full/days-used/agreed) and
+ * `closedAt` (GAP-141, 19 Aug 2026 live QA pass, F-4) — neither was ever
+ * written before: the wizard asked the user for the first and computed the
+ * second implicitly, then discarded both. `closedAt` is set automatically
+ * whenever `status` is `"closed"`, the same `closedAt: sql\`now()\`` pattern
+ * `accounting-period.ts`'s own `closePeriodRow` already uses, rather than a
+ * separate parameter a future caller could pass the wrong status alongside.
+ */
 export async function updateLeaseStatus(
   db: WriteDb,
   leaseId: string,
   status: LeaseRow["status"],
   endDate?: string,
+  finalPeriodTreatment?: string,
 ): Promise<void> {
   await db
     .update(lease)
-    .set({ status, ...(endDate !== undefined ? { endDate } : {}) })
+    .set({
+      status,
+      ...(endDate !== undefined ? { endDate } : {}),
+      ...(finalPeriodTreatment !== undefined ? { finalPeriodTreatment } : {}),
+      ...(status === "closed" ? { closedAt: sql`now()` } : {}),
+    })
     .where(eq(lease.id, leaseId));
 }
 

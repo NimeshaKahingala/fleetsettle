@@ -107,14 +107,21 @@ export async function releaseDailyLeaseAllocationsForRange(
 export interface ReleasedExpiredHolds {
   released: number;
   /**
-   * Distinct (businessId, vehicleId) pairs whose holds were released — the
-   * caller re-materialises each one's *current* daily-lease horizon
-   * afterward (GAP-7 calendar-hole fix), the same restore `cancelTrip`
-   * already does for GAP-119. `businessId` travels with each pair rather
-   * than being a single argument because the nightly cron calls this
-   * unscoped, across every business at once.
+   * One entry per distinct vehicle whose holds were released — the caller
+   * re-materialises each one's *current* daily-lease horizon afterward
+   * (GAP-7 calendar-hole fix), the same restore `cancelTrip` already does
+   * for GAP-119. `businessId` travels with each entry rather than being a
+   * single argument because the nightly cron calls this unscoped, across
+   * every business at once.
+   *
+   * `freedFrom` (GAP-146/REV-2026-08-19-02) is the earliest `startDate`
+   * among this vehicle's own expired holds — the date the restore needs to
+   * backfill from, not just `today`. A hold's dates are voided across their
+   * *entire own range* below, with no lower bound at `today`; without this,
+   * the daily lease that hold displaced never reclaims whatever portion of
+   * that range has already elapsed.
    */
-  affected: { businessId: string; vehicleId: string }[];
+  affected: { businessId: string; vehicleId: string; freedFrom: string }[];
 }
 
 /**
@@ -138,7 +145,12 @@ export async function releaseExpiredHolds(
   voidedBy?: string,
 ): Promise<ReleasedExpiredHolds> {
   const expired = await db
-    .select({ id: trip.id, vehicleId: trip.vehicleId, businessId: trip.businessId })
+    .select({
+      id: trip.id,
+      vehicleId: trip.vehicleId,
+      businessId: trip.businessId,
+      startDate: trip.startDate,
+    })
     .from(trip)
     .where(
       and(
@@ -149,10 +161,21 @@ export async function releaseExpiredHolds(
     );
   if (expired.length === 0) return { released: 0, affected: [] };
   const expiredIds = expired.map((r) => r.id);
-  const affected = [...new Map(expired.map((r) => [r.vehicleId, r])).values()].map((r) => ({
-    businessId: r.businessId,
-    vehicleId: r.vehicleId,
-  }));
+  // GAP-146: a vehicle can have more than one expired hold outstanding —
+  // the earliest of their startDates is how far back the restore needs to
+  // reach, not an arbitrary one of them.
+  const byVehicle = new Map<string, { businessId: string; vehicleId: string; freedFrom: string }>();
+  for (const r of expired) {
+    const current = byVehicle.get(r.vehicleId);
+    if (!current || r.startDate < current.freedFrom) {
+      byVehicle.set(r.vehicleId, {
+        businessId: r.businessId,
+        vehicleId: r.vehicleId,
+        freedFrom: r.startDate,
+      });
+    }
+  }
+  const affected = [...byVehicle.values()];
 
   await db
     .update(vehicleDayAllocation)

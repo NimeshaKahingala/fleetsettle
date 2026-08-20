@@ -26,6 +26,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
+import { NativeSelect } from "../../design/primitives/NativeSelect.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
@@ -79,20 +80,6 @@ function memberName(member: BusinessMemberResponse): string {
 
 function vehicleName(vehicle: VehicleResponse | undefined, vehicleId: string): string {
   return vehicle?.registration ?? vehicleId;
-}
-
-function NativeSelect({ className = "", ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      className={[
-        "min-h-tap w-full rounded-sm border border-line-strong bg-surface px-3 text-body text-ink-primary",
-        "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-focus-ring",
-        "disabled:pointer-events-none disabled:opacity-50",
-        className,
-      ].join(" ")}
-      {...props}
-    />
-  );
 }
 
 function defaultShareInputs(partners: BusinessMemberResponse[]): Record<string, string> {

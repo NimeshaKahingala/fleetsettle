@@ -130,6 +130,8 @@ test("a customer recovery not yet fully received is tappable, opening Mark recei
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "0",
         replacesId: null,
+        voidedAt: null,
+        voidedReason: null,
       },
     ],
   };
@@ -139,8 +141,71 @@ test("a customer recovery not yet fully received is tappable, opening Mark recei
   });
 
   expect(await screen.findByText("Customer contributions · 1")).toBeInTheDocument();
-  await user.click(screen.getByText("Agreed"));
-  expect(await screen.findByText("Mark received")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Mark received" }));
+  expect(await screen.findByRole("heading", { name: "Mark received" })).toBeInTheDocument();
+});
+
+test("GAP-147 — an unreceived customer recovery can be voided from the incident screen", async () => {
+  const user = userEvent.setup();
+  const withRecovery: IncidentDetailResponse = {
+    ...openIncident,
+    recoveries: [
+      {
+        id: "rec1",
+        incidentId: "inc1",
+        source: "customer",
+        agreedAmountMinor: "2000000",
+        receivedAmountMinor: "0",
+        replacesId: null,
+        voidedAt: null,
+        voidedReason: null,
+      },
+    ],
+  };
+  const get = baseGet({ "/api/incident/inc1": withRecovery });
+  const post = vi.fn().mockResolvedValue({ id: "rec1", voidedAt: "2026-08-20T12:00:00.000Z" });
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await screen.findByText("Customer contributions · 1");
+  await user.click(screen.getByRole("button", { name: "Void" }));
+  await user.type(screen.getByLabelText("Reason"), "entered against the wrong customer");
+  await user.click(screen.getByRole("button", { name: "Void contribution" }));
+
+  expect(post).toHaveBeenCalledWith("/api/incident/inc1/recovery/rec1/void", {
+    reason: "entered against the wrong customer",
+  });
+});
+
+test("GAP-147 — a voided customer recovery stays visible with its reason", async () => {
+  const withRecovery: IncidentDetailResponse = {
+    ...openIncident,
+    recoveries: [
+      {
+        id: "rec1",
+        incidentId: "inc1",
+        source: "customer",
+        agreedAmountMinor: "2000000",
+        receivedAmountMinor: "0",
+        replacesId: null,
+        voidedAt: "2026-08-20T12:00:00.000Z",
+        voidedReason: "entered against the wrong customer",
+      },
+    ],
+  };
+  const get = baseGet({ "/api/incident/inc1": withRecovery });
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Customer contributions · 1")).toBeInTheDocument();
+  expect(screen.getByText("Agreed")).toHaveClass("line-through");
+  expect(screen.getByText("Voided")).toBeInTheDocument();
+  expect(screen.getByText("entered against the wrong customer")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Mark received" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Void" })).not.toBeInTheDocument();
 });
 
 test("a fully received customer recovery is a plain row, not a button", async () => {
@@ -154,6 +219,8 @@ test("a fully received customer recovery is a plain row, not a button", async ()
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "2000000",
         replacesId: null,
+        voidedAt: null,
+        voidedReason: null,
       },
     ],
   };
@@ -164,6 +231,7 @@ test("a fully received customer recovery is a plain row, not a button", async ()
 
   const row = await screen.findByText("Agreed");
   expect(row.closest("button")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Void" })).not.toBeInTheDocument();
 });
 
 test("a submitted insurance claim card is tappable, opening Settle insurance claim", async () => {

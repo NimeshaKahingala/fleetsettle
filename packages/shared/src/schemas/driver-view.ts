@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { uuidSchema } from "./common.js";
+import { leaseObligationRowSchema } from "./lease-billing.js";
 
 /** F-6.8/UC-59: every day in the window, including excused ones (§7.9) — the thing he would otherwise argue about. */
 export const driverViewDaySchema = z.object({
@@ -39,14 +40,28 @@ export const driverViewOffsetSchema = z.object({
   id: uuidSchema,
   amountMinor: z.string(),
   occurredOn: z.string(),
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
 });
 export type DriverViewOffset = z.infer<typeof driverViewOffsetSchema>;
 
 export const driverViewDepositSchema = z.object({
   id: uuidSchema,
   heldMinor: z.string(),
+  movements: z.array(
+    z.object({
+      id: uuidSchema,
+      movementType: z.enum(["taken", "topped_up", "reduced", "applied", "refunded", "retained"]),
+      amountMinor: z.string(),
+      occurredOn: z.string(),
+      reason: z.string().nullable(),
+      voidedAt: z.string().nullable(),
+      voidedReason: z.string().nullable(),
+    }),
+  ),
 });
 export type DriverViewDeposit = z.infer<typeof driverViewDepositSchema>;
+export type DriverViewDepositMovement = DriverViewDeposit["movements"][number];
 
 /**
  * F-6.8/UC-59/W-13: both balances, days (with excused ones), trips and fees,
@@ -63,5 +78,6 @@ export const driverViewResponseSchema = z.object({
   advances: z.array(driverViewAdvanceSchema),
   offsets: z.array(driverViewOffsetSchema),
   deposit: driverViewDepositSchema.nullable(),
+  owedToUsObligations: z.array(leaseObligationRowSchema),
 });
 export type DriverViewResponse = z.infer<typeof driverViewResponseSchema>;

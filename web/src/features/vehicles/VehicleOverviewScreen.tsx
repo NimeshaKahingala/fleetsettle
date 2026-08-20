@@ -2,13 +2,16 @@ import { add, businessToday, format, parse, ZERO } from "@fleetsettle/shared";
 import type {
   ExpenseListRow,
   IncidentResponse,
+  LeaseDayExceptionResponse,
   VehicleDailyLeaseHistoryRow,
   VehicleDocumentResponse,
   VehicleLeaseHistoryRow,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Archive,
+  ArchiveRestore,
   CalendarDays,
   CalendarOff,
   CalendarPlus,
@@ -17,9 +20,11 @@ import {
   MoreVertical,
   PiggyBank,
   Receipt,
+  RefreshCw,
   Route,
   TriangleAlert,
   Truck,
+  UserRound,
   Wrench,
 } from "lucide-react";
 import { useState } from "react";
@@ -32,10 +37,13 @@ import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
-import { Badge } from "../../design/primitives/Badge.js";
+import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
+import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { ARRANGEMENT_BADGE_VARIANT, ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
 import {
@@ -44,10 +52,14 @@ import {
 } from "../../lib/incidentStatusLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { VEHICLE_DOC_TYPE_LABEL } from "../../lib/vehicleDocumentLabel.js";
+import { ChangeVehicleArrangementSheet } from "./ChangeVehicleArrangementSheet.js";
+import { ChangeDailyLeaseDriverSheet } from "./ChangeDailyLeaseDriverSheet.js";
 import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
 import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
-import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
+import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
+import { SkipDailyLeaseDaySheet } from "./SkipDailyLeaseDaySheet.js";
+import { VoidLeaseDayExceptionSheet } from "./VoidLeaseDayExceptionSheet.js";
 
 export interface VehicleOverviewScreenProps {
   vehicleId: string;
@@ -70,6 +82,18 @@ function formatShortDate(date: string): string {
     year: "numeric",
   }).format(new Date(`${date}T00:00:00`));
 }
+
+const VEHICLE_LIFECYCLE_LABEL: Record<VehicleResponse["lifecycle"], string> = {
+  active: "Active",
+  archived: "Archived",
+  disposed: "Disposed",
+};
+
+const VEHICLE_LIFECYCLE_VARIANT: Record<VehicleResponse["lifecycle"], BadgeProps["variant"]> = {
+  active: "good",
+  archived: "warning",
+  disposed: "critical",
+};
 
 /**
  * Web-P5's history tab: arrangement-A and -B periods merged into one
@@ -124,15 +148,23 @@ export function VehicleOverviewScreen({
   onBookTrip,
 }: VehicleOverviewScreenProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const today = businessToday();
   const [actionsOpen, setActionsOpen] = useState(false);
   const [reportIncidentOpen, setReportIncidentOpen] = useState(false);
   const [recordExpenseOpen, setRecordExpenseOpen] = useState(false);
   const [renewPaperworkOpen, setRenewPaperworkOpen] = useState(false);
+  const [changeArrangementOpen, setChangeArrangementOpen] = useState(false);
+  const [changeDailyLeaseDriverOpen, setChangeDailyLeaseDriverOpen] = useState(false);
+  const [skipDailyLeaseDayOpen, setSkipDailyLeaseDayOpen] = useState(false);
   const [endDailyLeaseOpen, setEndDailyLeaseOpen] = useState(false);
   const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
+  const [voidLeaseDayExceptionOpen, setVoidLeaseDayExceptionOpen] = useState(false);
   const [serviceIntervalOpen, setServiceIntervalOpen] = useState(false);
+  const [archiveVehicleOpen, setArchiveVehicleOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
+  const [selectedLeaseDayException, setSelectedLeaseDayException] =
+    useState<LeaseDayExceptionResponse | null>(null);
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -154,6 +186,22 @@ export function VehicleOverviewScreen({
     queryKey: ["vehicle", vehicleId, "daily-lease"],
     queryFn: () => api.get<VehicleDailyLeaseHistoryRow[]>(`/api/vehicle/${vehicleId}/daily-lease`),
   });
+  // F-4.8/GAP-25: the history entry with no `effectiveTo` yet is the active
+  // daily lease; the same row anchors skip/undo actions.
+  const activeDailyLease = (dailyLeaseHistoryQuery.data ?? []).find(
+    (row) => row.effectiveTo === null,
+  );
+  const activeDailyLeaseId = activeDailyLease?.id;
+  const leaseDayExceptionsQuery = useQuery({
+    queryKey: ["daily-lease", activeDailyLeaseId, "exception"],
+    queryFn: () => {
+      if (activeDailyLeaseId === undefined) throw new Error("Choose a daily lease");
+      return api.get<LeaseDayExceptionResponse[]>(
+        `/api/daily-lease/${activeDailyLeaseId}/exception`,
+      );
+    },
+    enabled: activeDailyLeaseId !== undefined,
+  });
   const incidentsQuery = useQuery({
     queryKey: ["vehicle", vehicleId, "incident"],
     queryFn: () => api.get<IncidentResponse[]>(`/api/vehicle/${vehicleId}/incident`),
@@ -163,11 +211,13 @@ export function VehicleOverviewScreen({
   const expensesState = useQueryState(expensesQuery);
   const leaseHistoryState = useQueryState(leaseHistoryQuery);
   const dailyLeaseHistoryState = useQueryState(dailyLeaseHistoryQuery);
+  const leaseDayExceptionsState = useQueryState(leaseDayExceptionsQuery);
   const incidentsState = useQueryState(incidentsQuery);
 
   const documents = documentsQuery.data ?? [];
   const expenses = expensesQuery.data ?? [];
   const incidents = incidentsQuery.data ?? [];
+  const leaseDayExceptions = leaseDayExceptionsQuery.data ?? [];
   // GAP-96: a manager voiding a cost row had nothing on this screen to
   // check the effect against — the row-level void itself was already
   // correct (GAP-81). Voided rows are excluded, the same rule
@@ -197,12 +247,18 @@ export function VehicleOverviewScreen({
   // GAP-97: the same gate `bookTrip` itself enforces server-side and
   // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
   const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
-  // F-4.8/GAP-25: offered only when a daily lease is actually running — the
-  // history entry with no `effectiveTo` yet is exactly that one, the same
-  // "ongoing" reading `buildHistoryEntries` above already gives it.
-  const activeDailyLease = (dailyLeaseHistoryQuery.data ?? []).find(
-    (row) => row.effectiveTo === null,
-  );
+  const archiveMutation = useMutation({
+    mutationFn: () => {
+      if (vehicle === undefined) throw new Error("Choose a vehicle");
+      const action = vehicle.lifecycle === "archived" ? "unarchive" : "archive";
+      return api.post<VehicleResponse>(`/api/vehicle/${vehicleId}/${action}`, {});
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
+      void queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      setArchiveVehicleOpen(false);
+    },
+  });
 
   const vehicleActions: ActionSheetAction[] = [
     { key: "calendar", label: "View calendar", icon: CalendarDays, onSelect: onViewCalendar },
@@ -238,10 +294,22 @@ export function VehicleOverviewScreen({
     ...(activeDailyLease !== undefined
       ? [
           {
+            key: "change-daily-lease-driver",
+            label: "Change daily lease driver",
+            icon: UserRound,
+            onSelect: () => setChangeDailyLeaseDriverOpen(true),
+          },
+          {
             key: "change-daily-lease-rate",
             label: "Change the daily lease amount",
             icon: PiggyBank,
             onSelect: () => setChangeDailyLeaseRateOpen(true),
+          },
+          {
+            key: "skip-daily-lease-day",
+            label: "Skip daily lease day",
+            icon: CalendarOff,
+            onSelect: () => setSkipDailyLeaseDayOpen(true),
           },
           {
             key: "end-daily-lease",
@@ -251,6 +319,12 @@ export function VehicleOverviewScreen({
           },
         ]
       : []),
+    {
+      key: "change-arrangement",
+      label: "Change arrangement",
+      icon: RefreshCw,
+      onSelect: () => setChangeArrangementOpen(true),
+    },
     {
       key: "expense",
       label: "Record expense",
@@ -269,6 +343,25 @@ export function VehicleOverviewScreen({
       icon: TriangleAlert,
       onSelect: () => setReportIncidentOpen(true),
     },
+    ...(vehicle?.lifecycle === "active"
+      ? [
+          {
+            key: "archive-vehicle",
+            label: "Archive vehicle",
+            icon: Archive,
+            onSelect: () => setArchiveVehicleOpen(true),
+          },
+        ]
+      : vehicle?.lifecycle === "archived"
+        ? [
+            {
+              key: "unarchive-vehicle",
+              label: "Unarchive vehicle",
+              icon: ArchiveRestore,
+              onSelect: () => setArchiveVehicleOpen(true),
+            },
+          ]
+        : []),
   ];
 
   return (
@@ -298,6 +391,12 @@ export function VehicleOverviewScreen({
             <div>
               <p className="text-label text-ink-secondary">Type</p>
               <p className="text-body text-ink-primary">{vehicle.vehicleType}</p>
+            </div>
+            <div>
+              <p className="text-label text-ink-secondary">Status</p>
+              <Badge variant={VEHICLE_LIFECYCLE_VARIANT[vehicle.lifecycle]}>
+                {VEHICLE_LIFECYCLE_LABEL[vehicle.lifecycle]}
+              </Badge>
             </div>
             <div>
               <p className="text-label text-ink-secondary">Arrangement</p>
@@ -453,6 +552,41 @@ export function VehicleOverviewScreen({
             </section>
           ) : null}
 
+          {leaseDayExceptionsState.kind === "error" ? (
+            <QueryStateFailure
+              error={leaseDayExceptionsState.error}
+              retry={leaseDayExceptionsState.retry}
+              of="skipped daily-lease days"
+            />
+          ) : null}
+          {leaseDayExceptions.length > 0 ? (
+            <Section
+              title="Skipped daily-lease days"
+              count={leaseDayExceptions.length}
+              items={leaseDayExceptions.map((exception) => (
+                <Card key={exception.id} className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-body text-ink-primary">
+                      {formatShortDate(exception.exceptionDate)}
+                    </p>
+                    {exception.reason !== null ? (
+                      <p className="text-caption text-ink-muted">{exception.reason}</p>
+                    ) : null}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedLeaseDayException(exception);
+                      setVoidLeaseDayExceptionOpen(true);
+                    }}
+                  >
+                    Undo skip
+                  </Button>
+                </Card>
+              ))}
+            />
+          ) : null}
+
           <ReportIncidentSheet
             open={reportIncidentOpen}
             onOpenChange={setReportIncidentOpen}
@@ -477,6 +611,23 @@ export function VehicleOverviewScreen({
             today={today}
             {...(selectedDocument !== null ? { initialDocument: selectedDocument } : {})}
           />
+          <ChangeVehicleArrangementSheet
+            open={changeArrangementOpen}
+            onOpenChange={setChangeArrangementOpen}
+            vehicleId={vehicleId}
+            currentArrangement={vehicle.arrangement}
+            today={today}
+          />
+          {activeDailyLease !== undefined ? (
+            <ChangeDailyLeaseDriverSheet
+              open={changeDailyLeaseDriverOpen}
+              onOpenChange={setChangeDailyLeaseDriverOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              currentDriverId={activeDailyLease.driverId}
+              today={today}
+            />
+          ) : null}
           {activeDailyLease !== undefined ? (
             <EndDailyLeaseSheet
               open={endDailyLeaseOpen}
@@ -486,6 +637,25 @@ export function VehicleOverviewScreen({
               today={today}
             />
           ) : null}
+          {activeDailyLease !== undefined ? (
+            <SkipDailyLeaseDaySheet
+              open={skipDailyLeaseDayOpen}
+              onOpenChange={setSkipDailyLeaseDayOpen}
+              vehicleId={vehicleId}
+              dailyLeaseId={activeDailyLease.id}
+              today={today}
+            />
+          ) : null}
+          <VoidLeaseDayExceptionSheet
+            open={voidLeaseDayExceptionOpen}
+            onOpenChange={(open) => {
+              setVoidLeaseDayExceptionOpen(open);
+              if (!open) setSelectedLeaseDayException(null);
+            }}
+            vehicleId={vehicleId}
+            dailyLeaseId={activeDailyLease?.id ?? null}
+            exception={selectedLeaseDayException}
+          />
           {activeDailyLease !== undefined ? (
             <ChangeDailyLeaseRateSheet
               open={changeDailyLeaseRateOpen}
@@ -501,6 +671,30 @@ export function VehicleOverviewScreen({
             vehicleId={vehicleId}
             currentServiceIntervalKm={vehicle.serviceIntervalKm}
           />
+          <Sheet
+            open={archiveVehicleOpen}
+            onOpenChange={setArchiveVehicleOpen}
+            title={vehicle.lifecycle === "archived" ? "Unarchive vehicle?" : "Archive vehicle?"}
+          >
+            <div className="flex flex-col gap-4 pb-2">
+              <p className="text-body text-ink-secondary">
+                {vehicle.lifecycle === "archived"
+                  ? "This puts the vehicle back into active lists and pickers. Its history is unchanged."
+                  : "This hides the vehicle from new work while keeping every past record and report intact."}
+              </p>
+              {archiveMutation.isError ? (
+                <p className="text-body-sm text-critical-ink">{archiveMutation.error.message}</p>
+              ) : null}
+              <DialogConfirmFooter
+                confirmLabel={
+                  vehicle.lifecycle === "archived" ? "Unarchive vehicle" : "Archive vehicle"
+                }
+                variant={vehicle.lifecycle === "archived" ? "primary" : "destructive"}
+                onConfirm={() => archiveMutation.mutate()}
+                onCancel={() => setArchiveVehicleOpen(false)}
+              />
+            </div>
+          </Sheet>
           <ActionSheet
             open={actionsOpen}
             onOpenChange={setActionsOpen}

@@ -17,8 +17,18 @@ interface DriverViewBody {
   days: { businessDate: string; state: string; earnedMinor: string; receivedMinor: string }[];
   trips: { id: string; agreedAmountMinor: string; driverFeeMinor: string }[];
   advances: { id: string; amountMinor: string }[];
-  offsets: { id: string; amountMinor: string }[];
-  deposit: { id: string; heldMinor: string } | null;
+  offsets: {
+    id: string;
+    amountMinor: string;
+    voidedAt: string | null;
+    voidedReason: string | null;
+  }[];
+  deposit: {
+    id: string;
+    heldMinor: string;
+    movements: Array<{ id: string; movementType: string; amountMinor: string }>;
+  } | null;
+  owedToUsObligations: Array<{ id: string; amountMinor: string; settledMinor: string }>;
 }
 
 /**
@@ -68,7 +78,7 @@ describe("the driver's own view (P12, F-6.8/UC-59)", () => {
       },
     );
 
-    await ctx.createObligation(businessId, periodId, {
+    const arrearsObligationId = await ctx.createObligation(businessId, periodId, {
       direction: "owed_to_us",
       partyType: "driver",
       driverId,
@@ -104,7 +114,7 @@ describe("the driver's own view (P12, F-6.8/UC-59)", () => {
     });
 
     const depositId = await ctx.createDeposit(businessId, { partyType: "driver", driverId });
-    await ctx.createDepositMovement(businessId, periodId, depositId, {
+    const depositMovementId = await ctx.createDepositMovement(businessId, periodId, depositId, {
       movementType: "taken",
       amountMinor: 15_000n,
       occurredOn: "2026-07-01",
@@ -134,8 +144,24 @@ describe("the driver's own view (P12, F-6.8/UC-59)", () => {
 
     expect(body.offsets.map((o) => o.id)).toEqual([offsetId]);
     expect(body.offsets[0]?.amountMinor).toBe("1000");
+    expect(body.offsets[0]?.voidedAt).toBeNull();
+    expect(body.offsets[0]?.voidedReason).toBeNull();
 
     expect(body.deposit).toMatchObject({ id: depositId, heldMinor: "15000" });
+    expect(body.deposit?.movements).toEqual([
+      expect.objectContaining({
+        id: depositMovementId,
+        movementType: "taken",
+        amountMinor: "15000",
+      }),
+    ]);
+    expect(body.owedToUsObligations).toEqual([
+      expect.objectContaining({
+        id: arrearsObligationId,
+        amountMinor: "20000",
+        settledMinor: "5000",
+      }),
+    ]);
 
     await ctx.cleanup();
   });

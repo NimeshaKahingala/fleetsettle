@@ -22,7 +22,11 @@ function session(overrides: Partial<SessionResponse> = {}): SessionResponse {
   };
 }
 
-function renderGate(get: ReturnType<typeof vi.fn>, overrides: Partial<FirstRunGateProps> = {}) {
+function renderGate(
+  get: ReturnType<typeof vi.fn>,
+  overrides: Partial<FirstRunGateProps> = {},
+  signOut: () => Promise<void> = () => Promise.resolve(),
+) {
   return renderWithProviders(
     <FirstRunGate
       pathname="/"
@@ -31,9 +35,11 @@ function renderGate(get: ReturnType<typeof vi.fn>, overrides: Partial<FirstRunGa
       renderReview={() => <p>Review</p>}
       renderMine={() => <p>Mine</p>}
       renderAdmin={() => <p>Admin</p>}
+      renderBlockedOperatePathname={() => <p>Blocked operate path</p>}
       {...overrides}
     />,
     { get },
+    signOut,
   );
 }
 
@@ -45,6 +51,24 @@ test("no businesses, never requested, not previously a member — the get-starte
   expect(screen.getByLabelText("FleetSettle")).toBeInTheDocument();
   expect(screen.getByText("Create a business")).toBeInTheDocument();
   expect(screen.getByText("Join a business")).toBeInTheDocument();
+  expect(screen.getByText("Sign out")).toBeInTheDocument();
+});
+
+test("GAP-152/F-7: get-started has a working sign-out affordance", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(session());
+  const signOut = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+  renderGate(get, {}, signOut);
+
+  await user.click(await screen.findByText("Sign out"));
+  expect(await screen.findByText("Sign out?")).toBeInTheDocument();
+
+  const buttons = screen.getAllByRole("button", { name: "Sign out" });
+  const confirmButton = buttons.at(-1);
+  if (!confirmButton) throw new Error("expected sign-out confirm button");
+  await user.click(confirmButton);
+
+  expect(signOut).toHaveBeenCalledTimes(1);
 });
 
 test("GAP-101: a real server error shows a failure notice, never an eternal spinner", async () => {
@@ -95,6 +119,24 @@ test("decision 26: a user revoked from their only business gets a distinct messa
   ).toBeInTheDocument();
   expect(screen.queryByText("Create a business")).not.toBeInTheDocument();
   expect(screen.queryByText("Join a business")).not.toBeInTheDocument();
+  expect(screen.getByText("Sign out")).toBeInTheDocument();
+});
+
+test("GAP-152/F-7: revoked-access has a working sign-out affordance", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(session({ hadMembership: true }));
+  const signOut = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+  renderGate(get, {}, signOut);
+
+  await user.click(await screen.findByText("Sign out"));
+  expect(await screen.findByText("Sign out?")).toBeInTheDocument();
+
+  const buttons = screen.getAllByRole("button", { name: "Sign out" });
+  const confirmButton = buttons.at(-1);
+  if (!confirmButton) throw new Error("expected sign-out confirm button");
+  await user.click(confirmButton);
+
+  expect(signOut).toHaveBeenCalledTimes(1);
 });
 
 test.each([
@@ -216,7 +258,7 @@ test("UI §3.1: isPlatformAdmin plus an /admin pathname renders the admin surfac
   expect(await screen.findByText("Admin")).toBeInTheDocument();
 });
 
-test("an /admin pathname for a non-admin falls through to their ordinary shell", async () => {
+test("GAP-154/F-6: an /admin pathname for a non-admin Operate role is blocked before its child route can mount", async () => {
   const get = vi
     .fn()
     .mockResolvedValue(
@@ -224,7 +266,20 @@ test("an /admin pathname for a non-admin falls through to their ordinary shell",
     );
   renderGate(get, { pathname: "/admin/users" });
 
-  expect(await screen.findByText("Operate")).toBeInTheDocument();
+  expect(await screen.findByText("Blocked operate path")).toBeInTheDocument();
+  expect(screen.queryByText("Operate")).not.toBeInTheDocument();
+});
+
+test("GAP-154/F-6: a /me pathname for a non-driver Operate role is blocked before Mine can mount", async () => {
+  const get = vi
+    .fn()
+    .mockResolvedValue(
+      session({ businesses: [{ businessId: "b1", name: "Test Fleet", role: "manager" }] }),
+    );
+  renderGate(get, { pathname: "/me" });
+
+  expect(await screen.findByText("Blocked operate path")).toBeInTheDocument();
+  expect(screen.queryByText("Mine")).not.toBeInTheDocument();
 });
 
 test("creating a business replaces the get-started form with the operate shell", async () => {

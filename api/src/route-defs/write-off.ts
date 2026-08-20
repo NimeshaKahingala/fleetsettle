@@ -1,5 +1,6 @@
 import { createRoute } from "@hono/zod-openapi";
 import {
+  listWriteOffRecoveriesResponseSchema,
   listWriteOffsQuerySchema,
   listWriteOffsResponseSchema,
   recordWriteOffRecoveryRequestSchema,
@@ -45,7 +46,8 @@ export const recordWriteOffRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot write off a balance" },
     404: {
-      description: "No such obligation, customer, driver or replacesId write-off in this business",
+      description:
+        "No such obligation, customer, driver, vehicle or replacesId write-off in this business",
     },
     409: {
       description:
@@ -75,6 +77,22 @@ export const recordWriteOffRecoveryRoute = createRoute({
       description:
         "That accounting period is closed, replacesId names a recovery that isn't voided yet, or it has already been replaced (GAP-60)",
     },
+  },
+});
+
+/** GAP-147: every recovery ever recorded against one write-off, newest first — the read a manager needs to find one to void, `dailyOperations` matching the endpoint it exists to serve. */
+export const listWriteOffRecoveriesRoute = createRoute({
+  method: "get",
+  path: "/{id}/recovery",
+  request: { params: writeOffIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listWriteOffRecoveriesResponseSchema } },
+      description: "Every recovery against this write-off, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view write-off recoveries" },
+    404: { description: "No such write-off in this business" },
   },
 });
 

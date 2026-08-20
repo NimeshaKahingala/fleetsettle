@@ -11,12 +11,17 @@ import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findObligationForBusiness } from "../queries/obligation.js";
+import { findVehicleForBusiness } from "../queries/vehicle.js";
 import {
+  findWriteOffForBusiness,
+  listWriteOffRecoveriesForWriteOff,
   listWriteOffsForBusiness,
   type WriteOffListFilters,
   type WriteOffListRow,
+  type WriteOffRecoveryListRow,
 } from "../queries/write-off.js";
 import type {
+  listWriteOffRecoveriesRoute,
   listWriteOffsRoute,
   recordWriteOffRecoveryRoute,
   recordWriteOffRoute,
@@ -42,9 +47,20 @@ function toListRow(row: WriteOffListRow) {
   };
 }
 
-/** A3: same audience as recording one — reviewing write-off history is as sensitive as creating a write-off. */
+/**
+ * A3/GAP-155: originally `writeOffOrWaiveAboveThreshold` — "same audience
+ * as recording one," A3's own rule, correct when creating a write-off was
+ * the only "recording" this list served. `recordWriteOffRecoveryHandler`
+ * later gave recovery its own, correctly-reasoned `dailyOperations` (money
+ * arriving is an ordinary operational entry, INV-15) — but nobody revisited
+ * this list, so a manager could call the recovery endpoint and had no route
+ * to a write-off id to call it against. `dailyOperations` still satisfies
+ * A3's own rule: it is the same gate as recording a *recovery*, the write
+ * this list now primarily exists to serve for a manager. Create and void
+ * stay `writeOffOrWaiveAboveThreshold` — this only widens who can *see*.
+ */
 export const listWriteOffsHandler: RouteHandler<typeof listWriteOffsRoute, Env> = async (c) => {
-  requireCapability(c, "writeOffOrWaiveAboveThreshold");
+  requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const query = c.req.valid("query");
 
@@ -80,6 +96,10 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
   if (body.partyDriverId !== undefined) {
     const driver = await findDriverForBusiness(reader, businessId, body.partyDriverId);
     if (!driver) throw new NotFoundError("No such driver in this business");
+  }
+  if (body.vehicleId !== undefined) {
+    const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
+    if (!vehicle) throw new NotFoundError("No such vehicle in this business");
   }
 
   const { writeOffId } = await recordWriteOff(c.get("writer"), {
@@ -143,6 +163,35 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
     },
     201,
   );
+};
+
+function toRecoveryListRow(row: WriteOffRecoveryListRow) {
+  return {
+    id: row.id,
+    writeOffId: row.writeOffId,
+    paymentId: row.paymentId,
+    amountMinor: toWire(row.amountMinor as Minor),
+    occurredOn: row.occurredOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
+  };
+}
+
+/** GAP-147: `dailyOperations` — the same gate recording a recovery uses, so a manager can find one to void. */
+export const listWriteOffRecoveriesHandler: RouteHandler<
+  typeof listWriteOffRecoveriesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const writeOffRow = await findWriteOffForBusiness(c.get("reader"), businessId, id);
+  if (!writeOffRow) throw new NotFoundError("No such write-off in this business");
+
+  const rows = await listWriteOffRecoveriesForWriteOff(c.get("reader"), businessId, id);
+  return c.json(rows.map(toRecoveryListRow), 200);
 };
 
 /** GAP-12/W-61/INV-36 §3.7. `writeOffOrWaiveAboveThreshold` — the same gate creating one uses. */

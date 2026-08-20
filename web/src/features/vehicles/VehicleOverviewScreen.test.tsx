@@ -6,6 +6,7 @@ import type {
   VehicleLeaseHistoryRow,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
+import { businessToday } from "@fleetsettle/shared";
 import { fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -129,6 +130,95 @@ test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sh
   await vi.waitFor(() =>
     expect(post).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
       serviceIntervalKm: 8000,
+    }),
+  );
+});
+
+test("GAP-146: Archive vehicle posts from the vehicle's own actions", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({ ...baseVehicle, lifecycle: "archived" });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  expect(await screen.findByText("Active")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Archive vehicle" }));
+  expect(await screen.findByText("Archive vehicle?")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Archive vehicle" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/vehicle/v1/archive", {}));
+});
+
+test("GAP-146: Unarchive vehicle posts from the vehicle's own actions", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({
+    "/api/vehicle/v1": { ...baseVehicle, lifecycle: "archived" },
+  });
+  const post = vi.fn().mockResolvedValue({ ...baseVehicle, lifecycle: "active" });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  expect(await screen.findByText("Archived")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Unarchive vehicle" }));
+  expect(await screen.findByText("Unarchive vehicle?")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Unarchive vehicle" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/vehicle/v1/unarchive", {}));
+});
+
+test("F-1.2/GAP-146: Change arrangement, via the Vehicle actions menu, opens the sheet and saves", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "11111111-1111-1111-1111-111111111111",
+    vehicleId: "v1",
+    arrangement: "C",
+    effectiveFrom: businessToday(),
+    effectiveTo: null,
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get: baseGet(), post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Change arrangement" }));
+  await user.selectOptions(screen.getByLabelText("New arrangement"), "C");
+  await user.click(screen.getByRole("button", { name: "Change arrangement" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/arrangement", {
+      arrangement: "C",
+      effectiveFrom: businessToday(),
     }),
   );
 });
@@ -697,6 +787,179 @@ test("F-4.3/GAP-2: Change the daily lease amount is offered only when one is act
   );
 });
 
+test("F-4.7/GAP-146: Change daily lease driver is offered only when one is actually running, and changes the right one", async () => {
+  const user = userEvent.setup();
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({
+    "/api/vehicle/v1/daily-lease": dailyLeases,
+    "/api/driver": [
+      {
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      },
+      {
+        id: "d2",
+        name: "Nimal Fernando",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      },
+    ],
+  });
+  const post = vi.fn().mockResolvedValue({
+    id: "dl2",
+    vehicleId: "v1",
+    driverId: "d2",
+    patternType: "every_day",
+    patternWeekdays: null,
+    effectiveFrom: businessToday(),
+    effectiveTo: null,
+    dailyLeaseAmountMinor: "450000",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Change daily lease driver" }));
+  await user.click(await screen.findByRole("button", { name: "Choose driver" }));
+  await user.click(await screen.findByRole("button", { name: "Nimal Fernando" }));
+  await user.click(screen.getByRole("button", { name: "Change driver" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/daily-lease/dl1/change-driver",
+      expect.objectContaining({ driverId: "d2" }),
+    ),
+  );
+});
+
+test("F-1.7/GAP-146: Skip daily lease day is offered only when one is actually running, and skips the right lease", async () => {
+  const user = userEvent.setup();
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({ "/api/vehicle/v1/daily-lease": dailyLeases });
+  const post = vi.fn().mockResolvedValue({
+    id: "11111111-1111-1111-1111-111111111111",
+    dailyLeaseId: "dl1",
+    exceptionDate: businessToday(),
+    reason: null,
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  await user.click(await screen.findByRole("button", { name: "Skip daily lease day" }));
+  await user.click(screen.getByRole("button", { name: "Skip daily lease day" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/daily-lease/dl1/exception",
+      expect.objectContaining({ exceptionDate: businessToday() }),
+    ),
+  );
+});
+
+test("GAP-147: a skipped daily lease day can be undone from the vehicle overview", async () => {
+  const user = userEvent.setup();
+  const dailyLeases: VehicleDailyLeaseHistoryRow[] = [
+    {
+      id: "dl1",
+      effectiveFrom: "2026-06-01",
+      effectiveTo: null,
+      dailyLeaseAmountMinor: "450000",
+      driverId: "d1",
+      driverName: "Sunil Perera",
+    },
+  ];
+  const get = baseGet({
+    "/api/vehicle/v1/daily-lease": dailyLeases,
+    "/api/daily-lease/dl1/exception": [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        dailyLeaseId: "dl1",
+        exceptionDate: "2026-08-21",
+        reason: "Driver wedding",
+      },
+    ],
+  });
+  const post = vi.fn().mockResolvedValue({
+    id: "11111111-1111-4111-8111-111111111111",
+    voidedAt: "2026-08-20T00:00:00.000Z",
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  expect(await screen.findByText("Skipped daily-lease days · 1")).toBeInTheDocument();
+  expect(screen.getByText("21 Aug 2026")).toBeInTheDocument();
+  expect(screen.getByText("Driver wedding")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Undo skip" }));
+  await user.type(screen.getByLabelText("Reason"), "Driver came back");
+  const undoButtons = screen.getAllByRole("button", { name: "Undo skip" });
+  const sheetUndoButton = undoButtons[undoButtons.length - 1];
+  if (sheetUndoButton === undefined) throw new Error("Undo skip button not found");
+  await user.click(sheetUndoButton);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/daily-lease/dl1/exception/11111111-1111-4111-8111-111111111111/void",
+      { reason: "Driver came back" },
+    ),
+  );
+});
+
 test("F-4.8/GAP-25: no End daily lease action when nothing is currently running", async () => {
   const user = userEvent.setup();
   const get = baseGet();
@@ -715,6 +978,8 @@ test("F-4.8/GAP-25: no End daily lease action when nothing is currently running"
 
   await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
   expect(screen.queryByRole("button", { name: "End daily lease" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Change daily lease driver" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Skip daily lease day" })).toBeNull();
 });
 
 test("Incidents lists every one with its own status, and each row is tappable (Web-P8a)", async () => {

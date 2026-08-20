@@ -1,6 +1,7 @@
 import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
+  listWriteOffRecoveriesHandler,
   listWriteOffsHandler,
   recordWriteOffHandler,
   recordWriteOffRecoveryHandler,
@@ -8,6 +9,7 @@ import {
   voidWriteOffRecoveryHandler,
 } from "../handlers/write-off.js";
 import {
+  listWriteOffRecoveriesRoute,
   listWriteOffsRoute,
   recordWriteOffRecoveryRoute,
   recordWriteOffRoute,
@@ -21,5 +23,6 @@ export const writeOff = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(listWriteOffsRoute, listWriteOffsHandler)
   .openapi(recordWriteOffRoute, recordWriteOffHandler)
   .openapi(recordWriteOffRecoveryRoute, recordWriteOffRecoveryHandler)
+  .openapi(listWriteOffRecoveriesRoute, listWriteOffRecoveriesHandler)
   .openapi(voidWriteOffRecoveryRoute, voidWriteOffRecoveryHandler)
   .openapi(voidWriteOffRoute, voidWriteOffHandler);

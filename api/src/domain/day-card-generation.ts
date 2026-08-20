@@ -17,7 +17,8 @@ import {
 } from "../queries/scheduled.js";
 import type { NewAllocationDay } from "../queries/trip.js";
 
-const HORIZON_DAYS = 90;
+/** Exported for `restoreDailyLeaseOccupancy` (trip.ts), which must pass its own explicit `from` and therefore also `horizonDays` — JS has no way to skip a positional parameter. */
+export const HORIZON_DAYS = 90;
 
 /**
  * §4.2/F-1.7: whether `date` is one this daily lease's own pattern operates
@@ -66,15 +67,38 @@ export interface GenerateDayCardsResult {
 export interface MaterializeDailyLeaseHorizonResult {
   allocationsCreated: number;
   dayRecordsCreated: number;
+  /**
+   * GAP-146/REV-2026-08-19-02: pattern dates in range that got their
+   * allocation row (occupancy has no `posted_period_id` and is never
+   * period-gated) but no paired `day_record`, because the date falls
+   * *before* `openPeriod.periodStart` — an already-closed period.
+   * `assert_period_open()` only checks whether the row's *named* period is
+   * closed, never whether the row's own `business_date` actually falls
+   * inside it, so stamping one of these with the open period's id would
+   * silently move a closed month's driver day fee into the currently open
+   * one. Left unposted instead, and reported here rather than dropped —
+   * unlike a date beyond `periodEnd` (simply "not yet", picked up by the
+   * next cron run once its period opens), a date before `periodStart` is
+   * never revisited by anything, since every horizon fill only ever runs
+   * forward from `today`.
+   */
+  unrestorableDayRecordDates: BusinessDate[];
 }
 
 /**
  * D-9/GAP-88: the write shared by `generate-day-cards`'s own daily-lease pass
  * (below) and `startDailyLease`/`changeDailyLeaseDriver`'s synchronous call —
- * every pattern day from `today` to the lesser of `effectiveTo` and the
- * rolling horizon, an allocation always, a `day_record` only for the portion
- * inside the currently open period. One bulk insert per table, not a
- * per-day query (Worker CPU is bounded per invocation).
+ * every pattern day from `from` (defaults to `today`) to the lesser of
+ * `effectiveTo` and the rolling horizon, an allocation always, a
+ * `day_record` only for the portion inside the currently open period. One
+ * bulk insert per table, not a per-day query (Worker CPU is bounded per
+ * invocation).
+ *
+ * `from` is a separate parameter from `today` (GAP-146): `today` still
+ * anchors the horizon's *far* end (`addDays(today, horizonDays - 1)`), but
+ * `restoreDailyLeaseOccupancy` needs to reach *earlier* than today to
+ * backfill whatever a hold or a cancelled trip freed, without moving where
+ * the horizon itself ends.
  */
 export async function materializeDailyLeaseHorizon(
   writer: Writer | Tx,
@@ -90,31 +114,30 @@ export async function materializeDailyLeaseHorizon(
     | "effectiveTo"
   >,
   rates: DailyLeaseRateRow[],
-  openPeriod: { id: string; periodEnd: string } | null,
+  openPeriod: { id: string; periodStart: string; periodEnd: string } | null,
   today: BusinessDate,
   horizonDays: number = HORIZON_DAYS,
+  from: BusinessDate = today,
 ): Promise<MaterializeDailyLeaseHorizonResult> {
   const horizonEnd = addDays(today, horizonDays - 1);
   const rangeEnd =
     dailyLease.effectiveTo !== null && dailyLease.effectiveTo < horizonEnd
       ? (dailyLease.effectiveTo as BusinessDate)
       : horizonEnd;
-  if (rangeEnd < today) return { allocationsCreated: 0, dayRecordsCreated: 0 };
+  if (rangeEnd < from) {
+    return { allocationsCreated: 0, dayRecordsCreated: 0, unrestorableDayRecordDates: [] };
+  }
 
-  const existing = await listAllocatedDatesForVehicle(
-    writer,
-    dailyLease.vehicleId,
-    today,
-    rangeEnd,
-  );
+  const existing = await listAllocatedDatesForVehicle(writer, dailyLease.vehicleId, from, rangeEnd);
   // GAP-20: fetched once for the whole range (IG §2: bulk, not per-day) —
   // an excepted date behaves exactly like an off-pattern one, no row ever.
-  const excepted = await listLiveExceptionDatesForLease(writer, dailyLease.id, today, rangeEnd);
+  const excepted = await listLiveExceptionDatesForLease(writer, dailyLease.id, from, rangeEnd);
 
   const allocations: NewAllocationDay[] = [];
   const dayRecords: NewDayRecordForCron[] = [];
+  const unrestorableDayRecordDates: BusinessDate[] = [];
 
-  for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
+  for (let d = from; d <= rangeEnd; d = addDays(d, 1)) {
     if (existing.has(d) || excepted.has(d) || !isPatternDay(d, dailyLease)) continue;
 
     allocations.push({
@@ -127,7 +150,7 @@ export async function materializeDailyLeaseHorizon(
       sourceId: dailyLease.id,
     });
 
-    if (openPeriod !== null && d <= openPeriod.periodEnd) {
+    if (openPeriod !== null && d >= openPeriod.periodStart && d <= openPeriod.periodEnd) {
       const rateMinor = resolveRateForDate(rates, d);
       if (rateMinor !== undefined) {
         dayRecords.push({
@@ -141,6 +164,8 @@ export async function materializeDailyLeaseHorizon(
           postedPeriodId: openPeriod.id,
         });
       }
+    } else if (openPeriod !== null && d < openPeriod.periodStart) {
+      unrestorableDayRecordDates.push(d);
     }
   }
 
@@ -151,7 +176,11 @@ export async function materializeDailyLeaseHorizon(
     await insertDayRecordsIdempotent(writer, dayRecords);
   }
 
-  return { allocationsCreated: allocations.length, dayRecordsCreated: dayRecords.length };
+  return {
+    allocationsCreated: allocations.length,
+    dayRecordsCreated: dayRecords.length,
+    unrestorableDayRecordDates,
+  };
 }
 
 /**
@@ -182,7 +211,10 @@ export async function generateDayCards(
   let allocationsCreated = 0;
   let dayRecordsCreated = 0;
   const errors: GenerateDayCardsResult["errors"] = [];
-  const openPeriodCache = new Map<string, { id: string; periodEnd: string } | null>();
+  const openPeriodCache = new Map<
+    string,
+    { id: string; periodStart: string; periodEnd: string } | null
+  >();
 
   async function openPeriodFor(businessId: string) {
     let cached = openPeriodCache.get(businessId);

@@ -6,6 +6,7 @@ import type {
   VehicleMonthResponse,
 } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
@@ -146,6 +147,30 @@ test("first period: no predecessor, so the delta line is omitted entirely — an
   expect(await screen.findByText("Overheads (no vehicle)")).toBeInTheDocument();
   expect(screen.getByText("Rs 2,000")).toBeInTheDocument();
   expect(await screen.findByText("What I'm owed")).toBeInTheDocument();
+});
+
+test("GAP-153/F-5: can render a Back affordance when opened from Operate's More hub", async () => {
+  const user = userEvent.setup();
+  const onBack = vi.fn();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period") return Promise.resolve(periods);
+    if (path.startsWith("/api/reports/vehicle-month")) return Promise.resolve(currentReport);
+    if (path.startsWith("/api/reports/overheads")) return Promise.resolve(overheads);
+    if (path === "/api/home/paperwork-warnings") return Promise.resolve([]);
+    if (path === "/api/partner/u1") return Promise.resolve(partner);
+    return Promise.resolve([]);
+  });
+
+  renderWithProviders(
+    <ReviewThisMonthScreen onBack={onBack} onSelectVehicle={() => {}} onSelectMyMoney={() => {}} />,
+    { get },
+    undefined,
+    me,
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Back" }));
+
+  expect(onBack).toHaveBeenCalledTimes(1);
 });
 
 test("GAP-101/F2: a failed vehicle-month read blocks the screen with a failure notice, never an eternal spinner", async () => {

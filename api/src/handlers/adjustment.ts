@@ -1,4 +1,5 @@
 import { businessToday, toWire, type Minor } from "@fleetsettle/shared";
+import type { AdjustmentType } from "@fleetsettle/shared/schemas";
 import type { RouteHandler } from "@hono/zod-openapi";
 import {
   requireBusinessId,
@@ -7,8 +8,15 @@ import {
   requireUserId,
 } from "../auth/context.js";
 import { applyAdjustment, voidAdjustment } from "../domain/adjustment.js";
+import { NotFoundError } from "../errors/app-error.js";
+import { listAdjustmentsForObligation, type AdjustmentRow } from "../queries/adjustment.js";
 import { findBusinessSettings } from "../queries/business.js";
-import type { createAdjustmentRoute, voidAdjustmentRoute } from "../route-defs/adjustment.js";
+import { findObligationForBusiness } from "../queries/obligation.js";
+import type {
+  createAdjustmentRoute,
+  listAdjustmentsRoute,
+  voidAdjustmentRoute,
+} from "../route-defs/adjustment.js";
 import type { Env } from "../types.js";
 
 const WAIVER_TYPES = new Set(["waiver", "auto_waiver"]);
@@ -64,6 +72,34 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
     },
     201,
   );
+};
+
+function toListRow(row: AdjustmentRow) {
+  return {
+    id: row.id,
+    obligationId: row.obligationId,
+    adjustmentType: row.adjustmentType as AdjustmentType,
+    amountMinor: toWire(row.amountMinor as Minor),
+    sign: row.sign,
+    reason: row.reason,
+    occurredOn: row.occurredOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
+  };
+}
+
+/** GAP-147: `dailyOperations` — the same gate `voidAdjustmentHandler` uses for every adjustment type, so a manager can find one to void. */
+export const listAdjustmentsHandler: RouteHandler<typeof listAdjustmentsRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const { obligationId } = c.req.valid("query");
+
+  const obligationRow = await findObligationForBusiness(c.get("reader"), businessId, obligationId);
+  if (!obligationRow) throw new NotFoundError("No such obligation in this business");
+
+  const rows = await listAdjustmentsForObligation(c.get("reader"), businessId, obligationId);
+  return c.json(rows.map(toListRow), 200);
 };
 
 /** GAP-12/W-61/INV-36 §3.1. `dailyOperations` — the same gate `voidExpense` uses. */

@@ -37,7 +37,11 @@ export const decideRequestRoute = createRoute({
     body: { content: { "application/json": { schema: decideRequestInputSchema } } },
   },
   responses: {
-    200: { description: "Approved — the business now exists — or rejected" },
+    // GAP-143 (19 Aug 2026 live QA pass, F-6): 204, not 200 — this response
+    // has no body, and `web/src/lib/api.ts`'s `request<T>()` only skips
+    // `res.json()` for exactly 204. A 200 with an empty body made every
+    // successful call here throw "Unexpected end of JSON input" client-side.
+    204: { description: "Approved — the business now exists — or rejected" },
     404: { description: "Not a platform admin, or no such request" },
     409: { description: "This request has already been decided" },
   },
@@ -75,7 +79,8 @@ export const setAllowanceRoute = createRoute({
     body: { content: { "application/json": { schema: setBusinessAllowanceInputSchema } } },
   },
   responses: {
-    200: { description: "Allowance updated" },
+    // GAP-143: see decideRequestRoute's own comment above.
+    204: { description: "Allowance updated" },
     404: { description: "Not a platform admin, or no such user" },
   },
 });
@@ -99,7 +104,8 @@ export const grantAdminRoute = createRoute({
     body: { content: { "application/json": { schema: adminGrantSchema } } },
   },
   responses: {
-    200: { description: "Granted (or re-granted)" },
+    // GAP-143: see decideRequestRoute's own comment above.
+    204: { description: "Granted (or re-granted)" },
     404: { description: "Not a platform admin, or no such user" },
   },
 });
@@ -111,7 +117,8 @@ export const revokeAdminRoute = createRoute({
     params: z.object({ id: z.string().uuid() }),
   },
   responses: {
-    200: { description: "Revoked" },
+    // GAP-143: see decideRequestRoute's own comment above.
+    204: { description: "Revoked" },
     404: { description: "Not a platform admin" },
     409: { description: "The platform must always have at least one active admin (INV-40)" },
   },

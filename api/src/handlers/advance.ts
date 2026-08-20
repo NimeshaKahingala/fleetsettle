@@ -9,9 +9,15 @@ import {
 } from "../domain/advance.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findDriverForBusiness } from "../queries/driver.js";
-import type { AdvanceRow } from "../queries/driver-money.js";
+import {
+  findAdvanceForBusiness,
+  listAdvanceSettlementsForAdvance,
+  type AdvanceRow,
+  type AdvanceSettlementRow,
+} from "../queries/driver-money.js";
 import type {
   issueAdvanceRoute,
+  listAdvanceSettlementsRoute,
   settleAdvanceRoute,
   voidAdvanceRoute,
   voidAdvanceSettlementRoute,
@@ -94,6 +100,35 @@ export const settleAdvanceHandler: RouteHandler<typeof settleAdvanceRoute, Env> 
     },
     200,
   );
+};
+
+function toSettlementListRow(row: AdvanceSettlementRow) {
+  return {
+    id: row.id,
+    advanceId: row.advanceId,
+    kind: row.kind,
+    amountMinor: toWire(row.amountMinor as Minor),
+    occurredOn: row.occurredOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
+  };
+}
+
+/** GAP-147: `dailyOperations` — the same gate settling one uses, so a manager can find one to void. */
+export const listAdvanceSettlementsHandler: RouteHandler<
+  typeof listAdvanceSettlementsRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const advanceRow = await findAdvanceForBusiness(c.get("reader"), businessId, id);
+  if (!advanceRow) throw new NotFoundError("No such advance in this business");
+
+  const rows = await listAdvanceSettlementsForAdvance(c.get("reader"), businessId, id);
+  return c.json(rows.map(toSettlementListRow), 200);
 };
 
 /** GAP-12/W-61/INV-36 §3.5. `dailyOperations` — the same gate settling one uses. */

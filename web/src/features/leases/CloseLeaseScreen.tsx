@@ -54,8 +54,14 @@ const ODOMETER_SOURCE_LABEL: Record<OdometerSource, string> = {
   at_return: "At return",
 };
 
+// GAP-140 (19 Aug 2026 live QA pass, F-3b): `trip_fare` was missing — INV-18
+// pulls every `owed_to_us` obligation kind against the customer, not only
+// this lease's own, so any kind belongs here. `management_fee` is
+// deliberately absent: it is always `owed_by_us`/`partyType: "partner"`
+// (management-fee.ts), so it can never reach a customer's outstanding list.
 const DUE_KIND_LABEL: Record<string, string> = {
   rent: "Rent",
+  trip_fare: "Trip fare",
   mileage_excess: "Mileage excess",
   post_closure_charge: "Late charge",
 };
@@ -363,7 +369,18 @@ export function CloseLeaseScreen({ leaseId, today, onBack, onClosed }: CloseLeas
                             {formatShortDate(row.dueOn)}
                           </p>
                         </div>
-                        <Money value={parse(row.amountMinor)} />
+                        {/* GAP-140 (19 Aug 2026 live QA pass, F-3): this must net
+                            settled/waived like `totalUnpaidMinor` above already
+                            does — the raw `amountMinor` overstates any
+                            partially-paid due on the one screen that gates a
+                            deposit release (INV-18). */}
+                        <Money
+                          value={
+                            (parse(row.amountMinor) -
+                              parse(row.settledMinor) -
+                              parse(row.waivedMinor)) as Minor
+                          }
+                        />
                       </Card>
                     ))}
                   />

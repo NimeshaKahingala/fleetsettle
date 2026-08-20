@@ -3,6 +3,7 @@ import type {
   CustomerResponse,
   DriverResponse,
   ExpenseListRow,
+  PostClosureChargeResponse,
   TripResponse,
 } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
@@ -253,6 +254,37 @@ test("GAP-57 — tapping the outstanding Received row opens the collect-payment 
   expect(await screen.findByText("Collect payment")).toBeInTheDocument();
 });
 
+test("GAP-144: collecting payment here invalidates Home's own receivables read too, not just ['trip', tripId]", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "p1",
+    amountMinor: "6000000",
+    occurredOn: today,
+    allocations: [],
+    unallocatedMinor: "0",
+  });
+  const { queryClient } = renderWithProviders(
+    <TripDetailScreen tripId="t1" today={today} onBack={() => {}} />,
+    { get: baseGet(), post },
+  );
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(await screen.findByRole("button", { name: /Due.*Rs 60,000/ }));
+  // `CollectPaymentSheet`'s AmountPad renders inline here (no separate
+  // "Enter amount" trigger, unlike `AdvanceSheet`'s own pattern this file's
+  // `enterMoney` helper matches) — same sequence as
+  // CustomerDetailScreen.test.tsx's own proven collect-payment flow.
+  await screen.findByRole("textbox", { name: "Amount received" });
+  for (const digit of "6000000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
 test("GAP-57 — a fully paid receivable is shown but is no longer tappable", async () => {
   const paidTrip: TripResponse = {
     ...bookedTrip,
@@ -295,6 +327,47 @@ test("a closed trip shows its closing date instead of the close/cancel actions",
   expect(await screen.findByText(/Closed 12 Jul 2026/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Close trip" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Cancel trip" })).not.toBeInTheDocument();
+});
+
+test("GAP-148: a closed trip can record a trip-scoped post-closure charge", async () => {
+  const user = userEvent.setup();
+  const closedTrip: TripResponse = {
+    ...bookedTrip,
+    status: "closed",
+    closingDate: "2026-07-12",
+  };
+  const post = vi.fn().mockResolvedValue({
+    obligationId: "o-trip-late",
+    partyType: "customer",
+    amountMinor: "50000",
+    dueOn: today,
+    status: "pending",
+    replacesId: null,
+    deductedFromFeeOffsetId: null,
+  } satisfies PostClosureChargeResponse);
+  const get = baseGet({ "/api/trip/t1": closedTrip });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Record late charge" }));
+  await enterMoney(user, "Enter amount", "50000");
+  await user.type(screen.getByLabelText("Note"), "Toll arrived after return");
+  await user.click(screen.getByRole("button", { name: "Record charge" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/post-closure-charge", {
+      partyType: "customer",
+      partyCustomerId: "c1",
+      vehicleId: "v1",
+      sourceType: "trip",
+      sourceId: "t1",
+      amountMinor: "50000",
+      dueOn: today,
+      note: "Toll arrived after return",
+    }),
+  );
 });
 
 test("a cancelled trip shows its reason and the advance's disposition", async () => {

@@ -2,12 +2,14 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
   issueAdvanceHandler,
+  listAdvanceSettlementsHandler,
   settleAdvanceHandler,
   voidAdvanceHandler,
   voidAdvanceSettlementHandler,
 } from "../handlers/advance.js";
 import {
   issueAdvanceRoute,
+  listAdvanceSettlementsRoute,
   settleAdvanceRoute,
   voidAdvanceRoute,
   voidAdvanceSettlementRoute,
@@ -18,5 +20,6 @@ import type { Env } from "../types.js";
 export const advance = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(issueAdvanceRoute, issueAdvanceHandler)
   .openapi(settleAdvanceRoute, settleAdvanceHandler)
+  .openapi(listAdvanceSettlementsRoute, listAdvanceSettlementsHandler)
   .openapi(voidAdvanceSettlementRoute, voidAdvanceSettlementHandler)
   .openapi(voidAdvanceRoute, voidAdvanceHandler);

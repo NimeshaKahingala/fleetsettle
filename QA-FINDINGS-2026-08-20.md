@@ -1,0 +1,127 @@
+# QA findings — 20 August 2026
+
+This is the local `develop` follow-up pass for the 20 Aug source review. At the start of this pass, `develop` did not contain a `QA-FINDINGS-2026-08-20.md`; the source-only report was read from the `docs/qa-findings-2026-08-20` branch and cross-checked against:
+
+- `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md`
+- `PLATFORM-ADMIN-AND-MULTI-BUSINESS-IMPLEMENTATION-PLAN-2026-08-17.md`
+- `QA-FINDINGS-2026-08-11.md`, `QA-FINDINGS-2026-08-14.md`, `QA-FINDINGS-2026-08-16.md`, `QA-FINDINGS-2026-08-19.md`
+- `use-cases.md` and `user-flows.md`
+
+The local browser pass was run against a production web build on `localhost:4173` through Playwright, with API responses mocked at the browser boundary. This matches the existing e2e setup: the Vite stub build can issue requests, while the real Worker auth boundary is not available locally.
+
+## Local test plan
+
+1. Confirm `develop` is current before code-level evaluation.
+2. Read the platform-admin and multi-business design/implementation docs to pin expected user flows:
+   - UC-102/103: request or create additional businesses, then admin approve/reject.
+   - UC-104: switch between DB-derived business memberships using the selected business header, never a request-body business id.
+   - UC-105/F-11: grant/revoke platform admin; admin surface is separate from business-role shells and never exposes business money.
+3. Reconcile those flows with the dated QA findings, especially the 19 Aug live defects and the 20 Aug source-only findings.
+4. Fix low-risk UI/product gaps found in the 20 Aug follow-up where the intended behavior is unambiguous.
+5. Verify with focused unit tests, full web test suite, typecheck, and a local mobile Playwright smoke run at 360x640 plus 320px horizontal-scroll checks.
+
+## Fixed in this pass
+
+### F-1 / GAP-149 — single-membership users had no in-app door to request another business
+
+**Status: fixed locally on `develop`.**
+
+The business name in the app shell now opens the business hub even for a single-membership identity. The hub contains the existing switcher list and a `Create a business` action in normal in-app shells. On a successful immediate business creation response, the new business is selected before cache clear/reload; pending requests render the review message.
+
+Verified by:
+
+- `BusinessSwitcherSheet.test.tsx`
+- `AppShell.test.tsx`
+- `App.test.tsx`
+- `e2e/smoke.spec.ts` at 360x640 and 320px scroll check
+
+### F-2 / GAP-150 — vehicle type was free text
+
+**Status: fixed locally on `develop`.**
+
+Vehicle creation now uses a shared native select with the closed product vocabulary `Bus`, `Car`, `Van`. The create request schema rejects other write values, while the vehicle response schema remains a string so legacy rows can still render.
+
+Verified by:
+
+- `CreateVehicleForm.test.tsx`
+- shared schema typecheck
+- `e2e/smoke.spec.ts` posting `vehicleType: "Car"` from the native picker
+
+### F-3 / GAP-151 — platform admin had no clear way back to the ordinary app
+
+**Status: fixed locally on `develop`.**
+
+The admin shell now has a shell-level `Leave admin panel` strip that navigates to `/`, and `AdminHomeScreen`'s back action also leaves the admin panel rather than bouncing inside the same admin surface.
+
+Verified by:
+
+- `AppShell.test.tsx`
+- `AdminHomeScreen.test.tsx`
+- `App.test.tsx`
+- `e2e/smoke.spec.ts` via More -> Admin panel -> Leave admin panel
+
+### F-7 / GAP-152 — no sign-out affordance on Get Started / revoked-access screens
+
+**Status: fixed locally on `develop`.**
+
+The zero-membership setup states now render a `Sign out` row with the same confirmation-sheet behavior as the normal More screen. This covers both never-had-a-business users and users revoked from their last business, including the zero-membership platform-admin case after leaving the admin panel.
+
+Verified by:
+
+- `FirstRunGate.test.tsx`
+- `e2e/smoke.spec.ts` no-business setup screen visibility and mobile fit check
+
+### F-5 / GAP-153 — Review-shell screens lacked Back when opened from Operate's More hub
+
+**Status: fixed locally on `develop`.**
+
+`Reports`, `This month`, and `My money` can now render a Back affordance when the selected membership is an Operate-shell role (`manager` or `owner_manager`). Owners still see those same routes as top-level Review-shell tabs with no Back button.
+
+Verified by:
+
+- `App.test.tsx`
+- `ReviewThisMonthScreen.test.tsx`
+- `ReviewMoneyScreen.test.tsx`
+- `e2e/smoke.spec.ts` via More -> Reports -> Back
+
+### F-6 / GAP-154 — Operate chrome could host out-of-shell `/me` and `/admin/*` URLs
+
+**Status: fixed locally on `develop`.**
+
+Operate still intentionally hosts `/review*` and `/reports*` when those screens are opened from the More hub, but it now redirects out-of-shell `/me` and `/admin/*` deep links back to the Operate home instead of rendering Mine or platform-admin screens inside Operate chrome. Unknown paths still render the Not found screen so real 404s are not hidden.
+
+Verified by:
+
+- `App.test.tsx`
+- local Playwright smoke coverage for the same route boundary
+
+## Final disposition from the 20 Aug source review
+
+These were evaluated after the platform-admin/multi-business source review. GAP-147 remains broader correction-surface build work; the rest listed here are now closed locally on `develop` unless called out otherwise.
+
+- **GAP-146** — fixed locally on `develop`: vehicle arrangement change, vehicle archive/unarchive, customer archive/unarchive, driver archive/unarchive, daily-lease driver change, skip-day creation, held-driver-deposit top-up/reduce/apply/refund/retain movements, driver-view deposit movement history, and deposit movement void are now reachable and covered by component/API plus mobile Playwright smoke tests. Undoing a skipped day is tracked under GAP-147's void/correction surface, not this create-only slice.
+- **GAP-147** — partially reduced 20 Aug on `develop`: customer and driver write-off voids are now reachable from their detail screens for owner/owner-manager roles, driver advance void and driver offset void are reachable from staff driver detail, skipped daily-lease days can now be undone from the vehicle overview, and unreceived incident customer contributions can now be voided from incident detail while staying visible in history. These are covered by component/API plus mobile Playwright smoke tests. The broader void/correction surface still has no client caller beyond expense, attachment, customer/driver write-off void, driver advance void, driver offset void, skipped-day undo, and incident contribution void.
+- **GAP-148** — fixed locally on `develop`: a concrete lease due can now be written off from `LeaseHubScreen` by an owner/owner-manager, closed leases and closed trips can record source-scoped post-closure charges from their own detail screens, customer and driver detail can record vehicle-linked standalone balance write-offs, and customer and driver detail can record recoveries against listed write-offs. The write-off handler now rejects `vehicleId` values outside the selected business before writing. These are covered by component tests, mobile Playwright smoke tests, and the focused write-off integration test.
+- Backend/client mismatch areas not covered by the safe UI/API fixes above need their own scoped pass before build.
+
+Tracker disposition was corrected in the same local pass: `TRACKER.md` now records GAP-147 as open, GAP-146 and GAP-148 through GAP-154 as closed; `Plan.md` no longer says the release gate is evidence-only. Later same-day slices removed vehicle arrangement change, vehicle archive/unarchive, customer archive/unarchive, driver archive/unarchive, daily-lease driver change, skip-day create, held-driver-deposit top-up/reduce/refund/retain movements, driver-view deposit movement history, deposit movement void, and deposit apply-against-arrears from GAP-146's open list, removed customer/driver write-off void, driver advance void, driver offset void, skipped-day undo, and incident contribution void from GAP-147's open list, and closed GAP-148's lease-due write-off, lease/trip-scoped post-closure charge, customer/driver vehicle-linked standalone write-off, customer/driver write-off recovery, and write-off vehicle scoping surfaces; GAP-147 remains open until its remaining client reachability/correction surfaces are built or explicitly deferred.
+
+## Local verification run
+
+- `npm test -w @fleetsettle/web -- BusinessSwitcherSheet CreateVehicleForm AppShell AdminHomeScreen` — passed.
+- `npm test -w @fleetsettle/web -- App.test.tsx` — passed after correcting stale route-test API fixtures.
+- `npm test -w @fleetsettle/web -- FirstRunGate.test.tsx` — 23 tests passed.
+- `npm test -w @fleetsettle/web` — 139 files / 808 tests passed.
+- `npm run typecheck -w @fleetsettle/web` — passed.
+- `npm run test:e2e -w @fleetsettle/web -- smoke.spec.ts` — mobile smoke passed, including GAP-146/GAP-147/GAP-148 same-day reachability slices and GAP-154's assertion that the non-admin admin deep link does not call `/api/admin/users`.
+- `npm run test:e2e -w @fleetsettle/web -- smoke.spec.ts -g "daily lease day"` — 2 mobile browser tests passed, covering skip-day creation and skipped-day undo on the local production build.
+- `npm run test:e2e -w @fleetsettle/web -- smoke.spec.ts -g "driver offset"` — 1 mobile browser test passed, covering driver offset void from staff driver detail.
+- `npm run test:e2e -w @fleetsettle/web -- smoke.spec.ts -g "incident contribution"` — 1 mobile browser test passed, covering incident contribution void from incident detail.
+- Earlier same-day `npm run test:e2e -w @fleetsettle/web` — 37 mobile browser tests passed on the local production build before the incident-contribution smoke was added; the later full 38-test rerun was not completed because the Codex escalation reviewer reported a usage-limit block, so only the targeted incident-contribution smoke is claimed for that new slice.
+- `npm run test:integration -w @fleetsettle/api -- incident.test.ts` — 21 incident integration tests passed against the Neon test branch, including the incident contribution void/read-history contract.
+- `npm run test:integration -w @fleetsettle/api -- write-off.test.ts` — 13 write-off integration tests passed against the Neon test branch, including the new cross-business `vehicleId` guard.
+- `npm run test:integration -w @fleetsettle/api -- driver-view.test.ts driver.test.ts` — 19 driver-view/driver integration tests passed against the Neon test branch, including the new deposit movement history and outstanding arrears rows in both linked-driver and staff driver views.
+- `npm run typecheck`, `npm run test`, `npm run build`, `npm run guard`, `npm run lint:css`, `npx prettier --check ...`, and `git diff --check` — passed.
+- `npx eslint . --ignore-pattern '.gitnexus/**'` — 0 errors, 63 existing warnings (Fast Refresh plus one unused eslint-disable in `UtilisationReportScreen.tsx`).
+
+Known test-harness note: the build still prints Vite's large-chunk warning, and Node prints the existing `NO_COLOR`/`FORCE_COLOR` warning during Playwright runs. These are not product failures.

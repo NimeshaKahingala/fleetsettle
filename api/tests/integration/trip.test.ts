@@ -279,6 +279,203 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-146/REV-2026-08-19-02 — a hold whose own dates have already elapsed restores the daily lease's occupancy and driver day fees for that elapsed portion when it's released, not just from today forward", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    // Open well before the hold's own dates, so this test isolates the
+    // "restore reaches backward at all" question from the separate
+    // closed-period clamp the sibling test below checks.
+    await ctx.createOpenPeriod(businessId, {
+      periodStart: addDays(today, -20),
+      periodEnd: addDays(today, 30),
+    });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: addDays(today, -15),
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    // The ordinary shape a hold exists for (F-5.1's same-week enquiry) —
+    // placed for dates that have since elapsed. The daily lease's own
+    // creation-time materialisation only ever fills forward from *its own*
+    // "today" (lease creation, above), so it never touches a date before
+    // that regardless of how far back `effectiveFrom` reaches — there is
+    // nothing live here yet for the hold to replace, only an open pattern
+    // slot with no row at all. That is the exact gap GAP-146 is about: a
+    // pattern day with no allocation and no day_record, silently.
+    const holdStart = addDays(today, -5);
+    const holdEnd = addDays(today, -3);
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      startDate: holdStart,
+      endDate: holdEnd,
+      asHold: true,
+    });
+    expect(holdRes.status).toBe(201);
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    // Backdate the expiry — the only way to reach "already expired" in a
+    // test, matching this file's own precedent (the GAP-7 describe block
+    // below).
+    await db
+      .update(tripTable)
+      .set({ holdExpiresOn: "2020-01-01" })
+      .where(eq(tripTable.id, holdBody.id));
+
+    // GAP-7: release is synchronous, triggered by any real booking on this
+    // vehicle — its own date range is irrelevant to which holds it releases.
+    const triggerRes = await postTrip(token, {
+      vehicleId,
+      startDate: addDays(today, 10),
+      endDate: addDays(today, 10),
+    });
+    expect(triggerRes.status).toBe(201);
+    const triggerBody: { id: string } = await triggerRes.json();
+    ctx.trackCreatedTrip(triggerBody.id);
+
+    // Pre-GAP-146, this returns nothing at all — the restore only ever
+    // filled forward from today, so the hold's own already-elapsed dates
+    // were freed but never re-covered by anything, permanently. Post-fix,
+    // the daily lease reclaims them.
+    const restoredAllocations = await db
+      .select({
+        businessDate: vehicleDayAllocation.businessDate,
+        sourceId: vehicleDayAllocation.sourceId,
+      })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          gte(vehicleDayAllocation.businessDate, holdStart),
+          lte(vehicleDayAllocation.businessDate, holdEnd),
+          isNull(vehicleDayAllocation.voidedAt),
+        ),
+      );
+    expect(restoredAllocations).toHaveLength(3);
+    expect(restoredAllocations.every((r) => r.sourceId === leaseBody.id)).toBe(true);
+
+    // The money half: a day_record for each of those dates, since they
+    // fall inside the currently open period — the driver day fee this
+    // whole gap used to erase permanently, with no report ever flagging it.
+    const restoredDayRecords = await db
+      .select({
+        businessDate: dayRecord.businessDate,
+        expectedMinor: dayRecord.expectedMinor,
+        state: dayRecord.state,
+      })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, holdStart),
+          lte(dayRecord.businessDate, holdEnd),
+          isNull(dayRecord.voidedAt),
+        ),
+      );
+    expect(restoredDayRecords).toHaveLength(3);
+    expect(restoredDayRecords.every((r) => r.expectedMinor === 500000n)).toBe(true);
+    expect(restoredDayRecords.every((r) => r.state === "open")).toBe(true);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-146/REV-2026-08-19-02 — a freed date before the currently open period's own start gets its occupancy restored but never a day_record, and is reported rather than silently dropped", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    // Open period starts exactly today — the hold below frees dates before
+    // that, simulating a hold outstanding across a period boundary.
+    await ctx.createOpenPeriod(businessId, { periodStart: today, periodEnd: addDays(today, 30) });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: addDays(today, -15),
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const holdStart = addDays(today, -5);
+    const holdEnd = addDays(today, -3);
+    const holdRes = await postTrip(token, {
+      vehicleId,
+      startDate: holdStart,
+      endDate: holdEnd,
+      asHold: true,
+    });
+    expect(holdRes.status).toBe(201);
+    const holdBody: { id: string } = await holdRes.json();
+    ctx.trackCreatedTrip(holdBody.id);
+
+    await db
+      .update(tripTable)
+      .set({ holdExpiresOn: "2020-01-01" })
+      .where(eq(tripTable.id, holdBody.id));
+
+    const triggerRes = await postTrip(token, {
+      vehicleId,
+      startDate: addDays(today, 10),
+      endDate: addDays(today, 10),
+    });
+    expect(triggerRes.status).toBe(201);
+    const triggerBody: { id: string } = await triggerRes.json();
+    ctx.trackCreatedTrip(triggerBody.id);
+
+    // The calendar fact has no period and needs no such guard — occupancy
+    // is restored for the full freed range regardless.
+    const restoredAllocations = await db
+      .select({ businessDate: vehicleDayAllocation.businessDate })
+      .from(vehicleDayAllocation)
+      .where(
+        and(
+          eq(vehicleDayAllocation.vehicleId, vehicleId),
+          gte(vehicleDayAllocation.businessDate, holdStart),
+          lte(vehicleDayAllocation.businessDate, holdEnd),
+          isNull(vehicleDayAllocation.voidedAt),
+        ),
+      );
+    expect(restoredAllocations).toHaveLength(3);
+
+    // The money fact is withheld instead of silently posted into the
+    // wrong period — assert_period_open() only checks the *named* period,
+    // never that business_date actually falls inside it, so writing one of
+    // these would move a closed month's driver day fee into the open one.
+    const restoredDayRecords = await db
+      .select({ businessDate: dayRecord.businessDate })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, holdStart),
+          lte(dayRecord.businessDate, holdEnd),
+        ),
+      );
+    expect(restoredDayRecords).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
   it("defaults agreedAmountMinor and driverFeeMinor to zero when omitted", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

@@ -117,6 +117,11 @@ export default ts.config(
       "**/worker-configuration.d.ts",
       "**/routeTree.gen.ts",
       "docs/**",
+      // GitNexus's local knowledge-graph cache — excluded via
+      // .git/info/exclude (machine-local, not committed), so it exists on
+      // some checkouts and not others. Its generated run.cjs/JSON aren't
+      // this project's source and shouldn't gate lint where it exists.
+      ".gitnexus/**",
     ],
   },
 

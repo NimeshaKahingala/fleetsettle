@@ -7,15 +7,15 @@ import { Screen } from "../../design/primitives/Screen.js";
  * Design §8.2/UI §3.1: the platform surface's own hub, the "admin panel"
  * every entry point (`MoreScreen`'s row, `FirstRunGate`'s zero-membership
  * door) leads to — not a fourth business-role shell (M-3), so this has no
- * tab bar of its own (`AppShell shell="admin"` carries none) and no
- * `onBack`, the same reasoning `MoreScreen` itself has none: it is the top
- * of its own surface, not a drill-down from one.
+ * tab bar of its own (`AppShell shell="admin"` carries none), so it gets an
+ * explicit back affordance to the business shell. Browser back is not the
+ * navigation model for a surface reached from inside the app (GAP-151).
  */
 export function AdminHomeScreen() {
   const navigate = useNavigate();
 
   return (
-    <Screen title="Admin panel">
+    <Screen title="Admin panel" onBack={() => void navigate({ to: "/" })}>
       <div className="flex flex-col gap-2">
         <button
           type="button"

@@ -29,7 +29,7 @@ function Row({ label, value }: { label: string; value: Minor }) {
  * one-month figure never sit in the same column with nothing to tell them
  * apart, the quiet wrongness this product exists to avoid.
  */
-export function ReviewMoneyScreen() {
+export function ReviewMoneyScreen({ onBack }: { onBack?: () => void }) {
   const api = useApi();
   const me = useMe();
 
@@ -45,7 +45,7 @@ export function ReviewMoneyScreen() {
   // honest failure here, not an eternal spinner.
   if (state.kind === "error") {
     return (
-      <Screen title="My money">
+      <Screen title="My money" {...(onBack !== undefined ? { onBack } : {})}>
         <QueryStateFailure error={state.error} retry={state.retry} of="your money" />
       </Screen>
     );
@@ -53,7 +53,7 @@ export function ReviewMoneyScreen() {
 
   if (state.kind !== "ready") {
     return (
-      <Screen title="My money">
+      <Screen title="My money" {...(onBack !== undefined ? { onBack } : {})}>
         <p className="text-body text-ink-muted">Loading…</p>
       </Screen>
     );
@@ -62,7 +62,7 @@ export function ReviewMoneyScreen() {
   const data = state.data;
 
   return (
-    <Screen title="My money">
+    <Screen title="My money" {...(onBack !== undefined ? { onBack } : {})}>
       <div className="flex flex-col gap-4">
         <StatTile
           label="What I'm owed"

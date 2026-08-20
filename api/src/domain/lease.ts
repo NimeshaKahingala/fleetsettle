@@ -3,7 +3,11 @@ import type { OdometerSource } from "@fleetsettle/shared/schemas";
 import type { Writer } from "../db/client.js";
 import { generateNextBillingPeriodTx, type GeneratedBillingPeriod } from "./billing-period.js";
 import { takeCustomerDepositTx } from "./deposit.js";
-import { restoreDailyLeaseOccupancy } from "./trip.js";
+import {
+  logUnrestorableDailyLeaseDates,
+  restoreDailyLeaseOccupancy,
+  type RestoreDailyLeaseOccupancyResult,
+} from "./trip.js";
 import { insertLease, updateLeaseTerms, type LeaseRow } from "../queries/lease.js";
 import { insertOdometerReading } from "../queries/odometer-reading.js";
 import { releaseExpiredHolds } from "../queries/trip.js";
@@ -47,16 +51,18 @@ export interface StartedLease {
  * idempotent function, not a second implementation.
  */
 export async function startLease(writer: Writer, input: StartLeaseInput): Promise<StartedLease> {
-  return writer.transaction(async (tx) => {
+  let restoreResult: RestoreDailyLeaseOccupancyResult | undefined;
+  const started = await writer.transaction(async (tx) => {
     // GAP-7: released synchronously, ahead of this vehicle's own future
     // occupancy — the same relationship `bookTrip`/`startDailyLease` give
     // their own start, even though arrangement A's own allocation rows are
     // written by the cron rather than here (P13).
     const releasedHolds = await releaseExpiredHolds(tx, input.today, input.vehicleId, input.userId);
-    // GAP-7: undo any calendar hole the just-released hold(s) left in a
-    // still-active daily lease on this vehicle — the same GAP-119 restore
+    // GAP-7/GAP-146: undo any calendar hole the just-released hold(s) left
+    // in a still-active daily lease on this vehicle, backfilling from
+    // wherever each hold actually started — the same GAP-119 restore
     // `cancelTrip`/`bookTrip` already do.
-    await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
+    restoreResult = await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.today);
 
     const leaseId = newId();
     await insertLease(tx, {
@@ -115,7 +121,7 @@ export async function startLease(writer: Writer, input: StartLeaseInput): Promis
         id: leaseId,
         vehicleId: input.vehicleId,
         customerId: input.customerId,
-        status: "active",
+        status: "active" as const,
         startDate: input.startDate,
         endDate: input.endDate ?? null,
         billingDay: input.billingDay,
@@ -128,6 +134,13 @@ export async function startLease(writer: Writer, input: StartLeaseInput): Promis
       depositId,
     };
   });
+  if (restoreResult) {
+    logUnrestorableDailyLeaseDates(restoreResult, {
+      businessId: input.businessId,
+      reason: "hold_expired_on_lease_start",
+    });
+  }
+  return started;
 }
 
 export interface RenewLeaseInput {

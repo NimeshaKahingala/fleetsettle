@@ -6,13 +6,17 @@ import type {
   SessionPendingRequest,
   SessionResponse,
 } from "@fleetsettle/shared/schemas";
-import { Building2, KeyRound, ShieldCheck } from "lucide-react";
+import { Building2, KeyRound, LogOut, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Card } from "../../design/primitives/Card.js";
+import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { useAuthActions } from "../../lib/AuthActionsContext.js";
 import { clearSelectedBusinessId, getSelectedBusinessId } from "../../lib/storage.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { isBlockedOperatePathname } from "../../lib/blockedOperatePathname.js";
 import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
@@ -60,6 +64,44 @@ function AdminEntry({ onOpenAdmin }: { onOpenAdmin: () => void }) {
         <span className="flex-1 text-body text-ink-primary">Open the admin panel</span>
       </Card>
     </button>
+  );
+}
+
+/**
+ * GAP-152/F-7: zero-membership setup states cannot reach `/more`, so they
+ * need their own copy of the existing sign-out affordance. The underlying
+ * action still comes from `AuthActionsContext`, which is where query/cache
+ * clearing and selected-business cleanup live.
+ */
+function SetupSignOut() {
+  const { signOut } = useAuthActions();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button" onClick={() => setConfirmOpen(true)} className="w-full text-left">
+        <Card className="flex items-center gap-3">
+          <LogOut className="size-5 text-ink-secondary" aria-hidden />
+          <span className="text-body text-ink-primary">Sign out</span>
+        </Card>
+      </button>
+
+      <Sheet open={confirmOpen} onOpenChange={setConfirmOpen} title="Sign out?">
+        <div className="flex flex-col gap-4 pb-2">
+          <p className="text-body text-ink-secondary">
+            You will need to sign in again to use FleetSettle on this device.
+          </p>
+          <DialogConfirmFooter
+            confirmLabel="Sign out"
+            onConfirm={() => {
+              setConfirmOpen(false);
+              void signOut();
+            }}
+            onCancel={() => setConfirmOpen(false)}
+          />
+        </div>
+      </Sheet>
+    </>
   );
 }
 
@@ -123,6 +165,8 @@ function GetStartedCards({
           <RedeemInviteForm onRedeemed={onRedeemed} />
         </Card>
       </div>
+
+      <SetupSignOut />
     </div>
   );
 }
@@ -140,6 +184,8 @@ export interface FirstRunGateProps {
   renderMine: () => React.ReactNode;
   /** UI §3.1 (added 18 Aug 2026): the platform admin surface — not a fourth business-role shell, reached by pathname alone once `isPlatformAdmin` is true (see the precedence note below). */
   renderAdmin: () => React.ReactNode;
+  /** GAP-154/F-6: rendered for Operate roles that arrive on a route owned by another shell before any child outlet can mount. */
+  renderBlockedOperatePathname?: () => React.ReactNode;
 }
 
 /**
@@ -209,6 +255,10 @@ function renderShellFor(
   return renderMine();
 }
 
+function isOperateRole(membership: SessionMembership): boolean {
+  return membership.role === "owner_manager" || membership.role === "manager";
+}
+
 function FirstRunGateInner({
   pathname,
   onOpenAdmin,
@@ -216,6 +266,7 @@ function FirstRunGateInner({
   renderReview,
   renderMine,
   renderAdmin,
+  renderBlockedOperatePathname,
   onBusinessSwitched,
 }: FirstRunGateProps & {
   /** Called once the switcher has persisted a selection and cleared the cache — see `FirstRunGate`'s own comment for why this needs to force a remount rather than just re-rendering. */
@@ -257,6 +308,13 @@ function FirstRunGateInner({
     return <>{renderAdmin()}</>;
   }
 
+  const renderMembershipShell = (membership: SessionMembership) => {
+    if (isOperateRole(membership) && isBlockedOperatePathname(pathname)) {
+      return <>{renderBlockedOperatePathname?.() ?? null}</>;
+    }
+    return <>{renderShellFor(membership, renderOperate, renderReview, renderMine)}</>;
+  };
+
   const refreshSession = () => {
     void queryClient.invalidateQueries({ queryKey: ["session"] });
   };
@@ -274,6 +332,7 @@ function FirstRunGateInner({
               You no longer have access to any business. Contact the business owner.
             </p>
           </Card>
+          <SetupSignOut />
         </div>
       );
     }
@@ -311,7 +370,7 @@ function FirstRunGateInner({
     if (getSelectedBusinessId() !== membership.businessId) {
       clearSelectedBusinessId();
     }
-    return <>{renderShellFor(membership, renderOperate, renderReview, renderMine)}</>;
+    return renderMembershipShell(membership);
   }
 
   // businesses.length > 1: a real choice exists. Proceed straight through
@@ -341,11 +400,12 @@ function FirstRunGateInner({
             // does nothing rather than revealing nothing behind it.
           }}
           businesses={businesses}
+          currentBusinessId={getSelectedBusinessId()}
           onSelected={onBusinessSwitched}
         />
       </div>
     );
   }
 
-  return <>{renderShellFor(selected, renderOperate, renderReview, renderMine)}</>;
+  return renderMembershipShell(selected);
 }

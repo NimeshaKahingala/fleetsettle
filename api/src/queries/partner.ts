@@ -102,6 +102,7 @@ export interface CapitalContributionRow {
   contributedOn: string;
   note: string | null;
   voidedAt: string | null;
+  voidedReason: string | null;
   replacesId: string | null;
 }
 
@@ -114,6 +115,7 @@ const CAPITAL_CONTRIBUTION_COLUMNS = {
   contributedOn: capitalContribution.contributedOn,
   note: capitalContribution.note,
   voidedAt: capitalContribution.voidedAt,
+  voidedReason: capitalContribution.voidedReason,
   replacesId: capitalContribution.replacesId,
 };
 
@@ -239,6 +241,7 @@ export interface BankingEventRow {
   discrepancyMinor: bigint;
   discrepancyBearer: "absorbed" | "unattributed" | "attributed_to_receipt" | null;
   voidedAt: string | null;
+  voidedReason: string | null;
   replacesId: string | null;
 }
 
@@ -254,6 +257,7 @@ const BANKING_EVENT_COLUMNS = {
   discrepancyMinor: bankingEvent.discrepancyMinor,
   discrepancyBearer: bankingEvent.discrepancyBearer,
   voidedAt: bankingEvent.voidedAt,
+  voidedReason: bankingEvent.voidedReason,
   replacesId: bankingEvent.replacesId,
 };
 
@@ -310,6 +314,7 @@ export interface PartnerPayoutRow {
   kind: "payout" | "partner_settlement";
   occurredOn: string;
   voidedAt: string | null;
+  voidedReason: string | null;
   replacesId: string | null;
 }
 
@@ -321,6 +326,7 @@ const PARTNER_PAYOUT_COLUMNS = {
   kind: partnerPayout.kind,
   occurredOn: partnerPayout.occurredOn,
   voidedAt: partnerPayout.voidedAt,
+  voidedReason: partnerPayout.voidedReason,
   replacesId: partnerPayout.replacesId,
 };
 
@@ -426,6 +432,7 @@ export async function listCapitalContributions(
       contributedOn: capitalContribution.contributedOn,
       note: capitalContribution.note,
       voidedAt: capitalContribution.voidedAt,
+      voidedReason: capitalContribution.voidedReason,
       replacesId: capitalContribution.replacesId,
     })
     .from(capitalContribution)
@@ -475,14 +482,13 @@ export interface BankingEventListFilters {
 }
 
 /**
- * A2: newest-banked-first. Voided rows are not filtered here, deliberately —
- * W-50's convention is a voided record stays visible, struck through, with
- * its reason, the same treatment `listExpensesForVehicle` already gives a
- * voided expense. **Not yet returning `voidedAt`/`voidedReason` on the wire**
- * — this query and `voidBankingEventRow` (GAP-12/A9b) landed together, but
- * teaching this list's response schema and the client to render the strike-
- * through is its own item, the same shape GAP-81 already is for `voidExpense`
- * (a working backend with no caller yet).
+ * A2/GAP-147: newest-banked-first. Voided rows are not filtered here,
+ * deliberately — W-50's convention is a voided record stays visible, struck
+ * through, with its reason, the same treatment `listExpensesForVehicle`
+ * already gives a voided expense. Now returns `voidedAt`/`voidedReason` on
+ * the wire, matching `capitalContributionListRowSchema`/`writeOffListRowSchema`'s
+ * convention — closed alongside the client caller this list, and its two
+ * partner-money siblings, previously had none of (GAP-147).
  */
 export async function listBankingEvents(
   db: ReadDb,
@@ -501,6 +507,7 @@ export async function listBankingEvents(
       reference: bankingEvent.reference,
       discrepancyBearer: bankingEvent.discrepancyBearer,
       voidedAt: bankingEvent.voidedAt,
+      voidedReason: bankingEvent.voidedReason,
       replacesId: bankingEvent.replacesId,
     })
     .from(bankingEvent)
@@ -543,6 +550,7 @@ export async function listPartnerPayouts(
       kind: partnerPayout.kind,
       occurredOn: partnerPayout.occurredOn,
       voidedAt: partnerPayout.voidedAt,
+      voidedReason: partnerPayout.voidedReason,
       replacesId: partnerPayout.replacesId,
     })
     .from(partnerPayout)
@@ -642,6 +650,39 @@ export async function sumManagementFeeAsOfDate(
       ),
     );
   return rows.reduce((sum, row) => sum + row.monthlyAmountMinor, 0n);
+}
+
+export interface ManagementFeeAgreementHistoryRow {
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  monthlyAmountMinor: bigint;
+}
+
+/**
+ * GAP-145: `sumManagementFeeAsOfDate`'s own filter, minus `asOfDate` — every
+ * agreement this manager has ever held in this business, one query, for
+ * `sumAllTimeEarnedForUser` to evaluate per period in memory rather than
+ * calling `sumManagementFeeAsOfDate` once per accounting period.
+ */
+export async function listManagementFeeAgreementHistoryForManager(
+  db: ReadDb,
+  businessId: string,
+  managerUserId: string,
+): Promise<ManagementFeeAgreementHistoryRow[]> {
+  return db
+    .select({
+      effectiveFrom: managementFeeAgreement.effectiveFrom,
+      effectiveTo: managementFeeAgreement.effectiveTo,
+      monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor,
+    })
+    .from(managementFeeAgreement)
+    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        eq(managementFeeAgreement.managerUserId, managerUserId),
+      ),
+    );
 }
 
 export interface ManagementFeeAgreementForGeneration {

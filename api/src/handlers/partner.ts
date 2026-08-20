@@ -158,6 +158,8 @@ function contributionToResponse(row: CapitalContributionRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     contributedOn: row.contributedOn,
     note: row.note,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
     replacesId: row.replacesId,
   };
 }
@@ -201,6 +203,7 @@ export const recordCapitalContributionHandler: RouteHandler<
       contributedOn: body.contributedOn,
       note: body.note ?? null,
       voidedAt: null,
+      voidedReason: null,
       replacesId: body.replacesId ?? null,
     }),
     201,
@@ -375,6 +378,8 @@ function bankingEventToResponse(row: BankingEventRow) {
     // allows 'attributed_to_receipt'.
     discrepancyBearer:
       row.discrepancyBearer === "attributed_to_receipt" ? null : row.discrepancyBearer,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
     replacesId: row.replacesId,
   };
 }
@@ -419,6 +424,7 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
       discrepancyMinor,
       discrepancyBearer: body.discrepancyBearer ?? null,
       voidedAt: null,
+      voidedReason: null,
       replacesId: body.replacesId ?? null,
     }),
     201,
@@ -466,6 +472,8 @@ function payoutToResponse(row: PartnerPayoutRow) {
     amountMinor: toWire(row.amountMinor as Minor),
     kind: row.kind,
     occurredOn: row.occurredOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
     replacesId: row.replacesId,
   };
 }
@@ -503,6 +511,7 @@ export const recordPartnerPayoutHandler: RouteHandler<
       kind: body.kind,
       occurredOn: body.occurredOn,
       voidedAt: null,
+      voidedReason: null,
       replacesId: body.replacesId ?? null,
     }),
     201,

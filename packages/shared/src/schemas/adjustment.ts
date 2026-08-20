@@ -57,6 +57,18 @@ export const adjustmentResponseSchema = z.object({
 });
 export type AdjustmentResponse = z.infer<typeof adjustmentResponseSchema>;
 
+/** GAP-147: `adjustmentResponseSchema` plus `occurredOn` and the void fields — the read a manager needs to find one to void, the same convention `writeOffListRowSchema` already established. */
+export const adjustmentListRowSchema = adjustmentResponseSchema.extend({
+  occurredOn: z.string(),
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+  replacesId: z.string().uuid().nullable(),
+});
+export type AdjustmentListRow = z.infer<typeof adjustmentListRowSchema>;
+
+export const listAdjustmentsResponseSchema = z.array(adjustmentListRowSchema);
+export type ListAdjustmentsResponse = z.infer<typeof listAdjustmentsResponseSchema>;
+
 /** What applying the adjustment leaves the obligation looking like — the same shape a caller would otherwise have to re-fetch separately. */
 export const obligationAfterAdjustmentSchema = z.object({
   id: z.string().uuid(),

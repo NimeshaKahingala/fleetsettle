@@ -7,9 +7,10 @@
 --
 -- The period-open list in migration 0001 is hand-maintained, which is exactly
 -- the kind of list that drifts silently: a new money table gets posted_period_id,
--- nobody adds it, and it accepts writes into a settled month forever. Three
--- tables were missing at one point. A fourth — `trip` — is missing today and is
--- reported by this query rather than assumed away.
+-- nobody adds it, and it accepts writes into a settled month forever. Four
+-- tables have been missing at one point or another — `trip` was the most
+-- recent, added back to the array 18 August 2026 (DM §13) — and each was
+-- caught by this query rather than assumed away.
 --
 -- The audit list is derived from this same catalogue query in 0002, so it cannot
 -- drift by construction. It is still checked here, because "cannot drift" is a

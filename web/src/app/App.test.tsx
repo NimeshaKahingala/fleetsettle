@@ -9,6 +9,17 @@ import { expect, test, vi } from "vitest";
 import { ApiError } from "../lib/api.js";
 import { renderWithRouter } from "../test/renderWithRouter.js";
 
+const EMPTY_DRIVER_VIEW = {
+  owedToUsMinor: "0",
+  owedByUsMinor: "0",
+  days: [],
+  trips: [],
+  advances: [],
+  offsets: [],
+  deposit: null,
+  owedToUsObligations: [],
+};
+
 /**
  * Phase 2 (18 Aug 2026): `FirstRunGate` reads `/api/session`, not `/api/me`
  * — see `FirstRunGate.tsx`'s own doc comment. `sessionFor` builds the
@@ -47,6 +58,23 @@ const NO_BUSINESS: SessionResponse = {
   pendingRequest: null,
   hadMembership: false,
 };
+
+function mockOperateHomeGet(session: SessionResponse = SESSION_OPERATE) {
+  return vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/session") return Promise.resolve(session);
+    if (
+      path === "/api/home/paperwork-warnings" ||
+      path === "/api/daily-lease" ||
+      path === "/api/day-record" ||
+      path === "/api/reports/receivables" ||
+      path === "/api/home/deposit-releases" ||
+      path === "/api/trip"
+    ) {
+      return Promise.resolve([]);
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+}
 
 test("no business yet shows the create-business form, not the shell", async () => {
   const get = vi.fn();
@@ -258,6 +286,26 @@ test("an unknown path renders the not-found placeholder, not a blank screen", as
   expect(await screen.findByRole("heading", { name: "Not found" })).toBeInTheDocument();
 });
 
+test("GAP-154/F-6: an Operate user deep-linking to admin is returned to Operate home", async () => {
+  const get = mockOperateHomeGet();
+
+  const { router } = renderWithRouter("/admin/users", { get });
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+  expect(await screen.findByRole("navigation", { name: "Operate" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Users" })).not.toBeInTheDocument();
+});
+
+test("GAP-154/F-6: an Operate user deep-linking to Mine is returned to Operate home", async () => {
+  const get = mockOperateHomeGet();
+
+  const { router } = renderWithRouter("/me", { get });
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+  expect(await screen.findByRole("navigation", { name: "Operate" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Mine" })).not.toBeInTheDocument();
+});
+
 /** B4: every Review-shell tab this file exercises reads through these five endpoints — one owner, no vehicles, so each resolves to its own honest-empty shape rather than crashing on a wrong one. */
 function mockReviewEndpoints(get: ReturnType<typeof vi.fn>, ownerUserId: string) {
   get.mockImplementation((path: string) => {
@@ -310,7 +358,13 @@ test("owner lands in the Review shell (redirected from / to its default tab), dr
   unmount();
 
   const getDriver = vi.fn();
-  getDriver.mockResolvedValue(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
+  getDriver.mockImplementation((path: string) => {
+    if (path === "/api/session") {
+      return Promise.resolve(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
+    }
+    if (path.startsWith("/api/driver-view?")) return Promise.resolve(EMPTY_DRIVER_VIEW);
+    throw new Error(`unexpected path ${path}`);
+  });
   const { router: driverRouter } = renderWithRouter("/", { get: getDriver });
   expect(await screen.findByRole("heading", { name: "Mine" })).toBeInTheDocument();
   await waitFor(() => expect(driverRouter.state.location.pathname).toBe("/me"));
@@ -329,12 +383,19 @@ test("Review's tabs navigate between its own routes, and owner_manager never rea
   await user.click(screen.getByRole("button", { name: "Reports" }));
   await waitFor(() => expect(router.state.location.pathname).toBe("/reports"));
   expect(await screen.findByRole("heading", { name: "Reports" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
 });
 
 /** B4-REPORTS-DESIGN.md §10: route-level, since `<Can>` around a card does nothing if the route itself renders for a role holding only `viewOwnData` — a `driver` reaching `/reports` must redirect to `/me`, the same way any non-`/me` path already does for that shell (B0b's `MineLayout`). */
 test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)", async () => {
   const get = vi.fn();
-  get.mockResolvedValue(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") {
+      return Promise.resolve(sessionFor("u3", "b1", "driver", { driverId: "d1" }));
+    }
+    if (path.startsWith("/api/driver-view?")) return Promise.resolve(EMPTY_DRIVER_VIEW);
+    throw new Error(`unexpected path ${path}`);
+  });
 
   const { router } = renderWithRouter("/reports", { get });
 
@@ -345,11 +406,18 @@ test("a driver deep-linking to /reports lands on the Mine shell instead (W-49)",
 
 /** GAP-98/B4-REPORTS-DESIGN.md §5.1: the phase-1 nine, now that UC-77/78/79 moved to phase 1 (11 Aug 2026) and this catalogue caught up — a plain `manager` (`viewOwnerOnlyReports`'s `OWNERS` set is `owner`/`owner_manager` only, per UC-77/79's own "Sees: owner, owner-manager") sees the staff-visible seven but not the two owner-only ones. */
 test("the catalogue renders the nine phase-1 cards, owner-only ones filtered for a plain manager", async () => {
+  const user = userEvent.setup();
   const get = vi.fn();
   get.mockResolvedValue(sessionFor("u1", "b1", "manager"));
 
-  renderWithRouter("/reports", { get });
+  const { router } = renderWithRouter("/reports", { get });
 
+  expect(await screen.findByText("How was this month")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Back" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/more"));
+
+  await user.click(screen.getByRole("button", { name: "Reports" }));
+  await waitFor(() => expect(router.state.location.pathname).toBe("/reports"));
   expect(await screen.findByText("How was this month")).toBeInTheDocument();
   expect(screen.getByText("Which trips made money")).toBeInTheDocument();
   expect(screen.getByText("Is the bus drinking fuel")).toBeInTheDocument();
@@ -500,15 +568,34 @@ test("an admin holding no business membership at all still has a door into the a
   expect(await screen.findByText("No businesses yet.")).toBeInTheDocument();
 });
 
-test("UI §3.1/M-33: a single-membership identity sees the business name in the app bar, unstyled", async () => {
-  localStorage.clear();
+test("a platform admin can deep-link directly to the admin users screen", async () => {
   const get = vi.fn();
-  get.mockResolvedValue(SESSION_OPERATE);
+  get.mockImplementation((path: string) => {
+    if (path === "/api/session") {
+      return Promise.resolve(sessionFor("u1", "b1", "owner_manager", { isPlatformAdmin: true }));
+    }
+    if (path === "/api/admin/users") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  const { router } = renderWithRouter("/admin/users", { get });
+
+  await waitFor(() => expect(router.state.location.pathname).toBe("/admin/users"));
+  expect(await screen.findByRole("heading", { name: "Users" })).toBeInTheDocument();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
+});
+
+test("GAP-149/M-33: a single-membership identity can open the business hub from the app bar", async () => {
+  localStorage.clear();
+  const user = userEvent.setup();
+  const get = mockOperateHomeGet();
 
   renderWithRouter("/", { get });
 
-  const name = await screen.findByText("Test Fleet");
-  expect(name.closest("button")).not.toBeInTheDocument();
+  await user.click(await screen.findByRole("button", { name: "Test Fleet" }));
+
+  expect(await screen.findByRole("heading", { name: "Businesses" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create a business" })).toBeInTheDocument();
 });
 
 test("UI §3.1/M-33: a multi-membership identity can voluntarily reopen the switcher from the app bar", async () => {

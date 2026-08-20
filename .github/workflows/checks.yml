@@ -40,6 +40,9 @@ jobs:
       # First, because it is the fastest and it catches the errors that are
       # invisible at runtime: a server-timezone date, an inexact money column,
       # a business_id taken from a request body.
+      - name: Guard self-test
+        run: node scripts/check-forbidden.mjs --self-test
+
       - name: Guard
         run: npm run guard
 

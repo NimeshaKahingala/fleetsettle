@@ -38,6 +38,20 @@ import { recordDepositMovement, recordDepositMovementTx } from "./deposit.js";
  * this codebase does not have yet (TRACKER.md).
  */
 
+/**
+ * GAP-141 (19 Aug 2026 live QA pass, F-4): `lease.final_period_treatment`'s
+ * own CHECK constraint (DM §16.0) only accepts `full_period`/`days_used`/
+ * `agreed_figure` — verified directly against the live QA schema
+ * (`pg_get_constraintdef`) before writing this, since only `days_used`
+ * happens to match `CloseLeaseInput["finalPeriodMode"]` verbatim; the other
+ * two would have failed the write with a raw constraint violation.
+ */
+const FINAL_PERIOD_TREATMENT: Record<CloseLeaseInput["finalPeriodMode"], string> = {
+  full: "full_period",
+  days_used: "days_used",
+  agreed: "agreed_figure",
+};
+
 export interface CloseLeaseInput {
   businessId: string;
   leaseId: string;
@@ -159,7 +173,13 @@ export async function closeLease(writer: Writer, input: CloseLeaseInput): Promis
       // "full" mode: the obligation stays exactly as originally raised.
     }
 
-    await updateLeaseStatus(tx, input.leaseId, "closing", input.closingDate);
+    await updateLeaseStatus(
+      tx,
+      input.leaseId,
+      "closing",
+      input.closingDate,
+      FINAL_PERIOD_TREATMENT[input.finalPeriodMode],
+    );
 
     return {
       billingPeriodId: period.id,

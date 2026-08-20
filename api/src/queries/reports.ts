@@ -25,6 +25,65 @@ import { sumDepositMovements } from "./driver-money.js";
 
 type ReadDb = Reader | Writer | Tx;
 
+/**
+ * GAP-145: the one accumulate-into-a-pre-seeded-map step every bulk sum
+ * below shares. Every map passed here was built as
+ * `new Map(ids.map((id) => [id, 0n]))` before its own SQL rows are folded
+ * in, so a missing key at this point is a real bug (an id that reached
+ * here without being seeded), not a legitimate absence — W-56 governs a
+ * vehicle with no matching rows, which is exactly what the pre-seeded 0n
+ * already represents, correctly, before this function is ever called.
+ */
+function addToBigIntMap(map: Map<string, bigint>, key: string, amount: bigint): void {
+  // eslint-disable-next-line no-restricted-syntax -- allow: see this function's own doc comment — every map reaching here is pre-seeded with 0n for every legal key
+  map.set(key, (map.get(key) ?? 0n) + amount);
+}
+
+/** GAP-145: `new Map(ids.map((id) => [id, 0n]))`, named — every bulk-sum function below starts from this, so a missing id downstream is always a real bug, never a legitimate absence (`addToBigIntMap`'s own comment). */
+function zeroSeededMap(ids: string[]): Map<string, bigint> {
+  return new Map(ids.map((id) => [id, 0n]));
+}
+
+interface VehicleTotalRow {
+  vehicleId: string | null;
+  total: string;
+}
+
+/**
+ * GAP-145: the one "fold a `GROUP BY vehicle_id` query's rows into a
+ * pre-seeded map" step every single-dimension bulk sum shares —
+ * `sumVehicleEarnedForPeriodBulk`/`CostsForPeriodBulk`/`EarnedForDateRangeBulk`/
+ * `CostsForDateRangeBulk` each run this twice, once per source table. A
+ * `NULL` `vehicleId` only happens on `obligation`'s own overhead rows,
+ * already excluded by every caller's `inArray(vehicleId, vehicleIds)` —
+ * checked here once rather than once per call site.
+ */
+function foldIntoBigIntMap(map: Map<string, bigint>, rows: VehicleTotalRow[]): void {
+  for (const r of rows) {
+    if (r.vehicleId === null) continue;
+    addToBigIntMap(map, r.vehicleId, BigInt(r.total));
+  }
+}
+
+interface VehiclePeriodTotalRow {
+  vehicleId: string | null;
+  periodId: string | null;
+  total: string;
+}
+
+/** `foldIntoBigIntMap`'s own shape, one level deeper — for `sumVehicleEarnedForPeriodsBulk`/`CostsForPeriodsBulk`, whose maps are keyed by period first. A row naming a period this map was never seeded for (should not happen — every caller seeds from the exact `periodIds` its own query filters on) is silently skipped rather than thrown, the same "trust the seed, don't invent a bucket for it" reasoning `addToBigIntMap` already carries. */
+function foldIntoNestedBigIntMap(
+  map: Map<string, Map<string, bigint>>,
+  rows: VehiclePeriodTotalRow[],
+): void {
+  for (const r of rows) {
+    if (r.vehicleId === null || r.periodId === null) continue;
+    const byVehicle = map.get(r.periodId);
+    if (!byVehicle) continue;
+    addToBigIntMap(byVehicle, r.vehicleId, BigInt(r.total));
+  }
+}
+
 /** UC-70/DM §15: "everything recognised in the accounting period" (W-40) — rent, the daily amount, and mileage excess all live on `obligation`; trip income is recognised at closing (W-41), never on `obligation`. */
 export async function sumVehicleEarnedForPeriod(
   db: ReadDb,
@@ -57,6 +116,163 @@ export async function sumVehicleEarnedForPeriod(
     obligationRows.reduce((sum, r) => sum + r.amountMinor, 0n) +
     tripRows.reduce((sum, r) => sum + r.amountMinor, 0n)
   );
+}
+
+/**
+ * GAP-145: `sumVehicleEarnedForPeriod`'s own two queries, grouped across
+ * every vehicle in `vehicleIds` instead of run once per vehicle —
+ * `getVehicleMonthReport`'s own per-vehicle loop was the direct cause of a
+ * live 500 (`GET /api/partner/{userId}`), which recomputes this report once
+ * per accounting period: at 79 subrequests for one six-vehicle business
+ * against a Workers Free ceiling of 50. Two queries total, not `2 ×
+ * vehicles`. Every id in `vehicleIds` gets an entry in the returned map,
+ * `0n` when nothing was found — the caller's own `?? 0n` fallback moves
+ * here so nothing downstream has to know the difference between "zero" and
+ * "absent" (W-56 is still honoured: a vehicle with no rows genuinely earned
+ * nothing in this period, not a missing figure).
+ */
+export async function sumVehicleEarnedForPeriodBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodId: string,
+): Promise<Map<string, bigint>> {
+  const out = zeroSeededMap(vehicleIds);
+  if (vehicleIds.length === 0) return out;
+
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        eq(obligation.postedPeriodId, periodId),
+        eq(obligation.direction, "owed_to_us"),
+        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId);
+  const tripRows = await db
+    .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
+    .from(trip)
+    .where(
+      and(
+        inArray(trip.vehicleId, vehicleIds),
+        eq(trip.postedPeriodId, periodId),
+        eq(trip.status, "closed"),
+      ),
+    )
+    .groupBy(trip.vehicleId);
+
+  foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, tripRows);
+  return out;
+}
+
+/**
+ * GAP-145: `sumVehicleEarnedForPeriodBulk`'s own two queries, additionally
+ * grouped by `postedPeriodId` — every vehicle across every period in
+ * `periodIds` in one round trip each, rather than one call per period.
+ * Built for `sumAllTimeEarnedForUser` (partner.ts), which used to call the
+ * single-period, single-vehicle version once per accounting period —
+ * `O(vehicles × periods)` round trips on the same endpoint GAP-145 already
+ * found fanning out past Workers Free's subrequest ceiling.
+ */
+export async function sumVehicleEarnedForPeriodsBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodIds: string[],
+): Promise<Map<string, Map<string, bigint>>> {
+  const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
+  if (vehicleIds.length === 0 || periodIds.length === 0) return out;
+
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      periodId: obligation.postedPeriodId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        inArray(obligation.postedPeriodId, periodIds),
+        eq(obligation.direction, "owed_to_us"),
+        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId, obligation.postedPeriodId);
+  const tripRows = await db
+    .select({
+      vehicleId: trip.vehicleId,
+      periodId: trip.postedPeriodId,
+      total: sql<string>`SUM(${trip.agreedAmountMinor})`,
+    })
+    .from(trip)
+    .where(
+      and(
+        inArray(trip.vehicleId, vehicleIds),
+        inArray(trip.postedPeriodId, periodIds),
+        eq(trip.status, "closed"),
+      ),
+    )
+    .groupBy(trip.vehicleId, trip.postedPeriodId);
+
+  foldIntoNestedBigIntMap(out, obligationRows);
+  foldIntoNestedBigIntMap(out, tripRows);
+  return out;
+}
+
+/** `sumVehicleCostsForPeriodBulk`'s own two queries, additionally grouped by `postedPeriodId` — see `sumVehicleEarnedForPeriodsBulk`'s comment for why. */
+export async function sumVehicleCostsForPeriodsBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodIds: string[],
+): Promise<Map<string, Map<string, bigint>>> {
+  const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
+  if (vehicleIds.length === 0 || periodIds.length === 0) return out;
+
+  const expenseRows = await db
+    .select({
+      vehicleId: expense.vehicleId,
+      periodId: expense.postedPeriodId,
+      total: sql<string>`SUM(${expense.amountMinor})`,
+    })
+    .from(expense)
+    .where(
+      and(
+        inArray(expense.vehicleId, vehicleIds),
+        inArray(expense.postedPeriodId, periodIds),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    )
+    .groupBy(expense.vehicleId, expense.postedPeriodId);
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      periodId: obligation.postedPeriodId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        inArray(obligation.postedPeriodId, periodIds),
+        eq(obligation.direction, "owed_by_us"),
+        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId, obligation.postedPeriodId);
+
+  foldIntoNestedBigIntMap(out, expenseRows);
+  foldIntoNestedBigIntMap(out, obligationRows);
+  return out;
 }
 
 /**
@@ -107,6 +323,51 @@ export async function sumVehicleEarnedForDateRange(
   );
 }
 
+/** GAP-145: `sumVehicleEarnedForDateRange`'s own two queries, grouped across every vehicle in `vehicleIds` — `getVehicleYearReport`'s own per-vehicle loop, see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists. */
+export async function sumVehicleEarnedForDateRangeBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  from: string,
+  to: string,
+): Promise<Map<string, bigint>> {
+  const out = zeroSeededMap(vehicleIds);
+  if (vehicleIds.length === 0) return out;
+
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        gte(obligation.dueOn, from),
+        lte(obligation.dueOn, to),
+        eq(obligation.direction, "owed_to_us"),
+        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId);
+  const tripRows = await db
+    .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
+    .from(trip)
+    .where(
+      and(
+        inArray(trip.vehicleId, vehicleIds),
+        gte(trip.closingDate, from),
+        lte(trip.closingDate, to),
+        eq(trip.status, "closed"),
+      ),
+    )
+    .groupBy(trip.vehicleId);
+
+  foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, tripRows);
+  return out;
+}
+
 /**
  * GAP-18/UC-73: `sumVehicleCostsForPeriod`'s own logic, keyed by an
  * arbitrary date window the way `sumVehicleEarnedForDateRange` already is
@@ -150,6 +411,52 @@ export async function sumVehicleCostsForDateRange(
   );
 }
 
+/** GAP-145: `sumVehicleCostsForDateRange`'s own two queries, grouped across every vehicle in `vehicleIds` — see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists. */
+export async function sumVehicleCostsForDateRangeBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  from: string,
+  to: string,
+): Promise<Map<string, bigint>> {
+  const out = zeroSeededMap(vehicleIds);
+  if (vehicleIds.length === 0) return out;
+
+  const expenseRows = await db
+    .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
+    .from(expense)
+    .where(
+      and(
+        inArray(expense.vehicleId, vehicleIds),
+        gte(expense.spentOn, from),
+        lte(expense.spentOn, to),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    )
+    .groupBy(expense.vehicleId);
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        gte(obligation.dueOn, from),
+        lte(obligation.dueOn, to),
+        eq(obligation.direction, "owed_by_us"),
+        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId);
+
+  foldIntoBigIntMap(out, expenseRows);
+  foldIntoBigIntMap(out, obligationRows);
+  return out;
+}
+
 /** UC-70/DM §15, reproduced verbatim: a cost query reading only `expense` under-reports every month with a trip by exactly its driver fee (W-53 covers the management fee the same way). Verified against G-1: 37,000 + 9,000 = 46,000. */
 export async function sumVehicleCostsForPeriod(
   db: ReadDb,
@@ -183,6 +490,49 @@ export async function sumVehicleCostsForPeriod(
     expenseRows.reduce((sum, r) => sum + r.amountMinor, 0n) +
     obligationRows.reduce((sum, r) => sum + r.amountMinor, 0n)
   );
+}
+
+/** GAP-145: `sumVehicleCostsForPeriod`'s own two queries, grouped across every vehicle in `vehicleIds` instead of run once per vehicle — see `sumVehicleEarnedForPeriodBulk`'s own comment for why. */
+export async function sumVehicleCostsForPeriodBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodId: string,
+): Promise<Map<string, bigint>> {
+  const out = zeroSeededMap(vehicleIds);
+  if (vehicleIds.length === 0) return out;
+
+  const expenseRows = await db
+    .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
+    .from(expense)
+    .where(
+      and(
+        inArray(expense.vehicleId, vehicleIds),
+        eq(expense.postedPeriodId, periodId),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    )
+    .groupBy(expense.vehicleId);
+  const obligationRows = await db
+    .select({
+      vehicleId: obligation.vehicleId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
+    })
+    .from(obligation)
+    .where(
+      and(
+        inArray(obligation.vehicleId, vehicleIds),
+        eq(obligation.postedPeriodId, periodId),
+        eq(obligation.direction, "owed_by_us"),
+        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+        isNull(obligation.voidedAt),
+      ),
+    )
+    .groupBy(obligation.vehicleId);
+
+  foldIntoBigIntMap(out, expenseRows);
+  foldIntoBigIntMap(out, obligationRows);
+  return out;
 }
 
 /**
@@ -240,23 +590,102 @@ export interface OwnershipShareRow {
   shareBp: number;
 }
 
-/** The shares in force as of `asOfDate` — effective-dated (INV-16), so recomputing an old month never yields a different split. */
-export async function findOwnershipSharesAsOf(
+/**
+ * GAP-145: batched across every vehicle in `vehicleIds` rather than one
+ * query per vehicle — this replaced a per-vehicle `findOwnershipSharesAsOf`
+ * that was `getVehicleMonthReport`'s own share of the subrequest fan-out
+ * behind a live 500 (`GET /api/partner/{userId}`, 79 subrequests for one
+ * six-vehicle business against Workers Free's 50 ceiling). Valid only when
+ * every vehicle in the batch shares the same `asOfDate` — true for both
+ * current callers (`getVehicleMonthReport`'s one period end,
+ * `getVehicleYearReport`'s one window end), never true across periods,
+ * which is why `sumAllTimeEarnedForUser`'s own per-period loop reads its
+ * ownership history separately rather than calling this once per period.
+ *
+ * Explicitly ordered by `id` (UUIDv7, so insertion order): `splitInteger`
+ * (packages/shared) breaks a remainder tie by array position — "the
+ * earlier index wins" — so the order shares arrive in is part of the money
+ * result, not incidental, and an unordered `SELECT` leaves that to
+ * whatever the query planner happens to pick.
+ */
+export async function findOwnershipSharesAsOfBulk(
   db: ReadDb,
-  vehicleId: string,
+  vehicleIds: string[],
   asOfDate: string,
-): Promise<OwnershipShareRow[]> {
+): Promise<Map<string, OwnershipShareRow[]>> {
+  const out = new Map<string, OwnershipShareRow[]>(vehicleIds.map((id) => [id, []]));
+  if (vehicleIds.length === 0) return out;
+
   const rows = await db
-    .select({ userId: ownershipShare.userId, shareBp: ownershipShare.shareBp })
+    .select({
+      id: ownershipShare.id,
+      vehicleId: ownershipShare.vehicleId,
+      userId: ownershipShare.userId,
+      shareBp: ownershipShare.shareBp,
+    })
     .from(ownershipShare)
     .where(
       and(
-        eq(ownershipShare.vehicleId, vehicleId),
+        inArray(ownershipShare.vehicleId, vehicleIds),
         lte(ownershipShare.effectiveFrom, asOfDate),
         sql`(${ownershipShare.effectiveTo} IS NULL OR ${ownershipShare.effectiveTo} >= ${asOfDate})`,
       ),
-    );
-  return rows;
+    )
+    .orderBy(ownershipShare.id);
+  for (const r of rows) {
+    const existing = out.get(r.vehicleId) ?? [];
+    existing.push({ userId: r.userId, shareBp: r.shareBp });
+    out.set(r.vehicleId, existing);
+  }
+  return out;
+}
+
+export interface OwnershipShareHistoryRow extends OwnershipShareRow {
+  effectiveFrom: string;
+  effectiveTo: string | null;
+}
+
+/**
+ * GAP-145: `sumAllTimeEarnedForUser`'s own read — every ownership-share row
+ * that has ever existed for `vehicleIds`, one query, rather than one
+ * `findOwnershipSharesAsOf`-shaped call per accounting period. INV-16's
+ * effective-dating is evaluated in memory per period afterward, since a
+ * vehicle's ownership can change between periods and each period's own
+ * profit must split by whoever owned it as of *that* period's end — the
+ * whole reason GAP-74 replays every period rather than reading one current
+ * split. Same explicit `id` order as `findOwnershipSharesAsOfBulk`, for the
+ * same `splitInteger` tie-break reason.
+ */
+export async function listOwnershipShareHistoryForVehicles(
+  db: ReadDb,
+  vehicleIds: string[],
+): Promise<Map<string, OwnershipShareHistoryRow[]>> {
+  const out = new Map<string, OwnershipShareHistoryRow[]>(vehicleIds.map((id) => [id, []]));
+  if (vehicleIds.length === 0) return out;
+
+  const rows = await db
+    .select({
+      id: ownershipShare.id,
+      vehicleId: ownershipShare.vehicleId,
+      userId: ownershipShare.userId,
+      shareBp: ownershipShare.shareBp,
+      effectiveFrom: ownershipShare.effectiveFrom,
+      effectiveTo: ownershipShare.effectiveTo,
+    })
+    .from(ownershipShare)
+    .where(inArray(ownershipShare.vehicleId, vehicleIds))
+    .orderBy(ownershipShare.id);
+  for (const r of rows) {
+    const existing = out.get(r.vehicleId) ?? [];
+    existing.push({
+      userId: r.userId,
+      shareBp: r.shareBp,
+      effectiveFrom: r.effectiveFrom,
+      effectiveTo: r.effectiveTo,
+    });
+    out.set(r.vehicleId, existing);
+  }
+  return out;
 }
 
 /** UC-71: every closed trip for this business, with what a ranking needs — the cost sum and the two odometer readings, each fetched in one bulk query rather than one per trip. */
@@ -679,7 +1108,13 @@ export async function listLostDays(
 
       ran: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} LIKE 'ran_%')::int`,
 
-      leaseEligible: sql<number>`COUNT(*)::int`,
+      // GAP-147/REV-2026-08-19-03: day_record.state has six values; the
+      // WHERE clause below only excludes 'paused_for_trip', so a still-open
+      // (unconfirmed) day was counted into this denominator too —
+      // ran + lost + open, not ran + lost, which reads better than the
+      // confirmed facts support for as long as the range contains an
+      // unconfirmed day. Filtered to exactly the two counted states above.
+      leaseEligible: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%')::int`,
       lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}) FILTER (WHERE ${dayRecord.state} = 'did_not_run'), 0)`,
 
       weekday: sql<number>`EXTRACT(dow FROM ${dayRecord.businessDate})::int`,
@@ -694,7 +1129,16 @@ export async function listLostDays(
         isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
-    .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`);
+    .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`)
+    // GAP-147: a (driver, weekday) bucket made up entirely of still-open
+    // days now has leaseEligible = 0 — correctly, since nothing here is
+    // confirmed yet, but a bare "0 / 0" is a number, not the "not
+    // available" W-56 asks for. Dropped from the result rather than shown,
+    // the same absence-not-a-manufactured-zero reasoning this file's own
+    // month variant already documents below.
+    .having(
+      sql`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%') > 0`,
+    );
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
 }
 
@@ -719,7 +1163,10 @@ export async function listLostDaysByMonth(
       driverId: dayRecord.driverId,
       lost: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run')::int`,
       ran: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} LIKE 'ran_%')::int`,
-      leaseEligible: sql<number>`COUNT(*)::int`,
+      // GAP-147/REV-2026-08-19-03: see listLostDays's own comment — a
+      // still-open day was counted into this denominator too before this
+      // fix (ran + lost + open, not ran + lost).
+      leaseEligible: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%')::int`,
       lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}) FILTER (WHERE ${dayRecord.state} = 'did_not_run'), 0)`,
       month: sql<string>`to_char(${dayRecord.businessDate}, 'YYYY-MM')`,
     })
@@ -733,7 +1180,12 @@ export async function listLostDaysByMonth(
         isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
-    .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`);
+    .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`)
+    // GAP-147: see listLostDays's own comment — a month bucket made up
+    // entirely of still-open days is dropped rather than shown as "0 / 0".
+    .having(
+      sql`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%') > 0`,
+    );
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
 }
 

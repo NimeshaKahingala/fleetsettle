@@ -24,6 +24,7 @@ import {
 } from "../../lib/obligationStatusLabel.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
+import { PostClosureChargeSheet } from "../leases/PostClosureChargeSheet.js";
 import { AdvanceSheet } from "../people/AdvanceSheet.js";
 import { CancelTripSheet } from "./CancelTripSheet.js";
 import { CloseTripSheet } from "./CloseTripSheet.js";
@@ -90,6 +91,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   const [cancelOpen, setCancelOpen] = useState(false);
   const [collectOpen, setCollectOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [postClosureChargeOpen, setPostClosureChargeOpen] = useState(false);
 
   const tripQuery = useQuery({
     queryKey: ["trip", tripId],
@@ -141,6 +143,8 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   const canClose = trip?.status === "booked" || trip?.status === "in_progress";
   const canCancel = canConfirm || canClose;
   const canRecordAdvance = canClose && trip?.driverId !== null && trip?.driverId !== undefined;
+  const canRecordPostClosureCharge =
+    trip?.status === "closed" && trip.customerId !== null && trip.customerId !== undefined;
 
   const confirmMutation = useMutation({
     mutationFn: () => api.post<TripResponse>(`/api/trip/${tripId}/confirm`, {}),
@@ -287,11 +291,19 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               <p className="text-body-sm text-critical-ink">{confirmMutation.error.message}</p>
             ) : null}
             {trip.status === "closed" ? (
-              <p className="text-caption text-ink-muted">
-                Closed{trip.closingDate !== null ? ` ${formatShortDate(trip.closingDate)}` : ""} —
-                its full profit/costs/distance breakdown was shown at the moment of closing and
-                isn't re-derived here yet.
-              </p>
+              <div className="flex flex-col gap-2">
+                <p className="text-caption text-ink-muted">
+                  Closed
+                  {trip.closingDate !== null ? ` ${formatShortDate(trip.closingDate)}` : ""} — its
+                  full profit/costs/distance breakdown was shown at the moment of closing and isn't
+                  re-derived here yet.
+                </p>
+                {canRecordPostClosureCharge ? (
+                  <Button variant="outline" onClick={() => setPostClosureChargeOpen(true)}>
+                    Record late charge
+                  </Button>
+                ) : null}
+              </div>
             ) : null}
             {trip.status === "cancelled" ? (
               <p className="text-caption text-ink-muted">
@@ -344,7 +356,18 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               customerName={customerQuery.data.name}
               dues={receivable !== null ? [receivable] : []}
               today={today}
-              onCollected={() => void queryClient.invalidateQueries({ queryKey: ["trip", tripId] })}
+              onCollected={() => {
+                void queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+                // GAP-144 (19 Aug 2026 live QA pass, F-7): this was narrower
+                // than the other two `CollectPaymentSheet` callers — missing
+                // even `["payment"]`/`["home"]`, not just `["reports"]`, the
+                // one every call site shares the same gap on. `["trip",
+                // tripId]` above still needs its own explicit call: it isn't
+                // a prefix of any of these three.
+                void queryClient.invalidateQueries({ queryKey: ["payment"] });
+                void queryClient.invalidateQueries({ queryKey: ["home"] });
+                void queryClient.invalidateQueries({ queryKey: ["reports"] });
+              }}
             />
           ) : null}
           {trip.driverId !== null ? (
@@ -355,6 +378,16 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               tripId={tripId}
               today={today}
               title="Record trip advance"
+            />
+          ) : null}
+          {trip.customerId !== null ? (
+            <PostClosureChargeSheet
+              open={postClosureChargeOpen}
+              onOpenChange={setPostClosureChargeOpen}
+              source={{ type: "trip", id: tripId }}
+              customerId={trip.customerId}
+              vehicleId={trip.vehicleId}
+              today={today}
             />
           ) : null}
         </div>

@@ -2,12 +2,14 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   createAdjustmentRequestSchema,
   createdAdjustmentResponseSchema,
+  listAdjustmentsResponseSchema,
   voidedAdjustmentResponseSchema,
   voidRequestSchema,
 } from "@fleetsettle/shared/schemas";
 import { z } from "zod";
 
 const adjustmentIdParams = z.object({ id: z.string().uuid() });
+const listAdjustmentsQuerySchema = z.object({ obligationId: z.string().uuid() });
 
 /**
  * F-2.4/UC-15/W-17. Returns the obligation as it stands after the
@@ -40,6 +42,22 @@ export const createAdjustmentRoute = createRoute({
       description:
         "That accounting period is closed, replacesId names an adjustment that isn't voided yet, or it has already been replaced (GAP-60)",
     },
+  },
+});
+
+/** GAP-147: every adjustment ever recorded against one obligation, newest first — the read a manager needs to find one to void. `obligationId` is required, not optional (this list has no "every adjustment in the business" use case the way write-off's own list does). */
+export const listAdjustmentsRoute = createRoute({
+  method: "get",
+  path: "/",
+  request: { query: listAdjustmentsQuerySchema },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listAdjustmentsResponseSchema } },
+      description: "Every adjustment against this obligation, newest first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view adjustments" },
+    404: { description: "No such obligation in this business" },
   },
 });
 
