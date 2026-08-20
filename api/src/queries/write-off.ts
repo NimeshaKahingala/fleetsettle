@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { writeOff, writeOffRecovery } from "../db/schema.js";
+import { payment, writeOff, writeOffRecovery } from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -211,6 +211,51 @@ export async function findWriteOffRecoveryForBusiness(
     .where(and(eq(writeOffRecovery.id, recoveryId), eq(writeOffRecovery.businessId, businessId)))
     .limit(1);
   return rows[0];
+}
+
+export interface WriteOffRecoveryListRow {
+  id: string;
+  writeOffId: string;
+  paymentId: string;
+  amountMinor: bigint;
+  occurredOn: string;
+  voidedAt: string | null;
+  voidedReason: string | null;
+  replacesId: string | null;
+}
+
+/**
+ * GAP-147: every recovery ever recorded against one write-off, newest
+ * first — the read a manager needs to find one to void, the same
+ * reachability gap GAP-155 closed for write-offs themselves. `occurredOn`
+ * has no column on `write_off_recovery` (INV-15: recorded through the
+ * ordinary payment mechanism, deliberately never a fact of its own) — an
+ * inner join is exact, never a guess, because `payment_id` is `NOT NULL`
+ * and every recovery mints exactly one payment (`recordWriteOffRecovery`,
+ * same transaction).
+ */
+export async function listWriteOffRecoveriesForWriteOff(
+  db: ReadDb,
+  businessId: string,
+  writeOffId: string,
+): Promise<WriteOffRecoveryListRow[]> {
+  return db
+    .select({
+      id: writeOffRecovery.id,
+      writeOffId: writeOffRecovery.writeOffId,
+      paymentId: writeOffRecovery.paymentId,
+      amountMinor: writeOffRecovery.amountMinor,
+      occurredOn: payment.occurredOn,
+      voidedAt: writeOffRecovery.voidedAt,
+      voidedReason: writeOffRecovery.voidedReason,
+      replacesId: writeOffRecovery.replacesId,
+    })
+    .from(writeOffRecovery)
+    .innerJoin(payment, eq(payment.id, writeOffRecovery.paymentId))
+    .where(
+      and(eq(writeOffRecovery.businessId, businessId), eq(writeOffRecovery.writeOffId, writeOffId)),
+    )
+    .orderBy(desc(payment.occurredOn), desc(writeOffRecovery.id));
 }
 
 /** GAP-12/W-61/INV-36 §3.8: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */

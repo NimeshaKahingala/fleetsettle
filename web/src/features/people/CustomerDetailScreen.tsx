@@ -34,6 +34,7 @@ import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { VoidObligationSheet } from "./VoidObligationSheet.js";
 import { VoidWriteOffSheet } from "./VoidWriteOffSheet.js";
 import { WriteOffBalanceSheet } from "./WriteOffBalanceSheet.js";
+import { WriteOffRecoveriesSheet } from "./WriteOffRecoveriesSheet.js";
 import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
 
 export interface CustomerDetailScreenProps {
@@ -95,6 +96,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   const [recoveryTarget, setRecoveryTarget] = useState<WriteOffListRow | null>(null);
   const [voidWriteOffTarget, setVoidWriteOffTarget] = useState<WriteOffListRow | null>(null);
   const [voidObligationTarget, setVoidObligationTarget] = useState<string | null>(null);
+  const [recoveriesTarget, setRecoveriesTarget] = useState<string | null>(null);
 
   const customerQuery = useQuery({
     queryKey: ["customer", customerId],
@@ -375,6 +377,15 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                         Record recovery
                       </button>
                     ) : null}
+                    {canRecordRecovery ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecoveriesTarget(writeOff.id)}
+                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                      >
+                        View recoveries
+                      </button>
+                    ) : null}
                     {canWriteOff && writeOff.voidedAt === null ? (
                       <button
                         type="button"
@@ -445,6 +456,16 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
             customerId={customerId}
             obligationId={voidObligationTarget}
           />
+          {recoveriesTarget !== null ? (
+            <WriteOffRecoveriesSheet
+              open={recoveriesTarget !== null}
+              onOpenChange={(open) => {
+                if (!open) setRecoveriesTarget(null);
+              }}
+              writeOffId={recoveriesTarget}
+              party={{ type: "customer", id: customerId }}
+            />
+          ) : null}
           <ActionSheet
             open={actionsOpen}
             onOpenChange={setActionsOpen}

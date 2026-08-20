@@ -1113,3 +1113,61 @@ test("GAP-146: an archived driver can be unarchived from driver detail", async (
 
   await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/driver/d1/unarchive", {}));
 });
+
+test("GAP-147: View recoveries opens the recoveries sheet for the right write-off", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(emptyHistory);
+    if (path.startsWith("/api/write-off?")) {
+      return Promise.resolve([
+        {
+          id: "wo1",
+          obligationId: null,
+          partyType: "driver",
+          partyCustomerId: null,
+          partyDriverId: "d1",
+          vehicleId: null,
+          amountMinor: "50000",
+          reason: "Unrecoverable shortage",
+          writtenOffOn: "2026-08-10",
+          voidedAt: null,
+          voidedReason: null,
+          replacesId: null,
+        },
+      ]);
+    }
+    if (path === "/api/write-off/wo1/recovery") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithProviders(
+    <DriverDetailScreen driverId="d1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    owner,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "View recoveries" }));
+
+  expect(await screen.findByText("No recoveries recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/write-off/wo1/recovery")).toBe(true);
+});

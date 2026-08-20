@@ -13,11 +13,15 @@ import { findDriverForBusiness } from "../queries/driver.js";
 import { findObligationForBusiness } from "../queries/obligation.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import {
+  findWriteOffForBusiness,
+  listWriteOffRecoveriesForWriteOff,
   listWriteOffsForBusiness,
   type WriteOffListFilters,
   type WriteOffListRow,
+  type WriteOffRecoveryListRow,
 } from "../queries/write-off.js";
 import type {
+  listWriteOffRecoveriesRoute,
   listWriteOffsRoute,
   recordWriteOffRecoveryRoute,
   recordWriteOffRoute,
@@ -159,6 +163,35 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
     },
     201,
   );
+};
+
+function toRecoveryListRow(row: WriteOffRecoveryListRow) {
+  return {
+    id: row.id,
+    writeOffId: row.writeOffId,
+    paymentId: row.paymentId,
+    amountMinor: toWire(row.amountMinor as Minor),
+    occurredOn: row.occurredOn,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
+    replacesId: row.replacesId,
+  };
+}
+
+/** GAP-147: `dailyOperations` — the same gate recording a recovery uses, so a manager can find one to void. */
+export const listWriteOffRecoveriesHandler: RouteHandler<
+  typeof listWriteOffRecoveriesRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+
+  const writeOffRow = await findWriteOffForBusiness(c.get("reader"), businessId, id);
+  if (!writeOffRow) throw new NotFoundError("No such write-off in this business");
+
+  const rows = await listWriteOffRecoveriesForWriteOff(c.get("reader"), businessId, id);
+  return c.json(rows.map(toRecoveryListRow), 200);
 };
 
 /** GAP-12/W-61/INV-36 §3.7. `writeOffOrWaiveAboveThreshold` — the same gate creating one uses. */

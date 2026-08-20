@@ -539,3 +539,27 @@ test("GAP-147: a manager can void a post-closure charge, but not an ordinary ren
     }),
   );
 });
+
+test("GAP-147: View recoveries opens the recoveries sheet for the right write-off", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
+    if (path === "/api/write-off/wo1/recovery") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    owner,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "View recoveries" }));
+
+  expect(await screen.findByText("No recoveries recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/write-off/wo1/recovery")).toBe(true);
+});

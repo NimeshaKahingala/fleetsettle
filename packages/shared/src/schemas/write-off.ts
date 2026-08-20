@@ -97,3 +97,14 @@ export const writeOffRecoveryResponseSchema = z.object({
   replacesId: uuidSchema.nullable(),
 });
 export type WriteOffRecoveryResponse = z.infer<typeof writeOffRecoveryResponseSchema>;
+
+/** GAP-147: `writeOffRecoveryResponseSchema` plus `occurredOn` (recoveries have no date column of their own — INV-15, recorded through the payment underneath) and the void fields, the same convention `writeOffListRowSchema` already established for the write-off itself. */
+export const writeOffRecoveryListRowSchema = writeOffRecoveryResponseSchema.extend({
+  occurredOn: z.string(),
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type WriteOffRecoveryListRow = z.infer<typeof writeOffRecoveryListRowSchema>;
+
+export const listWriteOffRecoveriesResponseSchema = z.array(writeOffRecoveryListRowSchema);
+export type ListWriteOffRecoveriesResponse = z.infer<typeof listWriteOffRecoveriesResponseSchema>;
