@@ -1,0 +1,5 @@
+# REV-2026-08-19-04: scripts/check-forbidden.mjs's own comment-stripping
+# regexes assumed LF and silently no-op'd on CRLF (fixed separately, in
+# readText()) — this stops the CRLF case from coming back through a fresh
+# Windows clone in the first place.
+* text=auto eol=lf
