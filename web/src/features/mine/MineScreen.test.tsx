@@ -30,8 +30,31 @@ const populatedView: DriverViewResponse = {
     },
   ],
   advances: [{ id: "a1", amountMinor: "100000", issuedOn: "2026-08-03", status: "open" }],
-  offsets: [{ id: "o1", amountMinor: "50000", occurredOn: "2026-08-05" }],
-  deposit: { id: "dep1", heldMinor: "250000" },
+  offsets: [
+    {
+      id: "o1",
+      amountMinor: "50000",
+      occurredOn: "2026-08-05",
+      voidedAt: null,
+      voidedReason: null,
+    },
+  ],
+  deposit: {
+    id: "dep1",
+    heldMinor: "250000",
+    movements: [
+      {
+        id: "dm1",
+        movementType: "taken",
+        amountMinor: "250000",
+        occurredOn: "2026-08-01",
+        reason: null,
+        voidedAt: null,
+        voidedReason: null,
+      },
+    ],
+  },
+  owedToUsObligations: [],
 };
 
 test("B5: linked driver sees his own balances and recent activity without a driver id", async () => {

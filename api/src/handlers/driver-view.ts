@@ -1,6 +1,7 @@
 import { toWire, type Minor } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireDriverId } from "../auth/context.js";
+import { computeObligationStatus } from "../domain/obligation-status.js";
 import { getDriverOwnView, type DriverOwnView } from "../domain/driver-view.js";
 import type { getDriverViewRoute } from "../route-defs/driver-view.js";
 import type { Env } from "../types.js";
@@ -34,10 +35,34 @@ export function toDriverViewResponse(view: DriverOwnView) {
       id: o.id,
       amountMinor: toWire(o.amountMinor as Minor),
       occurredOn: o.occurredOn,
+      voidedAt: o.voidedAt,
+      voidedReason: o.voidedReason,
     })),
     deposit: view.deposit
-      ? { id: view.deposit.id, heldMinor: toWire(view.deposit.heldMinor as Minor) }
+      ? {
+          id: view.deposit.id,
+          heldMinor: toWire(view.deposit.heldMinor as Minor),
+          movements: view.deposit.movements.map((m) => ({
+            id: m.id,
+            movementType: m.movementType,
+            amountMinor: toWire(m.amountMinor as Minor),
+            occurredOn: m.occurredOn,
+            reason: m.reason,
+            voidedAt: m.voidedAt,
+            voidedReason: m.voidedReason,
+          })),
+        }
       : null,
+    owedToUsObligations: view.owedToUsObligations.map((o) => ({
+      id: o.id,
+      kind: o.kind,
+      dueOn: o.dueOn,
+      effectiveDueOn: o.effectiveDueOn,
+      amountMinor: toWire(o.amountMinor as Minor),
+      settledMinor: toWire(o.settledMinor as Minor),
+      waivedMinor: toWire(o.waivedMinor as Minor),
+      status: computeObligationStatus(o.amountMinor, o.settledMinor, o.waivedMinor),
+    })),
   };
 }
 

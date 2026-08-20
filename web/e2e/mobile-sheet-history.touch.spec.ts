@@ -40,6 +40,17 @@ async function mockJson(page: Page, urlPattern: string, status: number, body: un
   });
 }
 
+async function mockVehicleOverviewSections(page: Page, vehicleId: string) {
+  await Promise.all([
+    mockJson(page, `**/api/vehicle/${vehicleId}/document`, 200, []),
+    mockJson(page, `**/api/vehicle/${vehicleId}/expense`, 200, []),
+    mockJson(page, `**/api/vehicle/${vehicleId}/lease`, 200, []),
+    mockJson(page, `**/api/vehicle/${vehicleId}/daily-lease`, 200, []),
+    mockJson(page, `**/api/vehicle/${vehicleId}/incident`, 200, []),
+    mockJson(page, `**/api/vehicle/${vehicleId}/**`, 200, []),
+  ]);
+}
+
 test("Quick Add → Fuel opens the fuel-fill sheet and it stays open on a touch device", async ({
   page,
 }) => {
@@ -113,6 +124,7 @@ test("Quick Add → New trip → pick a vehicle reaches the trip form and stays 
   await mockJson(page, "**/api/session", 200, SESSION_OPERATE);
   await mockJson(page, "**/api/vehicle", 200, [vehicle]);
   await mockJson(page, "**/api/vehicle/v1", 200, vehicle);
+  await mockVehicleOverviewSections(page, "v1");
   await mockJson(page, "**/api/customer", 200, []);
   await mockJson(page, "**/api/driver", 200, []);
   await mockJson(page, "**/api/home/paperwork-warnings", 200, []);

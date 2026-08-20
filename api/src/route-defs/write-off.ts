@@ -45,7 +45,8 @@ export const recordWriteOffRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot write off a balance" },
     404: {
-      description: "No such obligation, customer, driver or replacesId write-off in this business",
+      description:
+        "No such obligation, customer, driver, vehicle or replacesId write-off in this business",
     },
     409: {
       description:

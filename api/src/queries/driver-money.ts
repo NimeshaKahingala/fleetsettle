@@ -419,6 +419,38 @@ export interface DepositMovementRow {
   voidedAt: string | null;
 }
 
+export interface DepositMovementHistoryRow extends DepositMovementRow {
+  occurredOn: string;
+  reason: string | null;
+  voidedReason: string | null;
+}
+
+/** F-6.8/UC-59 and UC-58: the deposit balance must be explainable from the movements, including voided corrections that stay visible in history. */
+export async function listDepositMovementsForDeposit(
+  db: ReadDb,
+  businessId: string,
+  depositId: string,
+): Promise<DepositMovementHistoryRow[]> {
+  const rows = await db
+    .select({
+      id: depositMovement.id,
+      depositId: depositMovement.depositId,
+      movementType: depositMovement.movementType,
+      amountMinor: depositMovement.amountMinor,
+      obligationId: depositMovement.obligationId,
+      occurredOn: depositMovement.occurredOn,
+      reason: depositMovement.reason,
+      voidedAt: depositMovement.voidedAt,
+      voidedReason: depositMovement.voidedReason,
+    })
+    .from(depositMovement)
+    .where(
+      and(eq(depositMovement.businessId, businessId), eq(depositMovement.depositId, depositId)),
+    )
+    .orderBy(desc(depositMovement.occurredOn), desc(depositMovement.id));
+  return rows as DepositMovementHistoryRow[];
+}
+
 /** GAP-12/W-61/INV-36 §3.3. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
 export async function findDepositMovementForBusiness(
   db: ReadDb,
@@ -552,6 +584,8 @@ export interface OffsetRecordRow {
   id: string;
   amountMinor: bigint;
   occurredOn: string;
+  voidedAt: string | null;
+  voidedReason: string | null;
 }
 
 /** F-6.8/UC-59: the linked driver's own offsets, windowed by `occurredOn`. */
@@ -567,6 +601,8 @@ export async function listOffsetsForDriver(
       id: offsetRecord.id,
       amountMinor: offsetRecord.amountMinor,
       occurredOn: offsetRecord.occurredOn,
+      voidedAt: offsetRecord.voidedAt,
+      voidedReason: offsetRecord.voidedReason,
     })
     .from(offsetRecord)
     .where(

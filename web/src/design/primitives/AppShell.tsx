@@ -1,4 +1,5 @@
 import {
+  ArrowLeft,
   ChevronsUpDown,
   Home,
   MoreHorizontal,
@@ -58,11 +59,13 @@ export interface AppShellProps {
    */
   businessName?: string;
   /**
-   * Present only when the identity holds more than one membership — turns
-   * the name into a switcher affordance. Absent for a single-membership
-   * identity: the name renders unstyled, nothing to tap, per spec.
+   * Turns the business strip into the business hub. It still switches when
+   * several memberships exist, but also houses "Create a business", so a
+   * single-membership identity can open it too (GAP-149).
    */
   onSwitchBusiness?: () => void;
+  /** Platform surface escape hatch (GAP-151): the admin shell has no tab bar. */
+  onExit?: { label: string; onClick: () => void };
   children: React.ReactNode;
 }
 
@@ -94,6 +97,7 @@ export function AppShell({
   onQuickAdd,
   businessName,
   onSwitchBusiness,
+  onExit,
   children,
 }: AppShellProps) {
   const tabs = shell === "operate" ? OPERATE_TABS : shell === "review" ? REVIEW_TABS : null;
@@ -101,7 +105,7 @@ export function AppShell({
   return (
     <div className="flex h-[100svh] flex-col bg-page pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] pt-[env(safe-area-inset-top)] lg:flex-row">
       <div className="flex min-h-0 flex-1 flex-col">
-        {businessName !== undefined ? (
+        {businessName !== undefined || onExit !== undefined ? (
           onSwitchBusiness !== undefined ? (
             <button
               type="button"
@@ -112,6 +116,17 @@ export function AppShell({
                 {businessName}
               </span>
               <ChevronsUpDown className="size-3.5 shrink-0 text-ink-secondary" aria-hidden />
+            </button>
+          ) : onExit !== undefined ? (
+            <button
+              type="button"
+              onClick={onExit.onClick}
+              className="flex h-tap shrink-0 items-center gap-2 border-b border-line-hairline bg-surface px-4 text-left active:bg-brand-wash"
+            >
+              <ArrowLeft className="size-4 shrink-0 text-ink-secondary" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-caption font-medium text-ink-secondary">
+                {onExit.label}
+              </span>
             </button>
           ) : (
             <div className="flex h-tap shrink-0 items-center border-b border-line-hairline bg-surface px-4">

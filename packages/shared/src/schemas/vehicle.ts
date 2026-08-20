@@ -5,6 +5,14 @@ import { businessDateSchema } from "./common.js";
 export const vehicleArrangementCodeSchema = z.enum(["A", "B", "C"]);
 
 /**
+ * F-1.1/GAP-150: vehicle type is a closed product vocabulary at the write
+ * boundary so future reports can group it reliably. Reads stay `string`
+ * below because QA already has legacy spellings that must keep displaying.
+ */
+export const vehicleTypeSchema = z.enum(["Bus", "Car", "Van"]);
+export type VehicleType = z.infer<typeof vehicleTypeSchema>;
+
+/**
  * UC-01: registration, type and a default arrangement — DM §4's comment is
  * explicit there is deliberately no draft state to save (U-2). Insurance and
  * registration expiry are the one exception worth asking for on the same
@@ -13,7 +21,7 @@ export const vehicleArrangementCodeSchema = z.enum(["A", "B", "C"]);
  */
 export const createVehicleRequestSchema = z.object({
   registration: z.string().trim().min(1).max(50),
-  vehicleType: z.string().trim().min(1).max(50),
+  vehicleType: vehicleTypeSchema,
   defaultArrangement: vehicleArrangementCodeSchema,
   insuranceExpiry: businessDateSchema.optional(),
   registrationExpiry: businessDateSchema.optional(),

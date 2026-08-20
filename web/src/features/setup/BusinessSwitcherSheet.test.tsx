@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
+import type { ApiClient } from "../../lib/api.js";
+import { ApiProvider } from "../../lib/ApiContext.js";
 import { getSelectedBusinessId } from "../../lib/storage.js";
 import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 
@@ -18,17 +20,20 @@ const BUSINESSES: SessionMembership[] = [
 function renderSheet(overrides: Partial<React.ComponentProps<typeof BusinessSwitcherSheet>> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onOpenChange = vi.fn();
+  const post = vi.fn();
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <BusinessSwitcherSheet
-        open
-        onOpenChange={onOpenChange}
-        businesses={BUSINESSES}
-        {...overrides}
-      />
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          {...overrides}
+        />
+      </ApiProvider>
     </QueryClientProvider>,
   );
-  return { ...result, queryClient, onOpenChange };
+  return { ...result, queryClient, onOpenChange, post };
 }
 
 test("lists every membership's name and role", () => {
@@ -83,6 +88,38 @@ test("GAP-139: no currentBusinessId (or one that matches nothing) marks nothing 
 
   expect(screen.getByRole("button", { name: /First Fleet/ })).not.toHaveAttribute("aria-current");
   expect(screen.getByRole("button", { name: /Second Fleet/ })).not.toHaveAttribute("aria-current");
+});
+
+test("GAP-149: in-shell hub can create a business and selects the new business before reload", async () => {
+  const user = userEvent.setup();
+  const onSelected = vi.fn();
+  const { post, onOpenChange } = renderSheet({
+    createBusiness: { pendingRequest: null },
+    onSelected,
+  });
+  post.mockResolvedValue({
+    kind: "created",
+    id: "00000000-0000-4000-8000-000000000123",
+    name: "Third Fleet",
+    currencyCode: "LKR",
+    timezone: "Asia/Colombo",
+    accountingPeriodId: "00000000-0000-4000-8000-000000000456",
+  });
+
+  await user.click(screen.getByRole("button", { name: "Create a business" }));
+  await user.type(screen.getByLabelText("Business name"), "Third Fleet");
+  await user.click(screen.getByRole("button", { name: "Create business" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/business", {
+      name: "Third Fleet",
+      currencyCode: "LKR",
+      timezone: "Asia/Colombo",
+    }),
+  );
+  expect(getSelectedBusinessId()).toBe("00000000-0000-4000-8000-000000000123");
+  expect(onSelected).toHaveBeenCalledOnce();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
 /**

@@ -11,6 +11,7 @@ import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import { findObligationForBusiness } from "../queries/obligation.js";
+import { findVehicleForBusiness } from "../queries/vehicle.js";
 import {
   listWriteOffsForBusiness,
   type WriteOffListFilters,
@@ -80,6 +81,10 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
   if (body.partyDriverId !== undefined) {
     const driver = await findDriverForBusiness(reader, businessId, body.partyDriverId);
     if (!driver) throw new NotFoundError("No such driver in this business");
+  }
+  if (body.vehicleId !== undefined) {
+    const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
+    if (!vehicle) throw new NotFoundError("No such vehicle in this business");
   }
 
   const { writeOffId } = await recordWriteOff(c.get("writer"), {

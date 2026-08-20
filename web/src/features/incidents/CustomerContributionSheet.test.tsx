@@ -15,6 +15,8 @@ const created: IncidentRecoveryResponse = {
   agreedAmountMinor: "2000000",
   receivedAmountMinor: "0",
   replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
 };
 
 async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: string) {

@@ -2,8 +2,10 @@ import { addDays, asBusinessDate, type BusinessDate } from "@fleetsettle/shared"
 import type {
   CustomerResponse,
   DriverResponse,
+  SessionResponse,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
+import { useQuery } from "@tanstack/react-query";
 import {
   createRootRoute,
   createRoute,
@@ -69,7 +71,9 @@ import { StartLeaseScreen } from "../features/vehicles/StartLeaseScreen.js";
 import { VehicleCalendarScreen } from "../features/vehicles/VehicleCalendarScreen.js";
 import { VehicleListScreen } from "../features/vehicles/VehicleListScreen.js";
 import { VehicleOverviewScreen } from "../features/vehicles/VehicleOverviewScreen.js";
+import { useMe } from "../lib/useMe.js";
 import { useSelectedBusiness } from "../lib/useSelectedBusiness.js";
+import { useApi } from "../lib/ApiContext.js";
 import { NotBuiltYetScreen } from "./NotBuiltYetScreen.js";
 
 function HomeRoute() {
@@ -366,11 +370,25 @@ function MileagePackagesRoute() {
   return <MileagePackagesScreen onBack={() => void navigate({ to: "/more" })} />;
 }
 
+/**
+ * GAP-153/F-5: `/review` and `/reports` are top-level tabs for an `owner`,
+ * but drill-downs from Operate's `/more` for `owner_manager`/`manager`.
+ * Only the latter needs a visible Back affordance.
+ */
+function useOperateReviewBack(): (() => void) | undefined {
+  const navigate = useNavigate();
+  const me = useMe();
+  if (me.role !== "owner_manager" && me.role !== "manager") return undefined;
+  return () => void navigate({ to: "/more" });
+}
+
 /** B4/§5.4: `This month`'s own tab — the per-vehicle card navigates into the read-only Vehicles-tab detail (never `VehicleOverviewScreen`, §7.8's "no entry affordance anywhere"); "What I'm owed" navigates to `My money`, the same figure in more detail. */
 function ReviewThisMonthRoute() {
   const navigate = useNavigate();
+  const reviewBack = useOperateReviewBack();
   return (
     <ReviewThisMonthScreen
+      {...(reviewBack !== undefined ? { onBack: reviewBack } : {})}
       onSelectVehicle={(vehicleId, periodId) => {
         void navigate({
           to: "/review/vehicles/$vehicleId",
@@ -417,7 +435,8 @@ function ReviewVehicleDetailRoute() {
 
 /** B4/§5.6: `My money`'s own tab — `GET /api/partner/{userId}` rendered read-only, for the signed-in user's own id. */
 function ReviewMoneyRoute() {
-  return <ReviewMoneyScreen />;
+  const reviewBack = useOperateReviewBack();
+  return <ReviewMoneyScreen {...(reviewBack !== undefined ? { onBack: reviewBack } : {})} />;
 }
 
 const REPORT_PATH: Record<ReportKey, string> = {
@@ -437,8 +456,10 @@ const REPORT_PATH: Record<ReportKey, string> = {
 /** B4/§5.1: the catalogue — eleven cards (GAP-98, then GAP-18), reached identically from the Review shell's own `Reports` tab and Operate's `/more` row (§4's IA). */
 function ReportsRoute() {
   const navigate = useNavigate();
+  const reviewBack = useOperateReviewBack();
   return (
     <ReportsCatalogueScreen
+      {...(reviewBack !== undefined ? { onBack: reviewBack } : {})}
       onSelect={(key) => {
         void navigate({ to: REPORT_PATH[key] });
       }}
@@ -635,29 +656,67 @@ function MineRoute({ today }: { today: BusinessDate }) {
   return <MineScreen today={today} />;
 }
 
-/** UI §3.1 (added 18 Aug 2026): `/admin/*`, reached only once `FirstRunGate` has already gated on `isPlatformAdmin` — every sub-screen's own `onBack` returns to the hub, matching every other `/more`-owned sub-screen's convention. */
+function useAdminRouteAllowed(): boolean {
+  const api = useApi();
+  const navigate = useNavigate();
+  // allow: FirstRunGate owns the user-facing /api/session loading/error UI.
+  // This child-route observer only prevents premature admin data reads.
+  const sessionQuery = useQuery({
+    queryKey: ["session"],
+    queryFn: () => api.get<SessionResponse>("/api/session"),
+  });
+  const session = sessionQuery.data;
+  const allowed = session?.isPlatformAdmin === true;
+
+  useEffect(() => {
+    if (session !== undefined && !allowed) void navigate({ to: "/", replace: true });
+  }, [allowed, navigate, session]);
+
+  return allowed;
+}
+
+/**
+ * UI §3.1 (added 18 Aug 2026): `/admin/*`, reached only once `FirstRunGate`
+ * has already gated on `isPlatformAdmin` — every sub-screen's own `onBack`
+ * returns to the hub, matching every other `/more`-owned sub-screen's
+ * convention. GAP-154/F-6 adds the local route guard because these routes are
+ * flat siblings in TanStack Router: a matched child can evaluate before the
+ * root gate has rendered its chosen shell, so each admin route must refuse to
+ * mount its data-reading screen until the session cache proves platform-admin
+ * access.
+ */
 function AdminRequestsRoute() {
   const navigate = useNavigate();
+  const allowed = useAdminRouteAllowed();
+  if (!allowed) return null;
   return <RequestQueueScreen onBack={() => void navigate({ to: "/admin" })} />;
 }
 
 function AdminBusinessesRoute() {
   const navigate = useNavigate();
+  const allowed = useAdminRouteAllowed();
+  if (!allowed) return null;
   return <BusinessesListScreen onBack={() => void navigate({ to: "/admin" })} />;
 }
 
 function AdminUsersRoute() {
   const navigate = useNavigate();
+  const allowed = useAdminRouteAllowed();
+  if (!allowed) return null;
   return <UsersListScreen onBack={() => void navigate({ to: "/admin" })} />;
 }
 
 function AdminAdminsRoute() {
   const navigate = useNavigate();
+  const allowed = useAdminRouteAllowed();
+  if (!allowed) return null;
   return <AdminManagementScreen onBack={() => void navigate({ to: "/admin" })} />;
 }
 
 function AdminAuditLogRoute() {
   const navigate = useNavigate();
+  const allowed = useAdminRouteAllowed();
+  if (!allowed) return null;
   return <PlatformAuditLogScreen onBack={() => void navigate({ to: "/admin" })} />;
 }
 
@@ -810,7 +869,7 @@ function ReviewLayout() {
         void navigate({ to: REVIEW_TAB_PATH[key as ReviewTabKey] });
       }}
       businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
+      onSwitchBusiness={switcher.openSwitcher}
     >
       {inReview ? <Outlet /> : null}
       <BusinessSwitcherSheet
@@ -818,6 +877,7 @@ function ReviewLayout() {
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
         currentBusinessId={selected.businessId}
+        createBusiness={{ pendingRequest: selected.pendingRequest }}
         onSelected={switcher.onSelected}
       />
     </AppShell>
@@ -837,17 +897,14 @@ function MineLayout() {
   }, [inMine, navigate]);
 
   return (
-    <AppShell
-      shell="mine"
-      businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
-    >
+    <AppShell shell="mine" businessName={selected.name} onSwitchBusiness={switcher.openSwitcher}>
       {inMine ? <Outlet /> : null}
       <BusinessSwitcherSheet
         open={switcher.open}
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
         currentBusinessId={selected.businessId}
+        createBusiness={{ pendingRequest: selected.pendingRequest }}
         onSelected={switcher.onSelected}
       />
     </AppShell>
@@ -864,8 +921,12 @@ function MineLayout() {
  * below), so there is nothing to redirect from.
  */
 function AdminLayout() {
+  const navigate = useNavigate();
   return (
-    <AppShell shell="admin">
+    <AppShell
+      shell="admin"
+      onExit={{ label: "Leave admin panel", onClick: () => void navigate({ to: "/" }) }}
+    >
       <Outlet />
     </AppShell>
   );
@@ -889,6 +950,8 @@ function OperateLayout({ today }: { today: BusinessDate }) {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const selected = useSelectedBusiness();
   const switcher = useBusinessSwitcherToggle();
+  const blockedShellPathname =
+    pathname === "/me" || pathname === "/admin" || pathname.startsWith("/admin/");
 
   // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
   // change while it's open (an iOS edge-swipe back — iOS has no hardware
@@ -900,6 +963,13 @@ function OperateLayout({ today }: { today: BusinessDate }) {
     setQuickAddOpen(false);
   }, [pathname]);
 
+  // GAP-154/F-6: Operate deliberately hosts `/review*` and `/reports*` when
+  // reached from More, but it must not render the Mine or platform-admin
+  // surfaces inside Operate chrome.
+  useEffect(() => {
+    if (blockedShellPathname) void navigate({ to: "/", replace: true });
+  }, [blockedShellPathname, navigate]);
+
   return (
     <AppShell
       shell="operate"
@@ -909,9 +979,9 @@ function OperateLayout({ today }: { today: BusinessDate }) {
       }}
       onQuickAdd={() => setQuickAddOpen(true)}
       businessName={selected.name}
-      {...(selected.businesses.length > 1 ? { onSwitchBusiness: switcher.openSwitcher } : {})}
+      onSwitchBusiness={switcher.openSwitcher}
     >
-      <Outlet />
+      {blockedShellPathname ? null : <Outlet />}
       <QuickAddSheet
         open={quickAddOpen}
         onOpenChange={setQuickAddOpen}
@@ -930,6 +1000,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
         currentBusinessId={selected.businessId}
+        createBusiness={{ pendingRequest: selected.pendingRequest }}
         onSelected={switcher.onSelected}
       />
     </AppShell>
@@ -953,8 +1024,19 @@ function RootLayout({ today }: { today: BusinessDate }) {
       renderReview={() => <ReviewLayout />}
       renderMine={() => <MineLayout />}
       renderAdmin={() => <AdminLayout />}
+      renderBlockedOperatePathname={() => <RedirectToOperateHome />}
     />
   );
+}
+
+function RedirectToOperateHome() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    void navigate({ to: "/", replace: true });
+  }, [navigate]);
+
+  return null;
 }
 
 /**

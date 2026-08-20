@@ -67,6 +67,8 @@ export const incidentRecoveryResponseSchema = z.object({
   receivedAmountMinor: z.string(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
   replacesId: z.string().uuid().nullable(),
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
 });
 export type IncidentRecoveryResponse = z.infer<typeof incidentRecoveryResponseSchema>;
 

@@ -102,17 +102,22 @@ test("no businessName: no app-bar strip at all (the admin surface has no busines
   expect(container.querySelectorAll(".border-b")).toHaveLength(0);
 });
 
-test("UI §3.1/M-33: single membership renders the business name unstyled, nothing to tap", () => {
+test("GAP-151: admin can render a shell-level exit strip without a tab bar", async () => {
+  const user = userEvent.setup();
+  const onClick = vi.fn();
   render(
-    <AppShell shell="operate" activeTab="home" businessName="TESTA">
-      <p>Home content</p>
+    <AppShell shell="admin" onExit={{ label: "Leave admin panel", onClick }}>
+      <p>Requests</p>
     </AppShell>,
   );
-  const name = screen.getByText("TESTA");
-  expect(name.closest("button")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Leave admin panel" }));
+
+  expect(onClick).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("navigation")).not.toBeInTheDocument();
 });
 
-test("UI §3.1/M-33: more than one membership turns the name into a tappable switcher affordance", async () => {
+test("GAP-149/M-33: business name is a tappable business hub affordance", async () => {
   const user = userEvent.setup();
   const onSwitchBusiness = vi.fn();
   render(

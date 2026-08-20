@@ -209,6 +209,29 @@ describe("write off a balance (P10, F-8.3/UC-90)", () => {
     await ctx.cleanup();
   });
 
+  it("404 — vehicleId cannot tag a vehicle from another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postWriteOff(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      vehicleId: otherVehicleId,
+      amountMinor: "1000",
+      reason: "x",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
   it("409 — a closed accounting period rejects the write", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

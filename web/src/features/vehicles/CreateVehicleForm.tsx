@@ -2,6 +2,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import type { BusinessDate } from "@fleetsettle/shared";
 import {
   vehicleArrangementCodeSchema,
+  vehicleTypeSchema,
   type CreateVehicleRequest,
   type VehicleResponse,
 } from "@fleetsettle/shared/schemas";
@@ -12,6 +13,7 @@ import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
 import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
+import { NativeSelect } from "../../design/primitives/NativeSelect.js";
 import { fieldErrorId } from "../../lib/fieldErrorId.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { DateField } from "../../components/DateField.js";
@@ -27,6 +29,12 @@ const ARRANGEMENTS = [
   { code: "C", label: "Trips / charter" },
 ] as const;
 
+const VEHICLE_TYPES = [
+  { value: "Bus", label: "Bus" },
+  { value: "Car", label: "Car" },
+  { value: "Van", label: "Van" },
+] as const;
+
 /**
  * `createVehicleRequestSchema`'s `businessDateSchema` transforms a wire
  * string into `BusinessDate` — a branded string with no runtime
@@ -39,7 +47,7 @@ const ARRANGEMENTS = [
  */
 const vehicleFormSchema = z.object({
   registration: z.string().trim().min(1, "Registration is required").max(50),
-  vehicleType: z.string().trim().min(1, "Vehicle type is required").max(50),
+  vehicleType: vehicleTypeSchema,
   defaultArrangement: vehicleArrangementCodeSchema,
   insuranceExpiry: z.custom<BusinessDate>((v) => typeof v === "string").optional(),
   registrationExpiry: z.custom<BusinessDate>((v) => typeof v === "string").optional(),
@@ -64,7 +72,7 @@ export function CreateVehicleForm({ today, onCreated }: CreateVehicleFormProps) 
     formState: { errors },
   } = useForm<VehicleFormValues>({
     resolver: zodResolver(vehicleFormSchema),
-    defaultValues: { registration: "", vehicleType: "", defaultArrangement: "B" },
+    defaultValues: { registration: "", vehicleType: "Bus", defaultArrangement: "B" },
   });
 
   const mutation = useMutation({
@@ -92,13 +100,18 @@ export function CreateVehicleForm({ today, onCreated }: CreateVehicleFormProps) 
         />
       </Field>
       <Field label="Vehicle type" htmlFor="vehicleType" error={errors.vehicleType?.message}>
-        <Input
+        <NativeSelect
           id="vehicleType"
-          placeholder="Bus, car, van…"
           aria-invalid={errors.vehicleType !== undefined}
           aria-describedby={fieldErrorId("vehicleType")}
           {...register("vehicleType")}
-        />
+        >
+          {VEHICLE_TYPES.map((type) => (
+            <option key={type.value} value={type.value}>
+              {type.label}
+            </option>
+          ))}
+        </NativeSelect>
       </Field>
 
       <div className="flex flex-col gap-1">

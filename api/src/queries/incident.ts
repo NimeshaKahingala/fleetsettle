@@ -269,6 +269,7 @@ export interface IncidentRecoveryRow {
   receivedPeriodId: string | null;
   belongsToPeriodId: string | null;
   voidedAt: string | null;
+  voidedReason: string | null;
   replacesId: string | null;
 }
 
@@ -283,6 +284,7 @@ const INCIDENT_RECOVERY_COLUMNS = {
   receivedPeriodId: incidentRecovery.receivedPeriodId,
   belongsToPeriodId: incidentRecovery.belongsToPeriodId,
   voidedAt: incidentRecovery.voidedAt,
+  voidedReason: incidentRecovery.voidedReason,
   replacesId: incidentRecovery.replacesId,
 };
 
@@ -328,6 +330,18 @@ export async function listIncidentRecoveries(
     .select(INCIDENT_RECOVERY_COLUMNS)
     .from(incidentRecovery)
     .where(and(eq(incidentRecovery.incidentId, incidentId), isNull(incidentRecovery.voidedAt)));
+  return rows as IncidentRecoveryRow[];
+}
+
+/** W-50 history for the incident screen — includes voided rows, while `listIncidentRecoveries` remains live-only for totals. */
+export async function listIncidentRecoveryHistory(
+  db: ReadDb,
+  incidentId: string,
+): Promise<IncidentRecoveryRow[]> {
+  const rows = await db
+    .select(INCIDENT_RECOVERY_COLUMNS)
+    .from(incidentRecovery)
+    .where(eq(incidentRecovery.incidentId, incidentId));
   return rows as IncidentRecoveryRow[];
 }
 
