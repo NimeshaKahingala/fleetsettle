@@ -40,6 +40,7 @@ import { useApi } from "../../lib/ApiContext.js";
 import { can } from "../../lib/capabilities.js";
 import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { AdvanceSettlementsSheet } from "./AdvanceSettlementsSheet.js";
 import { AdvanceSheet } from "./AdvanceSheet.js";
 import { DepositMovementSheet } from "./DepositMovementSheet.js";
 import { DepositSheet } from "./DepositSheet.js";
@@ -97,6 +98,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
   const [settleAdvanceOpen, setSettleAdvanceOpen] = useState(false);
   const [voidAdvanceOpen, setVoidAdvanceOpen] = useState(false);
   const [selectedAdvance, setSelectedAdvance] = useState<DriverViewAdvance | null>(null);
+  const [settlementsTarget, setSettlementsTarget] = useState<string | null>(null);
   const [voidOffsetTarget, setVoidOffsetTarget] = useState<DriverViewOffset | null>(null);
   const [depositOpen, setDepositOpen] = useState(false);
   const [depositMovementOpen, setDepositMovementOpen] = useState(false);
@@ -321,6 +323,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
                 setSelectedAdvance(advance);
                 setVoidAdvanceOpen(true);
               }}
+              onViewAdvanceSettlements={(advance) => setSettlementsTarget(advance.id)}
               onVoidOffset={(offset) => setVoidOffsetTarget(offset)}
               onVoidDepositMovement={(movement) => setVoidDepositMovementTarget(movement)}
             />
@@ -503,6 +506,16 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         driverId={driverId}
         advance={selectedAdvance}
       />
+      {settlementsTarget !== null ? (
+        <AdvanceSettlementsSheet
+          open={settlementsTarget !== null}
+          onOpenChange={(open) => {
+            if (!open) setSettlementsTarget(null);
+          }}
+          driverId={driverId}
+          advanceId={settlementsTarget}
+        />
+      ) : null}
       <VoidOffsetSheet
         open={voidOffsetTarget !== null}
         onOpenChange={(open) => {

@@ -12,6 +12,7 @@ export interface DriverActivitySectionsProps {
   view: DriverViewResponse;
   onSettleAdvance?: (advance: DriverViewResponse["advances"][number]) => void;
   onVoidAdvance?: (advance: DriverViewResponse["advances"][number]) => void;
+  onViewAdvanceSettlements?: (advance: DriverViewResponse["advances"][number]) => void;
   onVoidOffset?: (offset: DriverViewOffset) => void;
   onVoidDepositMovement?: (movement: DriverViewDepositMovement) => void;
 }
@@ -92,6 +93,7 @@ export function DriverActivitySections({
   view,
   onSettleAdvance,
   onVoidAdvance,
+  onViewAdvanceSettlements,
   onVoidOffset,
   onVoidDepositMovement,
 }: DriverActivitySectionsProps) {
@@ -188,6 +190,16 @@ export function DriverActivitySections({
                       </button>
                     ) : null}
                   </div>
+                ) : null}
+                {onViewAdvanceSettlements !== undefined ? (
+                  <button
+                    type="button"
+                    className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                    aria-label={`View settlements for the advance from ${formatShortDate(advance.issuedOn)}`}
+                    onClick={() => onViewAdvanceSettlements(advance)}
+                  >
+                    View settlements
+                  </button>
                 ) : null}
               </Card>
             );

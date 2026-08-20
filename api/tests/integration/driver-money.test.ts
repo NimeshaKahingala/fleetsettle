@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { obligation, offsetAllocation } from "../../src/db/schema.js";
-import { mintUser, signAccessToken } from "../support/auth.js";
+import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -122,6 +122,154 @@ describe("driver advances (P4, F-6.3/UC-53)", () => {
   it("401 — missing Authorization header", async () => {
     const res = await post("/api/advance", "", {});
     expect(res.status).toBe(401);
+  });
+});
+
+describe("GET /api/advance/{id}/settlement (GAP-147)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every settlement against this advance, newest first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const issueRes = await post("/api/advance", token, {
+      driverId,
+      amountMinor: "500000",
+      issuedOn: "2026-07-15",
+    });
+    const issued: { id: string } = await issueRes.json();
+    ctx.trackCreatedAdvance(issued.id);
+
+    const firstRes = await post(`/api/advance/${issued.id}/settle`, token, {
+      kind: "spent",
+      amountMinor: "300000",
+      occurredOn: "2026-07-16",
+    });
+    expect(firstRes.status).toBe(200);
+    const secondRes = await post(`/api/advance/${issued.id}/settle`, token, {
+      kind: "returned",
+      amountMinor: "200000",
+      occurredOn: "2026-07-20",
+    });
+    expect(secondRes.status).toBe(200);
+
+    const res = await get(`/api/advance/${issued.id}/settlement`, token);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      advanceId: string;
+      kind: string;
+      amountMinor: string;
+      occurredOn: string;
+      voidedAt: string | null;
+      voidedReason: string | null;
+    }> = await res.json();
+    expect(body).toHaveLength(2);
+    // Newest first — the 20th before the 16th.
+    expect(body[0]).toMatchObject({
+      advanceId: issued.id,
+      kind: "returned",
+      amountMinor: "200000",
+      occurredOn: "2026-07-20",
+      voidedAt: null,
+    });
+    expect(body[1]).toMatchObject({
+      kind: "spent",
+      amountMinor: "300000",
+      occurredOn: "2026-07-16",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("a voided settlement stays in the list, struck through with its reason (W-50)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const issueRes = await post("/api/advance", token, {
+      driverId,
+      amountMinor: "500000",
+      issuedOn: "2026-07-15",
+    });
+    const issued: { id: string } = await issueRes.json();
+    ctx.trackCreatedAdvance(issued.id);
+
+    const settleRes = await post(`/api/advance/${issued.id}/settle`, token, {
+      kind: "spent",
+      amountMinor: "300000",
+      occurredOn: "2026-07-16",
+    });
+    const settled: { settlementId: string } = await settleRes.json();
+
+    const voidRes = await post(
+      `/api/advance/${issued.id}/settlement/${settled.settlementId}/void`,
+      token,
+      { reason: "Entered against the wrong advance" },
+    );
+    expect(voidRes.status).toBe(200);
+
+    const res = await get(`/api/advance/${issued.id}/settlement`, token);
+    const body: Array<{ voidedAt: string | null; voidedReason: string | null }> = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]?.voidedAt).not.toBeNull();
+    expect(body[0]?.voidedReason).toBe("Entered against the wrong advance");
+
+    await ctx.cleanup();
+  });
+
+  it("404 — an advance belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    await ctx.createOpenPeriod(otherBusinessId);
+    const otherDriverId = await ctx.createDriver(otherBusinessId);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const issueRes = await post("/api/advance", otherToken, {
+      driverId: otherDriverId,
+      amountMinor: "100000",
+      issuedOn: "2026-07-15",
+    });
+    const issued: { id: string } = await issueRes.json();
+    ctx.trackCreatedAdvance(issued.id);
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await get(`/api/advance/${issued.id}/settlement`, token);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await get("/api/advance/11111111-1111-4111-8111-111111111111/settlement", "");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot view advance settlements (W-49)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await get("/api/advance/11111111-1111-4111-8111-111111111111/settlement", token);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
   });
 });
 

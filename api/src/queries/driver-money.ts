@@ -153,7 +153,9 @@ export interface AdvanceSettlementRow {
   advanceId: string;
   kind: "spent" | "returned" | "kept_as_fee";
   amountMinor: bigint;
+  occurredOn: string;
   voidedAt: string | null;
+  voidedReason: string | null;
   replacesId: string | null;
 }
 
@@ -169,7 +171,9 @@ export async function findAdvanceSettlementForBusiness(
       advanceId: advanceSettlement.advanceId,
       kind: advanceSettlement.kind,
       amountMinor: advanceSettlement.amountMinor,
+      occurredOn: advanceSettlement.occurredOn,
       voidedAt: advanceSettlement.voidedAt,
+      voidedReason: advanceSettlement.voidedReason,
       replacesId: advanceSettlement.replacesId,
     })
     .from(advanceSettlement)
@@ -178,6 +182,31 @@ export async function findAdvanceSettlementForBusiness(
     )
     .limit(1);
   return rows[0] as AdvanceSettlementRow | undefined;
+}
+
+/** GAP-147: every settlement ever recorded against one advance, newest first — the read a manager needs to find one to void, `dailyOperations` matching the endpoint it exists to serve. */
+export async function listAdvanceSettlementsForAdvance(
+  db: ReadDb,
+  businessId: string,
+  advanceId: string,
+): Promise<AdvanceSettlementRow[]> {
+  const rows = await db
+    .select({
+      id: advanceSettlement.id,
+      advanceId: advanceSettlement.advanceId,
+      kind: advanceSettlement.kind,
+      amountMinor: advanceSettlement.amountMinor,
+      occurredOn: advanceSettlement.occurredOn,
+      voidedAt: advanceSettlement.voidedAt,
+      voidedReason: advanceSettlement.voidedReason,
+      replacesId: advanceSettlement.replacesId,
+    })
+    .from(advanceSettlement)
+    .where(
+      and(eq(advanceSettlement.businessId, businessId), eq(advanceSettlement.advanceId, advanceId)),
+    )
+    .orderBy(desc(advanceSettlement.occurredOn), desc(advanceSettlement.id));
+  return rows as AdvanceSettlementRow[];
 }
 
 /** GAP-12/W-61/INV-36 §3.5: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */

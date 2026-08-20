@@ -1171,3 +1171,42 @@ test("GAP-147: View recoveries opens the recoveries sheet for the right write-of
   expect(await screen.findByText("No recoveries recorded yet.")).toBeInTheDocument();
   expect(get.mock.calls.some((call) => call[0] === "/api/write-off/wo1/recovery")).toBe(true);
 });
+
+test("GAP-147: View settlements opens the settlements sheet for the right advance", async () => {
+  const user = userEvent.setup();
+  const history: DriverViewResponse = {
+    ...emptyHistory,
+    advances: [{ id: "a1", amountMinor: "100000", issuedOn: "2026-08-03", status: "open" }],
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(history);
+    if (path === "/api/advance/a1/settlement") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
+
+  await user.click(
+    await screen.findByRole("button", { name: /View settlements for the advance from 3 Aug 2026/ }),
+  );
+
+  expect(await screen.findByText("No settlements recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/advance/a1/settlement")).toBe(true);
+});
