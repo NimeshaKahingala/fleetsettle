@@ -31,6 +31,7 @@ import { OBLIGATION_KIND_LABEL, OBLIGATION_STATUS_LABEL } from "../../lib/obliga
 import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
+import { VoidObligationSheet } from "./VoidObligationSheet.js";
 import { VoidWriteOffSheet } from "./VoidWriteOffSheet.js";
 import { WriteOffBalanceSheet } from "./WriteOffBalanceSheet.js";
 import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
@@ -93,6 +94,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [recoveryTarget, setRecoveryTarget] = useState<WriteOffListRow | null>(null);
   const [voidWriteOffTarget, setVoidWriteOffTarget] = useState<WriteOffListRow | null>(null);
+  const [voidObligationTarget, setVoidObligationTarget] = useState<string | null>(null);
 
   const customerQuery = useQuery({
     queryKey: ["customer", customerId],
@@ -116,6 +118,13 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
   const canWriteOff =
     selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
+  // GAP-147: `voidObligationHandler` is also `dailyOperations`, the same
+  // capability as `canRecordRecovery` above — kept as its own name since
+  // the two gate unrelated actions that only coincidentally share a
+  // capability today (the anti-pattern the original review flagged in
+  // `canVoidWriteOff`/`canWriteOff` — two names for one check is fine only
+  // when they mean the same thing).
+  const canVoidObligation = selectedRole !== undefined && can(selectedRole, "dailyOperations");
   const writeOffsQuery = useQuery({
     queryKey: ["write-off", "customer", customerId],
     queryFn: () =>
@@ -259,7 +268,10 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               items={dues.map((due) => {
                 const bucket = computeAgeingBucket(due.effectiveDueOn, today);
                 return (
-                  <Card key={due.id} className="flex items-center justify-between gap-4">
+                  <Card
+                    key={due.id}
+                    className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
                     <div>
                       <p className="text-body text-ink-primary">
                         {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
@@ -269,12 +281,28 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                         {OBLIGATION_STATUS_LABEL[due.status] ?? due.status}
                       </p>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Money value={outstandingMinor(due)} />
-                      {/* §7.11: "dues as work queues with due-age chips" */}
-                      <Badge variant={AGEING_BUCKET_VARIANT[bucket]}>
-                        {AGEING_BUCKET_LABEL[bucket]}
-                      </Badge>
+                    <div className="flex flex-col items-end gap-4">
+                      <div className="flex flex-col items-end gap-1">
+                        <Money value={outstandingMinor(due)} />
+                        {/* §7.11: "dues as work queues with due-age chips" */}
+                        <Badge variant={AGEING_BUCKET_VARIANT[bucket]}>
+                          {AGEING_BUCKET_LABEL[bucket]}
+                        </Badge>
+                      </div>
+                      {/* GAP-147/INV-36 §3.10: post_closure_charge is the
+                          only obligation kind raised directly, so it is the
+                          only one voidable directly — every other kind
+                          corrects at its own source (close the lease, void
+                          the day, cancel the trip). */}
+                      {canVoidObligation && due.kind === "post_closure_charge" ? (
+                        <button
+                          type="button"
+                          onClick={() => setVoidObligationTarget(due.id)}
+                          className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                        >
+                          Void charge
+                        </button>
+                      ) : null}
                     </div>
                   </Card>
                 );
@@ -409,6 +437,14 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               party={{ type: "customer", id: customerId }}
             />
           ) : null}
+          <VoidObligationSheet
+            open={voidObligationTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setVoidObligationTarget(null);
+            }}
+            customerId={customerId}
+            obligationId={voidObligationTarget}
+          />
           <ActionSheet
             open={actionsOpen}
             onOpenChange={setActionsOpen}

@@ -492,3 +492,50 @@ test("GAP-155: a manager sees the write-off section and can record a recovery, b
   // by GAP-155, which only widened who can see, not who can void.
   expect(screen.queryByRole("button", { name: "Void write-off" })).not.toBeInTheDocument();
 });
+
+test("GAP-147: a manager can void a post-closure charge, but not an ordinary rent due", async () => {
+  const user = userEvent.setup();
+  const charge: LeaseObligationRow = {
+    id: "o2",
+    kind: "post_closure_charge",
+    dueOn: "2026-08-15",
+    effectiveDueOn: "2026-08-15",
+    amountMinor: "50000",
+    settledMinor: "0",
+    waivedMinor: "0",
+    status: "pending",
+  };
+  const post = vi.fn().mockResolvedValue({ voidedAt: "2026-08-20T00:00:00.000Z" });
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([due, charge]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get, post },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByText("Outstanding dues · 2")).toBeInTheDocument();
+  const voidButtons = screen.getAllByRole("button", { name: "Void charge" });
+  // Exactly one: the post_closure_charge row, never the ordinary rent due
+  // (INV-36 §3.10 -- every other kind corrects at its own source).
+  expect(voidButtons).toHaveLength(1);
+
+  await user.click(voidButtons[0] as HTMLElement);
+  await user.type(screen.getByLabelText("Reason"), "Entered against the wrong lease");
+  const submitButtons = screen.getAllByRole("button", { name: "Void charge" });
+  const submit = submitButtons.at(-1);
+  if (submit === undefined) throw new Error("expected void submit button");
+  await user.click(submit);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/obligation/o2/void", {
+      reason: "Entered against the wrong lease",
+    }),
+  );
+});
