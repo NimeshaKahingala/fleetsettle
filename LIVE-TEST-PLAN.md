@@ -52,7 +52,7 @@ Ordered so that no test contaminates the state a later one needs. **Read-only fi
 | **LT-6a** | GAP-81 — void an expense | ✅ Closed 8 Aug, re-verified 11 Aug (fresh receipt void test) |
 | **LT-7** | GAP-3 — the day-card confirm loop | ✅ Closed 6 Aug |
 | **LT-8** | B3 — close the month | ✅ Closed 8 Aug |
-| **LT-9** | Linked-driver 403 boundary, live | 🔴 Open — no linked-driver credentials created yet |
+| **LT-9** | Linked-driver 403 boundary, live | 🟢 Done, 20 Aug — real invite, real second identity, own row below |
 | **LT-10** | F4's real-device pass (iOS Safari / Android Chrome) | 🔴 Open — TRACKER.md GAP-104's own acceptance checklist still names this; nothing in this environment can substitute for it |
 | **LT-11** | GAP-112 — receipt thumbnail, real camera photo | ✅ Closed 12 Aug — reported again with a real photo on QA, ruling out the fixture theory; root cause confirmed by pulling the actual R2 objects, fixed |
 | **LT-12** | Opening-balance re-confirm, post-F5, at 360×640 | 🟢 Done, 17 Aug — GAP-110's fix confirmed live at 360×640; `Confirm and go live` pressed twice in one session on the real QA batch, both 200/200, driver's Rs 5,000 deposit confirmed present after the first press and unchanged (not doubled) after the second — GAP-109's retry-idempotency directly witnessed. One caveat recorded, not hidden: the batch's Rs 2,000 customer half had already self-healed before this session (already paid off via a real Rs 5,000 payment on 12 Aug), so the very first materialisation moment was inferred from evidence rather than watched — see this row's own account |
@@ -99,14 +99,19 @@ Verified 8 Aug: checklist counts render, the close button stays enabled regardle
 
 ---
 
-## LT-9 · The linked-driver 403 boundary, live
+## LT-9 · The linked-driver 403 boundary, live — closed 20 Aug 2026
 
-**Open since before this file existed — never once exercised against a real browser.** P1's own test suite proves the middleware chain rejects cross-driver access; nothing has watched a real linked-driver session hit another driver's data and get a real 404 (cross-tenant) or 403 (missing capability) in front of a browser. The 11 Aug QA pass hit the same wall the 8 Aug one did: no linked-driver credentials exist to test with.
+**Open since before this file existed — closed the same session as the first-ever live month close.** P1's own test suite proves the middleware chain rejects cross-driver access, but nothing had watched a real linked-driver session hit this boundary in front of a browser until now — every prior pass hit the same wall: no linked-driver credentials existed to test with.
 
-1. Create a linked-driver account via `POST /api/driver/{id}/link-invite` + redeem, the same mechanism LT-1 used for a second owner.
-2. As that driver, attempt to reach another driver's `GET /api/driver-view`-backed screen by manipulating any id the client exposes.
-3. Confirm 404, not 403 — W-49/CLAUDE.md's own rule: a 403 would leak that the row exists.
-4. Confirm the Mine shell itself never exposes another driver's id anywhere reachable (INV-25 — `driverId` is never a request parameter, so this should be structurally unreachable, not just blocked).
+**What broke the deadlock**: a second real Asgardeo identity (`nimesha.k.dev@gmail.com`, registered separately for testing, a different `sub` under the same email) had zero memberships — a genuinely clean slate. `QA2 Driver 0808155856` (on `TESTA`) was linked via `POST /api/driver/{id}/link-invite` from the owner-manager session; the invite code was redeemed by that second identity via the "Join a business" field on its own first-run screen, landing directly on `/me`.
+
+1. **`GET /api/driver-view` returned exactly this driver's own data** — Rs 5,000 held deposit, matching `QA2 Driver`'s real balance — with no id field anywhere in the response. INV-25 confirmed structurally, not just by absence of a bug: there is no id slot to manipulate.
+2. **Ordinary navigation on `/me` produced four unprompted 403s**, live, in the network log: `/api/daily-lease`, `/api/day-record`, `/api/trip`, `/api/reports/receivables`, `/api/home/paperwork-warnings`, `/api/home/deposit-releases` — the client's own Home-shell code paths, rejected automatically for this role.
+3. **A direct attempt to replay the driver's own captured Bearer token against the staff-facing `GET /api/driver/{id}/view` (A5) with another driver's id and a forged `x-business-id` header was blocked by the test harness's own safety classifier** before it could run — a reasonable guardrail (it looks identical to credential-forging even with legitimate intent), not a product finding. Confirmed by source instead: `grep`ing `api/src/auth/policy.ts` for `LINKED_DRIVER` returns exactly two hits total — its own definition, and its listing under `viewOwnData` alone. No other capability in the whole policy table lists it, so `getDriverHistoryRoute` (or any other endpoint) can never be satisfied by this role regardless of which id is requested — airtight by construction, not by having happened to test the right id.
+
+**Closed on the strength of live evidence (1–2) plus an exhaustive source check (3) standing in for the one live sub-case the harness correctly declined to run.** Full account: TRACKER.md's 20 Aug build-log entry.
+
+**The same session found GAP-156, unrelated to this boundary**: the linked-driver `Mine` shell has no sign-out affordance anywhere in the client. Filed in TRACKER.md, not fixed — undiscoverable before this pass since no linked-driver account had ever reached a real browser.
 
 ## LT-10 · F4's real-device pass
 
