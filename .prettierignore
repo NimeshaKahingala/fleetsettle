@@ -11,6 +11,12 @@ coverage/
 .wrangler/
 package-lock.json
 
+# GitNexus's local knowledge-graph cache — machine-local (excluded via
+# .git/info/exclude, not committed to .gitignore), so it exists on some
+# contributors' checkouts and not others'. Formatting its generated JSON
+# would be noise even where it exists.
+.gitnexus/
+
 # Hand-authored on an integer grid — reformatting moves the coordinates around
 # and makes a geometry change indistinguishable from a whitespace change.
 *.svg
