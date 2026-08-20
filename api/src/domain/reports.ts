@@ -4,7 +4,7 @@ import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js"
 import {
   countAllocatedDaysForVehicle,
   countEarningDaysForVehicle,
-  findOwnershipSharesAsOf,
+  findOwnershipSharesAsOfBulk,
   findPartyNames,
   findPeriodBoundaries,
   listAdvancesOutstandingByDriver,
@@ -24,13 +24,15 @@ import {
   sumGoodwillGiven,
   sumOverheadsForDateRange,
   sumOverheadsForPeriod,
-  sumVehicleCostsForDateRange,
-  sumVehicleCostsForPeriod,
+  sumVehicleCostsForDateRangeBulk,
+  sumVehicleCostsForPeriodBulk,
   sumVehicleEarnedForDateRange,
-  sumVehicleEarnedForPeriod,
+  sumVehicleEarnedForDateRangeBulk,
+  sumVehicleEarnedForPeriodBulk,
   type AgeingRow,
   type GoodwillByTypeRow,
   type OffRoadRangeRow,
+  type OwnershipShareRow,
   type ReceivableRow,
   type TransactionRow,
 } from "../queries/reports.js";
@@ -84,24 +86,33 @@ export interface VehicleMonthReport {
   vehicles: VehicleMonthRow[];
 }
 
-/** Shared by `computeVehicleMonthRow` and `computeVehicleYearRow` (GAP-18) — the ownership-share split is identical for both, effective-dated `asOf` the report window's own end (INV-16) either way. */
-async function computeOwnerShares(
-  db: ReadDb,
-  businessId: string,
-  vehicleId: string,
-  asOf: string,
-  profitMinor: bigint,
-): Promise<VehicleMonthOwnerShare[]> {
-  const shares = await findOwnershipSharesAsOf(db, vehicleId, asOf);
-  if (shares.length === 0) return [];
+/**
+ * GAP-145: reads one vehicle's own figure out of a bulk-query result — the
+ * maps `sumVehicleEarnedForPeriodBulk` and friends return are always
+ * pre-seeded with `0n` for every vehicle id in the same set being iterated
+ * here, so a missing key would be a real bug, not a legitimate absence.
+ * W-56's "not available" already lives inside the bulk query itself (a
+ * genuine `0n` for a vehicle with no matching rows), not in this read —
+ * exported for `sumAllTimeEarnedForUser` (partner.ts), which reads the
+ * same shape of map.
+ */
+export function readBulkMinor(map: Map<string, bigint>, vehicleId: string): bigint {
+  // eslint-disable-next-line no-restricted-syntax -- allow: see this function's own doc comment — every map read here is pre-seeded with 0n for every legal id
+  return map.get(vehicleId) ?? 0n;
+}
 
-  const names = await findPartyNames(
-    db,
-    businessId,
-    [],
-    [],
-    shares.map((s) => s.userId),
-  );
+/**
+ * GAP-145: the pure, in-memory tail of the old per-vehicle `computeOwnerShares`
+ * — the split arithmetic and name lookup, now taking data the caller has
+ * already fetched in bulk rather than querying for one vehicle at a time.
+ * Shared by `getVehicleMonthReport` and `getVehicleYearReport`.
+ */
+function buildOwnerShares(
+  shares: OwnershipShareRow[],
+  names: Awaited<ReturnType<typeof findPartyNames>>,
+  profitMinor: bigint,
+): VehicleMonthOwnerShare[] {
+  if (shares.length === 0) return [];
   const splitAmounts = splitInteger(
     profitMinor,
     shares.map((s) => BigInt(s.shareBp)),
@@ -112,28 +123,6 @@ async function computeOwnerShares(
     shareBp: s.shareBp,
     profitShareMinor: splitAmounts[i] as bigint,
   }));
-}
-
-async function computeVehicleMonthRow(
-  db: ReadDb,
-  businessId: string,
-  vehicle: VehicleRow,
-  periodId: string,
-  periodEnd: string,
-): Promise<VehicleMonthRow> {
-  const earnedMinor = await sumVehicleEarnedForPeriod(db, vehicle.id, periodId);
-  const costsMinor = await sumVehicleCostsForPeriod(db, vehicle.id, periodId);
-  const profitMinor = earnedMinor - costsMinor;
-  const ownerShares = await computeOwnerShares(db, businessId, vehicle.id, periodEnd, profitMinor);
-
-  return {
-    vehicleId: vehicle.id,
-    registration: vehicle.registration,
-    earnedMinor,
-    costsMinor,
-    profitMinor,
-    ownerShares,
-  };
 }
 
 /**
@@ -148,6 +137,15 @@ async function computeVehicleMonthRow(
  * belong here is the handler's job, never this function's** — this stays a
  * plain filter over an already-decided set, so a future caller can never
  * silently inherit a role-lookup this function was never meant to make.
+ *
+ * GAP-145: earned, costs and ownership shares are each fetched once for the
+ * *whole* vehicle set (three grouped queries) rather than once per vehicle
+ * — the direct cause of `GET /api/partner/{userId}`'s live 500, which calls
+ * this once per accounting period and hit Workers Free's 50-subrequest
+ * ceiling at 79 for one six-vehicle business. Party names are resolved once
+ * too, over every owner across every vehicle in the set, not once per
+ * vehicle. Six queries total regardless of fleet size, not `3 + 5 ×
+ * vehicles`.
  */
 export async function getVehicleMonthReport(
   db: ReadDb,
@@ -171,9 +169,30 @@ export async function getVehicleMonthReport(
     vehicles = allowedVehicleIds ? all.filter((v) => allowedVehicleIds.includes(v.id)) : all;
   }
 
-  const rows = await Promise.all(
-    vehicles.map((v) => computeVehicleMonthRow(db, businessId, v, periodId, period.periodEnd)),
-  );
+  const vehicleIds = vehicles.map((v) => v.id);
+  const [earnedByVehicle, costsByVehicle, sharesByVehicle] = await Promise.all([
+    sumVehicleEarnedForPeriodBulk(db, vehicleIds, periodId),
+    sumVehicleCostsForPeriodBulk(db, vehicleIds, periodId),
+    findOwnershipSharesAsOfBulk(db, vehicleIds, period.periodEnd),
+  ]);
+
+  const allOwnerUserIds = [...new Set([...sharesByVehicle.values()].flat().map((s) => s.userId))];
+  const names = await findPartyNames(db, businessId, [], [], allOwnerUserIds);
+
+  const rows: VehicleMonthRow[] = vehicles.map((v) => {
+    const earnedMinor = readBulkMinor(earnedByVehicle, v.id);
+    const costsMinor = readBulkMinor(costsByVehicle, v.id);
+    const profitMinor = earnedMinor - costsMinor;
+    const ownerShares = buildOwnerShares(sharesByVehicle.get(v.id) ?? [], names, profitMinor);
+    return {
+      vehicleId: v.id,
+      registration: v.registration,
+      earnedMinor,
+      costsMinor,
+      profitMinor,
+      ownerShares,
+    };
+  });
 
   return {
     period: { id: periodId, periodStart: period.periodStart, periodEnd: period.periodEnd },
@@ -210,29 +229,6 @@ export interface VehicleYearReport {
   overheadsMinor: bigint;
 }
 
-/** `computeVehicleMonthRow`'s own shape, keyed by a date window instead of a period — ownership shares as of the window's own end (INV-16), the same "as of" reading the month row already uses, via the shared `computeOwnerShares`. */
-async function computeVehicleYearRow(
-  db: ReadDb,
-  businessId: string,
-  vehicle: VehicleRow,
-  from: string,
-  to: string,
-): Promise<VehicleYearRow> {
-  const earnedMinor = await sumVehicleEarnedForDateRange(db, vehicle.id, from, to);
-  const costsMinor = await sumVehicleCostsForDateRange(db, vehicle.id, from, to);
-  const profitMinor = earnedMinor - costsMinor;
-  const ownerShares = await computeOwnerShares(db, businessId, vehicle.id, to, profitMinor);
-
-  return {
-    vehicleId: vehicle.id,
-    registration: vehicle.registration,
-    earnedMinor,
-    costsMinor,
-    profitMinor,
-    ownerShares,
-  };
-}
-
 /**
  * GAP-18/UC-73: "as UC-70, with overheads (UC-66) stated beneath vehicle
  * profit, never spread across it" — one report, per-vehicle earned/costs/
@@ -245,6 +241,11 @@ async function computeVehicleYearRow(
  * owner-manager" — narrower than UC-70's manager-inclusive audience), so
  * unlike `getVehicleMonthReport` this never takes a manager's restricted
  * vehicle set.
+ *
+ * GAP-145: `getVehicleMonthReport`'s own batching — earned, costs and
+ * ownership shares each fetched once for the whole vehicle set via the same
+ * bulk queries, ownership shares "as of" the window's own end (INV-16),
+ * the same reading the month report already uses.
  */
 export async function getVehicleYearReport(
   db: ReadDb,
@@ -260,10 +261,31 @@ export async function getVehicleYearReport(
     vehicles = await listVehiclesForBusiness(db, businessId);
   }
 
-  const [rows, overheadsMinor] = await Promise.all([
-    Promise.all(vehicles.map((v) => computeVehicleYearRow(db, businessId, v, from, to))),
+  const vehicleIds = vehicles.map((v) => v.id);
+  const [earnedByVehicle, costsByVehicle, sharesByVehicle, overheadsMinor] = await Promise.all([
+    sumVehicleEarnedForDateRangeBulk(db, vehicleIds, from, to),
+    sumVehicleCostsForDateRangeBulk(db, vehicleIds, from, to),
+    findOwnershipSharesAsOfBulk(db, vehicleIds, to),
     sumOverheadsForDateRange(db, businessId, from, to),
   ]);
+
+  const allOwnerUserIds = [...new Set([...sharesByVehicle.values()].flat().map((s) => s.userId))];
+  const names = await findPartyNames(db, businessId, [], [], allOwnerUserIds);
+
+  const rows: VehicleYearRow[] = vehicles.map((v) => {
+    const earnedMinor = readBulkMinor(earnedByVehicle, v.id);
+    const costsMinor = readBulkMinor(costsByVehicle, v.id);
+    const profitMinor = earnedMinor - costsMinor;
+    const ownerShares = buildOwnerShares(sharesByVehicle.get(v.id) ?? [], names, profitMinor);
+    return {
+      vehicleId: v.id,
+      registration: v.registration,
+      earnedMinor,
+      costsMinor,
+      profitMinor,
+      ownerShares,
+    };
+  });
 
   return { from, to, vehicles: rows, overheadsMinor };
 }

@@ -644,6 +644,39 @@ export async function sumManagementFeeAsOfDate(
   return rows.reduce((sum, row) => sum + row.monthlyAmountMinor, 0n);
 }
 
+export interface ManagementFeeAgreementHistoryRow {
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  monthlyAmountMinor: bigint;
+}
+
+/**
+ * GAP-145: `sumManagementFeeAsOfDate`'s own filter, minus `asOfDate` — every
+ * agreement this manager has ever held in this business, one query, for
+ * `sumAllTimeEarnedForUser` to evaluate per period in memory rather than
+ * calling `sumManagementFeeAsOfDate` once per accounting period.
+ */
+export async function listManagementFeeAgreementHistoryForManager(
+  db: ReadDb,
+  businessId: string,
+  managerUserId: string,
+): Promise<ManagementFeeAgreementHistoryRow[]> {
+  return db
+    .select({
+      effectiveFrom: managementFeeAgreement.effectiveFrom,
+      effectiveTo: managementFeeAgreement.effectiveTo,
+      monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor,
+    })
+    .from(managementFeeAgreement)
+    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .where(
+      and(
+        eq(vehicle.businessId, businessId),
+        eq(managementFeeAgreement.managerUserId, managerUserId),
+      ),
+    );
+}
+
 export interface ManagementFeeAgreementForGeneration {
   id: string;
   vehicleId: string;
