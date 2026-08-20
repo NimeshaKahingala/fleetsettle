@@ -18,7 +18,7 @@
  *   const pct = Number(raw);  // allow: mileage percentage, not money
  */
 
-import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { readFileSync, existsSync, readdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { execSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 
@@ -26,6 +26,18 @@ const ROOT = resolve(import.meta.dirname, "..");
 const args = process.argv.slice(2);
 const asJson = args.includes("--json");
 const explicit = args.filter((a) => !a.startsWith("--"));
+
+/**
+ * REV-2026-08-19-04: every regex below that anchors on `$` (`code()`'s own
+ * comment strip, chief among them) silently fails on a CRLF line — `.` never
+ * matches `\r`, so the match fails outright and `.replace()` hands back the
+ * original, comment intact. Normalised once, here, at the one place every
+ * caller in this file reads a file — not by patching each regex separately,
+ * which is exactly the kind of fix that leaves the next one unpatched.
+ */
+function readText(path) {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
 
 /** Files that legitimately contain the patterns they describe. */
 const NEVER_SCAN = [
@@ -206,7 +218,7 @@ function scan(path) {
 
   let lines;
   try {
-    lines = readFileSync(abs, "utf8").split("\n");
+    lines = readText(abs).split("\n");
   } catch {
     return findings; // binary, unreadable — not our business
   }
@@ -380,7 +392,7 @@ function checkQueryErrorHandling(paths) {
     if (!existsSync(abs)) continue;
     let text;
     try {
-      text = readFileSync(abs, "utf8");
+      text = readText(abs);
     } catch {
       continue; // binary, unreadable — not our business
     }
@@ -445,7 +457,7 @@ function checkVoidTableFilter(paths) {
     if (!existsSync(abs)) continue;
     let text;
     try {
-      text = readFileSync(abs, "utf8");
+      text = readText(abs);
     } catch {
       continue; // binary, unreadable — not our business
     }
@@ -543,7 +555,7 @@ function checkPlatformQueryImports(paths) {
     if (!existsSync(abs)) continue;
     let text;
     try {
-      text = readFileSync(abs, "utf8");
+      text = readText(abs);
     } catch {
       continue; // binary, unreadable — not our business
     }
@@ -578,7 +590,7 @@ function checkRequired() {
     .find(existsSync);
 
   if (wrangler) {
-    const text = readFileSync(wrangler, "utf8");
+    const text = readText(wrangler);
     if (!/workers_dev["\s]*[:=]\s*false/.test(text)) {
       findings.push({
         file: relative(ROOT, wrangler),
@@ -608,6 +620,68 @@ function checkRequired() {
   }
   return findings;
 }
+
+// ── Self-test ────────────────────────────────────────────────────────────────
+
+/**
+ * REV-2026-08-19-04's own regression: `code()`'s comment strip failed
+ * silently on CRLF, and nothing in this file would have caught that failing
+ * itself. No vitest project reaches a root-level script (IG §8.1's two
+ * projects are both under api/), so the check lives here instead — run
+ * directly (`node scripts/check-forbidden.mjs --self-test`) and from CI.
+ */
+function selfTest() {
+  const failures = [];
+
+  const codeCases = [
+    ["-- a plain comment", "x.sql", ""],
+    ["SELECT 1; -- trailing comment", "x.sql", "SELECT 1; "],
+    ["const x = 1; // trailing comment", "x.ts", "const x = 1; "],
+    ["not a comment at all", "x.sql", "not a comment at all"],
+  ];
+  for (const [line, path, expected] of codeCases) {
+    const got = code(line, path);
+    if (got !== expected) {
+      failures.push(
+        `code(${JSON.stringify(line)}, ${JSON.stringify(path)}) -> ${JSON.stringify(got)}, expected ${JSON.stringify(expected)}`,
+      );
+    }
+  }
+
+  // The regression itself: readText must collapse CRLF before anything
+  // downstream (code(), or any $-anchored rule pattern) ever sees a line.
+  const crlfFile = resolve(ROOT, `.self-test-crlf-${process.pid}.tmp`);
+  try {
+    const crlfContents = ["-- a comment about money", "SELECT 1;", ""].join("\r\n");
+    writeFileSync(crlfFile, crlfContents, "utf8");
+    const lines = readText(crlfFile).split("\n");
+    if (lines.some((l) => l.includes("\r"))) {
+      failures.push(`readText() left a \\r in: ${JSON.stringify(lines)}`);
+    }
+    const stripped = code(lines[0], "x.sql");
+    if (stripped !== "") {
+      failures.push(
+        `code() on a readText()-normalised CRLF comment line -> ${JSON.stringify(stripped)}, expected ""`,
+      );
+    }
+  } finally {
+    try {
+      unlinkSync(crlfFile);
+    } catch {
+      // best-effort cleanup
+    }
+  }
+
+  if (failures.length) {
+    console.error("check-forbidden.mjs self-test FAILED:");
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  console.log("check-forbidden.mjs self-test: clean");
+  process.exit(0);
+}
+
+if (args.includes("--self-test")) selfTest();
 
 // ── Report ───────────────────────────────────────────────────────────────────
 
