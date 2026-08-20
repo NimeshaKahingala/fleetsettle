@@ -7,19 +7,27 @@ import {
   type BusinessDate,
 } from "@fleetsettle/shared";
 import type {
+  SessionResponse,
   VehicleCalendarDay,
   VehicleResponse,
   VehicleUnavailabilityListResponse,
 } from "@fleetsettle/shared/schemas";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
+import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
+import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { can } from "../../lib/capabilities.js";
 import { cn } from "../../lib/cn.js";
+import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { VEHICLE_UNAVAILABILITY_REASON_LABEL } from "../../lib/vehicleUnavailabilityReasonLabel.js";
+import { MarkVehicleUnavailableSheet } from "./MarkVehicleUnavailableSheet.js";
+import { VoidVehicleUnavailabilitySheet } from "./VoidVehicleUnavailabilitySheet.js";
 
 export interface VehicleCalendarScreenProps {
   vehicleId: string;
@@ -120,6 +128,14 @@ function formatMonthLabel(date: BusinessDate): string {
   );
 }
 
+function formatShortDate(date: string): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00`));
+}
+
 /**
  * F-1.5/UC-95, UI §7.6 — "the one screen that justifies a custom date
  * component." A month grid, one state per day, colour plus glyph so it
@@ -141,7 +157,17 @@ export function VehicleCalendarScreen({
   onSelectFreeDayForTrip,
 }: VehicleCalendarScreenProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const [monthAnchor, setMonthAnchor] = useState(today);
+  const [markUnavailableOpen, setMarkUnavailableOpen] = useState(false);
+  const [voidUnavailabilityTarget, setVoidUnavailabilityTarget] = useState<string | null>(null);
+
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  // GAP-26/GAP-147: markVehicleUnavailableHandler/voidVehicleUnavailabilityHandler
+  // are both dailyOperations, the same gate listVehicleUnavailabilityHandler
+  // (this screen's own read) already uses.
+  const canMarkUnavailable = selectedRole !== undefined && can(selectedRole, "dailyOperations");
 
   const from = monthStart(monthAnchor);
   const to = monthEnd(monthAnchor);
@@ -196,7 +222,18 @@ export function VehicleCalendarScreen({
         : null;
 
   return (
-    <Screen title={vehicle?.registration ?? "Calendar"} onBack={onBack}>
+    <Screen
+      title={vehicle?.registration ?? "Calendar"}
+      onBack={onBack}
+      {...(canMarkUnavailable
+        ? {
+            primaryAction: {
+              label: "Mark unavailable",
+              onClick: () => setMarkUnavailableOpen(true),
+            },
+          }
+        : {})}
+    >
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <Button
@@ -327,9 +364,55 @@ export function VehicleCalendarScreen({
                 label="Off the road"
               />
             </div>
+
+            {canMarkUnavailable && unavailability.length > 0 ? (
+              <Section
+                title="Unavailable periods"
+                count={unavailability.length}
+                items={unavailability.map((period) => (
+                  <Card
+                    key={period.id}
+                    className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <div>
+                      <p className="text-body text-ink-primary">
+                        {VEHICLE_UNAVAILABILITY_REASON_LABEL[period.reason] ?? period.reason}
+                      </p>
+                      <p className="text-caption text-ink-muted">
+                        {formatShortDate(period.unavailableFrom)} –{" "}
+                        {period.unavailableTo !== null
+                          ? formatShortDate(period.unavailableTo)
+                          : "ongoing"}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setVoidUnavailabilityTarget(period.id)}
+                      className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                    >
+                      Void period
+                    </button>
+                  </Card>
+                ))}
+              />
+            ) : null}
           </>
         )}
       </div>
+      <MarkVehicleUnavailableSheet
+        open={markUnavailableOpen}
+        onOpenChange={setMarkUnavailableOpen}
+        vehicleId={vehicleId}
+        today={today}
+      />
+      <VoidVehicleUnavailabilitySheet
+        open={voidUnavailabilityTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setVoidUnavailabilityTarget(null);
+        }}
+        vehicleId={vehicleId}
+        unavailabilityId={voidUnavailabilityTarget}
+      />
     </Screen>
   );
 }

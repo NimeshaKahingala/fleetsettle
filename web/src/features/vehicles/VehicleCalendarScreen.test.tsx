@@ -475,3 +475,79 @@ test("GAP-26: a failed outage read shows a failure notice, the same guard a fail
   ).toBeInTheDocument();
   expect(screen.queryByTestId(`day-${today}`)).not.toBeInTheDocument();
 });
+
+const manager = { userId: "u1", businessId: "b1", role: "manager" as const };
+
+test("GAP-147: a manager can mark a vehicle unavailable", async () => {
+  const user = userEvent.setup();
+  const get = baseGet([]);
+  const post = vi.fn().mockResolvedValue({
+    id: "u2",
+    vehicleId: "v1",
+    reason: "service",
+    unavailableFrom: today,
+    unavailableTo: null,
+    note: null,
+  });
+  renderWithProviders(
+    <VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />,
+    { get, post },
+    undefined,
+    manager,
+  );
+
+  await screen.findByText("July 2026");
+  await user.click(screen.getByRole("button", { name: "Mark unavailable" }));
+  await user.click(screen.getByRole("button", { name: "Service" }));
+  const submitButtons = screen.getAllByRole("button", { name: "Mark unavailable" });
+  const submit = submitButtons.at(-1);
+  if (submit === undefined) throw new Error("expected submit button");
+  await user.click(submit);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/vehicle/v1/unavailability",
+      expect.objectContaining({ reason: "service", unavailableFrom: today }),
+    ),
+  );
+  // ongoing (checked by default) omits unavailableTo entirely
+  const [, body] = post.mock.calls[0] as [string, Record<string, unknown>];
+  expect(body).not.toHaveProperty("unavailableTo");
+});
+
+test("GAP-147: a manager can void an unavailable period, and it drops off the list once voided_at IS NULL excludes it", async () => {
+  const user = userEvent.setup();
+  const unavailability: VehicleUnavailabilityListResponse = [
+    {
+      id: "u1",
+      vehicleId: "v1",
+      reason: "sale_preparation",
+      unavailableFrom: "2026-07-10",
+      unavailableTo: "2026-07-20",
+      note: null,
+    },
+  ];
+  const get = baseGet([], vehicle, unavailability);
+  const post = vi.fn().mockResolvedValue({ voidedAt: "2026-07-15T00:00:00.000Z" });
+  renderWithProviders(
+    <VehicleCalendarScreen vehicleId="v1" today={today} onBack={() => {}} />,
+    { get, post },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByText("Unavailable periods · 1")).toBeInTheDocument();
+  expect(screen.getByText("Sale prep")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Void period" }));
+  await user.type(screen.getByLabelText("Reason"), "Vehicle was actually available");
+  const submitButtons = screen.getAllByRole("button", { name: "Void period" });
+  const submit = submitButtons.at(-1);
+  if (submit === undefined) throw new Error("expected submit button");
+  await user.click(submit);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/unavailability/u1/void", {
+      reason: "Vehicle was actually available",
+    }),
+  );
+});
