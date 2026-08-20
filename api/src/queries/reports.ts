@@ -39,6 +39,51 @@ function addToBigIntMap(map: Map<string, bigint>, key: string, amount: bigint): 
   map.set(key, (map.get(key) ?? 0n) + amount);
 }
 
+/** GAP-145: `new Map(ids.map((id) => [id, 0n]))`, named — every bulk-sum function below starts from this, so a missing id downstream is always a real bug, never a legitimate absence (`addToBigIntMap`'s own comment). */
+function zeroSeededMap(ids: string[]): Map<string, bigint> {
+  return new Map(ids.map((id) => [id, 0n]));
+}
+
+interface VehicleTotalRow {
+  vehicleId: string | null;
+  total: string;
+}
+
+/**
+ * GAP-145: the one "fold a `GROUP BY vehicle_id` query's rows into a
+ * pre-seeded map" step every single-dimension bulk sum shares —
+ * `sumVehicleEarnedForPeriodBulk`/`CostsForPeriodBulk`/`EarnedForDateRangeBulk`/
+ * `CostsForDateRangeBulk` each run this twice, once per source table. A
+ * `NULL` `vehicleId` only happens on `obligation`'s own overhead rows,
+ * already excluded by every caller's `inArray(vehicleId, vehicleIds)` —
+ * checked here once rather than once per call site.
+ */
+function foldIntoBigIntMap(map: Map<string, bigint>, rows: VehicleTotalRow[]): void {
+  for (const r of rows) {
+    if (r.vehicleId === null) continue;
+    addToBigIntMap(map, r.vehicleId, BigInt(r.total));
+  }
+}
+
+interface VehiclePeriodTotalRow {
+  vehicleId: string | null;
+  periodId: string | null;
+  total: string;
+}
+
+/** `foldIntoBigIntMap`'s own shape, one level deeper — for `sumVehicleEarnedForPeriodsBulk`/`CostsForPeriodsBulk`, whose maps are keyed by period first. A row naming a period this map was never seeded for (should not happen — every caller seeds from the exact `periodIds` its own query filters on) is silently skipped rather than thrown, the same "trust the seed, don't invent a bucket for it" reasoning `addToBigIntMap` already carries. */
+function foldIntoNestedBigIntMap(
+  map: Map<string, Map<string, bigint>>,
+  rows: VehiclePeriodTotalRow[],
+): void {
+  for (const r of rows) {
+    if (r.vehicleId === null || r.periodId === null) continue;
+    const byVehicle = map.get(r.periodId);
+    if (!byVehicle) continue;
+    addToBigIntMap(byVehicle, r.vehicleId, BigInt(r.total));
+  }
+}
+
 /** UC-70/DM §15: "everything recognised in the accounting period" (W-40) — rent, the daily amount, and mileage excess all live on `obligation`; trip income is recognised at closing (W-41), never on `obligation`. */
 export async function sumVehicleEarnedForPeriod(
   db: ReadDb,
@@ -91,7 +136,7 @@ export async function sumVehicleEarnedForPeriodBulk(
   vehicleIds: string[],
   periodId: string,
 ): Promise<Map<string, bigint>> {
-  const out = new Map<string, bigint>(vehicleIds.map((id) => [id, 0n]));
+  const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
   const obligationRows = await db
@@ -122,14 +167,8 @@ export async function sumVehicleEarnedForPeriodBulk(
     )
     .groupBy(trip.vehicleId);
 
-  for (const r of obligationRows) {
-    // inArray(obligation.vehicleId, vehicleIds) never matches NULL, so every row here already has a real vehicleId seeded into `out` — the guard is TypeScript's, not a real runtime case.
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
-  for (const r of tripRows) {
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
+  foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, tripRows);
   return out;
 }
 
@@ -147,17 +186,8 @@ export async function sumVehicleEarnedForPeriodsBulk(
   vehicleIds: string[],
   periodIds: string[],
 ): Promise<Map<string, Map<string, bigint>>> {
-  const out = new Map<string, Map<string, bigint>>(
-    periodIds.map((pid) => [pid, new Map(vehicleIds.map((vid) => [vid, 0n]))]),
-  );
+  const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
   if (vehicleIds.length === 0 || periodIds.length === 0) return out;
-
-  const add = (vehicleId: string | null, periodId: string | null, amount: bigint) => {
-    if (vehicleId === null || periodId === null) return;
-    const byVehicle = out.get(periodId);
-    if (!byVehicle) return;
-    addToBigIntMap(byVehicle, vehicleId, amount);
-  };
 
   const obligationRows = await db
     .select({
@@ -192,8 +222,8 @@ export async function sumVehicleEarnedForPeriodsBulk(
     )
     .groupBy(trip.vehicleId, trip.postedPeriodId);
 
-  for (const r of obligationRows) add(r.vehicleId, r.periodId, BigInt(r.total));
-  for (const r of tripRows) add(r.vehicleId, r.periodId, BigInt(r.total));
+  foldIntoNestedBigIntMap(out, obligationRows);
+  foldIntoNestedBigIntMap(out, tripRows);
   return out;
 }
 
@@ -203,17 +233,8 @@ export async function sumVehicleCostsForPeriodsBulk(
   vehicleIds: string[],
   periodIds: string[],
 ): Promise<Map<string, Map<string, bigint>>> {
-  const out = new Map<string, Map<string, bigint>>(
-    periodIds.map((pid) => [pid, new Map(vehicleIds.map((vid) => [vid, 0n]))]),
-  );
+  const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
   if (vehicleIds.length === 0 || periodIds.length === 0) return out;
-
-  const add = (vehicleId: string | null, periodId: string | null, amount: bigint) => {
-    if (vehicleId === null || periodId === null) return;
-    const byVehicle = out.get(periodId);
-    if (!byVehicle) return;
-    addToBigIntMap(byVehicle, vehicleId, amount);
-  };
 
   const expenseRows = await db
     .select({
@@ -249,8 +270,8 @@ export async function sumVehicleCostsForPeriodsBulk(
     )
     .groupBy(obligation.vehicleId, obligation.postedPeriodId);
 
-  for (const r of expenseRows) add(r.vehicleId, r.periodId, BigInt(r.total));
-  for (const r of obligationRows) add(r.vehicleId, r.periodId, BigInt(r.total));
+  foldIntoNestedBigIntMap(out, expenseRows);
+  foldIntoNestedBigIntMap(out, obligationRows);
   return out;
 }
 
@@ -309,7 +330,7 @@ export async function sumVehicleEarnedForDateRangeBulk(
   from: string,
   to: string,
 ): Promise<Map<string, bigint>> {
-  const out = new Map<string, bigint>(vehicleIds.map((id) => [id, 0n]));
+  const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
   const obligationRows = await db
@@ -342,13 +363,8 @@ export async function sumVehicleEarnedForDateRangeBulk(
     )
     .groupBy(trip.vehicleId);
 
-  for (const r of obligationRows) {
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
-  for (const r of tripRows) {
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
+  foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, tripRows);
   return out;
 }
 
@@ -402,7 +418,7 @@ export async function sumVehicleCostsForDateRangeBulk(
   from: string,
   to: string,
 ): Promise<Map<string, bigint>> {
-  const out = new Map<string, bigint>(vehicleIds.map((id) => [id, 0n]));
+  const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
   const expenseRows = await db
@@ -436,14 +452,8 @@ export async function sumVehicleCostsForDateRangeBulk(
     )
     .groupBy(obligation.vehicleId);
 
-  for (const r of expenseRows) {
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
-  for (const r of obligationRows) {
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
+  foldIntoBigIntMap(out, expenseRows);
+  foldIntoBigIntMap(out, obligationRows);
   return out;
 }
 
@@ -488,7 +498,7 @@ export async function sumVehicleCostsForPeriodBulk(
   vehicleIds: string[],
   periodId: string,
 ): Promise<Map<string, bigint>> {
-  const out = new Map<string, bigint>(vehicleIds.map((id) => [id, 0n]));
+  const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
   const expenseRows = await db
@@ -520,14 +530,8 @@ export async function sumVehicleCostsForPeriodBulk(
     )
     .groupBy(obligation.vehicleId);
 
-  for (const r of expenseRows) {
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
-  for (const r of obligationRows) {
-    if (r.vehicleId === null) continue;
-    addToBigIntMap(out, r.vehicleId, BigInt(r.total));
-  }
+  foldIntoBigIntMap(out, expenseRows);
+  foldIntoBigIntMap(out, obligationRows);
   return out;
 }
 
