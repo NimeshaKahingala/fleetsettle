@@ -679,7 +679,13 @@ export async function listLostDays(
 
       ran: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} LIKE 'ran_%')::int`,
 
-      leaseEligible: sql<number>`COUNT(*)::int`,
+      // GAP-147/REV-2026-08-19-03: day_record.state has six values; the
+      // WHERE clause below only excludes 'paused_for_trip', so a still-open
+      // (unconfirmed) day was counted into this denominator too —
+      // ran + lost + open, not ran + lost, which reads better than the
+      // confirmed facts support for as long as the range contains an
+      // unconfirmed day. Filtered to exactly the two counted states above.
+      leaseEligible: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%')::int`,
       lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}) FILTER (WHERE ${dayRecord.state} = 'did_not_run'), 0)`,
 
       weekday: sql<number>`EXTRACT(dow FROM ${dayRecord.businessDate})::int`,
@@ -694,7 +700,16 @@ export async function listLostDays(
         isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
-    .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`);
+    .groupBy(dayRecord.driverId, sql`EXTRACT(dow FROM ${dayRecord.businessDate})`)
+    // GAP-147: a (driver, weekday) bucket made up entirely of still-open
+    // days now has leaseEligible = 0 — correctly, since nothing here is
+    // confirmed yet, but a bare "0 / 0" is a number, not the "not
+    // available" W-56 asks for. Dropped from the result rather than shown,
+    // the same absence-not-a-manufactured-zero reasoning this file's own
+    // month variant already documents below.
+    .having(
+      sql`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%') > 0`,
+    );
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
 }
 
@@ -719,7 +734,10 @@ export async function listLostDaysByMonth(
       driverId: dayRecord.driverId,
       lost: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run')::int`,
       ran: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} LIKE 'ran_%')::int`,
-      leaseEligible: sql<number>`COUNT(*)::int`,
+      // GAP-147/REV-2026-08-19-03: see listLostDays's own comment — a
+      // still-open day was counted into this denominator too before this
+      // fix (ran + lost + open, not ran + lost).
+      leaseEligible: sql<number>`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%')::int`,
       lostValueMinor: sql<string>`COALESCE(SUM(${dayRecord.expectedMinor}) FILTER (WHERE ${dayRecord.state} = 'did_not_run'), 0)`,
       month: sql<string>`to_char(${dayRecord.businessDate}, 'YYYY-MM')`,
     })
@@ -733,7 +751,12 @@ export async function listLostDaysByMonth(
         isNull(dayRecord.voidedAt), // GAP-118: a stale card off a changed driver is not that driver's ran/lost day
       ),
     )
-    .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`);
+    .groupBy(dayRecord.driverId, sql`to_char(${dayRecord.businessDate}, 'YYYY-MM')`)
+    // GAP-147: see listLostDays's own comment — a month bucket made up
+    // entirely of still-open days is dropped rather than shown as "0 / 0".
+    .having(
+      sql`COUNT(*) FILTER (WHERE ${dayRecord.state} = 'did_not_run' OR ${dayRecord.state} LIKE 'ran_%') > 0`,
+    );
   return rows.map((r) => ({ ...r, lostValueMinor: BigInt(r.lostValueMinor) }));
 }
 

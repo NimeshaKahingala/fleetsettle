@@ -978,6 +978,102 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-147/REV-2026-08-19-03 — a still-unconfirmed (open) day never inflates leaseEligible, in either grouping", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+      // A confirmed lost day and a confirmed ran day on two different
+      // Fridays (2026-07-03, 2026-07-10) — leaseEligible for that weekday
+      // bucket must read exactly 2, not 3.
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-03",
+        { state: "did_not_run", expectedMinor: 5_000n, lostReason: "no_passengers" },
+      );
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-10",
+        { state: "ran_paid_full" },
+      );
+      // A third Friday, left unconfirmed — createDayRecord's own default
+      // state. Pre-GAP-147, this was silently counted into leaseEligible
+      // too (ran + lost + open, not ran + lost).
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-17",
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-01&to=2026-07-31", token);
+      expect(res.status).toBe(200);
+      const body: {
+        byWeekday: { driverId: string; lost: number; ran: number; leaseEligible: number }[];
+        byMonth: { driverId: string; lost: number; ran: number; leaseEligible: number }[];
+      } = await res.json();
+
+      const weekdayRow = body.byWeekday.find((r) => r.driverId === driverId);
+      expect(weekdayRow).toMatchObject({ lost: 1, ran: 1, leaseEligible: 2 });
+
+      const monthRow = body.byMonth.find((r) => r.driverId === driverId);
+      expect(monthRow).toMatchObject({ lost: 1, ran: 1, leaseEligible: 2 });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-147/REV-2026-08-19-03 — a bucket made up entirely of still-open days is absent, never a manufactured leaseEligible: 0 (W-56)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+      // The whole window is one unconfirmed day — nothing here is a fact
+      // yet, so this driver should carry no row at all in either grouping,
+      // not a bare "0 / 0".
+      await ctx.createDayRecord(
+        businessId,
+        periodId,
+        dailyLeaseId,
+        vehicleId,
+        driverId,
+        "2026-07-03",
+      );
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/lost-days?from=2026-07-01&to=2026-07-31", token);
+      expect(res.status).toBe(200);
+      const body: {
+        byWeekday: { driverId: string }[];
+        byMonth: { driverId: string }[];
+      } = await res.json();
+
+      expect(body.byWeekday.some((r) => r.driverId === driverId)).toBe(false);
+      expect(body.byMonth.some((r) => r.driverId === driverId)).toBe(false);
+
+      await ctx.cleanup();
+    });
+
     it("400 — GAP-92: from after to is refused, not answered with a confident empty result", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

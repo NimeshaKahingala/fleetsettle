@@ -1,6 +1,7 @@
 # Data Model
 
-**Status:** v1.1.11 — **§13/§14's INV-18 account corrected to match what was actually built.** `lease.closure_summary_shown_at` was documented as a stored-flag gate ("set when the summary renders, and the deposit-settlement handler refuses while it is null") — grepped every write to `lease` (api/src) while fixing GAP-141/F-4 (19 Aug 2026 live QA pass) and found the column is never written by any code path. The real, deliberate mechanism was already recorded in `lease-closure.ts`'s own comment: call ordering (the closure-summary endpoint existing and being called before deposit settlement), not a stored flag. §13's paragraph and §14's INV-18 row now say so, flagged, with the practical consequence stated plainly: nothing server-side stops a direct API call from settling a deposit that skipped its own closure summary. Column kept, not dropped — a future session may still want the stronger version this document originally specified. Same pass separately found and fixed (application code, not this document): `lease.final_period_treatment`/`closed_at` were also never written despite being asked for/computable at exactly the steps that already exist — see the build log, not here, since neither is a schema or invariant change.
+**Status:** v1.1.12 — **§15's own lost-days denominator claim was wrong, and the code faithfully implemented the wrong claim.** *"The denominator is `ran + lost` and cannot be inflated by either exclusion"* enumerated two of `day_record.state`'s six values (`not_scheduled`, excluded by construction; `paused_for_trip`, excluded by the `WHERE` clause) and asserted completeness without checking the other three — `open` (a still-unconfirmed day) survives the same `WHERE` clause and was silently counted into `lease_eligible` too, for as long as the requested window contains one. Found by the 19 August 2026 backend review (REV-2026-08-19-03), filed as GAP-147: both `lease_eligible` computations in §15 now filter to exactly `did_not_run`/`ran_%`, and both queries drop a bucket that is entirely still-open (`HAVING … > 0`) rather than showing a bare `lease_eligible = 0` — a number, not the "not available" W-56 asks for.
+**v1.1.11** — **§13/§14's INV-18 account corrected to match what was actually built.** `lease.closure_summary_shown_at` was documented as a stored-flag gate ("set when the summary renders, and the deposit-settlement handler refuses while it is null") — grepped every write to `lease` (api/src) while fixing GAP-141/F-4 (19 Aug 2026 live QA pass) and found the column is never written by any code path. The real, deliberate mechanism was already recorded in `lease-closure.ts`'s own comment: call ordering (the closure-summary endpoint existing and being called before deposit settlement), not a stored flag. §13's paragraph and §14's INV-18 row now say so, flagged, with the practical consequence stated plainly: nothing server-side stops a direct API call from settling a deposit that skipped its own closure summary. Column kept, not dropped — a future session may still want the stronger version this document originally specified. Same pass separately found and fixed (application code, not this document): `lease.final_period_treatment`/`closed_at` were also never written despite being asked for/computable at exactly the steps that already exist — see the build log, not here, since neither is a schema or invariant change.
 **v1.1.10** — **a platform tier above `business`, and `business_member` no longer capped at one row per user.** §3's own comment calling multi-business membership undescribed anywhere (`one_active_business_per_user`'s header) is corrected — it is now described, in `use-cases.md` Group L and `user-flows.md` §2.4/F-0.3/F-0.4/F-11. That index is **dropped**; `business_member_active_pair` alone now enforces "not the same business twice." New: `app_user.business_allowance`, `platform_admin`, `business_creation_request`, `platform_audit_log`; `driver.linked_user_id` becomes business-scoped. New triggers `platform_admin_audit` and `assert_platform_has_admin()`, mirroring `business_member_audit`/`assert_business_has_owner()` one level up. **§13.1's trigger count was found stale while adding these** — it read "expect 18" against a live schema carrying 43 (measured against QA 18 Aug 2026, not assumed); corrected to the measured figure, now 45 with the two added here. Mechanises `use-cases.md` W-63 to W-67/UC-102 to UC-105 and `user-flows.md` INV-38 to INV-42. Decided 17-18 Aug 2026.
 **v1.1.9** — **D-5 guarded.** The unbuilt `effective_due_on` derivation is now unreachable rather than merely known: `confirmDay` refuses a non-`'daily'` driver (`SETTLEMENT_RHYTHM_UNSUPPORTED`, 409) instead of writing a due date it cannot derive, so FL F-4.5's "a weekly settler is not in arrears on Thursday" can no longer be violated silently — it fails loudly instead. Deliberately **not** a `CHECK` pinning `settlement_rhythm` to `'daily'`: UC-31/UC-37/F-4.5 describe weekly settlement as a real arrangement, and constraining it away would put the schema in contradiction with the product. GAP-135 stays open as the feature it always was. Decided 17 Aug 2026.
 **v1.1.8** — **D-5** resolved: "worth confirming" is now confirmed negative. `confirmDay.ts` (the driver-side obligation write path) sets `effective_due_on` unconditionally to the business date and never reads `driver.settlement_rhythm`; the column itself is written by no endpoint and read nowhere in the codebase. Filed as **GAP-135**, found investigating an unrelated PR review comment on the customer-side ageing chip
@@ -1769,16 +1770,18 @@ The report definitions in UC-70…UC-79, as the shape they take against this sch
 SELECT driver_id,
        COUNT(*) FILTER (WHERE state = 'did_not_run')                   AS lost,
        COUNT(*) FILTER (WHERE state LIKE 'ran_%')                      AS ran,
-       COUNT(*)                                                        AS lease_eligible,
+       COUNT(*) FILTER (WHERE state = 'did_not_run'
+                           OR state LIKE 'ran_%')                      AS lease_eligible,
        SUM(expected_minor) FILTER (WHERE state = 'did_not_run')        AS lost_value_minor,
        EXTRACT(dow FROM business_date)                                 AS weekday
   FROM day_record
  WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
    AND state <> 'paused_for_trip'          -- §1.2 A: charter days are not lost
- GROUP BY driver_id, weekday;
+ GROUP BY driver_id, weekday
+HAVING COUNT(*) FILTER (WHERE state = 'did_not_run' OR state LIKE 'ran_%') > 0;
 ```
 
-Off-pattern days have no row (§7), so `not_scheduled` is excluded by construction — the denominator is `ran + lost` and cannot be inflated by either exclusion. That is §1.2 of the use cases expressed as a `WHERE` clause.
+Off-pattern days have no row (§7), so `not_scheduled` is excluded by construction — but `state <> 'paused_for_trip'` alone does not exclude the other four surviving states, and `day_record.state` has six, not two: `open` (still unconfirmed) is a live row this `WHERE` clause lets through. **Corrected 20 August 2026 (GAP-147/REV-2026-08-19-03) — `lease_eligible` was `COUNT(*)` over that whole surviving set** (`ran + lost + open`, not `ran + lost`), reading better than the confirmed facts support for as long as the window contains an unconfirmed day; found by the 19 August backend review, which is also where this paragraph's own prior claim — *"cannot be inflated by either exclusion"* — is the thing that was wrong, not the code, which faithfully implemented what this sentence said. `lease_eligible` is now filtered to exactly the two counted states, and the `HAVING` clause drops a (driver, weekday) bucket that is *entirely* still-open — a bare `lease_eligible = 0` is a number, not the "not available" W-56 asks for, so the row is absent rather than shown as `0 / 0`.
 
 **⚑ This query alone satisfies only the weekday half of what UC-76 asks for, and this document never gave the other two their own SQL.** UC-76's own words: *"Per driver, **per month**, with reasons… Shows: the count, the money it represents, **the reason breakdown**, and the **weekday distribution**"* — four things, and the block above computes exactly one of them (weekday) at business-wide-window granularity, with no month dimension and no reason dimension at all. UI §11.1 independently specifies "column per month" as the report's primary form, which this section gave it no query to be built from. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.2, 7 August 2026) as a missing reason breakdown, and found again, larger, building Web-P9/B4 Wave 1 against this section as it stood: `LostDaysRow` (the shipped response shape) carries `weekday` and nothing else, so a report literally cannot be grouped by month from what this query returns — Wave 1 shipped "one column per driver" as the honest reading of a contract with no month in it, rather than the "column per month" UI §11.1 and UC-76 both actually specify.
 
@@ -1790,12 +1793,14 @@ SELECT driver_id,
        to_char(business_date, 'YYYY-MM')                               AS month,
        COUNT(*) FILTER (WHERE state = 'did_not_run')                   AS lost,
        COUNT(*) FILTER (WHERE state LIKE 'ran_%')                      AS ran,
-       COUNT(*)                                                        AS lease_eligible,
+       COUNT(*) FILTER (WHERE state = 'did_not_run'
+                           OR state LIKE 'ran_%')                      AS lease_eligible,
        SUM(expected_minor) FILTER (WHERE state = 'did_not_run')        AS lost_value_minor
   FROM day_record
  WHERE business_id = $1 AND business_date BETWEEN $2 AND $3
    AND state <> 'paused_for_trip'
- GROUP BY driver_id, month;
+ GROUP BY driver_id, month
+HAVING COUNT(*) FILTER (WHERE state = 'did_not_run' OR state LIKE 'ran_%') > 0;
 
 -- Reason breakdown — day_record.lost_reason is CHECK-constrained
 -- non-null whenever state = 'did_not_run' (§7), so every lost day this
@@ -1809,7 +1814,7 @@ SELECT driver_id, lost_reason,
  GROUP BY driver_id, lost_reason;
 ```
 
-`to_char(business_date, 'YYYY-MM')` rather than `date_trunc` — the report reads a plain string bucket, not a timestamp, and W-56 already governs how zero and unknown must never collapse: a driver with no lost days in a given month simply has no row for it, which is the correct absence, not a zero to be manufactured. The weekday query above is unchanged; the two new ones join it as siblings, not replacements.
+`to_char(business_date, 'YYYY-MM')` rather than `date_trunc` — the report reads a plain string bucket, not a timestamp, and W-56 already governs how zero and unknown must never collapse: a driver with no lost days in a given month simply has no row for it, which is the correct absence, not a zero to be manufactured — the same reasoning behind the weekday query's own 20 August `HAVING` clause above. Structurally, the weekday query above and this one join as siblings, not replacements — GAP-147's `lease_eligible`/`HAVING` correction applies to both, not one.
 
 **UC-74 who owes us** — one row per party, ordered by size or by age.
 
