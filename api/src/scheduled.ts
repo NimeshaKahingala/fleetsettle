@@ -76,7 +76,16 @@ export async function scheduled(
   // only tidies up holds nobody happened to book around.
   try {
     const result = await releaseAllExpiredHolds(db, today);
-    log({ level: "info", job: "release-expired-holds", today, released: result.released });
+    log({
+      // GAP-146: an unrestorable date is a real, permanent gap (a driver day
+      // fee that will now never be raised), not a routine cron outcome —
+      // worth a level a plain "info" tick wouldn't get watched for.
+      level: result.unrestorable.length > 0 ? "warn" : "info",
+      job: "release-expired-holds",
+      today,
+      released: result.released,
+      unrestorable: result.unrestorable,
+    });
   } catch (err) {
     log({
       level: "error",

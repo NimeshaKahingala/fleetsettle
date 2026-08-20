@@ -18,7 +18,7 @@ import { findOpenPeriodRow, resolvePeriodLinkage } from "../queries/accounting-p
 import { findBusinessSettings } from "../queries/business.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { applyCreditForward } from "./credit-forward.js";
-import { materializeDailyLeaseHorizon } from "./day-card-generation.js";
+import { HORIZON_DAYS, materializeDailyLeaseHorizon } from "./day-card-generation.js";
 import {
   findCurrentDailyLeaseRowForVehicle,
   findDailyLeaseForBusiness,
@@ -333,8 +333,9 @@ async function buildDoubleBookedErrorDetails(
 
 export async function bookTrip(writer: Writer, input: BookTripInput): Promise<BookedTrip> {
   const asHold = input.asHold ?? false;
+  let restoreResult: RestoreDailyLeaseOccupancyResult | undefined;
   try {
-    return await writer.transaction(async (tx) => {
+    const booked = await writer.transaction(async (tx) => {
       const tripId = newId();
 
       // GAP-7: a stale hold on this vehicle must not block a real booking
@@ -347,11 +348,16 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
         input.vehicleId,
         input.userId,
       );
-      // GAP-7: undo any hole the just-released hold(s) left in the vehicle's
-      // current daily-lease occupancy — the same GAP-119 restore `cancelTrip`
+      // GAP-7/GAP-146: undo any hole the just-released hold(s) left in the
+      // vehicle's current daily-lease occupancy, backfilling from wherever
+      // each hold actually started — the same GAP-119 restore `cancelTrip`
       // already does. Runs before the carve-out below, which then voids
       // whatever this booking's own range needs regardless.
-      await restoreDailyLeaseOccupancy(tx, releasedHolds.affected, input.bookingDate);
+      restoreResult = await restoreDailyLeaseOccupancy(
+        tx,
+        releasedHolds.affected,
+        input.bookingDate,
+      );
 
       await releaseDailyLeaseAllocationsForRange(
         tx,
@@ -439,13 +445,20 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
 
       return {
         tripId,
-        status: asHold ? "hold" : "booked",
+        status: asHold ? ("hold" as const) : ("booked" as const),
         holdExpiresOn,
         receivableId,
         receivableSettledMinor,
         receivableStatus,
       };
     });
+    if (restoreResult) {
+      logUnrestorableDailyLeaseDates(restoreResult, {
+        businessId: input.businessId,
+        reason: "hold_expired_on_booking",
+      });
+    }
+    return booked;
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "one_arrangement_per_vehicle_day")) {
@@ -776,30 +789,117 @@ export async function closeTrip(writer: Writer, input: CloseTripInput): Promise<
   }
 }
 
+export interface DailyLeaseOccupancyRestoreTarget {
+  businessId: string;
+  vehicleId: string;
+  /**
+   * GAP-146/REV-2026-08-19-02: the earliest date this vehicle's release
+   * actually freed — a hold's own `startDate` (`releaseExpiredHolds`'s
+   * `affected[].freedFrom`) or a cancelled trip's own `startDate`
+   * (`cancelTrip`, below). Plain `string`, matching every DB-row date this
+   * far from the request boundary (IG §3.1) — cast to `BusinessDate` inside
+   * this function, the same as `fullLease.effectiveFrom` already is.
+   * Omitted only where nothing more specific is known; the restore then
+   * falls back to `today`, the pre-GAP-146 behaviour.
+   */
+  freedFrom?: string;
+}
+
+export interface RestoreDailyLeaseOccupancyResult {
+  /**
+   * GAP-146: per vehicle, pattern dates the restore could not raise a
+   * driver day fee for, because they fall before the currently open
+   * period's own start — an already-closed period. `assert_period_open()`
+   * only checks whether the row's *named* period is closed, not whether
+   * its `business_date` actually falls inside it, so writing one of these
+   * would silently move a closed month's figures into the open one. The
+   * vehicle's occupancy for these dates is still corrected (that fact has
+   * no period and needs no such guard) — only the money side is withheld.
+   */
+  unrestorable: { vehicleId: string; dates: BusinessDate[] }[];
+}
+
 /**
- * GAP-119/GAP-7: the shared "undo whatever daily-lease occupancy a hold or
- * charter released" step — `cancelTrip`'s own restore, factored out so
- * `releaseExpiredHolds`'s callers (`bookTrip`, `startDailyLease`,
+ * GAP-119/GAP-7/GAP-146: the shared "undo whatever daily-lease occupancy a
+ * hold or charter released" step — `cancelTrip`'s own restore, factored out
+ * so `releaseExpiredHolds`'s callers (`bookTrip`, `startDailyLease`,
  * `startLease`, the nightly `release-expired-holds` cron) can run the same
  * fix for an *expired* hold. Voiding a hold's allocation without this left a
  * still-active daily lease reading as free on the calendar for every date
  * the hold covered — no current daily lease on a vehicle (never had one, or
  * moved off it) means nothing to restore, and is a no-op for that vehicle.
+ *
+ * `freedFrom` (REV-2026-08-19-02) is what makes this reach backward: the
+ * void that frees a vehicle's dates has no lower bound at `today` — a hold
+ * or a charter can span dates already in the past by the time it's released
+ * or cancelled — but `materializeDailyLeaseHorizon` used to fill only
+ * forward from `today`, so nothing ever re-covered the elapsed portion.
  */
 export async function restoreDailyLeaseOccupancy(
   tx: Tx,
-  vehicles: { businessId: string; vehicleId: string }[],
+  vehicles: DailyLeaseOccupancyRestoreTarget[],
   today: BusinessDate,
-): Promise<void> {
-  for (const { businessId, vehicleId } of vehicles) {
+): Promise<RestoreDailyLeaseOccupancyResult> {
+  const unrestorable: RestoreDailyLeaseOccupancyResult["unrestorable"] = [];
+  for (const { businessId, vehicleId, freedFrom } of vehicles) {
     const currentDailyLease = await findCurrentDailyLeaseRowForVehicle(tx, vehicleId);
     if (!currentDailyLease) continue;
     const fullLease = await findDailyLeaseForBusiness(tx, businessId, currentDailyLease.id);
     if (!fullLease) continue;
     const rates = await listDailyLeaseRatesForLease(tx, fullLease.id);
     const openPeriod = (await findOpenPeriodRow(tx, businessId)) ?? null;
-    await materializeDailyLeaseHorizon(tx, { ...fullLease, businessId }, rates, openPeriod, today);
+
+    // Never later than today (this is a backfill, not a forward extension)
+    // and never earlier than the lease's own start (nothing to restore
+    // before a daily lease existed to own the date).
+    const freedFromDate = freedFrom as BusinessDate | undefined;
+    const requestedFrom =
+      freedFromDate !== undefined && freedFromDate < today ? freedFromDate : today;
+    const from =
+      requestedFrom < fullLease.effectiveFrom
+        ? (fullLease.effectiveFrom as BusinessDate)
+        : requestedFrom;
+
+    const result = await materializeDailyLeaseHorizon(
+      tx,
+      { ...fullLease, businessId },
+      rates,
+      openPeriod,
+      today,
+      HORIZON_DAYS,
+      from,
+    );
+    if (result.unrestorableDayRecordDates.length > 0) {
+      unrestorable.push({ vehicleId, dates: result.unrestorableDayRecordDates });
+    }
   }
+  return { unrestorable };
+}
+
+/**
+ * GAP-146: the one place this domain layer logs, and only when a restore
+ * left a genuine, permanent gap behind — a pattern date whose driver day
+ * fee will now never be raised, because it fell before the currently open
+ * period's own start. Called after the transaction that produced `result`
+ * has committed, never from inside it: a mid-transaction log line would
+ * survive a later rollback in the same transaction and read as a real gap
+ * that never actually happened.
+ */
+export function logUnrestorableDailyLeaseDates(
+  result: RestoreDailyLeaseOccupancyResult,
+  context: { businessId: string; reason: string },
+): void {
+  if (result.unrestorable.length === 0) return;
+  // eslint-disable-next-line no-console -- IG §3.4's sanctioned exception, same shape attachment.ts/scheduled.ts already carry: a structured operational fact, never a request body, and it never blocks or slows the write it reports on.
+  console.log(
+    JSON.stringify({
+      level: "warn",
+      event: "daily_lease_restore_incomplete",
+      businessId: context.businessId,
+      reason: context.reason,
+      vehicles: result.unrestorable,
+    }),
+  );
 }
 
 export interface CancelTripInput {
@@ -870,8 +970,9 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
     throw new ValidationError("A closed trip cannot be cancelled");
   }
 
+  let restoreResult: RestoreDailyLeaseOccupancyResult | undefined;
   try {
-    return await writer.transaction(async (tx) => {
+    const cancelled = await writer.transaction(async (tx) => {
       const unsettled = await findUnsettledAdvancesForTrip(tx, trip.id);
 
       if (unsettled.length > 0) {
@@ -916,11 +1017,14 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
       await resumeDayRecordsForTrip(tx, trip.id);
       await deleteAllocationDaysForTrip(tx, trip.id, input.userId);
 
-      // GAP-119: restore whatever daily-lease occupancy bookTrip released
-      // for this vehicle, if it is still on one.
-      await restoreDailyLeaseOccupancy(
+      // GAP-119/GAP-146: restore whatever daily-lease occupancy bookTrip
+      // released for this vehicle, if it is still on one — backfilling
+      // from the cancelled trip's own startDate, not just today, so a
+      // multi-day charter cancelled after it has already begun doesn't
+      // lose the elapsed portion.
+      restoreResult = await restoreDailyLeaseOccupancy(
         tx,
-        [{ businessId: input.businessId, vehicleId: trip.vehicleId }],
+        [{ businessId: input.businessId, vehicleId: trip.vehicleId, freedFrom: trip.startDate }],
         input.today,
       );
 
@@ -938,6 +1042,13 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
         advanceDisposition: input.advanceDisposition ?? null,
       };
     });
+    if (restoreResult) {
+      logUnrestorableDailyLeaseDates(restoreResult, {
+        businessId: input.businessId,
+        reason: "trip_cancelled",
+      });
+    }
+    return cancelled;
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
@@ -955,11 +1066,16 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
 export async function releaseAllExpiredHolds(
   writer: Writer,
   today: BusinessDate,
-): Promise<{ released: number }> {
+): Promise<{ released: number; unrestorable: RestoreDailyLeaseOccupancyResult["unrestorable"] }> {
   const result = await writer.transaction(async (tx) => {
     const released = await releaseExpiredHolds(tx, today);
-    await restoreDailyLeaseOccupancy(tx, released.affected, today);
-    return released;
+    const restored = await restoreDailyLeaseOccupancy(tx, released.affected, today);
+    return { released, restored };
   });
-  return { released: result.released };
+  // Returned rather than logged here (GAP-146) — this already runs inside
+  // scheduled.ts, which owns the one sanctioned log line for a cron job
+  // (IG §3.4); logging a second time from inside the domain layer would be
+  // exactly the "two log lines for one event" the boundary convention
+  // exists to prevent.
+  return { released: result.released.released, unrestorable: result.restored.unrestorable };
 }
