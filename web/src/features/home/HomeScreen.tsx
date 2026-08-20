@@ -58,6 +58,19 @@ function formatShortDate(date: string): string {
   }).format(new Date(`${date}T00:00:00`));
 }
 
+/**
+ * GAP-138 (19 Aug 2026 live QA pass, F-1): a rent-due row's `oldestDueOn`
+ * can be in the future — F-4/§7's "Rent due and overdue" deliberately lists
+ * both — so "Due since" alone asserted a date that hadn't happened yet.
+ * `BusinessDate` strings compare lexicographically (`YYYY-MM-DD`), the same
+ * assumption `lease-closure.ts`'s own date comparisons already rely on.
+ */
+function dueLabel(oldestDueOn: string, today: BusinessDate): string {
+  return oldestDueOn <= today
+    ? `Due since ${formatShortDate(oldestDueOn)}`
+    : `Due on ${formatShortDate(oldestDueOn)}`;
+}
+
 function formatDateRange(startDate: string, endDate: string): string {
   const start = formatShortDate(startDate);
   const end = formatShortDate(endDate);
@@ -506,7 +519,7 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
                           {row.partyName ?? "—"}
                         </p>
                         <p className="text-body-sm text-ink-muted">
-                          Due since {formatShortDate(row.oldestDueOn)}
+                          {dueLabel(row.oldestDueOn, today)}
                         </p>
                       </div>
                     </div>

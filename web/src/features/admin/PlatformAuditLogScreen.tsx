@@ -6,6 +6,7 @@ import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { formatTimestamp } from "../../lib/formatTimestamp.js";
 import { PLATFORM_AUDIT_ACTION_LABEL } from "../../lib/platformAuditActionLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
@@ -51,7 +52,7 @@ export function PlatformAuditLogScreen({ onBack }: PlatformAuditLogScreenProps) 
                 {PLATFORM_AUDIT_ACTION_LABEL[entry.action]}
               </p>
               <p className="text-caption text-ink-muted">
-                {entry.actorName} · {entry.createdAt}
+                {entry.actorName} · {formatTimestamp(entry.createdAt, { withTime: true })}
               </p>
               {entry.selfAction ? <Badge variant="neutral">Self</Badge> : null}
             </Card>

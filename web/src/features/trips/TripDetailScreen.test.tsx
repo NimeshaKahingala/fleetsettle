@@ -253,6 +253,37 @@ test("GAP-57 — tapping the outstanding Received row opens the collect-payment 
   expect(await screen.findByText("Collect payment")).toBeInTheDocument();
 });
 
+test("GAP-144: collecting payment here invalidates Home's own receivables read too, not just ['trip', tripId]", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({
+    id: "p1",
+    amountMinor: "6000000",
+    occurredOn: today,
+    allocations: [],
+    unallocatedMinor: "0",
+  });
+  const { queryClient } = renderWithProviders(
+    <TripDetailScreen tripId="t1" today={today} onBack={() => {}} />,
+    { get: baseGet(), post },
+  );
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(await screen.findByRole("button", { name: /Due.*Rs 60,000/ }));
+  // `CollectPaymentSheet`'s AmountPad renders inline here (no separate
+  // "Enter amount" trigger, unlike `AdvanceSheet`'s own pattern this file's
+  // `enterMoney` helper matches) — same sequence as
+  // CustomerDetailScreen.test.tsx's own proven collect-payment flow.
+  await screen.findByRole("textbox", { name: "Amount received" });
+  for (const digit of "6000000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
 test("GAP-57 — a fully paid receivable is shown but is no longer tappable", async () => {
   const paidTrip: TripResponse = {
     ...bookedTrip,

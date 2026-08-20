@@ -11,6 +11,7 @@ import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { adminIdentityLabel } from "../../lib/adminIdentityLabel.js";
+import { formatTimestamp } from "../../lib/formatTimestamp.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface AdminManagementScreenProps {
@@ -82,7 +83,9 @@ export function AdminManagementScreen({ onBack }: AdminManagementScreenProps) {
             <Card key={admin.userId} className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="truncate text-body text-ink-primary">{adminIdentityLabel(admin)}</p>
-                <p className="text-caption text-ink-muted">Admin since {admin.grantedAt}</p>
+                <p className="text-caption text-ink-muted">
+                  Admin since {formatTimestamp(admin.grantedAt)}
+                </p>
               </div>
               <button
                 type="button"

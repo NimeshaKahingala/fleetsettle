@@ -1,6 +1,6 @@
 import type { SessionMembership } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2 } from "lucide-react";
+import { Building2, Check } from "lucide-react";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
 import { setSelectedBusinessId } from "../../lib/storage.js";
@@ -9,6 +9,14 @@ export interface BusinessSwitcherSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   businesses: SessionMembership[];
+  /**
+   * GAP-139 (19 Aug 2026 live QA pass, F-2): which row to mark as already
+   * selected. `undefined`/no match renders every row plain — `FirstRunGate`'s
+   * mandatory first-choice call site has no "current" business by definition,
+   * and a stale stored id that no longer names a real membership degrades
+   * the same way, correctly, rather than needing its own guard here.
+   */
+  currentBusinessId?: string | null;
   /**
    * Fires after the selection is persisted and the cache cleared — `null`
    * when the caller has nothing further to do. `FirstRunGate` uses this to
@@ -48,6 +56,7 @@ export function BusinessSwitcherSheet({
   open,
   onOpenChange,
   businesses,
+  currentBusinessId,
   onSelected,
 }: BusinessSwitcherSheetProps) {
   const queryClient = useQueryClient();
@@ -77,23 +86,31 @@ export function BusinessSwitcherSheet({
     // for a screen reader as much as for a sighted reader.
     <Sheet open={open} onOpenChange={onOpenChange} title="Businesses">
       <ul className="flex flex-col gap-1">
-        {businesses.map((membership) => (
-          <li key={membership.businessId}>
-            <button
-              type="button"
-              onClick={() => selectBusiness(membership.businessId)}
-              className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
-            >
-              <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-body text-ink-primary">{membership.name}</span>
-                <span className="block text-body-sm text-ink-muted">
-                  {membershipRoleLabel(membership.role)}
+        {businesses.map((membership) => {
+          const isCurrent = membership.businessId === currentBusinessId;
+          return (
+            <li key={membership.businessId}>
+              <button
+                type="button"
+                onClick={() => selectBusiness(membership.businessId)}
+                aria-current={isCurrent ? "true" : undefined}
+                className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
+              >
+                <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-body text-ink-primary">
+                    {membership.name}
+                  </span>
+                  <span className="block text-body-sm text-ink-muted">
+                    {membershipRoleLabel(membership.role)}
+                    {isCurrent ? " · Current" : ""}
+                  </span>
                 </span>
-              </span>
-            </button>
-          </li>
-        ))}
+                {isCurrent ? <Check className="size-5 shrink-0 text-brand" aria-hidden /> : null}
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </Sheet>
   );

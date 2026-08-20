@@ -171,6 +171,32 @@ test("collect payment from an action sheet opens the amount step, pre-filled fro
   expect(screen.getByRole("textbox", { name: "Amount received" })).toHaveTextContent("Rs 70,000");
 });
 
+test("GAP-144: collecting payment here invalidates Home's own receivables read, not just this lease's own obligation list", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues });
+  const post = vi.fn().mockResolvedValue({
+    id: "p1",
+    amountMinor: "7000000",
+    occurredOn: "2026-08-01",
+    allocations: [],
+    unallocatedMinor: "0",
+  });
+  const { queryClient } = renderWithProviders(
+    <LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />,
+    { get, post },
+  );
+  queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
+
+  await user.click(await screen.findByText("Rent"));
+  await user.click(screen.getByRole("button", { name: "Collect payment" }));
+  await screen.findByText("Amount received");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(await screen.findByRole("button", { name: "Confirm" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
 test("adjust or waive from an action sheet opens the adjust sheet for that due", async () => {
   const user = userEvent.setup();
   const get = baseGet({ "/api/lease/l1/obligation": dues });

@@ -149,7 +149,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ decision: "approve" }),
     });
-    expect(decideRes.status).toBe(200);
+    expect(decideRes.status).toBe(204);
 
     const requestRows = await db
       .select()
@@ -214,7 +214,7 @@ describe("/api/admin/* (Phase 2)", () => {
       });
 
     const first = await decide("approve");
-    expect(first.status).toBe(200);
+    expect(first.status).toBe(204);
 
     // The claim (`claimRequestForApproval`) is the gate, not a pre-read
     // status check — a second decide call must 409 before it ever reaches
@@ -279,7 +279,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ decision: "approve" }),
     });
-    expect(approve.status).toBe(200);
+    expect(approve.status).toBe(204);
 
     const reject = await request(`/api/admin/requests/${requestId}/decide`, {
       method: "POST",
@@ -342,7 +342,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ decision: "reject", reason: "Duplicate of an existing fleet" }),
     });
-    expect(decideRes.status).toBe(200);
+    expect(decideRes.status).toBe(204);
 
     const requestRows = await db
       .select()
@@ -387,7 +387,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ decision: "approve" }),
     });
-    expect(decideRes.status).toBe(200);
+    expect(decideRes.status).toBe(204);
 
     const auditRes = await request("/api/admin/audit-log", bearer(adminToken));
     const auditBody: { action: string; subjectId: string; selfAction: boolean }[] =
@@ -476,7 +476,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ userId: target.userId }),
     });
-    expect(grantRes.status).toBe(200);
+    expect(grantRes.status).toBe(204);
 
     const listRes = await request("/api/admin/admins", bearer(adminToken));
     const listBody: { userId: string }[] = await listRes.json();
@@ -486,7 +486,7 @@ describe("/api/admin/* (Phase 2)", () => {
       method: "POST",
       ...bearer(adminToken),
     });
-    expect(revokeRes.status).toBe(200);
+    expect(revokeRes.status).toBe(204);
 
     const auditRes = await request("/api/admin/audit-log", bearer(adminToken));
     const auditBody: { action: string; subjectId: string; selfAction: boolean }[] =
@@ -515,13 +515,13 @@ describe("/api/admin/* (Phase 2)", () => {
       });
 
     const first = await grant();
-    expect(first.status).toBe(200);
+    expect(first.status).toBe(204);
     // Re-granting a user who is already an active admin — the
     // `ON CONFLICT ... WHERE revoked_at IS NOT NULL` gate should skip the
     // write entirely rather than run a no-op UPDATE that still fires
     // platform_admin_audit's trigger.
     const second = await grant();
-    expect(second.status).toBe(200);
+    expect(second.status).toBe(204);
 
     const auditRes = await request("/api/admin/audit-log", bearer(adminToken));
     const auditBody: { action: string; subjectId: string }[] = await auditRes.json();
@@ -573,7 +573,7 @@ describe("/api/admin/* (Phase 2)", () => {
       ...bearerJson(adminToken),
       body: JSON.stringify({ businessAllowance: 10 }),
     });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(204);
 
     const rows = await db.select().from(appUser).where(eq(appUser.id, target.userId));
     expect(rows[0]).toMatchObject({ businessAllowance: 10 });

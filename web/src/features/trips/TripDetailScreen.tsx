@@ -344,7 +344,18 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               customerName={customerQuery.data.name}
               dues={receivable !== null ? [receivable] : []}
               today={today}
-              onCollected={() => void queryClient.invalidateQueries({ queryKey: ["trip", tripId] })}
+              onCollected={() => {
+                void queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
+                // GAP-144 (19 Aug 2026 live QA pass, F-7): this was narrower
+                // than the other two `CollectPaymentSheet` callers — missing
+                // even `["payment"]`/`["home"]`, not just `["reports"]`, the
+                // one every call site shares the same gap on. `["trip",
+                // tripId]` above still needs its own explicit call: it isn't
+                // a prefix of any of these three.
+                void queryClient.invalidateQueries({ queryKey: ["payment"] });
+                void queryClient.invalidateQueries({ queryKey: ["home"] });
+                void queryClient.invalidateQueries({ queryKey: ["reports"] });
+              }}
             />
           ) : null}
           {trip.driverId !== null ? (

@@ -75,6 +75,12 @@ export function QuickPaymentSheet({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["payment"] });
       void queryClient.invalidateQueries({ queryKey: ["home"] });
+      // GAP-144 (19 Aug 2026 live QA pass, F-7): Home's own "Rent due" list
+      // reads `["reports", "receivables"]` — a key `["home"]` above never
+      // reaches by prefix. Without this, a real payment posted and
+      // allocated correctly server-side while Home kept showing the
+      // pre-payment amount until a hard reload.
+      void queryClient.invalidateQueries({ queryKey: ["reports"] });
       if (party?.partyType === "customer") {
         void queryClient.invalidateQueries({ queryKey: ["customer", party.partyId] });
       }

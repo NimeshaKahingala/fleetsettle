@@ -313,9 +313,13 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
               {...(collectForDue !== null
                 ? { initialAmountMinor: outstandingMinor(collectForDue) }
                 : {})}
-              onCollected={() =>
-                void queryClient.invalidateQueries({ queryKey: ["lease", leaseId, "obligation"] })
-              }
+              onCollected={() => {
+                void queryClient.invalidateQueries({ queryKey: ["lease", leaseId, "obligation"] });
+                // GAP-144 (19 Aug 2026 live QA pass, F-7): same gap as
+                // QuickPaymentSheet's own fix — Home's "Rent due" list reads
+                // `["reports", "receivables"]`, which nothing here touched.
+                void queryClient.invalidateQueries({ queryKey: ["reports"] });
+              }}
             />
           ) : null}
           {selectedDue !== null ? (

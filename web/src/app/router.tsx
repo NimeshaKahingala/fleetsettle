@@ -817,6 +817,7 @@ function ReviewLayout() {
         open={switcher.open}
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
+        currentBusinessId={selected.businessId}
         onSelected={switcher.onSelected}
       />
     </AppShell>
@@ -846,6 +847,7 @@ function MineLayout() {
         open={switcher.open}
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
+        currentBusinessId={selected.businessId}
         onSelected={switcher.onSelected}
       />
     </AppShell>
@@ -927,6 +929,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
         open={switcher.open}
         onOpenChange={switcher.onOpenChange}
         businesses={selected.businesses}
+        currentBusinessId={selected.businessId}
         onSelected={switcher.onSelected}
       />
     </AppShell>
