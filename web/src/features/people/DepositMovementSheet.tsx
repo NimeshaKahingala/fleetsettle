@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { parse, toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { format, parse, toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type {
   depositMovementRequestSchema,
   DepositResponse,
   LeaseObligationRow,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { DateField } from "../../components/DateField.js";
@@ -74,6 +75,10 @@ export function DepositMovementSheet({
   });
   const movementType = watch("movementType");
 
+  useEffect(() => {
+    if (open) reset({ movementType: "topped_up", occurredOn: today, reason: "" });
+  }, [open, reset, today]);
+
   const mutation = useMutation({
     mutationFn: (values: DepositMovementFormValues) => {
       if (depositId === null) throw new Error("No held deposit is available");
@@ -91,7 +96,6 @@ export function DepositMovementSheet({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "balances"] });
       void queryClient.invalidateQueries({ queryKey: ["driver", driverId, "view"] });
-      reset({ movementType: "topped_up", occurredOn: today, reason: "" });
       onOpenChange(false);
     },
   });
@@ -139,7 +143,7 @@ export function DepositMovementSheet({
                   parse(obligation.waivedMinor)) as Minor;
                 return (
                   <option key={obligation.id} value={obligation.id}>
-                    {obligation.kind} due {obligation.dueOn} - {toWire(outstanding)}
+                    {obligation.kind} due {obligation.dueOn} - Rs {format(outstanding)}
                   </option>
                 );
               })}

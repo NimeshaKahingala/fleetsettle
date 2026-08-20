@@ -16,6 +16,7 @@ import { useApi } from "../../lib/ApiContext.js";
 import { useAuthActions } from "../../lib/AuthActionsContext.js";
 import { clearSelectedBusinessId, getSelectedBusinessId } from "../../lib/storage.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { isBlockedOperatePathname } from "../../lib/blockedOperatePathname.js";
 import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
@@ -256,10 +257,6 @@ function renderShellFor(
 
 function isOperateRole(membership: SessionMembership): boolean {
   return membership.role === "owner_manager" || membership.role === "manager";
-}
-
-function isBlockedOperatePathname(pathname: string): boolean {
-  return pathname === "/me" || pathname === "/admin" || pathname.startsWith("/admin/");
 }
 
 function FirstRunGateInner({

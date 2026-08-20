@@ -341,7 +341,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
                       {writeOff.voidedAt !== null ? " · voided" : ""}
                     </p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:items-end">
+                  <div className="flex flex-col gap-4 sm:items-end">
                     <Money value={parse(writeOff.amountMinor)} />
                     {canRecordRecovery && writeOff.voidedAt === null ? (
                       <button

@@ -106,12 +106,23 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
     queryKey: ["customer", customerId, "payment"],
     queryFn: () => api.get<ListPaymentsResponse>(`/api/customer/${customerId}/payment`),
   });
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
+  // `listWriteOffsHandler` is `writeOffOrWaiveAboveThreshold` (owners only), so
+  // a `manager` — STAFF, and therefore holding `canRecordRecovery` — would
+  // otherwise fire this query on every customer and render its 403 as a
+  // permanent failure banner. Voiding is gated by the same capability the
+  // Worker uses for both (`api/src/handlers/write-off.ts`).
+  const canWriteOff =
+    selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
   const writeOffsQuery = useQuery({
     queryKey: ["write-off", "customer", customerId],
     queryFn: () =>
       api.get<ListWriteOffsResponse>(
         `/api/write-off?partyType=customer&partyCustomerId=${encodeURIComponent(customerId)}`,
       ),
+    enabled: canWriteOff,
   });
 
   const customerState = useQueryState(customerQuery);
@@ -122,13 +133,6 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   const dues = duesQuery.data ?? [];
   const payments = paymentsQuery.data ?? [];
   const writeOffs = writeOffsQuery.data ?? [];
-  const session = queryClient.getQueryData<SessionResponse>(["session"]);
-  const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
-  const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
-  const canWriteOff =
-    selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
-  const canVoidWriteOff =
-    selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
 
   useEffect(() => {
     if (archiveOpen) setArchiveReason("");
@@ -310,13 +314,13 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
             />
           )}
 
-          {writeOffsState.kind === "error" ? (
+          {canWriteOff && writeOffsState.kind === "error" ? (
             <QueryStateFailure
               error={writeOffsState.error}
               retry={writeOffsState.retry}
               of="this customer's write-offs"
             />
-          ) : writeOffs.length > 0 ? (
+          ) : canWriteOff && writeOffs.length > 0 ? (
             <Section
               title="Written off losses"
               count={writeOffs.length}
@@ -332,7 +336,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                       {writeOff.voidedAt !== null ? " · voided" : ""}
                     </p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:items-end">
+                  <div className="flex flex-col gap-4 sm:items-end">
                     <Money value={parse(writeOff.amountMinor)} />
                     {canRecordRecovery && writeOff.voidedAt === null ? (
                       <button
@@ -343,7 +347,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                         Record recovery
                       </button>
                     ) : null}
-                    {canVoidWriteOff && writeOff.voidedAt === null ? (
+                    {canWriteOff && writeOff.voidedAt === null ? (
                       <button
                         type="button"
                         onClick={() => setVoidWriteOffTarget(writeOff)}

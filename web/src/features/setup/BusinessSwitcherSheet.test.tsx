@@ -154,3 +154,60 @@ test("selecting a different business clears PartnerDetailScreen's four userId-ke
   expect(queryClient.getQueryData(["banking-event", userId])).toBeUndefined();
   expect(queryClient.getQueryData(["vehicles"])).toBeUndefined();
 });
+
+test("dismissing the create form without submitting does not leave it open on reopen", async () => {
+  const user = userEvent.setup();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const post = vi.fn();
+  const onOpenChange = vi.fn();
+
+  // Every real caller (router.tsx) mounts this sheet unconditionally and
+  // drives visibility with `open`, so the component instance -- and its
+  // `creating` state -- survives a close. `rerender` on the same instance is
+  // what reproduces that, unlike a fresh `render` per case.
+  const { rerender } = render(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Create a business" }));
+  expect(screen.getByLabelText("Business name")).toBeInTheDocument();
+
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open={false}
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(screen.queryByLabelText("Business name")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create a business" })).toBeInTheDocument();
+  expect(screen.getByText("First Fleet")).toBeInTheDocument();
+});

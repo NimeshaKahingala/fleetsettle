@@ -31,6 +31,7 @@ import { MileagePackagesScreen } from "../features/cash/MileagePackagesScreen.js
 import { PartnerDetailScreen } from "../features/cash/PartnerDetailScreen.js";
 import { PartnerSetupScreen } from "../features/cash/PartnerSetupScreen.js";
 import { BusinessSwitcherSheet } from "../features/setup/BusinessSwitcherSheet.js";
+import { isBlockedOperatePathname } from "../lib/blockedOperatePathname.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
@@ -950,8 +951,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const selected = useSelectedBusiness();
   const switcher = useBusinessSwitcherToggle();
-  const blockedShellPathname =
-    pathname === "/me" || pathname === "/admin" || pathname.startsWith("/admin/");
+  const blockedShellPathname = isBlockedOperatePathname(pathname);
 
   // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
   // change while it's open (an iOS edge-swipe back — iOS has no hardware

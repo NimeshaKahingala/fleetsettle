@@ -1,7 +1,7 @@
 import type { SessionMembership, SessionPendingRequest } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { Building2, Check, Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
@@ -72,6 +72,14 @@ export function BusinessSwitcherSheet({
 }: BusinessSwitcherSheetProps) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+
+  // Every caller mounts this sheet unconditionally and drives it by `open`, so
+  // the component instance — and this state with it — survives a dismiss.
+  // Without the reset, closing on the create form reopens on the create form,
+  // hiding every other business until a full page reload.
+  useEffect(() => {
+    if (open) setCreating(false);
+  }, [open]);
 
   function selectBusiness(businessId: string) {
     setSelectedBusinessId(businessId);

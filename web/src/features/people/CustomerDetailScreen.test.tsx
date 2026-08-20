@@ -379,7 +379,7 @@ test("UC-90/GAP-148: an owner can write off a vehicle-linked standalone customer
   expect(writeOffCall.body).not.toHaveProperty("obligationId");
 });
 
-test("UC-90/GAP-148: a customer write-off can be recovered from customer detail", async () => {
+test("UC-90/GAP-148: an owner can recover a customer write-off from customer detail", async () => {
   const user = userEvent.setup();
   const get = baseGet();
   get.mockImplementation((path: string) => {
@@ -404,7 +404,7 @@ test("UC-90/GAP-148: a customer write-off can be recovered from customer detail"
     <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
     { get, post },
     undefined,
-    manager,
+    owner,
   );
 
   expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
@@ -464,4 +464,36 @@ test("GAP-147/GAP-148: an owner can void a customer write-off from customer deta
       reason: "Entered against the wrong customer",
     }),
   );
+});
+
+test("GAP-148: a manager sees no write-off section and no failure banner on customer detail", async () => {
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([due]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+    // `listWriteOffsHandler` is `writeOffOrWaiveAboveThreshold` — owners only —
+    // so a manager's request 403s. The screen must not make it in the first
+    // place, and must not render the refusal as a broken-page banner.
+    if (path.startsWith("/api/write-off?"))
+      return Promise.reject(new ApiError(403, "FORBIDDEN_CAPABILITY", "boom", "req-wo"));
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByRole("heading", { name: "Acme Tours" })).toBeInTheDocument();
+  expect(screen.getByText("Payments · 1")).toBeInTheDocument();
+  expect(
+    get.mock.calls.some(
+      (call) => typeof call[0] === "string" && call[0].startsWith("/api/write-off?"),
+    ),
+  ).toBe(false);
+  expect(screen.queryByText(/write-offs/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Written off losses/)).not.toBeInTheDocument();
 });

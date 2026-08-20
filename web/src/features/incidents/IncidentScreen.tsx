@@ -309,7 +309,7 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
                         ) : null}
                       </div>
                     ) : isReceivable(recovery) || isVoidable(recovery) ? (
-                      <div className="flex flex-wrap justify-end gap-2 border-t border-line-soft pt-3">
+                      <div className="flex flex-wrap justify-end gap-4 border-t border-line-soft pt-3">
                         {isReceivable(recovery) ? (
                           <Button
                             type="button"
