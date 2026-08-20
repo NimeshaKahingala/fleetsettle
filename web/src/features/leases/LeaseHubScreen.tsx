@@ -9,6 +9,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileX2,
   Gauge,
+  History,
   MoreVertical,
   RefreshCw,
   ReceiptText,
@@ -34,6 +35,7 @@ import {
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
+import { AdjustmentsSheet } from "./AdjustmentsSheet.js";
 import { AdjustObligationSheet } from "./AdjustObligationSheet.js";
 import { CollectPaymentSheet } from "./CollectPaymentSheet.js";
 import { PostClosureChargeSheet } from "./PostClosureChargeSheet.js";
@@ -99,6 +101,7 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
   const [selectedDue, setSelectedDue] = useState<LeaseObligationRow | null>(null);
   const [collectForDue, setCollectForDue] = useState<LeaseObligationRow | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
   const [writeOffOpen, setWriteOffOpen] = useState(false);
   const [postClosureChargeOpen, setPostClosureChargeOpen] = useState(false);
 
@@ -160,6 +163,12 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             label: "Adjust or waive",
             icon: SlidersHorizontal,
             onSelect: () => setAdjustOpen(true),
+          },
+          {
+            key: "adjustments",
+            label: "View adjustments",
+            icon: History,
+            onSelect: () => setAdjustmentsOpen(true),
           },
           ...(canWriteOff
             ? [
@@ -374,6 +383,14 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
               onOpenChange={setAdjustOpen}
               leaseId={leaseId}
               due={selectedDue}
+            />
+          ) : null}
+          {selectedDue !== null ? (
+            <AdjustmentsSheet
+              open={adjustmentsOpen}
+              onOpenChange={setAdjustmentsOpen}
+              leaseId={leaseId}
+              obligationId={selectedDue.id}
             />
           ) : null}
           {selectedDue !== null ? (

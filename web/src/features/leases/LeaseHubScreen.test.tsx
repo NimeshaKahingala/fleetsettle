@@ -410,3 +410,17 @@ test("F-8.4: an active lease does not expose the post-closure charge action", as
   expect(screen.getByRole("button", { name: "Close the lease" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Record late charge" })).not.toBeInTheDocument();
 });
+
+test("GAP-147: View adjustments opens the adjustments sheet for the right due", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({ "/api/lease/l1/obligation": dues, "/api/adjustment?obligationId=o1": [] });
+  renderWithProviders(<LeaseHubScreen leaseId="l1" onBack={() => {}} onCloseLease={() => {}} />, {
+    get,
+  });
+
+  await user.click(await screen.findByText("Rent"));
+  await user.click(screen.getByRole("button", { name: "View adjustments" }));
+
+  expect(await screen.findByText("No adjustments recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/adjustment?obligationId=o1")).toBe(true);
+});

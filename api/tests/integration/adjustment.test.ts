@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { mintUser, signAccessToken } from "../support/auth.js";
+import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -201,6 +201,147 @@ describe("adjust or waive an obligation (P4, F-2.4/UC-15)", () => {
     expect(res.status).toBe(409);
     const responseBody: { code: string } = await res.json();
     expect(responseBody).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    await ctx.cleanup();
+  });
+});
+
+async function getAdjustments(token: string, obligationId: string) {
+  return request(`/api/adjustment?obligationId=${obligationId}`, bearer(token));
+}
+
+describe("GET /api/adjustment (GAP-147)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every adjustment against this obligation, newest first", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      driverId,
+      amountMinor: 340_00n,
+    });
+
+    const firstRes = await postAdjustment(token, {
+      obligationId,
+      adjustmentType: "late_fee",
+      amountMinor: "1000",
+      sign: 1,
+      reason: "Paid three days late",
+    });
+    expect(firstRes.status).toBe(201);
+    const secondRes = await postAdjustment(token, {
+      obligationId,
+      adjustmentType: "goodwill",
+      amountMinor: "500",
+      sign: -1,
+      reason: "Vehicle broke down for a day",
+    });
+    expect(secondRes.status).toBe(201);
+
+    const res = await getAdjustments(token, obligationId);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      obligationId: string;
+      adjustmentType: string;
+      amountMinor: string;
+      sign: -1 | 1;
+      reason: string | null;
+      voidedAt: string | null;
+      voidedReason: string | null;
+    }> = await res.json();
+    expect(body).toHaveLength(2);
+    // Newest first — the goodwill adjustment recorded after the late fee.
+    expect(body[0]).toMatchObject({
+      obligationId,
+      adjustmentType: "goodwill",
+      amountMinor: "500",
+      sign: -1,
+      reason: "Vehicle broke down for a day",
+      voidedAt: null,
+    });
+    expect(body[1]).toMatchObject({ adjustmentType: "late_fee", amountMinor: "1000", sign: 1 });
+
+    await ctx.cleanup();
+  });
+
+  it("a voided adjustment stays in the list, struck through with its reason (W-50)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      driverId,
+      amountMinor: 340_00n,
+    });
+
+    const createRes = await postAdjustment(token, {
+      obligationId,
+      adjustmentType: "late_fee",
+      amountMinor: "1000",
+      sign: 1,
+    });
+    const created: { adjustmentId: string } = await createRes.json();
+
+    const voidRes = await request(`/api/adjustment/${created.adjustmentId}/void`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({ reason: "Entered against the wrong obligation" }),
+    });
+    expect(voidRes.status).toBe(200);
+
+    const res = await getAdjustments(token, obligationId);
+    const body: Array<{ voidedAt: string | null; voidedReason: string | null }> = await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]?.voidedAt).not.toBeNull();
+    expect(body[0]?.voidedReason).toBe("Entered against the wrong obligation");
+
+    await ctx.cleanup();
+  });
+
+  it("404 — an obligation belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherPeriodId = await ctx.createOpenPeriod(otherBusinessId);
+    const otherDriverId = await ctx.createDriver(otherBusinessId);
+    const otherObligationId = await ctx.createObligation(otherBusinessId, otherPeriodId, {
+      driverId: otherDriverId,
+      amountMinor: 100_00n,
+    });
+
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await getAdjustments(token, otherObligationId);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await getAdjustments("", "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot view adjustments (W-49)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getAdjustments(token, "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(403);
 
     await ctx.cleanup();
   });
