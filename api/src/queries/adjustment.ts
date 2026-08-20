@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { adjustment } from "../db/schema.js";
 
@@ -31,7 +31,11 @@ export interface AdjustmentRow {
   adjustmentType: string;
   amountMinor: bigint;
   sign: -1 | 1;
+  reason: string | null;
+  occurredOn: string;
   voidedAt: string | null;
+  voidedReason: string | null;
+  replacesId: string | null;
 }
 
 /** GAP-12/W-61/INV-36 §3.1. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
@@ -47,12 +51,41 @@ export async function findAdjustmentForBusiness(
       adjustmentType: adjustment.adjustmentType,
       amountMinor: adjustment.amountMinor,
       sign: adjustment.sign,
+      reason: adjustment.reason,
+      occurredOn: adjustment.occurredOn,
       voidedAt: adjustment.voidedAt,
+      voidedReason: adjustment.voidedReason,
+      replacesId: adjustment.replacesId,
     })
     .from(adjustment)
     .where(and(eq(adjustment.id, adjustmentId), eq(adjustment.businessId, businessId)))
     .limit(1);
   return rows[0] as AdjustmentRow | undefined;
+}
+
+/** GAP-147: every adjustment ever recorded against one obligation, newest first — the read a manager needs to find one to void, `dailyOperations` matching `voidAdjustmentHandler` (the same gate regardless of adjustment type, including an above-threshold waiver — void never re-escalates the way create does). */
+export async function listAdjustmentsForObligation(
+  db: ReadDb,
+  businessId: string,
+  obligationId: string,
+): Promise<AdjustmentRow[]> {
+  const rows = await db
+    .select({
+      id: adjustment.id,
+      obligationId: adjustment.obligationId,
+      adjustmentType: adjustment.adjustmentType,
+      amountMinor: adjustment.amountMinor,
+      sign: adjustment.sign,
+      reason: adjustment.reason,
+      occurredOn: adjustment.occurredOn,
+      voidedAt: adjustment.voidedAt,
+      voidedReason: adjustment.voidedReason,
+      replacesId: adjustment.replacesId,
+    })
+    .from(adjustment)
+    .where(and(eq(adjustment.businessId, businessId), eq(adjustment.obligationId, obligationId)))
+    .orderBy(desc(adjustment.occurredOn), desc(adjustment.id));
+  return rows as AdjustmentRow[];
 }
 
 /** GAP-12/W-61/INV-36 §3.1: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */

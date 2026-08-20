@@ -29,6 +29,10 @@ async function listWriteOffs(token: string, query = "") {
   return request(`/api/write-off${query}`, bearer(token));
 }
 
+async function listWriteOffRecoveries(token: string, writeOffId: string) {
+  return request(`/api/write-off/${writeOffId}/recovery`, bearer(token));
+}
+
 interface WriteOffResponseBody {
   id: string;
   obligationId: string | null;
@@ -209,6 +213,29 @@ describe("write off a balance (P10, F-8.3/UC-90)", () => {
     await ctx.cleanup();
   });
 
+  it("404 — vehicleId cannot tag a vehicle from another business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const otherVehicleId = await ctx.createVehicle(otherBusinessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postWriteOff(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      vehicleId: otherVehicleId,
+      amountMinor: "1000",
+      reason: "x",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
   it("409 — a closed accounting period rejects the write", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
@@ -331,15 +358,30 @@ describe("GET /api/write-off (A3)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("403 — a manager cannot view write-offs (owners only)", async () => {
+  it("GAP-155 — a manager can view write-offs (dailyOperations, same gate as recording a recovery)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
-    const manager = await mintUser(db, ctx, businessId, "manager");
-    const token = await signAccessToken(manager.asgardeoSub);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const ownerToken = await signAccessToken(owner.asgardeoSub);
+    const writeOffRes = await postWriteOff(ownerToken, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "1000",
+      reason: "customer vanished",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(writeOffRes.status).toBe(201);
+    const writeOffBody: WriteOffResponseBody = await writeOffRes.json();
+    ctx.trackCreatedWriteOff(writeOffBody.id);
 
-    const res = await listWriteOffs(token);
-    expect(res.status).toBe(403);
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const managerToken = await signAccessToken(manager.asgardeoSub);
+    const res = await listWriteOffs(managerToken);
+    expect(res.status).toBe(200);
+    const body: WriteOffListRowBody[] = await res.json();
+    expect(body.map((r) => r.id)).toContain(writeOffBody.id);
 
     await ctx.cleanup();
   });
@@ -353,6 +395,157 @@ describe("GET /api/write-off (A3)", () => {
     const token = await signAccessToken(linked.asgardeoSub);
 
     const res = await listWriteOffs(token);
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+});
+
+describe("GET /api/write-off/{id}/recovery (GAP-147)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("happy path — every recovery against this write-off, newest first, with the date it was recorded through", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const writeOffRes = await postWriteOff(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "40000",
+      reason: "written off last quarter",
+      writtenOffOn: "2026-07-01",
+    });
+    const writeOffBody: WriteOffResponseBody = await writeOffRes.json();
+    ctx.trackCreatedWriteOff(writeOffBody.id);
+
+    const firstRecoveryRes = await postWriteOffRecovery(token, writeOffBody.id, {
+      amountMinor: "10000",
+      occurredOn: "2026-07-10",
+    });
+    expect(firstRecoveryRes.status).toBe(201);
+    const secondRecoveryRes = await postWriteOffRecovery(token, writeOffBody.id, {
+      amountMinor: "15000",
+      occurredOn: "2026-07-20",
+    });
+    expect(secondRecoveryRes.status).toBe(201);
+    const secondRecoveryBody: { id: string } = await secondRecoveryRes.json();
+
+    const res = await listWriteOffRecoveries(token, writeOffBody.id);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      writeOffId: string;
+      amountMinor: string;
+      occurredOn: string;
+      voidedAt: string | null;
+      voidedReason: string | null;
+    }> = await res.json();
+    // Newest first — the 20th before the 10th.
+    expect(body).toHaveLength(2);
+    expect(body[0]).toMatchObject({
+      id: secondRecoveryBody.id,
+      writeOffId: writeOffBody.id,
+      amountMinor: "15000",
+      occurredOn: "2026-07-20",
+      voidedAt: null,
+    });
+    expect(body[1]).toMatchObject({ amountMinor: "10000", occurredOn: "2026-07-10" });
+
+    await ctx.cleanup();
+  });
+
+  it("a voided recovery stays in the list, struck through with its reason (W-50)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const writeOffRes = await postWriteOff(token, {
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "40000",
+      reason: "written off last quarter",
+      writtenOffOn: "2026-07-01",
+    });
+    const writeOffBody: WriteOffResponseBody = await writeOffRes.json();
+    ctx.trackCreatedWriteOff(writeOffBody.id);
+
+    const recoveryRes = await postWriteOffRecovery(token, writeOffBody.id, {
+      amountMinor: "10000",
+      occurredOn: "2026-07-10",
+    });
+    const recoveryBody: { id: string } = await recoveryRes.json();
+
+    const voidRes = await request(
+      `/api/write-off/${writeOffBody.id}/recovery/${recoveryBody.id}/void`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(token).headers },
+        body: JSON.stringify({ reason: "Entered against the wrong write-off" }),
+      },
+    );
+    expect(voidRes.status).toBe(200);
+
+    const res = await listWriteOffRecoveries(token, writeOffBody.id);
+    const body: Array<{ id: string; voidedAt: string | null; voidedReason: string | null }> =
+      await res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0]?.voidedAt).not.toBeNull();
+    expect(body[0]?.voidedReason).toBe("Entered against the wrong write-off");
+
+    await ctx.cleanup();
+  });
+
+  it("404 — a write-off belonging to another business", async () => {
+    const ctx = new TestContext(db);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    await ctx.createOpenPeriod(otherBusinessId);
+    const otherCustomerId = await ctx.createCustomer(otherBusinessId);
+    const otherOwner = await mintUser(db, ctx, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherWriteOffRes = await postWriteOff(otherToken, {
+      partyType: "customer",
+      partyCustomerId: otherCustomerId,
+      amountMinor: "1000",
+      reason: "x",
+      writtenOffOn: "2026-07-20",
+    });
+    const otherWriteOffBody: WriteOffResponseBody = await otherWriteOffRes.json();
+    ctx.trackCreatedWriteOff(otherWriteOffBody.id);
+
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await listWriteOffRecoveries(token, otherWriteOffBody.id);
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await listWriteOffRecoveries("", "11111111-1111-4111-8111-111111111111");
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot view write-off recoveries (W-49)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await listWriteOffRecoveries(token, "11111111-1111-4111-8111-111111111111");
     expect(res.status).toBe(403);
 
     await ctx.cleanup();

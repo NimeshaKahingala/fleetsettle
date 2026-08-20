@@ -1,9 +1,13 @@
-import type { SessionMembership } from "@fleetsettle/shared/schemas";
+import type { SessionMembership, SessionPendingRequest } from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Check } from "lucide-react";
+import { Building2, Check, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Button } from "../../design/primitives/Button.js";
+import { Card } from "../../design/primitives/Card.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
 import { setSelectedBusinessId } from "../../lib/storage.js";
+import { CreateBusinessForm } from "./CreateBusinessForm.js";
 
 export interface BusinessSwitcherSheetProps {
   open: boolean;
@@ -17,6 +21,12 @@ export interface BusinessSwitcherSheetProps {
    * the same way, correctly, rather than needing its own guard here.
    */
   currentBusinessId?: string | null;
+  /**
+   * Present for the in-shell business hub. Omitted for FirstRunGate's
+   * mandatory "choose one of your existing memberships" state, where showing
+   * another create path would make the required choice less clear.
+   */
+  createBusiness?: { pendingRequest: SessionPendingRequest | null };
   /**
    * Fires after the selection is persisted and the cache cleared — `null`
    * when the caller has nothing further to do. `FirstRunGate` uses this to
@@ -57,9 +67,19 @@ export function BusinessSwitcherSheet({
   onOpenChange,
   businesses,
   currentBusinessId,
+  createBusiness,
   onSelected,
 }: BusinessSwitcherSheetProps) {
   const queryClient = useQueryClient();
+  const [creating, setCreating] = useState(false);
+
+  // Every caller mounts this sheet unconditionally and drives it by `open`, so
+  // the component instance — and this state with it — survives a dismiss.
+  // Without the reset, closing on the create form reopens on the create form,
+  // hiding every other business until a full page reload.
+  useEffect(() => {
+    if (open) setCreating(false);
+  }, [open]);
 
   function selectBusiness(businessId: string) {
     setSelectedBusinessId(businessId);
@@ -78,6 +98,13 @@ export function BusinessSwitcherSheet({
     onOpenChange(false);
   }
 
+  function handleBusinessCreated(business: { id: string }) {
+    setSelectedBusinessId(business.id);
+    queryClient.clear();
+    onSelected?.();
+    onOpenChange(false);
+  }
+
   return (
     // "Businesses", not "Choose a business" — `FirstRunGate`'s own
     // mandatory-choice state already renders that exact heading as its page
@@ -85,33 +112,62 @@ export function BusinessSwitcherSheet({
     // nothing), and two identical headings on screen at once is confusing
     // for a screen reader as much as for a sighted reader.
     <Sheet open={open} onOpenChange={onOpenChange} title="Businesses">
-      <ul className="flex flex-col gap-1">
-        {businesses.map((membership) => {
-          const isCurrent = membership.businessId === currentBusinessId;
-          return (
-            <li key={membership.businessId}>
-              <button
-                type="button"
-                onClick={() => selectBusiness(membership.businessId)}
-                aria-current={isCurrent ? "true" : undefined}
-                className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
-              >
-                <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body text-ink-primary">
-                    {membership.name}
+      <div className="flex flex-col gap-4">
+        <ul className="flex flex-col gap-1">
+          {businesses.map((membership) => {
+            const isCurrent = membership.businessId === currentBusinessId;
+            return (
+              <li key={membership.businessId}>
+                <button
+                  type="button"
+                  onClick={() => selectBusiness(membership.businessId)}
+                  aria-current={isCurrent ? "true" : undefined}
+                  className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
+                >
+                  <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-body text-ink-primary">
+                      {membership.name}
+                    </span>
+                    <span className="block text-body-sm text-ink-muted">
+                      {membershipRoleLabel(membership.role)}
+                      {isCurrent ? " · Current" : ""}
+                    </span>
                   </span>
-                  <span className="block text-body-sm text-ink-muted">
-                    {membershipRoleLabel(membership.role)}
-                    {isCurrent ? " · Current" : ""}
-                  </span>
-                </span>
-                {isCurrent ? <Check className="size-5 shrink-0 text-brand" aria-hidden /> : null}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
+                  {isCurrent ? <Check className="size-5 shrink-0 text-brand" aria-hidden /> : null}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        {createBusiness !== undefined ? (
+          <div className="border-t border-line-hairline pt-4">
+            {creating || createBusiness.pendingRequest !== null ? (
+              <Card className="flex flex-col gap-4">
+                <div className="flex items-start gap-3">
+                  <Plus className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+                  <div>
+                    <h2 className="text-title text-ink-primary">Create a business</h2>
+                    <p className="text-body-sm text-ink-muted">
+                      Start another FleetSettle business record.
+                    </p>
+                  </div>
+                </div>
+                <CreateBusinessForm
+                  pendingRequest={createBusiness.pendingRequest}
+                  onCreated={handleBusinessCreated}
+                />
+              </Card>
+            ) : (
+              <Button type="button" variant="outline" size="cta" onClick={() => setCreating(true)}>
+                <Plus className="size-5" aria-hidden />
+                Create a business
+              </Button>
+            )}
+          </div>
+        ) : null}
+      </div>
     </Sheet>
   );
 }

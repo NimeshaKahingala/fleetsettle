@@ -3,24 +3,39 @@ import type {
   CustomerResponse,
   LeaseObligationRow,
   ListPaymentsResponse,
+  ListWriteOffsResponse,
+  SessionResponse,
+  WriteOffListRow,
 } from "@fleetsettle/shared/schemas";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Archive, ArchiveRestore, FileX2, MoreVertical } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Badge } from "../../design/primitives/Badge.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
+import { NoteField } from "../../design/primitives/NoteField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
 import {
   AGEING_BUCKET_LABEL,
   AGEING_BUCKET_VARIANT,
   computeAgeingBucket,
 } from "../../lib/ageingBucket.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { can } from "../../lib/capabilities.js";
 import { OBLIGATION_KIND_LABEL, OBLIGATION_STATUS_LABEL } from "../../lib/obligationStatusLabel.js";
+import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
+import { VoidObligationSheet } from "./VoidObligationSheet.js";
+import { VoidWriteOffSheet } from "./VoidWriteOffSheet.js";
+import { WriteOffBalanceSheet } from "./WriteOffBalanceSheet.js";
+import { WriteOffRecoveriesSheet } from "./WriteOffRecoveriesSheet.js";
+import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
 
 export interface CustomerDetailScreenProps {
   customerId: string;
@@ -74,6 +89,14 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
   const queryClient = useQueryClient();
   const today = businessToday();
   const [collectOpen, setCollectOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveReason, setArchiveReason] = useState("");
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [recoveryTarget, setRecoveryTarget] = useState<WriteOffListRow | null>(null);
+  const [voidWriteOffTarget, setVoidWriteOffTarget] = useState<WriteOffListRow | null>(null);
+  const [voidObligationTarget, setVoidObligationTarget] = useState<string | null>(null);
+  const [recoveriesTarget, setRecoveriesTarget] = useState<string | null>(null);
 
   const customerQuery = useQuery({
     queryKey: ["customer", customerId],
@@ -87,18 +110,104 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
     queryKey: ["customer", customerId, "payment"],
     queryFn: () => api.get<ListPaymentsResponse>(`/api/customer/${customerId}/payment`),
   });
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  // GAP-155: `listWriteOffsHandler` is `dailyOperations` — the same gate as
+  // recording the recovery it exists to serve for a manager — so this reuses
+  // `canRecordRecovery` rather than a second identical check. Creating and
+  // voiding a write-off stay `writeOffOrWaiveAboveThreshold` (`canWriteOff`,
+  // below): only who can *see* widened, not who can create or reverse one.
+  const canRecordRecovery = selectedRole !== undefined && can(selectedRole, "dailyOperations");
+  const canWriteOff =
+    selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
+  // GAP-147: `voidObligationHandler` is also `dailyOperations`, the same
+  // capability as `canRecordRecovery` above — kept as its own name since
+  // the two gate unrelated actions that only coincidentally share a
+  // capability today (the anti-pattern the original review flagged in
+  // `canVoidWriteOff`/`canWriteOff` — two names for one check is fine only
+  // when they mean the same thing).
+  const canVoidObligation = selectedRole !== undefined && can(selectedRole, "dailyOperations");
+  const writeOffsQuery = useQuery({
+    queryKey: ["write-off", "customer", customerId],
+    queryFn: () =>
+      api.get<ListWriteOffsResponse>(
+        `/api/write-off?partyType=customer&partyCustomerId=${encodeURIComponent(customerId)}`,
+      ),
+    enabled: canRecordRecovery,
+  });
 
   const customerState = useQueryState(customerQuery);
   const duesState = useQueryState(duesQuery);
   const paymentsState = useQueryState(paymentsQuery);
+  const writeOffsState = useQueryState(writeOffsQuery);
   const customer = customerQuery.data;
   const dues = duesQuery.data ?? [];
   const payments = paymentsQuery.data ?? [];
+  const writeOffs = writeOffsQuery.data ?? [];
+
+  useEffect(() => {
+    if (archiveOpen) setArchiveReason("");
+  }, [archiveOpen]);
+
+  const archiveMutation = useMutation({
+    mutationFn: () => {
+      if (customer === undefined) throw new Error("Choose a customer");
+      if (customer.archivedAt !== null && customer.archivedAt !== undefined) {
+        return api.post<CustomerResponse>(`/api/customer/${customerId}/unarchive`, {});
+      }
+      return api.post<CustomerResponse>(`/api/customer/${customerId}/archive`, {
+        reason: archiveReason.trim(),
+      });
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
+      setArchiveOpen(false);
+    },
+  });
+
+  const customerActions: ActionSheetAction[] =
+    customer?.archivedAt !== null && customer?.archivedAt !== undefined
+      ? [
+          {
+            key: "unarchive-customer",
+            label: "Unarchive customer",
+            icon: ArchiveRestore,
+            onSelect: () => setArchiveOpen(true),
+          },
+        ]
+      : [
+          ...(canWriteOff
+            ? [
+                {
+                  key: "write-off-customer",
+                  label: "Write off balance",
+                  icon: FileX2,
+                  onSelect: () => setWriteOffOpen(true),
+                },
+              ]
+            : []),
+          {
+            key: "archive-customer",
+            label: "Archive customer",
+            icon: Archive,
+            onSelect: () => setArchiveOpen(true),
+          },
+        ];
 
   return (
     <Screen
       title={customer?.name ?? "Customer"}
       onBack={onBack}
+      {...(customer !== undefined
+        ? {
+            action: {
+              label: "Customer actions",
+              icon: MoreVertical,
+              onClick: () => setActionsOpen(true),
+            },
+          }
+        : {})}
       {...(customer !== undefined && duesQuery.data !== undefined
         ? {
             primaryAction: {
@@ -119,6 +228,20 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
       ) : (
         <div className="flex flex-col gap-5">
           <Card className="flex flex-col gap-3">
+            <div>
+              <p className="text-label text-ink-secondary">Status</p>
+              <Badge
+                variant={
+                  customer.archivedAt !== null && customer.archivedAt !== undefined
+                    ? "warning"
+                    : "good"
+                }
+              >
+                {customer.archivedAt !== null && customer.archivedAt !== undefined
+                  ? "Archived"
+                  : "Active"}
+              </Badge>
+            </div>
             {detailRows(customer).map((row) => (
               <div key={row.label}>
                 <p className="text-label text-ink-secondary">{row.label}</p>
@@ -147,7 +270,10 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               items={dues.map((due) => {
                 const bucket = computeAgeingBucket(due.effectiveDueOn, today);
                 return (
-                  <Card key={due.id} className="flex items-center justify-between gap-4">
+                  <Card
+                    key={due.id}
+                    className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
                     <div>
                       <p className="text-body text-ink-primary">
                         {OBLIGATION_KIND_LABEL[due.kind] ?? due.kind}
@@ -157,12 +283,28 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                         {OBLIGATION_STATUS_LABEL[due.status] ?? due.status}
                       </p>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <Money value={outstandingMinor(due)} />
-                      {/* §7.11: "dues as work queues with due-age chips" */}
-                      <Badge variant={AGEING_BUCKET_VARIANT[bucket]}>
-                        {AGEING_BUCKET_LABEL[bucket]}
-                      </Badge>
+                    <div className="flex flex-col items-end gap-4">
+                      <div className="flex flex-col items-end gap-1">
+                        <Money value={outstandingMinor(due)} />
+                        {/* §7.11: "dues as work queues with due-age chips" */}
+                        <Badge variant={AGEING_BUCKET_VARIANT[bucket]}>
+                          {AGEING_BUCKET_LABEL[bucket]}
+                        </Badge>
+                      </div>
+                      {/* GAP-147/INV-36 §3.10: post_closure_charge is the
+                          only obligation kind raised directly, so it is the
+                          only one voidable directly — every other kind
+                          corrects at its own source (close the lease, void
+                          the day, cancel the trip). */}
+                      {canVoidObligation && due.kind === "post_closure_charge" ? (
+                        <button
+                          type="button"
+                          onClick={() => setVoidObligationTarget(due.id)}
+                          className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                        >
+                          Void charge
+                        </button>
+                      ) : null}
                     </div>
                   </Card>
                 );
@@ -202,6 +344,63 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
             />
           )}
 
+          {canRecordRecovery && writeOffsState.kind === "error" ? (
+            <QueryStateFailure
+              error={writeOffsState.error}
+              retry={writeOffsState.retry}
+              of="this customer's write-offs"
+            />
+          ) : canRecordRecovery && writeOffs.length > 0 ? (
+            <Section
+              title="Written off losses"
+              count={writeOffs.length}
+              items={writeOffs.map((writeOff) => (
+                <Card
+                  key={writeOff.id}
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <p className="text-body text-ink-primary">{writeOff.reason}</p>
+                    <p className="text-caption text-ink-muted">
+                      {formatShortDate(writeOff.writtenOffOn)}
+                      {writeOff.voidedAt !== null ? " · voided" : ""}
+                    </p>
+                  </div>
+                  <div className="flex flex-col gap-4 sm:items-end">
+                    <Money value={parse(writeOff.amountMinor)} />
+                    {canRecordRecovery && writeOff.voidedAt === null ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecoveryTarget(writeOff)}
+                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                      >
+                        Record recovery
+                      </button>
+                    ) : null}
+                    {canRecordRecovery ? (
+                      <button
+                        type="button"
+                        onClick={() => setRecoveriesTarget(writeOff.id)}
+                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                      >
+                        View recoveries
+                      </button>
+                    ) : null}
+                    {canWriteOff && writeOff.voidedAt === null ? (
+                      <button
+                        type="button"
+                        onClick={() => setVoidWriteOffTarget(writeOff)}
+                        className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                      >
+                        Void write-off
+                      </button>
+                    ) : null}
+                  </div>
+                </Card>
+              ))}
+            />
+          ) : null}
+
           <CollectPaymentSheet
             open={collectOpen}
             onOpenChange={setCollectOpen}
@@ -222,6 +421,98 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
               void queryClient.invalidateQueries({ queryKey: ["reports"] });
             }}
           />
+          <WriteOffBalanceSheet
+            open={writeOffOpen}
+            onOpenChange={setWriteOffOpen}
+            party={{ type: "customer", id: customerId }}
+            today={today}
+          />
+          {recoveryTarget !== null ? (
+            <WriteOffRecoverySheet
+              open={recoveryTarget !== null}
+              onOpenChange={(open) => {
+                if (!open) setRecoveryTarget(null);
+              }}
+              writeOffId={recoveryTarget.id}
+              party={{ type: "customer", id: customerId }}
+              today={today}
+            />
+          ) : null}
+          {voidWriteOffTarget !== null ? (
+            <VoidWriteOffSheet
+              open={voidWriteOffTarget !== null}
+              onOpenChange={(open) => {
+                if (!open) setVoidWriteOffTarget(null);
+              }}
+              writeOffId={voidWriteOffTarget.id}
+              party={{ type: "customer", id: customerId }}
+            />
+          ) : null}
+          <VoidObligationSheet
+            open={voidObligationTarget !== null}
+            onOpenChange={(open) => {
+              if (!open) setVoidObligationTarget(null);
+            }}
+            customerId={customerId}
+            obligationId={voidObligationTarget}
+          />
+          {recoveriesTarget !== null ? (
+            <WriteOffRecoveriesSheet
+              open={recoveriesTarget !== null}
+              onOpenChange={(open) => {
+                if (!open) setRecoveriesTarget(null);
+              }}
+              writeOffId={recoveriesTarget}
+              party={{ type: "customer", id: customerId }}
+            />
+          ) : null}
+          <ActionSheet
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            title="Customer actions"
+            actions={customerActions}
+          />
+          <Sheet
+            open={archiveOpen}
+            onOpenChange={setArchiveOpen}
+            title={
+              customer.archivedAt !== null && customer.archivedAt !== undefined
+                ? "Unarchive customer?"
+                : "Archive customer?"
+            }
+          >
+            <div className="flex flex-col gap-4 pb-2">
+              <p className="text-body text-ink-secondary">
+                {customer.archivedAt !== null && customer.archivedAt !== undefined
+                  ? "This puts the customer back into pickers. Existing history is unchanged."
+                  : "This hides the customer from new work. The API refuses this while money is still open."}
+              </p>
+              {customer.archivedAt === null || customer.archivedAt === undefined ? (
+                <NoteField label="Reason" value={archiveReason} onChange={setArchiveReason} />
+              ) : null}
+              {archiveMutation.isError ? (
+                <p className="text-body-sm text-critical-ink">{archiveMutation.error.message}</p>
+              ) : null}
+              <Button
+                size="cta"
+                variant={
+                  customer.archivedAt !== null && customer.archivedAt !== undefined
+                    ? "primary"
+                    : "destructive"
+                }
+                disabled={
+                  archiveMutation.isPending ||
+                  ((customer.archivedAt === null || customer.archivedAt === undefined) &&
+                    archiveReason.trim() === "")
+                }
+                onClick={() => archiveMutation.mutate()}
+              >
+                {customer.archivedAt !== null && customer.archivedAt !== undefined
+                  ? "Unarchive customer"
+                  : "Archive customer"}
+              </Button>
+            </div>
+          </Sheet>
         </div>
       )}
     </Screen>

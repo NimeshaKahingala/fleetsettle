@@ -51,6 +51,22 @@ export const settledAdvanceResponseSchema = advanceResponseSchema.extend({
 });
 export type SettledAdvanceResponse = z.infer<typeof settledAdvanceResponseSchema>;
 
+/** GAP-147: every settlement recorded against one advance, newest first — the read a manager needs to find one to void. Voided rows stay in, struck through with their reason (W-50), the same convention `writeOffListRowSchema` already established. */
+export const advanceSettlementListRowSchema = z.object({
+  id: uuidSchema,
+  advanceId: uuidSchema,
+  kind: z.enum(["spent", "returned", "kept_as_fee"]),
+  amountMinor: z.string(),
+  occurredOn: z.string(),
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+  replacesId: z.string().uuid().nullable(),
+});
+export type AdvanceSettlementListRow = z.infer<typeof advanceSettlementListRowSchema>;
+
+export const listAdvanceSettlementsResponseSchema = z.array(advanceSettlementListRowSchema);
+export type ListAdvanceSettlementsResponse = z.infer<typeof listAdvanceSettlementsResponseSchema>;
+
 /** GAP-12/W-61/INV-36 §3.5: void, never delete — `advance` comes back with `status` already recomputed from the live settlements that remain. */
 export const voidedAdvanceSettlementResponseSchema = z.object({
   id: uuidSchema,

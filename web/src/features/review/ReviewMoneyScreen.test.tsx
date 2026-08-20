@@ -1,5 +1,6 @@
 import type { MeResponse, PartnerSummaryResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
@@ -25,6 +26,17 @@ test("renders every figure from GET /api/partner/{userId}, all-time and this-per
   expect(await screen.findByText("Rs 18,400")).toBeInTheDocument();
   expect(screen.getByText("Rs 5,000")).toBeInTheDocument();
   expect(screen.getByText(/Earned \(2026-07-01 – 2026-07-31\)/)).toBeInTheDocument();
+});
+
+test("GAP-153/F-5: can render a Back affordance when opened from Operate's More hub", async () => {
+  const user = userEvent.setup();
+  const onBack = vi.fn();
+  const get = vi.fn().mockResolvedValue(partner);
+  renderWithProviders(<ReviewMoneyScreen onBack={onBack} />, { get }, undefined, me);
+
+  await user.click(await screen.findByRole("button", { name: "Back" }));
+
+  expect(onBack).toHaveBeenCalledTimes(1);
 });
 
 test("GAP-101/GAP-90/F2: a failed read — including a revoked member's 404 — shows a failure notice, never an eternal spinner", async () => {

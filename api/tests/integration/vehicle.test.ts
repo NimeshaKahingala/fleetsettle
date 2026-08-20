@@ -136,7 +136,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
 
     const res = await postVehicle(token, {
       registration: `CAB-${crypto.randomUUID().slice(0, 8)}`,
-      vehicleType: "car",
+      vehicleType: "Car",
       defaultArrangement: "A",
       insuranceExpiry: "2026-12-31",
       registrationExpiry: "2027-06-30",
@@ -157,7 +157,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
     const res = await request("/api/vehicle", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ registration: "X", vehicleType: "car", defaultArrangement: "A" }),
+      body: JSON.stringify({ registration: "X", vehicleType: "Car", defaultArrangement: "A" }),
     });
     expect(res.status).toBe(401);
     const responseBody: { code: string } = await res.json();
@@ -173,7 +173,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
 
     const res = await postVehicle(token, {
       registration: "DRV-001",
-      vehicleType: "car",
+      vehicleType: "Car",
       defaultArrangement: "A",
     });
     expect(res.status).toBe(403);
@@ -192,7 +192,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
 
     const first = await postVehicle(token, {
       registration,
-      vehicleType: "car",
+      vehicleType: "Car",
       defaultArrangement: "A",
     });
     expect(first.status).toBe(201);
@@ -201,7 +201,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
 
     const second = await postVehicle(token, {
       registration,
-      vehicleType: "car",
+      vehicleType: "Car",
       defaultArrangement: "B",
     });
     expect(second.status).toBe(409);
@@ -251,7 +251,7 @@ describe("vehicle CRUD + paperwork (P2, F-1.1/UC-01, F-10.1/UC-92)", () => {
 
     const created = await postVehicle(token, {
       registration: `DOC-${crypto.randomUUID().slice(0, 8)}`,
-      vehicleType: "car",
+      vehicleType: "Car",
       defaultArrangement: "A",
     });
     const { id: vehicleId }: { id: string } = await created.json();

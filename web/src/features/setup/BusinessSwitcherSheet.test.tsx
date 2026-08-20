@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, test, vi } from "vitest";
+import type { ApiClient } from "../../lib/api.js";
+import { ApiProvider } from "../../lib/ApiContext.js";
 import { getSelectedBusinessId } from "../../lib/storage.js";
 import { BusinessSwitcherSheet } from "./BusinessSwitcherSheet.js";
 
@@ -18,17 +20,20 @@ const BUSINESSES: SessionMembership[] = [
 function renderSheet(overrides: Partial<React.ComponentProps<typeof BusinessSwitcherSheet>> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onOpenChange = vi.fn();
+  const post = vi.fn();
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <BusinessSwitcherSheet
-        open
-        onOpenChange={onOpenChange}
-        businesses={BUSINESSES}
-        {...overrides}
-      />
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          {...overrides}
+        />
+      </ApiProvider>
     </QueryClientProvider>,
   );
-  return { ...result, queryClient, onOpenChange };
+  return { ...result, queryClient, onOpenChange, post };
 }
 
 test("lists every membership's name and role", () => {
@@ -85,6 +90,38 @@ test("GAP-139: no currentBusinessId (or one that matches nothing) marks nothing 
   expect(screen.getByRole("button", { name: /Second Fleet/ })).not.toHaveAttribute("aria-current");
 });
 
+test("GAP-149: in-shell hub can create a business and selects the new business before reload", async () => {
+  const user = userEvent.setup();
+  const onSelected = vi.fn();
+  const { post, onOpenChange } = renderSheet({
+    createBusiness: { pendingRequest: null },
+    onSelected,
+  });
+  post.mockResolvedValue({
+    kind: "created",
+    id: "00000000-0000-4000-8000-000000000123",
+    name: "Third Fleet",
+    currencyCode: "LKR",
+    timezone: "Asia/Colombo",
+    accountingPeriodId: "00000000-0000-4000-8000-000000000456",
+  });
+
+  await user.click(screen.getByRole("button", { name: "Create a business" }));
+  await user.type(screen.getByLabelText("Business name"), "Third Fleet");
+  await user.click(screen.getByRole("button", { name: "Create business" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/business", {
+      name: "Third Fleet",
+      currencyCode: "LKR",
+      timezone: "Asia/Colombo",
+    }),
+  );
+  expect(getSelectedBusinessId()).toBe("00000000-0000-4000-8000-000000000123");
+  expect(onSelected).toHaveBeenCalledOnce();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
 /**
  * Design doc open question 19 / implementation plan §5: the concrete,
  * named regression case. `PartnerDetailScreen.tsx:208,212,217,221` keys
@@ -116,4 +153,61 @@ test("selecting a different business clears PartnerDetailScreen's four userId-ke
   expect(queryClient.getQueryData(["partner-payout", userId])).toBeUndefined();
   expect(queryClient.getQueryData(["banking-event", userId])).toBeUndefined();
   expect(queryClient.getQueryData(["vehicles"])).toBeUndefined();
+});
+
+test("dismissing the create form without submitting does not leave it open on reopen", async () => {
+  const user = userEvent.setup();
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const post = vi.fn();
+  const onOpenChange = vi.fn();
+
+  // Every real caller (router.tsx) mounts this sheet unconditionally and
+  // drives visibility with `open`, so the component instance -- and its
+  // `creating` state -- survives a close. `rerender` on the same instance is
+  // what reproduces that, unlike a fresh `render` per case.
+  const { rerender } = render(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  await user.click(screen.getByRole("button", { name: "Create a business" }));
+  expect(screen.getByLabelText("Business name")).toBeInTheDocument();
+
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open={false}
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  rerender(
+    <QueryClientProvider client={queryClient}>
+      <ApiProvider client={{ post } as unknown as ApiClient}>
+        <BusinessSwitcherSheet
+          open
+          onOpenChange={onOpenChange}
+          businesses={BUSINESSES}
+          createBusiness={{ pendingRequest: null }}
+        />
+      </ApiProvider>
+    </QueryClientProvider>,
+  );
+
+  expect(screen.queryByLabelText("Business name")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Create a business" })).toBeInTheDocument();
+  expect(screen.getByText("First Fleet")).toBeInTheDocument();
 });

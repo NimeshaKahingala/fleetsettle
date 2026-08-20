@@ -6,6 +6,7 @@ export interface SelectedBusiness {
   businessId: string;
   name: string;
   businesses: SessionResponse["businesses"];
+  pendingRequest: SessionResponse["pendingRequest"];
 }
 
 /**
@@ -39,5 +40,6 @@ export function useSelectedBusiness(): SelectedBusiness {
     businessId: membership.businessId,
     name: membership.name,
     businesses: session.businesses,
+    pendingRequest: session.pendingRequest,
   };
 }

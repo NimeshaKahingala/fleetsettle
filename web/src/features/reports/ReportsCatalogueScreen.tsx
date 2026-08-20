@@ -36,6 +36,7 @@ export type ReportKey =
 
 export interface ReportsCatalogueScreenProps {
   onSelect: (key: ReportKey) => void;
+  onBack?: () => void;
 }
 
 /** GAP-98: `true` restricts a card to `viewOwnerOnlyReports` (UC-77/UC-79) — everything else needs only `viewReports`, the same gate the whole screen already sits behind. */
@@ -97,7 +98,7 @@ const GROUPS: {
  * Reports row (`owner_manager`/`manager`) — this screen doesn't know or
  * care which, since `<Can>`/`can()` decide visibility from the role alone.
  */
-export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps) {
+export function ReportsCatalogueScreen({ onSelect, onBack }: ReportsCatalogueScreenProps) {
   const queryClient = useQueryClient();
   const session = queryClient.getQueryData<SessionResponse>(["session"]);
   // Phase 3: the selected membership's role, not businesses[0] unconditionally
@@ -106,7 +107,7 @@ export function ReportsCatalogueScreen({ onSelect }: ReportsCatalogueScreenProps
   const canSeeOwnerOnly = role !== undefined && can(role, "viewOwnerOnlyReports");
 
   return (
-    <Screen title="Reports">
+    <Screen title="Reports" {...(onBack !== undefined ? { onBack } : {})}>
       <Can cap="viewReports">
         <div className="flex flex-col gap-5">
           {GROUPS.map((group) => {

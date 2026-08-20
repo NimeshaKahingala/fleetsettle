@@ -391,6 +391,74 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-147 — voiding an unreceived contribution keeps history but removes it from the bottom line", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      expect(agreed.status).toBe(201);
+      const agreedBody: {
+        id: string;
+        voidedAt: string | null;
+        voidedReason: string | null;
+      } = await agreed.json();
+      expect(agreedBody).toMatchObject({ voidedAt: null, voidedReason: null });
+
+      const beforeVoid = await get(`/api/incident/${incidentId}`, token);
+      const beforeVoidBody: { bottomLine: Record<string, string> } = await beforeVoid.json();
+      expect(beforeVoidBody.bottomLine).toMatchObject({ pendingRecoveryMinor: "20000" });
+
+      const voided = await post(
+        `/api/incident/${incidentId}/recovery/${agreedBody.id}/void`,
+        token,
+        { reason: "entered against the wrong customer" },
+      );
+      expect(voided.status).toBe(200);
+
+      const afterVoid = await get(`/api/incident/${incidentId}`, token);
+      const afterVoidBody: {
+        bottomLine: Record<string, string>;
+        recoveries: Array<{
+          id: string;
+          agreedAmountMinor: string;
+          voidedAt: string | null;
+          voidedReason: string | null;
+        }>;
+      } = await afterVoid.json();
+      expect(afterVoidBody.bottomLine).toMatchObject({
+        totalRecoveredMinor: "0",
+        pendingRecoveryMinor: "0",
+        netCostMinor: "0",
+      });
+      expect(afterVoidBody.recoveries).toEqual([
+        expect.objectContaining({
+          id: agreedBody.id,
+          agreedAmountMinor: "20000",
+          voidedReason: "entered against the wrong customer",
+        }),
+      ]);
+      expect(afterVoidBody.recoveries[0]?.voidedAt).toEqual(expect.any(String));
+
+      await ctx.cleanup();
+    });
+
     it("400 — an incident with no lease has no customer to bill a contribution to (D-9/GAP-10)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

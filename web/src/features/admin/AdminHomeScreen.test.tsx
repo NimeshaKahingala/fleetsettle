@@ -40,3 +40,13 @@ test.each([
 
   expect(navigate).toHaveBeenCalledWith({ to });
 });
+
+test("GAP-151: back leaves the admin panel for the normal app shell", async () => {
+  navigate.mockClear();
+  const user = userEvent.setup();
+  renderWithProviders(<AdminHomeScreen />);
+
+  await user.click(screen.getByRole("button", { name: "Back" }));
+
+  expect(navigate).toHaveBeenCalledWith({ to: "/" });
+});

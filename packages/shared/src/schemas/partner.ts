@@ -72,6 +72,13 @@ export const capitalContributionResponseSchema = z.object({
 });
 export type CapitalContributionResponse = z.infer<typeof capitalContributionResponseSchema>;
 
+/** GAP-147: `capitalContributionResponseSchema` plus the void fields — a voided contribution stays in the list, struck through with its reason, never removed (W-50), the same convention `writeOffListRowSchema` already established. */
+export const capitalContributionListRowSchema = capitalContributionResponseSchema.extend({
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type CapitalContributionListRow = z.infer<typeof capitalContributionListRowSchema>;
+
 /** A2/GAP-9: newest first. `userId`/`vehicleId` both optional — this is also the query `GET /api/partner/{userId}`'s "put in" block reads through, unscoped by vehicle. */
 export const listCapitalContributionsQuerySchema = z.object({
   userId: uuidSchema.optional(),
@@ -79,7 +86,7 @@ export const listCapitalContributionsQuerySchema = z.object({
 });
 export type ListCapitalContributionsQuery = z.infer<typeof listCapitalContributionsQuerySchema>;
 
-export const capitalContributionsResponseSchema = z.array(capitalContributionResponseSchema);
+export const capitalContributionsResponseSchema = z.array(capitalContributionListRowSchema);
 export type CapitalContributionsResponse = z.infer<typeof capitalContributionsResponseSchema>;
 
 /**
@@ -169,13 +176,20 @@ export const bankingEventResponseSchema = z.object({
 });
 export type BankingEventResponse = z.infer<typeof bankingEventResponseSchema>;
 
+/** GAP-147: `bankingEventResponseSchema` plus the void fields — same convention as `capitalContributionListRowSchema`. */
+export const bankingEventListRowSchema = bankingEventResponseSchema.extend({
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type BankingEventListRow = z.infer<typeof bankingEventListRowSchema>;
+
 /** A2/GAP-9: newest-banked-first. `userId` filters to one partner's own bankings (`fromUserId`). */
 export const listBankingEventsQuerySchema = z.object({
   userId: uuidSchema.optional(),
 });
 export type ListBankingEventsQuery = z.infer<typeof listBankingEventsQuerySchema>;
 
-export const bankingEventsResponseSchema = z.array(bankingEventResponseSchema);
+export const bankingEventsResponseSchema = z.array(bankingEventListRowSchema);
 export type BankingEventsResponse = z.infer<typeof bankingEventsResponseSchema>;
 
 /** F-7.2/UC-63: never a cost of the vehicle — a payout to a partner, or a settlement between partners. Settlement between partners moves the current account, not the P&L. */
@@ -199,6 +213,13 @@ export const partnerPayoutResponseSchema = z.object({
   replacesId: z.string().uuid().nullable(),
 });
 export type PartnerPayoutResponse = z.infer<typeof partnerPayoutResponseSchema>;
+
+/** GAP-147: `partnerPayoutResponseSchema` plus the void fields — same convention as `capitalContributionListRowSchema`. */
+export const partnerPayoutListRowSchema = partnerPayoutResponseSchema.extend({
+  voidedAt: z.string().nullable(),
+  voidedReason: z.string().nullable(),
+});
+export type PartnerPayoutListRow = z.infer<typeof partnerPayoutListRowSchema>;
 
 /** A2/GAP-9: newest-occurred-first. `userId` filters to one partner; `kind` splits payouts from settlements. */
 export const listPartnerPayoutsQuerySchema = z.object({
@@ -263,5 +284,5 @@ export const partnerSummaryResponseSchema = z.object({
 });
 export type PartnerSummaryResponse = z.infer<typeof partnerSummaryResponseSchema>;
 
-export const partnerPayoutsResponseSchema = z.array(partnerPayoutResponseSchema);
+export const partnerPayoutsResponseSchema = z.array(partnerPayoutListRowSchema);
 export type PartnerPayoutsResponse = z.infer<typeof partnerPayoutsResponseSchema>;

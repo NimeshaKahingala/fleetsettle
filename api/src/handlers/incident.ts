@@ -24,7 +24,7 @@ import {
   findIncidentForBusiness,
   findIncidentRecoveryForBusiness,
   findInsuranceClaimForIncident,
-  listIncidentRecoveries,
+  listIncidentRecoveryHistory,
   type IncidentRecoveryRow,
   type IncidentRow,
   type InsuranceClaimRow,
@@ -74,7 +74,7 @@ function bottomLineToResponse(bottomLine: IncidentBottomLine) {
 async function incidentDetailToResponse(reader: Reader, row: IncidentRow) {
   const [bottomLine, recoveries, claim] = await Promise.all([
     computeIncidentBottomLine(reader, row.id),
-    listIncidentRecoveries(reader, row.id),
+    listIncidentRecoveryHistory(reader, row.id),
     findInsuranceClaimForIncident(reader, row.id),
   ]);
   return {
@@ -87,7 +87,14 @@ async function incidentDetailToResponse(reader: Reader, row: IncidentRow) {
 
 type RecoveryResponseRow = Pick<
   IncidentRecoveryRow,
-  "id" | "incidentId" | "source" | "agreedAmountMinor" | "receivedAmountMinor" | "replacesId"
+  | "id"
+  | "incidentId"
+  | "source"
+  | "agreedAmountMinor"
+  | "receivedAmountMinor"
+  | "replacesId"
+  | "voidedAt"
+  | "voidedReason"
 >;
 
 function recoveryToResponse(row: RecoveryResponseRow) {
@@ -98,6 +105,8 @@ function recoveryToResponse(row: RecoveryResponseRow) {
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     receivedAmountMinor: toWire(row.receivedAmountMinor as Minor),
     replacesId: row.replacesId,
+    voidedAt: row.voidedAt,
+    voidedReason: row.voidedReason,
   };
 }
 
@@ -276,6 +285,8 @@ export const recordCustomerContributionHandler: RouteHandler<
       agreedAmountMinor: body.agreedAmountMinor,
       receivedAmountMinor: 0n,
       replacesId: body.replacesId ?? null,
+      voidedAt: null,
+      voidedReason: null,
     }),
     201,
   );

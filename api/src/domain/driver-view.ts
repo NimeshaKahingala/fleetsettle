@@ -1,14 +1,20 @@
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   listAdvancesForDriver,
+  listDepositMovementsForDeposit,
   listOffsetsForDriver,
   findHeldDepositForDriver,
   sumDepositMovements,
   type AdvanceRow,
+  type DepositMovementHistoryRow,
   type OffsetRecordRow,
 } from "../queries/driver-money.js";
 import { listDayRecordsForDriver, type DriverViewDayRow } from "../queries/day-record.js";
-import { sumOutstandingByDirectionForDriver } from "../queries/obligation.js";
+import {
+  findOutstandingObligationsForDriver,
+  sumOutstandingByDirectionForDriver,
+  type OutstandingObligation,
+} from "../queries/obligation.js";
 import { listClosedTripsForDriver, type DriverViewTripRow } from "../queries/trip.js";
 
 type ReadDb = Reader | Writer | Tx;
@@ -20,7 +26,8 @@ export interface DriverOwnView {
   trips: DriverViewTripRow[];
   advances: AdvanceRow[];
   offsets: OffsetRecordRow[];
-  deposit: { id: string; heldMinor: bigint } | null;
+  deposit: { id: string; heldMinor: bigint; movements: DepositMovementHistoryRow[] } | null;
+  owedToUsObligations: OutstandingObligation[];
 }
 
 /**
@@ -39,18 +46,24 @@ export async function getDriverOwnView(
   from: string,
   to: string,
 ): Promise<DriverOwnView> {
-  const [balances, days, trips, advances, offsets, heldDeposit] = await Promise.all([
-    sumOutstandingByDirectionForDriver(db, businessId, driverId),
-    listDayRecordsForDriver(db, businessId, driverId, from, to),
-    listClosedTripsForDriver(db, businessId, driverId, from, to),
-    listAdvancesForDriver(db, businessId, driverId, from, to),
-    listOffsetsForDriver(db, businessId, driverId, from, to),
-    findHeldDepositForDriver(db, businessId, driverId),
-  ]);
+  const [balances, days, trips, advances, offsets, heldDeposit, owedToUsObligations] =
+    await Promise.all([
+      sumOutstandingByDirectionForDriver(db, businessId, driverId),
+      listDayRecordsForDriver(db, businessId, driverId, from, to),
+      listClosedTripsForDriver(db, businessId, driverId, from, to),
+      listAdvancesForDriver(db, businessId, driverId, from, to),
+      listOffsetsForDriver(db, businessId, driverId, from, to),
+      findHeldDepositForDriver(db, businessId, driverId),
+      findOutstandingObligationsForDriver(db, businessId, driverId, "owed_to_us"),
+    ]);
 
-  const deposit = heldDeposit
-    ? { id: heldDeposit.id, heldMinor: await sumDepositMovements(db, heldDeposit.id) }
-    : null;
+  const deposit =
+    heldDeposit !== undefined
+      ? await Promise.all([
+          sumDepositMovements(db, heldDeposit.id),
+          listDepositMovementsForDeposit(db, businessId, heldDeposit.id),
+        ]).then(([heldMinor, movements]) => ({ id: heldDeposit.id, heldMinor, movements }))
+      : null;
 
   return {
     owedToUsMinor: balances.owedToUsMinor,
@@ -60,5 +73,6 @@ export async function getDriverOwnView(
     advances,
     offsets,
     deposit,
+    owedToUsObligations,
   };
 }

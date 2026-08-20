@@ -2,6 +2,7 @@ import type {
   CustomerResponse,
   LeaseObligationRow,
   ListPaymentsResponse,
+  ListWriteOffsResponse,
 } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -48,12 +49,33 @@ const payments: ListPaymentsResponse = [
   },
 ];
 
+const writeOffs: ListWriteOffsResponse = [
+  {
+    id: "wo1",
+    obligationId: "o1",
+    partyType: "customer",
+    partyCustomerId: "c1",
+    partyDriverId: null,
+    vehicleId: "v1",
+    amountMinor: "400000",
+    reason: "Customer disappeared",
+    writtenOffOn: "2026-08-10",
+    voidedAt: null,
+    voidedReason: null,
+    replacesId: null,
+  },
+];
+
+const manager = { userId: "u1", businessId: "b1", role: "manager" as const };
+const owner = { userId: "u1", businessId: "b1", role: "owner" as const };
+
 function baseGet() {
   const get = vi.fn();
   get.mockImplementation((path: string) => {
     if (path === "/api/customer/c1") return Promise.resolve(customer);
     if (path === "/api/customer/c1/obligation") return Promise.resolve([due]);
     if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
   });
   return get;
@@ -73,6 +95,52 @@ test("GAP-22: renders customer details, outstanding dues and payment history", a
   expect(screen.getByText("Payments · 1")).toBeInTheDocument();
   expect(screen.getByText("Received")).toBeInTheDocument();
   expect(screen.getByText("Rs 1,000")).toBeInTheDocument();
+});
+
+test("GAP-146: a customer can be archived from customer detail with a reason", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ ...customer, archivedAt: "2026-08-20T00:00:00.000Z" });
+  renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, {
+    get: baseGet(),
+    post,
+  });
+
+  expect(await screen.findByText("Active")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Customer actions" }));
+  await user.click(await screen.findByRole("button", { name: "Archive customer" }));
+  expect(await screen.findByText("Archive customer?")).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Reason"), "Duplicate customer");
+  await user.click(screen.getByRole("button", { name: "Archive customer" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/customer/c1/archive", {
+      reason: "Duplicate customer",
+    }),
+  );
+});
+
+test("GAP-146: an archived customer can be unarchived from customer detail", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") {
+      return Promise.resolve({ ...customer, archivedAt: "2026-08-20T00:00:00.000Z" });
+    }
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  const post = vi.fn().mockResolvedValue({ ...customer, archivedAt: null });
+  renderWithProviders(<CustomerDetailScreen customerId="c1" onBack={vi.fn()} />, { get, post });
+
+  expect(await screen.findByText("Archived")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Customer actions" }));
+  await user.click(await screen.findByRole("button", { name: "Unarchive customer" }));
+  expect(await screen.findByText("Unarchive customer?")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Unarchive customer" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/customer/c1/unarchive", {}));
 });
 
 test("§7.11: an outstanding due shows a due-age chip, matching the ageing report's own buckets", async () => {
@@ -116,6 +184,7 @@ test("the due-age chip buckets off effectiveDueOn, not dueOn, even when the two 
       if (path === "/api/customer/c1") return Promise.resolve(customer);
       if (path === "/api/customer/c1/obligation") return Promise.resolve([divergentDue]);
       if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+      if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
       throw new Error(`unexpected path ${path}`);
     });
 
@@ -137,6 +206,7 @@ test("GAP-115/GAP-101: a failed customer dues read shows a scoped failure", asyn
       return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-dues"));
     }
     if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
   });
 
@@ -156,6 +226,7 @@ test("GAP-101: a failed customer payment history read shows a scoped failure", a
     if (path === "/api/customer/c1/payment") {
       return Promise.reject(new ApiError(500, "INTERNAL_ERROR", "boom", "req-payment"));
     }
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
     throw new Error(`unexpected path ${path}`);
   });
 
@@ -229,4 +300,266 @@ test("GAP-144: collecting payment here also invalidates Home's own receivables r
 
   await vi.waitFor(() => expect(post).toHaveBeenCalled());
   expect(queryClient.getQueryState(["reports", "receivables"])?.isInvalidated).toBe(true);
+});
+
+test("UC-90/GAP-148: an owner can write off a vehicle-linked standalone customer balance from customer detail", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
+    if (path === "/api/vehicle") {
+      return Promise.resolve([
+        {
+          id: "v1",
+          registration: "CAB-1234",
+          vehicleType: "Car",
+          lifecycle: "active",
+          arrangement: "A",
+          serviceIntervalKm: null,
+        },
+      ]);
+    }
+    throw new Error(`unexpected path ${path}`);
+  });
+  const postCalls: Array<{ path: string; body: Record<string, unknown> }> = [];
+  const post = vi.fn().mockImplementation((path: string, body: Record<string, unknown>) => {
+    postCalls.push({ path, body });
+    return Promise.resolve({
+      id: "wo-standalone",
+      obligationId: null,
+      partyType: "customer",
+      partyCustomerId: "c1",
+      partyDriverId: null,
+      vehicleId: "v1",
+      amountMinor: "400000",
+      reason: "Bad debt after review",
+      writtenOffOn: "2026-08-20",
+      voidedAt: null,
+      voidedReason: null,
+      replacesId: null,
+    });
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get, post },
+    undefined,
+    owner,
+  );
+
+  await screen.findByRole("heading", { name: "Acme Tours" });
+  await user.click(screen.getByRole("button", { name: "Customer actions" }));
+  await user.click(await screen.findByRole("button", { name: "Write off balance" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  for (const digit of "400000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.type(screen.getByLabelText("Reason"), "Bad debt after review");
+  await user.click(await screen.findByRole("button", { name: "Choose vehicle" }));
+  await user.click(await screen.findByText("CAB-1234"));
+  await user.click(screen.getByRole("button", { name: "Write off" }));
+
+  await vi.waitFor(() => expect(postCalls.length).toBeGreaterThan(0));
+  const writeOffCall = postCalls.find(({ path }) => path === "/api/write-off");
+  if (writeOffCall === undefined) throw new Error("expected customer write-off request");
+  expect(writeOffCall.body).toMatchObject({
+    partyType: "customer",
+    partyCustomerId: "c1",
+    vehicleId: "v1",
+    amountMinor: "400000",
+    reason: "Bad debt after review",
+  });
+  expect(writeOffCall.body).toHaveProperty(
+    "writtenOffOn",
+    expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  );
+  expect(writeOffCall.body).not.toHaveProperty("obligationId");
+});
+
+test("UC-90/GAP-148: an owner can recover a customer write-off from customer detail", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
+    throw new Error(`unexpected path ${path}`);
+  });
+  const postCalls: Array<{ path: string; body: unknown }> = [];
+  const post = vi.fn().mockImplementation((path: string, body: unknown) => {
+    postCalls.push({ path, body });
+    return Promise.resolve({
+      id: "wor1",
+      writeOffId: "wo1",
+      paymentId: "p-recovery",
+      amountMinor: "100000",
+      replacesId: null,
+    });
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get, post },
+    undefined,
+    owner,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  expect(screen.getByText("Customer disappeared")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Record recovery" }));
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  for (const digit of "100000") {
+    await user.click(screen.getByRole("button", { name: digit }));
+  }
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  const recoveryButtons = screen.getAllByRole("button", { name: "Record recovery" });
+  const recoverySubmit = recoveryButtons.at(-1);
+  if (recoverySubmit === undefined) throw new Error("expected recovery submit button");
+  await user.click(recoverySubmit);
+
+  await vi.waitFor(() => expect(postCalls.length).toBeGreaterThan(0));
+  const recoveryCall = postCalls.find(({ path }) => path === "/api/write-off/wo1/recovery");
+  if (recoveryCall === undefined) throw new Error("expected write-off recovery request");
+  expect(recoveryCall.body).toMatchObject({ amountMinor: "100000" });
+  expect(recoveryCall.body).toHaveProperty(
+    "occurredOn",
+    expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  );
+});
+
+test("GAP-147/GAP-148: an owner can void a customer write-off from customer detail", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
+    throw new Error(`unexpected path ${path}`);
+  });
+  const post = vi.fn().mockResolvedValue({
+    id: "wo1",
+    voidedAt: "2026-08-20T00:00:00.000Z",
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get, post },
+    undefined,
+    owner,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Void write-off" }));
+  await user.type(screen.getByLabelText("Reason"), "Entered against the wrong customer");
+  const voidButtons = screen.getAllByRole("button", { name: "Void write-off" });
+  const voidSubmit = voidButtons.at(-1);
+  if (voidSubmit === undefined) throw new Error("expected void write-off submit button");
+  await user.click(voidSubmit);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/write-off/wo1/void", {
+      reason: "Entered against the wrong customer",
+    }),
+  );
+});
+
+test("GAP-155: a manager sees the write-off section and can record a recovery, but not void", async () => {
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([due]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve(payments);
+    // listWriteOffsHandler is dailyOperations (GAP-155) — the same gate as
+    // recording the recovery it exists to serve for a manager — so unlike
+    // the pre-GAP-155 shape this request now succeeds for a manager.
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
+    throw new Error(`unexpected path ${path}`);
+  });
+
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Record recovery" })).toBeInTheDocument();
+  // Voiding stays writeOffOrWaiveAboveThreshold (owners only) — unaffected
+  // by GAP-155, which only widened who can see, not who can void.
+  expect(screen.queryByRole("button", { name: "Void write-off" })).not.toBeInTheDocument();
+});
+
+test("GAP-147: a manager can void a post-closure charge, but not an ordinary rent due", async () => {
+  const user = userEvent.setup();
+  const charge: LeaseObligationRow = {
+    id: "o2",
+    kind: "post_closure_charge",
+    dueOn: "2026-08-15",
+    effectiveDueOn: "2026-08-15",
+    amountMinor: "50000",
+    settledMinor: "0",
+    waivedMinor: "0",
+    status: "pending",
+  };
+  const post = vi.fn().mockResolvedValue({ voidedAt: "2026-08-20T00:00:00.000Z" });
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([due, charge]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get, post },
+    undefined,
+    manager,
+  );
+
+  expect(await screen.findByText("Outstanding dues · 2")).toBeInTheDocument();
+  const voidButtons = screen.getAllByRole("button", { name: "Void charge" });
+  // Exactly one: the post_closure_charge row, never the ordinary rent due
+  // (INV-36 §3.10 -- every other kind corrects at its own source).
+  expect(voidButtons).toHaveLength(1);
+
+  await user.click(voidButtons[0] as HTMLElement);
+  await user.type(screen.getByLabelText("Reason"), "Entered against the wrong lease");
+  const submitButtons = screen.getAllByRole("button", { name: "Void charge" });
+  const submit = submitButtons.at(-1);
+  if (submit === undefined) throw new Error("expected void submit button");
+  await user.click(submit);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/obligation/o2/void", {
+      reason: "Entered against the wrong lease",
+    }),
+  );
+});
+
+test("GAP-147: View recoveries opens the recoveries sheet for the right write-off", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/customer/c1") return Promise.resolve(customer);
+    if (path === "/api/customer/c1/obligation") return Promise.resolve([]);
+    if (path === "/api/customer/c1/payment") return Promise.resolve([]);
+    if (path.startsWith("/api/write-off?")) return Promise.resolve(writeOffs);
+    if (path === "/api/write-off/wo1/recovery") return Promise.resolve([]);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(
+    <CustomerDetailScreen customerId="c1" onBack={vi.fn()} />,
+    { get },
+    undefined,
+    owner,
+  );
+
+  expect(await screen.findByText("Written off losses · 1")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "View recoveries" }));
+
+  expect(await screen.findByText("No recoveries recorded yet.")).toBeInTheDocument();
+  expect(get.mock.calls.some((call) => call[0] === "/api/write-off/wo1/recovery")).toBe(true);
 });

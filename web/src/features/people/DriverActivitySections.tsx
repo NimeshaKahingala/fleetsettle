@@ -1,15 +1,20 @@
 import { parse } from "@fleetsettle/shared";
-import type { DriverViewResponse, LostReason } from "@fleetsettle/shared/schemas";
-import { MoreVertical } from "lucide-react";
+import type { DriverViewOffset, DriverViewResponse, LostReason } from "@fleetsettle/shared/schemas";
 import { Money } from "../../components/Money.js";
 import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Section } from "../../design/primitives/Section.js";
 import { LOST_REASON_LABEL } from "../../lib/lostReasonLabel.js";
 
+type DriverViewDepositMovement = NonNullable<DriverViewResponse["deposit"]>["movements"][number];
+
 export interface DriverActivitySectionsProps {
   view: DriverViewResponse;
   onSettleAdvance?: (advance: DriverViewResponse["advances"][number]) => void;
+  onVoidAdvance?: (advance: DriverViewResponse["advances"][number]) => void;
+  onViewAdvanceSettlements?: (advance: DriverViewResponse["advances"][number]) => void;
+  onVoidOffset?: (offset: DriverViewOffset) => void;
+  onVoidDepositMovement?: (movement: DriverViewDepositMovement) => void;
 }
 
 const DAY_STATE_LABEL: Record<DriverViewResponse["days"][number]["state"], string> = {
@@ -48,6 +53,15 @@ const ADVANCE_STATUS_VARIANT: Record<
   settled: "good",
 };
 
+const DEPOSIT_MOVEMENT_LABEL: Record<DriverViewDepositMovement["movementType"], string> = {
+  taken: "Taken",
+  topped_up: "Top up",
+  reduced: "Reduced",
+  applied: "Applied",
+  refunded: "Refunded",
+  retained: "Retained",
+};
+
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
@@ -75,7 +89,14 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
  * advance handler and stays read-only; staff detail passes the one GAP-100
  * write affordance that belongs to managers.
  */
-export function DriverActivitySections({ view, onSettleAdvance }: DriverActivitySectionsProps) {
+export function DriverActivitySections({
+  view,
+  onSettleAdvance,
+  onVoidAdvance,
+  onViewAdvanceSettlements,
+  onVoidOffset,
+  onVoidDepositMovement,
+}: DriverActivitySectionsProps) {
   return (
     <div className="flex flex-col gap-5">
       {view.days.length > 0 ? (
@@ -132,34 +153,55 @@ export function DriverActivitySections({ view, onSettleAdvance }: DriverActivity
           count={view.advances.length}
           items={view.advances.map((advance) => {
             const canSettle = onSettleAdvance !== undefined && advance.status !== "settled";
-            const row = (
-              <Card className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-body text-ink-primary">{formatShortDate(advance.issuedOn)}</p>
-                  <Badge variant={ADVANCE_STATUS_VARIANT[advance.status]}>
-                    {ADVANCE_STATUS_LABEL[advance.status]}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-2">
+            const canVoid = onVoidAdvance !== undefined && advance.status !== "settled";
+            return (
+              <Card key={advance.id} className="flex flex-col gap-3">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-body text-ink-primary">
+                      {formatShortDate(advance.issuedOn)}
+                    </p>
+                    <Badge variant={ADVANCE_STATUS_VARIANT[advance.status]}>
+                      {ADVANCE_STATUS_LABEL[advance.status]}
+                    </Badge>
+                  </div>
                   <Money value={parse(advance.amountMinor)} />
-                  {canSettle ? (
-                    <MoreVertical className="size-4 text-ink-muted" aria-hidden />
-                  ) : null}
                 </div>
+                {canSettle || canVoid ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    {canSettle ? (
+                      <button
+                        type="button"
+                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                        aria-label={`Settle advance from ${formatShortDate(advance.issuedOn)}`}
+                        onClick={() => onSettleAdvance(advance)}
+                      >
+                        Settle
+                      </button>
+                    ) : null}
+                    {canVoid ? (
+                      <button
+                        type="button"
+                        className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                        aria-label={`Void advance from ${formatShortDate(advance.issuedOn)}`}
+                        onClick={() => onVoidAdvance(advance)}
+                      >
+                        Void
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+                {onViewAdvanceSettlements !== undefined ? (
+                  <button
+                    type="button"
+                    className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                    aria-label={`View settlements for the advance from ${formatShortDate(advance.issuedOn)}`}
+                    onClick={() => onViewAdvanceSettlements(advance)}
+                  >
+                    View settlements
+                  </button>
+                ) : null}
               </Card>
-            );
-            return canSettle ? (
-              <button
-                key={advance.id}
-                type="button"
-                className="w-full text-left"
-                aria-label={`Settle advance from ${formatShortDate(advance.issuedOn)}`}
-                onClick={() => onSettleAdvance(advance)}
-              >
-                {row}
-              </button>
-            ) : (
-              <div key={advance.id}>{row}</div>
             );
           })}
         />
@@ -171,25 +213,99 @@ export function DriverActivitySections({ view, onSettleAdvance }: DriverActivity
         <Section
           title="Offsets"
           count={view.offsets.length}
-          items={view.offsets.map((offset) => (
-            <Card key={offset.id} className="flex items-center justify-between gap-4">
-              <p className="text-body text-ink-primary">{formatShortDate(offset.occurredOn)}</p>
-              <Money value={parse(offset.amountMinor)} />
-            </Card>
-          ))}
+          items={view.offsets.map((offset) => {
+            const voided = offset.voidedAt !== null;
+            return (
+              <Card key={offset.id} className="flex items-center justify-between gap-4">
+                <div>
+                  <p
+                    className={`text-body text-ink-primary ${voided ? "line-through decoration-critical decoration-2" : ""}`}
+                  >
+                    {formatShortDate(offset.occurredOn)}
+                  </p>
+                  {voided ? (
+                    <p className="text-caption text-critical-ink">
+                      Voided{offset.voidedReason !== null ? ` · ${offset.voidedReason}` : ""}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-3">
+                  <Money value={parse(offset.amountMinor)} />
+                  {onVoidOffset !== undefined && !voided ? (
+                    <button
+                      type="button"
+                      className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                      aria-label={`Void offset from ${formatShortDate(offset.occurredOn)}`}
+                      onClick={() => onVoidOffset(offset)}
+                    >
+                      Void
+                    </button>
+                  ) : null}
+                </div>
+              </Card>
+            );
+          })}
         />
       ) : (
         <EmptyCard>No offsets in this window.</EmptyCard>
       )}
 
-      <Card className="flex items-center justify-between gap-4">
-        <div>
-          <p className="text-body text-ink-primary">Held deposit</p>
-          <p className="text-caption text-ink-muted">
-            {view.deposit === null ? "No deposit held" : "Still held, never income"}
-          </p>
+      <Card className="flex flex-col gap-3">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-body text-ink-primary">Held deposit</p>
+            <p className="text-caption text-ink-muted">
+              {view.deposit === null ? "No deposit held" : "Still held, never income"}
+            </p>
+          </div>
+          {view.deposit !== null ? <Money value={parse(view.deposit.heldMinor)} /> : null}
         </div>
-        {view.deposit !== null ? <Money value={parse(view.deposit.heldMinor)} /> : null}
+        {view.deposit !== null && view.deposit.movements.length > 0 ? (
+          <div className="flex flex-col divide-y divide-line-soft border-t border-line-soft">
+            {view.deposit.movements.map((movement) => {
+              const voided = movement.voidedAt !== null;
+              return (
+                <div key={movement.id} className="flex flex-col gap-2 py-3 first:pt-3 last:pb-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p
+                        className={
+                          voided
+                            ? "text-body text-ink-muted line-through"
+                            : "text-body text-ink-primary"
+                        }
+                      >
+                        {DEPOSIT_MOVEMENT_LABEL[movement.movementType]}
+                      </p>
+                      <p className="text-caption text-ink-muted">
+                        {formatShortDate(movement.occurredOn)}
+                        {movement.reason !== null ? <> · {movement.reason}</> : null}
+                      </p>
+                    </div>
+                    <Money value={parse(movement.amountMinor)} />
+                  </div>
+                  {voided ? (
+                    <p className="text-caption text-critical-ink">
+                      Voided
+                      {movement.voidedReason !== null ? <> · {movement.voidedReason}</> : null}
+                    </p>
+                  ) : onVoidDepositMovement !== undefined ? (
+                    <button
+                      type="button"
+                      className="min-h-tap rounded-sm border border-critical px-3 text-body text-critical-ink"
+                      aria-label={`Void deposit movement from ${formatShortDate(
+                        movement.occurredOn,
+                      )}`}
+                      onClick={() => onVoidDepositMovement(movement)}
+                    >
+                      Void
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
       </Card>
     </div>
   );

@@ -3,9 +3,20 @@ import type {
   BillingPeriodResponse,
   CustomerResponse,
   LeaseObligationRow,
+  SessionResponse,
 } from "@fleetsettle/shared/schemas";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Gauge, MoreVertical, RefreshCw, SlidersHorizontal, SquareX, Wallet } from "lucide-react";
+import {
+  FileX2,
+  Gauge,
+  History,
+  MoreVertical,
+  RefreshCw,
+  ReceiptText,
+  SlidersHorizontal,
+  SquareX,
+  Wallet,
+} from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -16,17 +27,22 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { can } from "../../lib/capabilities.js";
+import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import {
   OBLIGATION_KIND_LABEL,
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
+import { AdjustmentsSheet } from "./AdjustmentsSheet.js";
 import { AdjustObligationSheet } from "./AdjustObligationSheet.js";
 import { CollectPaymentSheet } from "./CollectPaymentSheet.js";
+import { PostClosureChargeSheet } from "./PostClosureChargeSheet.js";
 import { ReadOdometerSheet } from "./ReadOdometerSheet.js";
 import { RenewLeaseSheet } from "./RenewLeaseSheet.js";
 import { useLeaseQuery } from "./useLeaseQuery.js";
+import { WriteOffObligationSheet } from "./WriteOffObligationSheet.js";
 
 export interface LeaseHubScreenProps {
   leaseId: string;
@@ -85,6 +101,9 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
   const [selectedDue, setSelectedDue] = useState<LeaseObligationRow | null>(null);
   const [collectForDue, setCollectForDue] = useState<LeaseObligationRow | null>(null);
   const [adjustOpen, setAdjustOpen] = useState(false);
+  const [adjustmentsOpen, setAdjustmentsOpen] = useState(false);
+  const [writeOffOpen, setWriteOffOpen] = useState(false);
+  const [postClosureChargeOpen, setPostClosureChargeOpen] = useState(false);
 
   const leaseQuery = useLeaseQuery(leaseId);
   // allow: title fallback plus a fail-closed gate on CollectPaymentSheet
@@ -115,6 +134,12 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
   const lease = leaseQuery.data;
   const billingPeriods = billingPeriodsQuery.data ?? [];
   const dues = duesQuery.data ?? [];
+  const session = queryClient.getQueryData<SessionResponse>(["session"]);
+  const selectedRole = session !== undefined ? resolveSelectedMembership(session)?.role : undefined;
+  const canRecordPostClosureCharge =
+    selectedRole !== undefined && can(selectedRole, "dailyOperations");
+  const canWriteOff =
+    selectedRole !== undefined && can(selectedRole, "writeOffOrWaiveAboveThreshold");
 
   function openDueActions(due: LeaseObligationRow): void {
     setSelectedDue(due);
@@ -139,6 +164,22 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
             icon: SlidersHorizontal,
             onSelect: () => setAdjustOpen(true),
           },
+          {
+            key: "adjustments",
+            label: "View adjustments",
+            icon: History,
+            onSelect: () => setAdjustmentsOpen(true),
+          },
+          ...(canWriteOff
+            ? [
+                {
+                  key: "write-off",
+                  label: "Write off",
+                  icon: FileX2,
+                  onSelect: () => setWriteOffOpen(true),
+                },
+              ]
+            : []),
         ]
       : [];
 
@@ -146,22 +187,36 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
   // live at lease level, not per-due — one app-bar action listing all
   // three (§6.1's own `ActionSheet`) rather than three competing app-bar
   // slots (§4.2 allows exactly one).
-  const moreActions: ActionSheetAction[] = [
-    { key: "renew", label: "Renew", icon: RefreshCw, onSelect: () => setRenewOpen(true) },
-    {
-      key: "odometer",
-      label: "Read odometer",
-      icon: Gauge,
-      onSelect: () => setReadOdometerOpen(true),
-    },
-    { key: "close", label: "Close the lease", icon: SquareX, onSelect: onCloseLease },
-  ];
+  const moreActions: ActionSheetAction[] =
+    lease?.status === "closed"
+      ? [
+          ...(canRecordPostClosureCharge
+            ? [
+                {
+                  key: "post-closure-charge",
+                  label: "Record late charge",
+                  icon: ReceiptText,
+                  onSelect: () => setPostClosureChargeOpen(true),
+                },
+              ]
+            : []),
+        ]
+      : [
+          { key: "renew", label: "Renew", icon: RefreshCw, onSelect: () => setRenewOpen(true) },
+          {
+            key: "odometer",
+            label: "Read odometer",
+            icon: Gauge,
+            onSelect: () => setReadOdometerOpen(true),
+          },
+          { key: "close", label: "Close the lease", icon: SquareX, onSelect: onCloseLease },
+        ];
 
   return (
     <Screen
       title={customerQuery.data?.name ?? "Lease"}
       onBack={onBack}
-      {...(lease !== undefined
+      {...(lease !== undefined && moreActions.length > 0
         ? {
             action: {
               label: "Lease actions",
@@ -330,6 +385,34 @@ export function LeaseHubScreen({ leaseId, onBack, onCloseLease }: LeaseHubScreen
               due={selectedDue}
             />
           ) : null}
+          {selectedDue !== null ? (
+            <AdjustmentsSheet
+              open={adjustmentsOpen}
+              onOpenChange={setAdjustmentsOpen}
+              leaseId={leaseId}
+              obligationId={selectedDue.id}
+            />
+          ) : null}
+          {selectedDue !== null ? (
+            <WriteOffObligationSheet
+              open={writeOffOpen}
+              onOpenChange={setWriteOffOpen}
+              leaseId={leaseId}
+              customerId={lease.customerId}
+              vehicleId={lease.vehicleId}
+              due={selectedDue}
+              outstandingMinor={outstandingMinor(selectedDue)}
+              today={today}
+            />
+          ) : null}
+          <PostClosureChargeSheet
+            open={postClosureChargeOpen}
+            onOpenChange={setPostClosureChargeOpen}
+            source={{ type: "lease", id: leaseId }}
+            customerId={lease.customerId}
+            vehicleId={lease.vehicleId}
+            today={today}
+          />
           <ActionSheet
             open={dueActionsOpen}
             onOpenChange={setDueActionsOpen}
