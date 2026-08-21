@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+/* House Style (M-34, decided 21 Aug 2026): self-hosted, subset to the
+   Latin letters/digits/punctuation --font-display actually renders (screen
+   titles and hero money figures are a fixed, known vocabulary — never a
+   user-entered name, which stays on --font-sans). font-display: swap so a
+   slow fetch never blocks the hero number DayCard renders from cache. */
+@font-face {
+  font-family: Fraunces;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/fraunces-600-latin.woff2") format("woff2");
+  unicode-range:
+    U+25, U+2c, U+2e, U+30-39, U+41-5a, U+61-7a, U+b7, U+2014, U+2019, U+20a8, U+2212, U+25b2,
+    U+25bc;
+}
+
 /* 1 — palette constants. The only place a hex appears. */
 :root {
   --l-page: #f1f1ec;
@@ -9,9 +25,13 @@
   --l-ink3: #6e6c66;
   --l-faint: #898781;
   --l-strong: #dcdbd3;
-  --l-brand: #256abf;
-  --l-brandink: #1c5cab;
-  --l-wash: #e6f0fc;
+
+  /* House Style (M-34): validated against dataviz's validate_palette.js —
+     #9c3f2e clears CVD ΔE 18.7 / normal-vision ΔE 18.7 against the
+     unchanged --l-payable #eb6834, and white-on-fill contrast is 6.64:1. */
+  --l-brand: #9c3f2e;
+  --l-brandink: #9c3f2e;
+  --l-wash: #f5e3dc;
   --l-payable: #eb6834;
   --l-hair: rgb(20 20 15 / 10%);
 
@@ -32,9 +52,17 @@
   --d-ink3: #96948c;
   --d-faint: #898781;
   --d-strong: #2c2c2a;
-  --d-brand: #3987e5;
-  --d-brandink: #86b6ef;
-  --d-wash: #16283f;
+
+  /* House Style (M-34): the strictest normal-vision-ΔE bar (>=15, matched
+     against a chart legend's bare-swatch case) can't clear at the lightness
+     dark mode needs — every rust bright enough to read against #141413
+     converges on --d-payable's own orange. #ab3f2b/#e08260 are the best
+     scoring pair found (ΔE 11.2/9.2, still clearing the CVD target of 8),
+     accepted on the same basis §5.1 already uses for sub-3:1 status fills:
+     brand and payable never appear without their own word attached (M-15). */
+  --d-brand: #ab3f2b;
+  --d-brandink: #e08260;
+  --d-wash: #2e1b14;
   --d-payable: #d95926;
   --d-hair: rgb(255 255 255 / 10%);
   --d-chart-1: #3987e5;
@@ -95,6 +123,18 @@
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
+
+  /* House Style (M-34): "the one number a screen leads with" and screen
+     titles only (§5.2) — never a driver/customer/vehicle name, which is
+     user data and stays on the sans stack the self-hosted subset doesn't
+     cover. */
+  --font-display: "Fraunces", ui-serif, georgia, "Times New Roman", serif;
+
+  /* House Style (M-34): reverses §5.3's "hairlines, not shadows" default —
+     recorded there, not repeated here. One layer, no blur radius large
+     enough to be the scroll-jank §5.3 originally warned about; the day
+     card's own stronger `elevated` tier (Card.tsx) is untouched. */
+  --shadow-card: 0 1px 2px rgb(20 20 15 / 6%), 0 3px 8px rgb(20 20 15 / 8%);
   --text-hero: 2.25rem;
   --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem;
@@ -147,6 +187,11 @@
     --color-trip-ink: #ec835a;
     --color-critical: #f0736f;
     --color-critical-ink: #f0736f;
+
+    /* House Style (M-34): a light-based shadow reads as a smudge on a
+       near-black ground, so dark mode gets its own darker/tighter pair
+       rather than the light value's soft blur. */
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%);
   }
 }
 
@@ -179,6 +224,7 @@
   --color-trip-ink: #ec835a;
   --color-critical: #f0736f;
   --color-critical-ink: #f0736f;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%);
 }
 
 /* 4 — the base layer. The page colour is painted once, on the root element,

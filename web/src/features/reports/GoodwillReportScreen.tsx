@@ -34,7 +34,7 @@ const COLUMNS: ReportTableColumn<GoodwillResponse["byType"][number]>[] = [
     key: "total",
     header: "Total",
     align: "end",
-    render: (row) => <Money value={parse(row.totalMinor)} />,
+    money: (row) => parse(row.totalMinor),
   },
 ];
 

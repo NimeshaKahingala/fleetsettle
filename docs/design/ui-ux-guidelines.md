@@ -1,8 +1,9 @@
 # UI/UX Guidelines
 
-**Status:** v1.5 — **M-32/M-33 added: the admin panel and the business switcher, neither a fourth shell.** §1.1 and §3.1 gain the explicit sentence the platform-admin design's own §11 flagged as necessary — M-3 (three shells, never a fourth) is not being quietly reversed; the admin panel is a platform surface reached from within whichever shell an identity already has, and the switcher changes which business a shell's numbers describe, never the shell itself. The business name moves into `AppShell`'s app bar (§6.1), separate from `Screen`'s own `title`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §8. Decided 18 Aug 2026.
+**Status:** v1.6 — **M-34 added: House Style, the first brand-identity revision since §16 left it open.** The owner-manager found the shipped system generic — a fair read, since §5.1's brand blue and §5.2's system-only type stack were both cost trade-offs, not taste. §5.1's palette, §5.2's typography and §5.3's elevation rule all change; the reasoning and the measured numbers behind each are in M-34's own decisions-log entry rather than repeated at each section. Decided 21 Aug 2026.
+**v1.5** — **M-32/M-33 added: the admin panel and the business switcher, neither a fourth shell.** §1.1 and §3.1 gain the explicit sentence the platform-admin design's own §11 flagged as necessary — M-3 (three shells, never a fourth) is not being quietly reversed; the admin panel is a platform surface reached from within whichever shell an identity already has, and the switcher changes which business a shell's numbers describe, never the shell itself. The business name moves into `AppShell`'s app bar (§6.1), separate from `Screen`'s own `title`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §8. Decided 18 Aug 2026.
 **v1.4.1** — GAP-134: `Sheet`'s mobile back-button/gesture mechanism changed from a hand-rolled `history.pushState`/`.back()` scheme to the platform `CloseWatcher` API (§3.3, §6.1, M-27's Why column); no conclusion changes, only how it's answered. M-31: the whole-app visual refresh is now a planned, route-wide design-system pass rather than a Home-only polish item. It keeps the mobile-first contract, uses semantic colour/icon/word pairings, and folds the live QA findings on login, Home and desktop stretch into §7.11, §14 and §15. M-30 still stands for `PhotoCapture`.
-**Date:** 16 August 2026
+**Date:** 21 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -120,6 +121,7 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-31** ⚑ | **The visual refresh is a system pass, not decoration.** Every phase-1 route gets the same hierarchy model: one focal job, semantic status/action treatment, icon + word for meaning, responsive panes at `lg`, and no new raw palette | Found by the 14 August 2026 QA/code audit prompted by the login and Home review. The live app is structurally usable, but several routes read as one flat stack: Home's work queues use quiet section labels, `Rs 0` lacks enough context, critical alerts are heavy without structure, and desktop stretches mobile rows to 1280px despite §14. The correction is not "add colour everywhere." Material 3's current theming guidance maps colour through roles and hierarchy, Apple HIG warns against reusing a colour for several meanings, and WCAG 2.2 adds mobile-relevant focus/target criteria; those all match rules this document already had. So this decision tightens usage: brand colour is for the primary action/active destination, status tokens are for status with icons and words, surfaces remain mostly neutral, and every route is reviewed against the route inventory in §7.11 before any code refresh is called done |
 | **M-32** ⚑ *(added 18 Aug 2026)* | **The admin panel reuses `Screen`, `Card`, `Sheet` and the existing primitives — no parallel design system.** Every phase-1 rule applies unchanged: 360×640 no horizontal scroll (M-1), 44×44 targets, no raw hex. Rejecting a request and revoking an admin are both re-grantable, therefore reversible, therefore `Sheet` — never `Dialog` (M-5, W-67) | Decision 14/15 (`PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md`): mobile-first like everything else, and a hand-run-SQL interim was explicitly declined. A self-approved request renders **visibly distinct** from an arms-length one (W-67) — the kind of thing that cannot be added credibly after the fact, so it is specified here rather than left to whoever builds the screen |
 | **M-33** ⚑ *(added 18 Aug 2026)* | **The business switcher is a `Sheet`, not a `Dialog`** — switching is neither destructive nor one-way, the same test M-5 already applies everywhere else. `MoreScreen`'s sign-out confirm is the pattern to copy. **On switch: a full `queryClient.clear()` and hard remount, never `invalidateQueries`** | No react-query key in this client contains a business id — every key is business-implicit (`["vehicles"]`, `["partner", userId]`). Without a full clear, business A's money can render under business B's name after a switch — **the highest-severity failure mode this decisions log contains**: a confident, plausible, wrong number, on the exact promise CLAUDE.md opens with. `BUSINESS_NOT_SELECTED` (`user-flows.md` §2.4) shows the switcher itself, never a bare error screen |
+| **M-34** ⚑ *(added 21 Aug 2026)* | **House Style — a new brand accent, a display face on hero figures and screen titles, and a cheap shadow on every card, not only the day card.** §5.1's `--l-brand`/`--l-brandink`/`--l-wash` (and the dark trio) move from the chart-palette blue to `#9c3f2e` light / `#ab3f2b` fill + `#e08260` ink dark — `--color-direction-payable` and chart slot 2 are untouched. §5.2 adds `--font-display` (self-hosted Fraunces 600, subset to the fixed English vocabulary it actually renders — screen titles and hero money figures, never a name). §5.3's "hairlines, not shadows" default is reversed for the ordinary `Card`, via one new token, `--shadow-card` | Resolves §16's open brand-identity item — the owner-manager's own read that the shipped system was generic, not a rules violation. Every new hex ran through `dataviz`'s `validate_palette.js`, not eyeballed: light brand clears CVD ΔE 18.7 / normal-vision ΔE 18.7 against `--l-payable`, cleanly. Dark cannot clear the strict ≥15 normal-vision floor against `--d-payable` at the lightness dark mode needs — every rust bright enough to read against `#141413` converges on orange — so dark ships the best-scoring pair found (ΔE 11.2/9.2, still clearing the CVD target of 8), accepted on the same basis this document already uses for the sub-3:1 light-mode `warning`/`serious` fills: brand and payable never appear without their own word (M-15), so two colours never have to carry the distinction alone. The elevation reversal is a deliberate, recorded trade-off against §5.3's original cheap-GPU reasoning, not a quiet one — benchmarked (100-card list, 360×640, Chrome's 10× CPU throttle) against an unshadowed control: mean frame time 8.32 ms shadowed vs 8.35 ms unshadowed, p95 9.2 ms both, 1 dropped frame (>16.7 ms) out of 300 in both runs, 0 severe drops (>33 ms) in either — a static single-layer `box-shadow` costs nothing measurable to composite because it rasterizes once per card layer rather than repainting every scroll frame. This is throttled-Chrome emulation, not the physical mid-range-Android hardware the original reasoning named; it substantially de-risks the reversal but a real-device pass before the next release is still the more trustworthy confirmation |
 
 ---
 
@@ -307,14 +309,16 @@ All tokens are CSS custom properties consumed through Tailwind v4's `@theme`. No
 | `--color-line-hairline` | `border-line-hairline` | `rgba(20,20,15,0.10)` | `rgba(255,255,255,0.10)` | — |
 | `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DCDBD3` | `#2C2C2A` | — |
 
-**Brand and interactive**
+**Brand and interactive** (M-34, 21 Aug 2026 — House Style; superseded the chart-palette blue this table carried through v1.5)
 
 | Token | Light | Dark | Note |
 |---|---|---|---|
-| `--color-brand` (filled buttons) | `#256ABF` | `#3987E5` | White on light brand = 5.39:1; 5.2 / 5.1 against its own surface |
-| `--color-brand-ink` (links, brand-coloured text) | `#1C5CAB` | `#86B6EF` | 6.39:1 on light |
-| `--color-brand-wash` (selected rows, chips) | `#E6F0FC` | `#16283F` | |
-| `--color-focus-ring` | `#1C5CAB` | `#86B6EF` | 3px, 2px offset, never removed |
+| `--color-brand` (filled buttons) | `#9C3F2E` | `#AB3F2B` | White on light brand = 6.64:1; light brand-ink on page/surface = 5.86 / 6.40:1 |
+| `--color-brand-ink` (links, brand-coloured text) | `#9C3F2E` | `#E08260` | Dark ink is deliberately a lighter, more saturated step than the dark fill — 6.5–7:1 against both dark surfaces |
+| `--color-brand-wash` (selected rows, chips) | `#F5E3DC` | `#2E1B14` | |
+| `--color-focus-ring` | `#9C3F2E` | `#E08260` | 3px, 2px offset, never removed |
+
+Validated against `--color-direction-payable` (unchanged, below) with `dataviz`'s `validate_palette.js`: light clears every check (CVD ΔE 18.7, normal-vision ΔE 18.7). Dark does not clear the strict ≥15 normal-vision floor — no rust bright enough to read against `#141413` stays far enough from `--d-payable`'s own orange — so dark ships the best pair found (ΔE 11.2 fill / 9.2 ink, both still clearing the CVD target of 8), on the same "always paired with a word" basis (M-15) this section already uses for the light-mode `warning`/`serious` fills below.
 
 **Status** — fixed, never themed, never reused as a series colour.
 
@@ -331,7 +335,7 @@ Status colours **always ship with an icon and a word** — the light-mode warnin
 
 | Token | Light | Dark | Contrast (light / dark) | Meaning |
 |---|---|---|---|---|
-| `--color-brand` | `#256ABF` | `#3987E5` | 5.2 / 5.1 | **He owes you** — 3px leading rule + the words "owes you" |
+| `--color-brand` | `#9C3F2E` | `#AB3F2B` | 6.4 / 3.05 (M-34) | **He owes you** — 3px leading rule + the words "owes you" |
 | `--color-direction-payable` | `#EB6834` | `#D95926` | 3.1 / 4.8 | **You owe him** — 3px leading rule + the words "you owe" |
 | `--color-ink-faint` hatched | `#898781` | `#898781` | 3.5 / 5.1 | **Held, not yours** (deposits, advances) + the word "held" |
 
@@ -341,15 +345,16 @@ The amount itself is always `--color-ink-primary`, whichever direction it points
 
 ```
 --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+--font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
 --font-sinhala: "Noto Sans Sinhala", var(--font-sans);
 ```
 
-Noto Sans Sinhala is self-hosted, subset, and `font-display: swap`. It is applied by `:lang(si)` rather than globally, so the English UI never pays for it. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
+Noto Sans Sinhala is *specified* as self-hosted, subset, and `font-display: swap` — building M-34 found this was never actually implemented (`tokens.css` carries neither the token nor an `@font-face`; the Sinhala UI silently falls back to `--font-sans` today). Left as a known gap rather than fixed in passing, since real subsetting needs the Sinhala glyph set sourced, which is separate work. `--font-display` (M-34, 21 Aug 2026) is the reference implementation this description was always meant to match: a self-hosted `woff2`, `font-display: swap`, and subset to exactly the character set it renders — here that's the Latin letters/digits/punctuation of a fixed English vocabulary (screen titles, hero money figures), never a user-entered name, which is why it never needs to cover more than that. It is applied by `font-display` on the specific hero/title elements below rather than globally, so ordinary body text never pays for it. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
 
 | Token | Size / line-height | Weight | Use |
 |---|---|---|---|
-| `hero` | 36 / 40 (desktop 48 / 52) | 600 | The one number a screen leads with |
-| `title-lg` | 22 / 28 | 600 | Screen titles |
+| `hero` | 36 / 40 (desktop 48 / 52) | 600, `--font-display` (M-34) | The one number a screen leads with |
+| `title-lg` | 22 / 28 | 600, `--font-display` (M-34) | Screen titles |
 | `title` | 18 / 24 | 600 | Card headings, amounts in list rows |
 | `body` | **16 / 24** | 400 | Everything. Minimum for inputs (M-19) |
 | `body-sm` | 14 / 20 | 400 | Secondary lines in rows |
@@ -369,7 +374,7 @@ space:   4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64
 radius:  sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)
 ```
 
-**Elevation is hairlines, not shadows.** Cards are `--color-surface` on `--color-page` with a 1px `--color-line-hairline`. Shadow is reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it. Two shadow tokens only. Cheap GPUs render large blurs slowly and repaint them on every scroll frame.
+**Elevation was hairlines-only through v1.5; M-34 (21 Aug 2026) adds one cheap shadow to every ordinary card.** Cards are still `--color-surface` on `--color-page` with a 1px `--color-line-hairline`, now plus `--shadow-card` — a single layer, tuned separately per mode (light: soft and dark-on-light; dark: a black shadow reads as a smudge on `#141413`, so it gets its own tighter, higher-opacity pair rather than the light value). This is a deliberate reversal of the original reasoning below, not a quiet one: **cheap GPUs render large blurs slowly and repaint them on every scroll frame**, which is exactly why `--shadow-card` stays one layer with a small blur radius rather than the heavier treatment a mockup might show. A scripted scroll benchmark (100 real-token-styled cards, 360×640 viewport, Chrome's 10× CPU throttle — the same class of test M-31's shadow discipline was written against) found no measurable cost: mean frame time 8.32 ms shadowed vs 8.35 ms unshadowed, p95 9.2 ms both, one frame over the 16.7 ms budget in 300 either way. That's throttled desktop-Chrome emulation, not the physical mid-range-Android hardware named above — real enough to ship on, not a substitute for an on-device pass the next time this surface is touched. The stronger tier below is unchanged: shadow beyond `--shadow-card` is still reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it, and the day card's own `elevated` prop, which stacks on top of `--shadow-card` rather than replacing it.
 
 **Motion**
 
@@ -1050,13 +1055,24 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
 :root {
   --l-page:#F1F1EC; --l-surface:#FBFBF8; --l-ink1:#14140F; --l-ink2:#52514E;
   --l-ink3:#6E6C66; --l-faint:#898781;  --l-strong:#DCDBD3;
-  --l-brand:#256ABF; --l-brandink:#1C5CAB; --l-wash:#E6F0FC; --l-payable:#EB6834;
+  --l-brand:#9C3F2E; --l-brandink:#9C3F2E; --l-wash:#F5E3DC; --l-payable:#EB6834;
   --l-hair:rgba(20,20,15,.10);
 
   --d-page:#0D0D0C; --d-surface:#141413; --d-ink1:#F5F5F0; --d-ink2:#C3C2B7;
   --d-ink3:#96948C; --d-faint:#898781;  --d-strong:#2C2C2A;
-  --d-brand:#3987E5; --d-brandink:#86B6EF; --d-wash:#16283F; --d-payable:#D95926;
+  --d-brand:#AB3F2B; --d-brandink:#E08260; --d-wash:#2E1B14; --d-payable:#D95926;
   --d-hair:rgba(255,255,255,.10);
+}
+
+/* M-34: self-hosted, subset to the fixed English vocabulary --font-display
+   renders (screen titles, hero money figures — never a name). */
+@font-face {
+  font-family: Fraunces;
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/fonts/fraunces-600-latin.woff2") format("woff2");
+  unicode-range: U+25,U+2C,U+2E,U+30-39,U+41-5A,U+61-7A,U+B7,U+2014,U+2019,U+20A8,U+2212,U+25B2,U+25BC;
 }
 
 /* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
@@ -1084,6 +1100,11 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
 
   --spacing-tap: 44px;
   --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
+
+  /* M-34 */
+  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  --shadow-card: 0 1px 2px rgb(20 20 15 / 6%), 0 3px 8px rgb(20 20 15 / 8%);
+  /* dark mode overrides --shadow-card to 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%) — a light-based shadow reads as a smudge on a near-black ground */
 
   --text-hero: 2.25rem;      --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem; --text-title-lg--line-height: 1.75rem;
@@ -1241,11 +1262,12 @@ Aligned with UC §9.1. The design work that must exist before a flow can be buil
 
 **The second language is closed: Sinhala**, chosen by the owner on 31 July 2026. `Noto Sans Sinhala` is the subset that ships and `:lang(si)` is the rule that matters. The `:lang(ta)` row in §5.2 and §12.3 stays — it costs two lines, it documents that the line-height rule is about South-Asian glyph extents rather than about Sinhala specifically, and removing it would have to be undone the first time a Tamil-speaking customer appears.
 
-Both remaining items are blocking nothing and are mine to have proposed rather than yours to have chosen:
+**Brand identity is now closed too — M-34 (21 Aug 2026).** This section used to read: *"the brand blue is the validated chart palette, so the two are one system — a different colour must be re-validated against the surfaces, the palette is not a matter of taste, it is a script that passes or fails."* That is exactly what happened: the owner-manager found the shipped system generic, a new accent was chosen, and it was run through `dataviz`'s `validate_palette.js` against every surface and against `--color-direction-payable` before it shipped — §5.1 carries the numbers. The one open sub-question that decision surfaced: dark mode cannot clear the strict swatch-alone distinguishability bar against `--d-payable` within the rust hue family, at any lightness dark mode's surfaces require. §5.1 records the accepted trade-off; a future reviewer who wants a cleaner separation there should read that note before proposing a third hex.
+
+One remaining item is blocking nothing and is mine to have proposed rather than yours to have chosen:
 
 | | |
 |---|---|
-| **Brand identity** | §5.1 derives the brand blue from the validated chart palette, so the two are one system. If you want a different brand colour, it must be re-validated against the surfaces (§11.2) — the palette is not a matter of taste, it is a script that passes or fails |
 | **The `＋` quick-add set** (M-4) | I chose fuel, expense, payment received, payment made, new trip. Worth a week of real use before fixing it |
 
 ---

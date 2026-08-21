@@ -74,7 +74,12 @@ export function StatTile({
   const content = (
     <>
       <p className="text-label font-medium text-ink-secondary">{label}</p>
-      <div className={cn(size === "hero" ? "text-hero" : "text-title", "text-ink-primary")}>
+      <div
+        className={cn(
+          size === "hero" ? "text-hero font-display" : "text-title",
+          "text-ink-primary",
+        )}
+      >
         {value}
       </div>
       {delta !== undefined ? (
@@ -123,7 +128,7 @@ export function StatTile({
         onClick={onClick}
         aria-label={label}
         className={cn(
-          "flex min-h-tap w-full flex-col items-start gap-1 rounded-md border border-line-hairline bg-surface p-4 text-left active:bg-brand-wash",
+          "flex min-h-tap w-full flex-col items-start gap-1 rounded-md border border-line-hairline bg-surface p-4 text-left shadow-card active:bg-brand-wash",
           rowButtonFocus,
           className,
         )}

@@ -1,6 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { iconButton } from "../../lib/iconButton.js";
 import { Button } from "./Button.js";
 
 export interface DialogProps {
@@ -33,10 +34,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             <DialogPrimitive.Title className="text-title text-ink-primary">
               {title}
             </DialogPrimitive.Title>
-            <DialogPrimitive.Close
-              aria-label="Close"
-              className="flex size-tap shrink-0 items-center justify-center rounded-sm text-ink-secondary active:bg-brand-wash"
-            >
+            <DialogPrimitive.Close aria-label="Close" className={iconButton}>
               <X className="size-5" aria-hidden />
             </DialogPrimitive.Close>
           </div>
@@ -48,7 +46,9 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             <DialogPrimitive.Description className="sr-only" />
           )}
           {children !== undefined ? <div className="mt-3">{children}</div> : null}
-          {footer !== undefined ? <div className="mt-4 flex flex-col gap-2">{footer}</div> : null}
+          {/* gap-4 (16px): the confirm action is sometimes `destructive`, which needs
+              16px of separation from the button below it, not the ordinary 8px. */}
+          {footer !== undefined ? <div className="mt-4 flex flex-col gap-4">{footer}</div> : null}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

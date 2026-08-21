@@ -73,7 +73,7 @@ const SHARE_COLUMNS: ReportTableColumn<
     key: "profitShare",
     header: "Profit share",
     align: "end",
-    render: (row) => <Money value={parse(row.profitShareMinor)} />,
+    money: (row) => parse(row.profitShareMinor),
   },
 ];
 

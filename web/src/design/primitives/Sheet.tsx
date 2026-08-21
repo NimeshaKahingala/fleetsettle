@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { Drawer } from "vaul";
 import { cn } from "../../lib/cn.js";
+import { iconButton } from "../../lib/iconButton.js";
 import { useCloseWatcherDismiss } from "../../lib/useCloseWatcherDismiss.js";
 
 export interface SheetProps {
@@ -94,10 +95,7 @@ export function Sheet({ open, onOpenChange, title, description, children, classN
                 <Drawer.Description className="sr-only" />
               )}
             </div>
-            <Drawer.Close
-              aria-label="Close"
-              className="flex size-tap shrink-0 items-center justify-center rounded-sm text-ink-secondary active:bg-brand-wash"
-            >
+            <Drawer.Close aria-label="Close" className={iconButton}>
               <X className="size-5" aria-hidden />
             </Drawer.Close>
           </div>
