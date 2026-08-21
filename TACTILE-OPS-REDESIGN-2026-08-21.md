@@ -443,6 +443,109 @@ Asked and answered via `AskUserQuestion` on 21 August 2026, before planning bega
 
 ---
 
+## 5A. Revalidation pass — 21 August 2026, before any code
+
+The plan above was re-checked against the real codebase specifically to avoid repeating
+House Style's failure (a plan that looked complete, but whose scope left most screens
+visually untouched). Findings below are load-bearing; two of them changed the plan.
+
+### 5A.1 Verified safe — no action needed
+
+- **`web/src/lib/cn.ts` needs no new entries.** Tested empirically against the real
+  `extendTailwindMerge` config: `shadow-sheet`, `shadow-btn-primary`,
+  `bg-surface-sunken` and `rounded-full` all resolve correctly by prefix
+  (`bg-surface bg-surface-sunken` → last wins; `rounded-md rounded-full` → `rounded-full`).
+  The known custom-token hazard applies only to custom **text-size** and **spacing**
+  names (`text-body`, `min-h-tap`), which this redesign does not add to.
+- **`Badge.tsx` inherits for free.** Its `brand` variant is already
+  `bg-brand-wash text-brand-ink` — an exact structural match for the mockup's
+  `.badge` (`#e3eaf8` on `#2952a3`). No edit needed; it follows the Phase 1 palette.
+- **`AppShell.tsx`'s bottom nav inherits for free.** Fully token-driven
+  (`bg-surface`, `border-line-hairline`, active tab `text-brand-ink` + brand pill).
+  The mockup never showed the tab bar, but it needs no work.
+- **Existing tests survive the token-value changes.** `Card.test.tsx` asserts class
+  *names* (`rounded-md`, `shadow-md`), not computed values, so changing
+  `--radius-md`'s value passes. `CloseMonthScreen.test.tsx` and `MoreScreen.test.tsx`
+  use `[class*="rounded-md"]` as a DOM selector to locate cards — still matches.
+- **`tokens.test.ts`'s dark-parity test is a help, not an obstacle.** It compares the
+  `@media (prefers-color-scheme: dark)` block against the `[data-theme="dark"]` block
+  declaration-by-declaration, so every new token (`--shadow-sheet`,
+  `--shadow-btn-primary`, `--color-surface-sunken`) **must** be declared in both,
+  identically, or the suite fails. Treat it as the guard rail it is.
+
+### 5A.2 Gap found — form controls (this is the repeat-rework risk)
+
+**75 files** render form controls via six shared primitives — `Input.tsx`,
+`NativeSelect.tsx`, `Field.tsx`, `MoneyField.tsx`, `EntityPicker.tsx`, `DateField.tsx`.
+Every one uses the *outlined* language: `rounded-sm` + `border border-line-strong` +
+`bg-surface`.
+
+The original plan changed `Button`'s `outline` variant to filled-recessed
+(`bg-surface-sunken`, transparent border) but left every input outlined. Two
+consequences, both bad:
+
+1. **Incoherent** — a filled secondary button sits directly beneath an outlined input.
+2. **Repeats the exact complaint that started this document.** Of the 15 screens that
+   don't use `Card` (§3.3's inheritance path), **11 are report screens and 4 are form
+   screens** (`MineScreen`, `StartLeaseScreen`, `StartDailyLeaseScreen`,
+   `BookTripScreen`). With form controls untouched, those screens receive *only* colour
+   and font — precisely "I only see color and font changes."
+
+The mockup cannot settle this: it never drew a form or a report screen. **Decided 21
+August 2026: extend the filled/recessed language to all form controls** (new Phase 4
+below).
+
+### 5A.3 Gap found — §13's performance budget
+
+`docs/design/ui-ux-guidelines.md` §13 reads:
+
+> | Fonts | System sans only for `en`; Sinhala subset ≤ 60KB, `swap`, loaded on demand |
+
+**House Style already violated this** by self-hosting Fraunces, and never updated §13
+or recorded the reversal — a genuine miss in the previous pass, found here. Tactile Ops
+makes the violation structural rather than incidental, since Sora becomes the base
+font for all English text. §13 must be updated as part of Phase 8, with the reversal
+recorded the same way §5.3's elevation reversal was.
+
+Related, worth correcting while in there: §13 asserts *"The budget is a CI gate, not an
+aspiration. A PR that exceeds it fails."* — **it is not.** `scripts/check-forbidden.mjs`
+enforces only the `--color-*` prefix rule, and no workflow in `.github/workflows/`
+checks bundle size. Documentation-only today; the sentence overclaims.
+
+### 5A.4 Sora — real measured numbers
+
+From the Google Fonts `css2` API (`family=Sora:wght@400..700`), one variable file
+covering the whole 400–700 weight range:
+
+| Subset | Bytes | Note |
+|---|---|---|
+| `latin` | **25,284** | `U+0000-00FF` + common punctuation/symbols |
+| `latin-ext` | 12,156 | Accented/extended Latin |
+| *(Fraunces, for comparison)* | 9,400 | Being removed in Phase 3 |
+
+**Decision: ship `latin` only (~25KB).** Sri Lankan romanized names and vehicle plate
+numbers are ASCII; `latin-ext` adds ~48% weight for glyphs this app is unlikely to
+render. Revisit only if real data shows accented characters in names.
+
+### 5A.5 Thin test coverage under the riskiest change
+
+**No test anywhere asserts `font-display`, `--font-display`, or Fraunces.** Removing it
+(Phase 3) will fail nothing loudly, under what is simultaneously the
+highest-blast-radius change in the plan. This is not a reason to add speculative tests
+— it is a reason Phase 8's real-browser QA is mandatory, not optional, and why Phase 3
+says to land the font swap separately from the colour/shadow work so a regression stays
+attributable.
+
+### 5A.6 Minor pre-existing inaccuracy to fix in passing
+
+`Card.tsx`'s comment claims `elevated`'s `shadow-md` *"stacks on top of `--shadow-card`
+rather than replacing it."* It does not. Both classes survive tailwind-merge (verified),
+but both set `--tw-shadow`, so CSS source order decides and one simply wins. Correct the
+comment when Phase 2 touches the file; the runtime behaviour is fine, only the
+explanation is wrong.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -482,6 +585,17 @@ Asked and answered via `AskUserQuestion` on 21 August 2026, before planning bega
   all, this is net-new.
 - New `--shadow-btn-primary` token (brand-colored glow, both modes) on `Button.tsx`'s
   `primary` variant only.
+- **Wrap `ReportTable`'s `<div className="overflow-x-auto">` in a `<Card>`** (decided
+  21 August 2026, §5A.2's sibling question). §3.3 established that 11 report screens
+  don't use `Card` and so inherit no elevation at all; this single change in
+  `web/src/features/reports/ReportTable.tsx` gives every report table the new radius
+  and elevation, so reports stop being the one flat outlier. Keep the existing
+  `overflow-x: auto` behaviour intact — §11.3 requires the *table* to scroll
+  sideways, never the page, and nesting it in a `Card` must not break that.
+- Fix `Card.tsx`'s inaccurate `elevated`/`shadow-md` "stacks on top" comment while in
+  the file (§5A.6).
+- Every new token goes in **both** dark blocks identically, or `tokens.test.ts`'s
+  parity test fails (§5A.1).
 - **Re-run the scroll-performance benchmark** (same method as M-34: scratch HTML +
   chrome-devtools MCP, 100-card list, 360×640, 10× CPU throttle) against the *new*
   heavier multi-surface shadow load — House Style's number covered one subtle
@@ -489,9 +603,10 @@ Asked and answered via `AskUserQuestion` on 21 August 2026, before planning bega
   simultaneously and needs its own measurement, not an inherited pass.
 
 ### Phase 3 — Typography (Sora, full replacement)
-- Self-host Sora as the new `--font-sans`, variable-weight woff2, Latin +
-  Latin-Extended subset. Does **not** touch `:lang(si)`/`:lang(ta)`'s existing Noto
-  stacks (`tokens.css` lines 268-276).
+- Self-host Sora as the new `--font-sans`: one variable-weight woff2 covering 400–700,
+  **`latin` subset only (~25KB)** per §5A.4's measured numbers — not `latin-ext`. Does
+  **not** touch `:lang(si)`/`:lang(ta)`'s existing Noto stacks (`tokens.css` lines
+  268-276).
 - Remove Fraunces entirely: `@font-face`, `--font-display` token,
   `web/public/fonts/fraunces-600-latin.woff2`, and every `font-display` class usage
   (`Screen.tsx`, `StatTile.tsx`, `DayCard.tsx`, `AmountPad.tsx`, `ConfirmDayCard.tsx`).
@@ -500,11 +615,38 @@ Asked and answered via `AskUserQuestion` on 21 August 2026, before planning bega
   among token-layer changes; screenshot a representative screen spread before/after so
   a regression is traceable to "the font swap" alone.
 
-### Phase 4 — Button variants
+### Phase 4 — Controls: buttons *and* form fields
+Per §5A.2 — this phase was "Button variants" only in the first draft; extending it to
+form controls is what stops form-heavy screens from reading as merely recoloured.
+
 `web/src/design/primitives/Button.tsx`:
 - `outline`: bordered-transparent → filled `bg-surface-sunken`, `border-transparent`.
 - `primary`: add `shadow-btn-primary` alongside existing `bg-brand`.
 - `ghost`, `destructive`: unchanged — mockup shows no distinct treatment for either.
+
+Form controls — the same filled/recessed language, applied at the six shared
+primitives so all 75 consuming files inherit it without individual edits:
+- `web/src/design/primitives/Input.tsx`
+- `web/src/design/primitives/NativeSelect.tsx`
+- `web/src/design/primitives/Field.tsx` (label/optional/error shell — check whether it
+  carries its own border; it may need nothing)
+- `web/src/components/MoneyField.tsx` (line 71's `rounded-sm border border-line-strong bg-surface`)
+- `web/src/components/EntityPicker.tsx` (line 65, same shape)
+- `web/src/components/DateField.tsx`
+- `web/src/design/primitives/Checkbox.tsx` — note its `rounded-[4px]` arbitrary value
+  (no token); decide whether it joins the language or stays as-is, and record which.
+
+Each moves from `border border-line-strong bg-surface` to
+`border-transparent bg-surface-sunken`. **Keep `--radius-sm` (8px) unchanged** — §3.3's
+89 usages make it the wrong lever, and the mockup's 10px row/control radius is a 2px
+difference not worth that blast radius (recorded divergence, see §2.2).
+
+**Focus and error states must survive the change.** `Input.tsx` currently relies on
+`aria-[invalid=true]:border-2 aria-[invalid=true]:border-critical` — with a transparent
+resting border, verify the invalid state still reads clearly against the new sunken
+fill, and that `focus-visible:ring-focus-ring` still has enough contrast against it.
+This is the one place the filled language can regress accessibility if applied
+mechanically.
 
 ### Phase 5 — `EntityAvatar` (new shared primitive)
 New file `web/src/design/primitives/EntityAvatar.tsx`. Circular badge, 36px (list) /
@@ -539,13 +681,27 @@ that the component and color rule are fixed in Phase 5.
   palette). M-34's entry **stays in place** with a "superseded by M-35" pointer — not
   deleted, not rewritten. Update every §5.1 contrast row, the §5.2 type table (Sora,
   not Fraunces), §5.3's elevation section (new values + re-run benchmark numbers).
+- **`docs/design/ui-ux-guidelines.md` §13 — the performance budget (§5A.3).** Its
+  `Fonts | System sans only for en` row is already false as of House Style and becomes
+  structurally false here. Update it to state the self-hosted Latin subset and its
+  measured size, recording the reversal explicitly — the same treatment §5.3's
+  elevation reversal got — rather than editing the number silently. While there, fix
+  §13's overclaim that *"The budget is a CI gate, not an aspiration. A PR that exceeds
+  it fails."* — no script or workflow enforces it (§5A.3). Either soften it to match
+  reality or mark it an unbuilt intent; do not leave it asserting something untrue.
 - `docs/design/brand-guidelines.md`: same treatment as the last pass — new "Regenerated"
   note, mark/icon PNG assets need a **second** `rsvg-convert` regeneration once the new
   navy is locked.
 - Full `npm run check` (guard/lint/lint:css/format:check/typecheck/test).
-- Real browser QA via chrome-devtools MCP: Home, Add sheet, Vehicles, People, at least
-  one detail screen, light and dark — the exact gap that started this whole document
-  ("only color and font visible") is caught by actually looking, not by tests passing.
+- Real browser QA via chrome-devtools MCP — mandatory, not optional (§5A.5: no test
+  covers the font swap). Cover **all four surface families**, light and dark, because
+  each inherits differently and the whole point is that none is left flat:
+  1. `Card`-based screens — Home, Vehicles, People, a detail screen
+  2. The Add sheet (`ActionSheet` chips + captions)
+  3. A **form** screen — `BookTripScreen` or `StartLeaseScreen` (Phase 4's filled
+     controls; this family is what §5A.2 found untouched)
+  4. A **report** screen — one with `ReportTable` and one with `StatTile`
+     (Phase 2's Card wrap)
 
 ### Phase 9 — Git
 House Style's commit (`8e0eaa0`) bundled unrelated bug fixes with the visual tokens.
@@ -564,14 +720,17 @@ style direction.
       confirmed and precedented (§4)
 - [x] Scope decisions made (§5)
 - [x] Branch created: `redesign/tactile-ops`
+- [x] **Revalidation pass against the real codebase (§5A)** — two gaps found and folded
+      in (form controls, §13's font budget), four assumptions verified safe
 - [ ] Phase 1 — palette
-- [ ] Phase 2 — elevation/radius + re-run perf benchmark
-- [ ] Phase 3 — Sora self-hosting, Fraunces removal
-- [ ] Phase 4 — Button variants
+- [ ] Phase 2 — elevation/radius + `ReportTable` Card wrap + re-run perf benchmark
+- [ ] Phase 3 — Sora self-hosting (latin subset), Fraunces removal
+- [ ] Phase 4 — controls: buttons **and** the six form primitives
 - [ ] Phase 5 — `EntityAvatar` component
 - [ ] Phase 6 — `ActionSheet` icon chip + caption
 - [ ] Phase 7 — Apply `EntityAvatar` at the 5 confirmed call sites
-- [ ] Phase 8 — Docs (M-35, brand-guidelines, icon regeneration) + full check + browser QA
+- [ ] Phase 8 — Docs (M-35, §13 budget, brand-guidelines, icon regeneration) + full
+      check + browser QA across all four surface families
 - [ ] Phase 9 — final commit(s) reviewed for scope (visual tokens only, bug fixes untouched)
 
 ---
