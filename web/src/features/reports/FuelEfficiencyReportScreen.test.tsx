@@ -138,7 +138,7 @@ test("switching to the table view shows NotAvailable per row for a missing readi
     { get },
   );
 
-  await user.click(await screen.findByRole("tab", { name: "Table" }));
+  await user.click(await screen.findByRole("button", { name: "Table" }));
   expect(screen.getByText("12.50")).toBeInTheDocument();
   expect(screen.getByLabelText("Not available: no paired odometer reading")).toBeInTheDocument();
 });

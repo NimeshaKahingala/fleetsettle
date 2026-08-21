@@ -113,7 +113,9 @@ export function AppShell({
               className="flex min-h-tap shrink-0 items-center gap-1.5 border-b border-line-hairline bg-surface px-4 py-1.5 text-left active:bg-brand-wash"
             >
               <span className="min-w-0 flex-1">
-                <span className="block text-caption text-ink-muted">Business</span>
+                <span aria-hidden className="block text-caption text-ink-muted">
+                  Business
+                </span>
                 <span className="block min-w-0 flex-1 truncate text-label font-medium text-ink-primary">
                   {businessName}
                 </span>

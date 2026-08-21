@@ -96,7 +96,7 @@ test("the per-vehicle card reads the G-1 golden figure, and expanding it shows e
     get,
   });
 
-  await user.click(await screen.findByRole("tab", { name: "Table" }));
+  await user.click(await screen.findByRole("button", { name: "Table" }));
   expect(await screen.findByText("Rs 134,000")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /NB-1234/ }));

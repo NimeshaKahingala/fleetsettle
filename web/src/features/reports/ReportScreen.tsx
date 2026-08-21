@@ -28,13 +28,16 @@ export function ReportScreen({ title, subtitle, onBack, chart, table }: ReportSc
         {chart !== undefined ? (
           <>
             {showTable ? table : chart}
-            <div role="tablist" className="flex rounded-sm border border-line-hairline p-0.5">
+            <div
+              role="group"
+              aria-label="View"
+              className="flex rounded-sm border border-line-hairline p-0.5"
+            >
               {(["Chart", "Table"] as const).map((label) => (
                 <button
                   key={label}
                   type="button"
-                  role="tab"
-                  aria-selected={(label === "Table") === showTable}
+                  aria-pressed={(label === "Table") === showTable}
                   onClick={() => setShowTable(label === "Table")}
                   className={cn(
                     "min-h-tap flex-1 rounded-sm px-3 text-body-sm",

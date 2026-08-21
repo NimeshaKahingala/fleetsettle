@@ -3,10 +3,12 @@
  * `formatTimestamp.ts` (a real UTC instant), a `BusinessDate` is already a
  * resolved calendar day — device and business timezone cancel out.
  */
+const formatter = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
 export function formatShortDate(date: string): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+  return formatter.format(new Date(`${date}T00:00:00`));
 }
