@@ -111,7 +111,7 @@ Verified 8 Aug: checklist counts render, the close button stays enabled regardle
 
 **Closed on the strength of live evidence (1–2) plus an exhaustive source check (3) standing in for the one live sub-case the harness correctly declined to run.** Full account: TRACKER.md's 20 Aug build-log entry.
 
-**The same session found GAP-156, unrelated to this boundary**: the linked-driver `Mine` shell has no sign-out affordance anywhere in the client. Filed in TRACKER.md, not fixed — undiscoverable before this pass since no linked-driver account had ever reached a real browser.
+**The same session found GAP-156, unrelated to this boundary**: the linked-driver `Mine` shell had no sign-out affordance anywhere in the client — undiscoverable before this pass since no linked-driver account had ever reached a real browser. **Closed 21 Aug 2026** (TRACKER.md's own closed row): `MineScreen` now renders the shared `SignOutRow` every other shell already had.
 
 ## LT-10 · F4's real-device pass
 

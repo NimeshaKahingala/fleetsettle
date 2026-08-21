@@ -5,21 +5,17 @@ import {
   CalendarCheck,
   ChevronRight,
   Handshake,
-  LogOut,
   Route,
   ShieldCheck,
   Users,
   Wallet,
 } from "lucide-react";
-import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { Can } from "../../components/Can.js";
+import { SignOutRow } from "../../components/SignOutRow.js";
 import { Card } from "../../design/primitives/Card.js";
-import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
 import { Screen } from "../../design/primitives/Screen.js";
-import { Sheet } from "../../design/primitives/Sheet.js";
-import { useAuthActions } from "../../lib/AuthActionsContext.js";
 
 /**
  * §3.1's `/more` hub (GAP-37) — the only door §3.3 gives to `/cash`,
@@ -35,16 +31,15 @@ import { useAuthActions } from "../../lib/AuthActionsContext.js";
  * again once inside — belt and braces, not redundant, since a direct URL
  * visit bypasses this row entirely.
  *
- * The sign-out confirm is a `Sheet`, not `Dialog` — `Dialog` is reserved
- * for INV-1, INV-17 and M-10's three irreversible-action call sites, and
- * signing out is neither destructive nor one-way (§6.1: "Everything else is
- * a `Sheet`").
+ * Sign-out is `SignOutRow` (shared with `FirstRunGate.tsx`'s zero-membership
+ * states and `MineScreen.tsx`, GAP-156) — a `Sheet` confirm, not `Dialog`:
+ * `Dialog` is reserved for INV-1, INV-17 and M-10's three irreversible-action
+ * call sites, and signing out is neither destructive nor one-way (§6.1:
+ * "Everything else is a `Sheet`").
  */
 export function MoreScreen() {
-  const { signOut } = useAuthActions();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // UI §3.1 (added 18 Aug 2026): platform-admin is a separate authorization
   // axis from the business-scoped `Can`/capability system — `isPlatformAdmin`
@@ -187,32 +182,8 @@ export function MoreScreen() {
           </button>
         ) : null}
 
-        <button type="button" onClick={() => setConfirmOpen(true)} className="w-full text-left">
-          <Card className="flex items-center gap-3">
-            <LogOut className="size-5 text-ink-secondary" aria-hidden />
-            <span className="text-body text-ink-primary">Sign out</span>
-          </Card>
-        </button>
+        <SignOutRow />
       </div>
-
-      <Sheet open={confirmOpen} onOpenChange={setConfirmOpen} title="Sign out?">
-        <div className="flex flex-col gap-4 pb-2">
-          <p className="text-body text-ink-secondary">
-            You will need to sign in again to use FleetSettle on this device.
-          </p>
-          <DialogConfirmFooter
-            confirmLabel="Sign out"
-            onConfirm={() => {
-              // Closes eagerly rather than waiting on the promise: real auth
-              // mode navigates away as part of `signOut()`, and stub mode
-              // has nothing further to show once it resolves.
-              setConfirmOpen(false);
-              void signOut();
-            }}
-            onCancel={() => setConfirmOpen(false)}
-          />
-        </div>
-      </Sheet>
     </Screen>
   );
 }

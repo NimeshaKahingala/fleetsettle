@@ -122,6 +122,61 @@ test("GAP-149: in-shell hub can create a business and selects the new business b
   expect(onOpenChange).toHaveBeenCalledWith(false);
 });
 
+test("GAP-157: in-shell hub can join a second business by invite code and selects it before reload", async () => {
+  const user = userEvent.setup();
+  const onSelected = vi.fn();
+  const { post, onOpenChange } = renderSheet({
+    createBusiness: { pendingRequest: null },
+    onSelected,
+  });
+  post.mockResolvedValue({
+    kind: "business_member",
+    businessId: "00000000-0000-4000-8000-000000000789",
+    role: "manager",
+  });
+
+  await user.click(screen.getByRole("button", { name: "Join a business" }));
+  await user.type(screen.getByLabelText("Invite code"), "ABC123");
+  await user.click(screen.getByRole("button", { name: "Join" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/invite/redeem", { code: "ABC123" }),
+  );
+  expect(getSelectedBusinessId()).toBe("00000000-0000-4000-8000-000000000789");
+  expect(onSelected).toHaveBeenCalledOnce();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+test("GAP-157: a driver_link redemption clears the cache and closes without changing the selection", async () => {
+  const user = userEvent.setup();
+  const onSelected = vi.fn();
+  const { post, onOpenChange } = renderSheet({
+    createBusiness: { pendingRequest: null },
+    onSelected,
+  });
+  post.mockResolvedValue({ kind: "driver_link", driverId: "00000000-0000-4000-8000-00000000ddd1" });
+
+  await user.click(screen.getByRole("button", { name: "Join a business" }));
+  await user.type(screen.getByLabelText("Invite code"), "DRV123");
+  await user.click(screen.getByRole("button", { name: "Join" }));
+
+  await vi.waitFor(() => expect(onSelected).toHaveBeenCalledOnce());
+  expect(getSelectedBusinessId()).toBeNull();
+  expect(onOpenChange).toHaveBeenCalledWith(false);
+});
+
+test("GAP-157: opening Join a business collapses an already-open Create a business, and vice versa", async () => {
+  const user = userEvent.setup();
+  renderSheet({ createBusiness: { pendingRequest: null } });
+
+  await user.click(screen.getByRole("button", { name: "Create a business" }));
+  expect(screen.getByLabelText("Business name")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Join a business" }));
+  expect(screen.queryByLabelText("Business name")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Invite code")).toBeInTheDocument();
+});
+
 /**
  * Design doc open question 19 / implementation plan §5: the concrete,
  * named regression case. `PartnerDetailScreen.tsx:208,212,217,221` keys
