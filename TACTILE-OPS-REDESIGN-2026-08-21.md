@@ -1,6 +1,7 @@
 # Tactile Ops redesign — design and implementation plan
 
-**Written 21 August 2026, on `redesign/tactile-ops` (branched from `fix/pr93-review-findings` at commit `c8c2884`).**
+**Written 21 August 2026, on `redesign/tactile-ops` (branched from `fix/pr93-review-findings` at "Let the local web dev server proxy /api to a hosted backend").**
+**Amended 21 August 2026** after an independent review — see §5B; commits are cited by subject, not hash (§5B.8).
 **Status: planned, nothing built yet.** This document exists so a cold session — a fresh
 context window, a different day, a different agent — can pick this up without re-deriving
 any of it. `docs/` still decides; nothing here is a specification until it lands there
@@ -14,7 +15,8 @@ platform-admin doc split it — the phases in §6 carry both.
 
 **House Style (M-34)** shipped first: a terracotta accent, a self-hosted Fraunces
 display face on hero figures/screen titles, and one subtle card shadow. Committed as
-`8e0eaa0` on `fix/pr93-review-findings`, bundled with unrelated bug fixes found while
+"House Style: brand accent, display face, card elevation (M-34)…" on
+`fix/pr93-review-findings`, bundled with unrelated bug fixes found while
 re-verifying an earlier UI audit (`Dialog`'s destructive-button spacing, a missing
 focus ring copy-pasted into five icon buttons, `--color-ink-faint` used on real text in
 five places, `ReportTable` money columns not honoring M-16's per-column cents rule).
@@ -352,7 +354,7 @@ From `web/src/design/tokens.css` (as of House Style, before this redesign):
 | Token | Value | Real usage count | Consumers |
 |---|---|---|---|
 | `--radius-sm` | 8px | **89** | Buttons, inputs, menu rows, `ActionSheet`, `Toast`, `NativeSelect` — dominant, do-not-touch |
-| `--radius-md` | 12px | 8 | `Card.tsx`, `Dialog.tsx`, `StatTile.tsx` (button variant) — small, precise target for the card-radius bump |
+| `--radius-md` | 12px | **3** (8 occurrences, 5 of them test assertions — corrected §5B.7) | `Card.tsx`, `Dialog.tsx`, `StatTile.tsx` (button variant) — small, precise target for the card-radius bump |
 | `--radius-lg` | 16px | 1 (`Sheet.tsx`'s `rounded-t-lg`) | Essentially unclaimed — safe to redefine |
 | `shadow-card` | (House Style value) | 3 (`Card.tsx`, `StatTile.tsx`, one comment) | The mechanism to reuse, value to change |
 | `shadow-md` (untokenized Tailwind default) | — | 3 (`Card.tsx`'s `elevated` prop, `Card.test.tsx`) | Leave alone — the day card's own stronger tier, unrelated to this pass |
@@ -396,12 +398,20 @@ that's Phase 1 work, not done here. This section only establishes that the *hue-
 separation* problem (the thing that actually blocked candidates) is solved; final
 selection still needs the same full battery House Style's terracotta got.
 
-### 4.2 Dark mode — same structural ceiling House Style hit
+### 4.2 Dark mode — ~~same structural ceiling House Style hit~~ **SUPERSEDED by §5B.2**
+
+> **This section's conclusion was wrong and is retained only as a record of the error.**
+> It searched for a *single* dark brand hex, conflating two tokens with opposite
+> requirements (`--d-brand` is a fill and must be dark enough for white text on it;
+> `--d-brandink` is text and must be light enough to read against `#141413`). Searching
+> the ink role on its own finds hexes clearing **both** 4.5:1 text contrast **and** the
+> strict ≥15 normal-vision ΔE — e.g. `#9cbaf7` at 9.46:1 / ΔE 18.1. There is no ceiling
+> here. **Read §5B.2 instead; do not apply the "expected resolution" below.**
 
 Existing adjacent dark colors: `--d-chart-1` `#3987E5`, `--d-payable` `#D95926`.
-Every brand-blue candidate bright enough to read against `#141413` converges toward
-`--d-chart-1`'s own hue — the identical shape of problem House Style's dark terracotta
-hit against `--d-payable`. Tested:
+The (mistaken) reasoning was that every brand-blue candidate bright enough to read
+against `#141413` converges toward `--d-chart-1`'s own hue — treated as the identical
+shape of problem House Style's dark terracotta hit against `--d-payable`. Tested:
 
 | Candidate | CVD ΔE | Normal-vision ΔE | Verdict |
 |---|---|---|---|
@@ -412,13 +422,11 @@ hit against `--d-payable`. Tested:
 | `#5A6FE0` | 4.4 | 6.3 | FAIL |
 | **`#4E5FC9`** | **9.2** | **10.5** | Best found — clears the CVD-8 floor, not the stricter 15 solo-swatch floor |
 
-**Expected resolution, not yet written into tokens.css:** accept the best-scoring dark
-pair (or a further-refined sibling of `#4E5FC9`) on the same basis M-34 already
-established precedent for — brand and payable never appear without their own word
-attached (M-15), so the two colors never have to carry the distinction alone. This is
-not a new argument invented for Tactile Ops; it's the same argument, same doc section,
-applied to a new hue. Final dark fill+ink pair still needs the full contrast battery
-(white-text-on-fill, brand-ink-vs-surface) before locking, same as light.
+~~**Expected resolution:** accept the best-scoring dark pair on the M-15 precedent…~~
+**Withdrawn.** Invoking M-15 here would have excused a failure that has a clean fix, and
+`#4E5FC9` fails the text floor outright (3.34:1 against `#141413`) — a defect that would
+have reached the focus ring and 46 `text-brand-ink` usages. See **§5B.2** for the
+corrected two-token approach and the validated candidates.
 
 ---
 
@@ -436,10 +444,24 @@ Asked and answered via `AskUserQuestion` on 21 August 2026, before planning bega
 3. **Icon chips: build now**, not deferred — `EntityAvatar` (new shared primitive) and
    `ActionSheet` icon-chip + caption support both land in this pass, per §3.1/§3.2's
    scoped inventory.
-4. **Branch: new branch**, not stacked on `fix/pr93-review-findings`. Created 21 August
-   2026: `redesign/tactile-ops`, branched from `fix/pr93-review-findings` at commit
-   `c8c2884` ("Let the local web dev server proxy /api to a hosted backend" — an
-   unrelated, already-merged-to-that-branch infra change, not part of this redesign).
+4. **Branch: a new branch, rather than continuing to commit onto
+   `fix/pr93-review-findings`.** Created 21 August 2026: `redesign/tactile-ops`,
+   branched *from* `fix/pr93-review-findings` at "Let the local web dev server proxy
+   /api to a hosted backend" — an unrelated infra change on that branch, not part of
+   this redesign.
+
+   **This branch is therefore stacked, and the dependency is real** (corrected 21 Aug
+   2026 after the independent review, §5B.5 — the earlier wording said "not stacked",
+   which contradicted its own next clause and misdescribed the topology). House Style
+   (M-34) is **not on `main`**; this branch carries it plus the whole PR-93 series. So
+   `redesign/tactile-ops` requires `fix/pr93-review-findings` to merge first, or to be
+   rebased onto `main` if that PR changes. Merge ordering is Phase 9's problem, and
+   merging this branch first would silently ship M-34, the PR-93 fixes and the
+   dev-proxy change alongside the redesign.
+
+   *Commits are named by subject, not hash, throughout this document — the branch has
+   already been rebased once, orphaning every hash both this plan and the review
+   originally cited (§5B.8).*
 
 ---
 
@@ -546,6 +568,153 @@ explanation is wrong.
 
 ---
 
+## 5B. Independent review response — 21 August 2026
+
+`TACTILE-OPS-REDESIGN-REVIEW-2026-08-21.md` (written by a session that did not author
+this plan) raised five conditions and six smaller observations. Every load-bearing claim
+was re-verified here independently — contrast math recomputed from sRGB relative
+luminance, ΔE re-run through `validate_palette.js`, code and git claims re-checked.
+
+### 5B.1 Confirmed — all ten contrast figures reproduce exactly
+
+`#5b6472` 5.98:1 · `#2952a3` 7.42:1 · `#0F2E63` 13.20:1 · `#1E3A6E` 11.14:1 ·
+`#8a93a3` **3.10:1** · `#1b8a3f` **4.42:1** · `#eef1f6` vs page **1.02:1** · `#eef1f6`
+vs white **1.13:1** · `#4E5FC9` on dark page **3.52:1** · `.acap` composited
+(`#8a93a3` @60% over white → `#b9bec8`) **1.86:1**. The review's arithmetic is sound.
+
+One figure it *understates*: `#4E5FC9` against the dark **surface** `#141413` is
+**3.34:1**, worse than the 3.52:1 it cites against the page.
+
+### 5B.2 §3.1 (dark-mode brand) — condition accepted, and the underlying problem is SOLVED
+
+The review is right that §4.2 pre-committed to accepting `#4E5FC9` via the M-15
+precedent, and right that M-15 settles hue confusion, not luminance. Verified: 
+`--color-focus-ring: var(--d-brandink)` (`tokens.css:173`), and `text-brand-ink` is used
+as real text in **46 places** (`AppShell`'s active tab, `Toast`'s action button,
+`Disclosure`, `Badge`, plus body/caption text) — so a failing ink is a real defect, not
+a theoretical one.
+
+**But the root cause is narrower than the review diagnosed, and there is no ceiling.**
+§4.2's error was searching for *one* dark brand hex, when the architecture has two
+tokens with **opposite** requirements:
+
+| Token | Role | Requirement | Therefore |
+|---|---|---|---|
+| `--d-brand` | fill (button backgrounds) | white text must read *on* it | must be **dark** |
+| `--d-brandink` | text on dark surfaces + focus ring | must read *against* `#141413` | must be **light** |
+
+§4.2 conflated the two, picked the hex that scored best on ΔE alone, and inherited a
+contrast failure that only applies to the *ink* role. House Style itself never made this
+mistake — its shipped pair is `--d-brand: #ab3f2b` (white-on-fill **6.04:1**) and
+`--d-brandink: #e08260` (as text **6.61:1** on surface, **6.97:1** on page). Both pass.
+
+Searching the ink role properly — 408 hexes clear 4.5:1 against `#141413`; feeding a
+stratified sample through `validate_palette.js` against `--d-chart-1 #3987E5` and
+`--d-payable #D95926`:
+
+| Candidate | Text contrast vs `#141413` | CVD ΔE | Normal-vision ΔE | Verdict |
+|---|---|---|---|---|
+| **`#9cbaf7`** | **9.46:1** | 16.3 / 15.3 | **18.1** | clears *every* floor |
+| **`#a7b2ec`** | **8.97:1** | 14.6 / 15.1 | **17.7** | clears every floor |
+| **`#94baf0`** | **9.25:1** | 16.1 / 14.4 | **17.5** | clears every floor |
+| `#4E5FC9` (§4.2's pick) | 3.34:1 | 9.2 | 10.5 | fails text floor *and* the 15 floor |
+
+So the review's escalation — *"if no hue satisfies both, that is a design decision the
+user should make explicitly"* — **does not need to be escalated**: hues satisfy both
+comfortably, clearing not merely the CVD-8 floor but the strict ≥15 normal-vision floor
+as well.
+
+**Phase 1 is amended:** pick `--d-brand` (dark fill) and `--d-brandink` (light ink)
+*separately*, against their own role's requirement. **Delete §4.2's "expected
+resolution"** — the M-15 precedent is not needed here and invoking it would have
+excused a failure that has a clean fix. §4.2's "structural ceiling" language was a false
+generalisation from M-34's genuinely harder brand-vs-payable *orange* collision to a
+navy palette where it does not apply.
+
+### 5B.3 §3.2 (sunken fill) — accepted
+
+1.02:1 from page and 1.13:1 from white confirmed. The review's sharpest point stands:
+Phase 4 exists *because* form screens must stop reading as "only colour changed", and it
+adopted the mockup's literal fill, which is imperceptible. Compounded by removing the
+`border-line-strong` outline — the clearest "this is a field" affordance the form has.
+**Phase 4 amended:** derive a sunken value with real separation (target ≥ 1.3:1 from
+surface) **or** keep a hairline border on filled fields; screenshot one form screen
+before propagating to all six primitives.
+
+### 5B.4 §3.3 (caption/meta contrast) — accepted
+
+`#8a93a3` at 3.10:1, and `.acap`'s stacked 60% opacity at 1.86:1, both confirmed
+failures for 11.5–13px text. **Phase 6 amended:** captions map to `--color-ink-muted`
+(or stronger), never the mockup's literal value, and **never** with a stacked opacity.
+Added to Phase 8's contrast checklist alongside `EntityAvatar`'s initials.
+
+### 5B.5 §3.4 (branch is stacked) — accepted; §5 decision 4 was self-contradictory
+
+Verified: House Style is **not** on `main`, and this branch contains it plus the whole
+PR-93 series. §5 decision 4's "not stacked on `fix/pr93-review-findings`" contradicts its
+own next clause ("branched from `fix/pr93-review-findings`"). The intent was "not
+*continuing to commit onto* that branch"; as written it misdescribes the topology.
+Corrected in §5, and the merge-order dependency is now stated in Phase 9.
+
+### 5B.6 §3.5 (re-approve the real visual) — accepted
+
+The approved frame was light-mode `#2952A3`, which fails adjacency and will be replaced
+by a darker navy, a separately-chosen dark-mode pair, and a re-derived CTA glow. Folded
+into Phase 1 as a gate: regenerate one mockup frame with the locked hexes and get fresh
+visual confirmation **before** Phase 5+ builds on it.
+
+### 5B.7 Where the review is itself slightly off (immaterial to its conclusions)
+
+- **`--radius-sm` is 89, not 91.** Re-counted across `web/src/**/*.tsx`, with and
+  without test files: 89 both ways. The plan's original figure was right.
+- **`Sheet.tsx`'s `rounded-t-lg` is line 77, not 76.**
+- **`rounded-md` has 3 production consumers, not 8.** There are 8 *occurrences*, but 5
+  are test assertions/selectors (`Card.test.tsx`, `CloseMonthScreen.test.tsx`,
+  `MoreScreen.test.tsx`). Real consumers: `Card.tsx`, `Dialog.tsx`, `StatTile.tsx`.
+  **This plan made the same error** in §3.3 and is corrected here — the conclusion
+  (small, precise blast radius) is strengthened, not weakened.
+
+### 5B.8 New finding neither document caught: every cited commit hash is dangling
+
+The branch was rewritten (rebase) after both documents were written. **All six hashes
+cited across the plan and the review are now orphaned** — reachable only until garbage
+collection:
+
+| Cited | Now | Subject |
+|---|---|---|
+| `8e0eaa0` | `3b249cc` | House Style (M-34) |
+| `c8c2884` | `ca31a30` | dev-server proxy |
+| `c70c2f3` | `52f7b69` | Record the plan |
+| `b7b8233` | `8497653` | Revalidate the plan |
+| `cad5765` | `8fce5fa` | CI-gate fix |
+| `8e6296b` | `0c94a2f` | PR-93 findings |
+
+For a document whose entire purpose is durability for a cold session, dangling refs are
+a real defect. **Rule adopted: refer to commits by subject line first, hash second** —
+subjects survive a rebase, hashes do not. §1 and §5 updated accordingly.
+
+### 5B.9 Smaller observations — accepted
+
+- **`--shadow-btn-primary` in dark mode is undefined.** A coloured glow on near-black
+  reads as a halo. Phase 2 must specify a dark value *or* consciously drop the glow in
+  dark mode and record which.
+- **Serif→sans hierarchy loss.** Removing Fraunces collapses the hero-figure hierarchy
+  on `AmountPad`/`DayCard` to weight alone. Phase 3's before/after spread must include
+  the amount-entry flow specifically.
+- **Cheap font guard.** A `tokens.css` assertion that `--font-sans` is set and
+  `fraunces` appears nowhere would catch a partial removal. Adopted (cheap, and §5A.5
+  established there is otherwise no net).
+- **Single-character names.** `driver.name` is `z.string().trim().min(1).max(200)` — a
+  **one-character** name is schema-valid, so "two-letter initials" needs a defined
+  fallback. Phase 5 must state the rule (first two characters of the first word; one
+  character if that is all there is; never empty).
+- **`ReportTable` double-padding.** Confirmed three screens render `StatTile` *and*
+  `ReportTable`: `CashPositionReportScreen`, `GoodwillReportScreen`,
+  `VehicleMonthReportScreen`. Phase 2 must check these specifically for nested-card
+  padding.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -568,6 +737,16 @@ explanation is wrong.
   ink family, per §2.1).
 - `--l-brand`/`--l-brandink`/`--l-wash` (+ `--d-*`) move to the new navy — final hex
   chosen from §4.1's candidates after the full contrast battery (not just adjacency).
+- **Choose the fill and the ink separately, per role (§5B.2).** `--d-brand` is a
+  *fill* (white text sits on it → must be dark: `#1E3A6E`/`#233E6B`/`#0F2E63` all give
+  10–13:1). `--d-brandink` is *text* and the focus ring (→ must be light enough to read
+  against `#141413`: `#9cbaf7` 9.46:1 / ΔE 18.1, `#a7b2ec` 8.97:1 / ΔE 17.7, `#94baf0`
+  9.25:1 / ΔE 17.5 all clear every floor). Do the same for light mode. **Verify against
+  both `--color-surface` and `--color-page`**, and remember `--color-focus-ring` aliases
+  brand-ink, so a failing ink silently degrades the focus indicator app-wide.
+- **Gate before Phase 5+ (§5B.6):** once the hexes are locked, regenerate one mockup
+  frame with the *real* values (light and dark) and get fresh visual confirmation. What
+  was approved was light-mode `#2952A3`, which is not what will ship.
 - `--color-direction-payable`: **unchanged**, same reasoning as House Style — no need
   found to move it, moving it means re-touching every report/chart keyed off it.
 - New `--color-surface-sunken` token (light + dark) for the button/chip recessed fill
@@ -583,8 +762,10 @@ explanation is wrong.
 - `--radius-lg` 16px → 20px (1 consumer: `Sheet.tsx`'s `rounded-t-lg`).
 - New `--shadow-sheet` token (upward-cast) on `Sheet.tsx` — currently has no shadow at
   all, this is net-new.
-- New `--shadow-btn-primary` token (brand-colored glow, both modes) on `Button.tsx`'s
-  `primary` variant only.
+- New `--shadow-btn-primary` token (brand-colored glow) on `Button.tsx`'s `primary`
+  variant only. **Specify the dark-mode value explicitly (§5B.9)** — a coloured glow on
+  a near-black ground reads as a halo; either tune it down or consciously drop the glow
+  in dark mode and record which was chosen.
 - **Wrap `ReportTable`'s `<div className="overflow-x-auto">` in a `<Card>`** (decided
   21 August 2026, §5A.2's sibling question). §3.3 established that 11 report screens
   don't use `Card` and so inherit no elevation at all; this single change in
@@ -592,6 +773,9 @@ explanation is wrong.
   and elevation, so reports stop being the one flat outlier. Keep the existing
   `overflow-x: auto` behaviour intact — §11.3 requires the *table* to scroll
   sideways, never the page, and nesting it in a `Card` must not break that.
+  **Check these three specifically for nested-card double padding (§5B.9):**
+  `CashPositionReportScreen`, `GoodwillReportScreen`, `VehicleMonthReportScreen` —
+  the only screens rendering both `StatTile` and `ReportTable`.
 - Fix `Card.tsx`'s inaccurate `elevated`/`shadow-md` "stacks on top" comment while in
   the file (§5A.6).
 - Every new token goes in **both** dark blocks identically, or `tokens.test.ts`'s
@@ -613,7 +797,12 @@ explanation is wrong.
   Delete completely, no dormant asset left — Tactile Ops has no serif anywhere.
 - Highest-blast-radius change in the plan (every text element in the app). Do it last
   among token-layer changes; screenshot a representative screen spread before/after so
-  a regression is traceable to "the font swap" alone.
+  a regression is traceable to "the font swap" alone. **Include the amount-entry flow
+  specifically (§5B.9)** — `AmountPad`/`DayCard` hero figures lose their serif-vs-sans
+  hierarchy and fall back to weight alone; confirm the hero number still dominates.
+- **Add the cheap guard (§5B.9):** a `tokens.test.ts` assertion that `--font-sans` is
+  set and `fraunces` appears nowhere in `tokens.css`. §5A.5 established there is
+  otherwise no automated net under this change, and it would catch a partial removal.
 
 ### Phase 4 — Controls: buttons *and* form fields
 Per §5A.2 — this phase was "Button variants" only in the first draft; extending it to
@@ -636,10 +825,17 @@ primitives so all 75 consuming files inherit it without individual edits:
 - `web/src/design/primitives/Checkbox.tsx` — note its `rounded-[4px]` arbitrary value
   (no token); decide whether it joins the language or stays as-is, and record which.
 
-Each moves from `border border-line-strong bg-surface` to
-`border-transparent bg-surface-sunken`. **Keep `--radius-sm` (8px) unchanged** — §3.3's
-89 usages make it the wrong lever, and the mockup's 10px row/control radius is a 2px
-difference not worth that blast radius (recorded divergence, see §2.2).
+Each moves from `border border-line-strong bg-surface` to a filled/recessed treatment.
+**Keep `--radius-sm` (8px) unchanged** — §3.3's 89 usages make it the wrong lever, and
+the mockup's 10px row/control radius is a 2px difference not worth that blast radius
+(recorded divergence, see §2.2).
+
+**Do not adopt the mockup's literal `#eef1f6` fill (§5B.3).** It is 1.02:1 from the page
+and 1.13:1 from a white card — imperceptible, in the very phase that exists to stop form
+screens reading as "only colour changed." Either derive a sunken value with real
+separation (target ≥ 1.3:1 from surface) **or** keep a hairline border on filled fields.
+**Screenshot one form screen and confirm the field is unmistakably a field before
+propagating to all six primitives.**
 
 **Focus and error states must survive the change.** `Input.tsx` currently relies on
 `aria-[invalid=true]:border-2 aria-[invalid=true]:border-critical` — with a transparent
@@ -658,6 +854,13 @@ dark-on-sunken text pairs need their own WCAG 4.5:1 AA check in Phase 8 — this
 identifying text (initials), not decoration, so it needs the text floor, not the 3:1
 non-text floor House Style's icon-only elements used.
 
+**The initials rule must handle short names (§5B.9).** `driver.name` is
+`z.string().trim().min(1).max(200)` — a **one-character** name is schema-valid, and
+single-word names are common in Sri Lanka. State it explicitly: first letter of each of
+the first two whitespace-separated words; if there is only one word, its first two
+characters; if the name is a single character, that character alone. Never render an
+empty chip.
+
 ### Phase 6 — `ActionSheet` icon chip + optional caption
 `web/src/design/primitives/ActionSheet.tsx`:
 - Wrap each action's icon in a circular **wash**-tint chip (not solid fill — keep
@@ -666,6 +869,10 @@ non-text floor House Style's icon-only elements used.
 - Add optional `caption?: string` to `ActionSheetAction`. Omitted → today's single-line
   row, unchanged (backward compatible). Caption copy scoped to `QuickAddSheet.tsx`'s 5
   fixed actions only, per §3.2's table.
+- **Caption colour: `--color-ink-muted` or stronger — never the mockup's `#8a93a3`
+  (3.10:1) and never with a stacked opacity (§5B.4).** The mockup's `.acap` composites
+  to 1.86:1, which is unreadable. Optional text is still text; it takes the 4.5:1 floor
+  like any other. Add caption colour to Phase 8's contrast checklist.
 
 ### Phase 7 — Apply `EntityAvatar` at the confirmed sites
 `VehicleListScreen.tsx`, `VehicleOverviewScreen.tsx`, `PeopleListScreen.tsx` (both
@@ -692,6 +899,12 @@ that the component and color rule are fixed in Phase 5.
 - `docs/design/brand-guidelines.md`: same treatment as the last pass — new "Regenerated"
   note, mark/icon PNG assets need a **second** `rsvg-convert` regeneration once the new
   navy is locked.
+- **Contrast checklist — every new text-bearing pair, at the 4.5:1 AA floor:**
+  `EntityAvatar`'s white-on-brand initials and dark-on-sunken initials (Phase 5);
+  `ActionSheet` caption colour (Phase 6, §5B.4); `--d-brandink` as text against **both**
+  `--color-surface` and `--color-page`, and therefore also as `--color-focus-ring`
+  (Phase 1, §5B.2); the sunken fill's separation from surface and page (Phase 4,
+  §5B.3). Record the measured numbers in M-35, not just a pass/fail.
 - Full `npm run check` (guard/lint/lint:css/format:check/typecheck/test).
 - Real browser QA via chrome-devtools MCP — mandatory, not optional (§5A.5: no test
   covers the font swap). Cover **all four surface families**, light and dark, because
@@ -704,11 +917,25 @@ that the component and color rule are fixed in Phase 5.
      (Phase 2's Card wrap)
 
 ### Phase 9 — Git
-House Style's commit (`8e0eaa0`) bundled unrelated bug fixes with the visual tokens.
-This redesign **supersedes only the visual token values**, via new commits on
-`redesign/tactile-ops` — does not revert or touch the bug-fix parts (Dialog spacing,
-focus rings, ink-faint contrast, M-16 alignment), which remain correct and unrelated to
-style direction.
+House Style's commit ("House Style: brand accent, display face, card elevation (M-34)…")
+bundled unrelated bug fixes with the visual tokens. This redesign **supersedes only the
+visual token values**, via new commits on `redesign/tactile-ops` — does not revert or
+touch the bug-fix parts (Dialog spacing, focus rings, ink-faint contrast, M-16
+alignment), which remain correct and unrelated to style direction.
+
+**Merge ordering is a real dependency, not just commit hygiene (§5B.5).** This branch
+is stacked: House Style is **not on `main`**, and `redesign/tactile-ops` carries it plus
+the entire PR-93 series and the dev-proxy change. Therefore:
+1. `fix/pr93-review-findings` merges **first**, or
+2. this branch is rebased onto `main` if that PR changes shape.
+
+Merging `redesign/tactile-ops` into `main` on its own would silently ship M-34, the
+PR-93 fixes and the dev-proxy change alongside the redesign — three unrelated changes
+under one review.
+
+**Cite commits by subject, not hash.** The branch has already been rebased once,
+orphaning every hash both this plan and the independent review originally quoted
+(§5B.8). Subjects survive a rebase; hashes do not.
 
 ---
 
@@ -722,7 +949,11 @@ style direction.
 - [x] Branch created: `redesign/tactile-ops`
 - [x] **Revalidation pass against the real codebase (§5A)** — two gaps found and folded
       in (form controls, §13's font budget), four assumptions verified safe
-- [ ] Phase 1 — palette
+- [x] **Independent review received and validated (§5B)** — all five conditions
+      accepted; §4.2's dark-mode "structural ceiling" disproved and its M-15 workaround
+      withdrawn; three of the review's own figures corrected; a sixth defect neither
+      document caught (dangling commit hashes) fixed
+- [ ] Phase 1 — palette (fill/ink chosen per role; visual re-approval gate before Phase 5+)
 - [ ] Phase 2 — elevation/radius + `ReportTable` Card wrap + re-run perf benchmark
 - [ ] Phase 3 — Sora self-hosting (latin subset), Fraunces removal
 - [ ] Phase 4 — controls: buttons **and** the six form primitives
