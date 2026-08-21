@@ -122,6 +122,12 @@ export default ts.config(
       // some checkouts and not others. Its generated run.cjs/JSON aren't
       // this project's source and shouldn't gate lint where it exists.
       ".gitnexus/**",
+      // Vendored Claude Code skill packs (design/UI tooling) — third-party
+      // content pulled in as-is, not this project's source. Their scripts
+      // are plain Node CLIs (require(), process, console) that were never
+      // meant to pass this app's strict TS/Worker-flavoured rule set.
+      ".claude/skills/**",
+      ".agents/skills/**",
     ],
   },
 

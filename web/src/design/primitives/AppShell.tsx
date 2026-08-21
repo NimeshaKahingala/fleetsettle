@@ -10,6 +10,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { ToastViewport } from "./Toast.js";
 
 export type OperateTabKey = "home" | "vehicles" | "people" | "more";
@@ -110,7 +111,10 @@ export function AppShell({
             <button
               type="button"
               onClick={onSwitchBusiness}
-              className="flex min-h-tap shrink-0 items-center gap-1.5 border-b border-line-hairline bg-surface px-4 py-1.5 text-left active:bg-brand-wash"
+              className={cn(
+                "flex min-h-tap shrink-0 items-center gap-1.5 border-b border-line-hairline bg-surface px-4 py-1.5 text-left active:bg-brand-wash",
+                rowButtonFocus,
+              )}
             >
               <span className="min-w-0 flex-1">
                 <span aria-hidden className="block text-caption text-ink-muted">
@@ -126,7 +130,10 @@ export function AppShell({
             <button
               type="button"
               onClick={onExit.onClick}
-              className="flex h-tap shrink-0 items-center gap-2 border-b border-line-hairline bg-surface px-4 text-left active:bg-brand-wash"
+              className={cn(
+                "flex h-tap shrink-0 items-center gap-2 border-b border-line-hairline bg-surface px-4 text-left active:bg-brand-wash",
+                rowButtonFocus,
+              )}
             >
               <ArrowLeft className="size-4 shrink-0 text-ink-secondary" aria-hidden />
               <span className="min-w-0 flex-1 truncate text-caption font-medium text-ink-secondary">
