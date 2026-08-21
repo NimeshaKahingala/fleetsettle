@@ -1,5 +1,7 @@
 import { QueryStateFailure } from "./QueryState.js";
 import { Sheet } from "../design/primitives/Sheet.js";
+import { cn } from "../lib/cn.js";
+import { rowButtonFocus } from "../lib/rowButtonFocus.js";
 
 export interface ReasonOption {
   key: string;
@@ -49,7 +51,10 @@ export function ReasonPicker({
                   onOpenChange(false);
                   onSelect(reason);
                 }}
-                className="flex min-h-tap w-full items-center rounded-sm px-2 text-body text-ink-primary active:bg-brand-wash"
+                className={cn(
+                  "flex min-h-tap w-full items-center rounded-sm px-2 text-body text-ink-primary active:bg-brand-wash",
+                  rowButtonFocus,
+                )}
               >
                 {reason.label}
               </button>

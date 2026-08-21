@@ -212,7 +212,7 @@ test("sums per-weekday rows into one figure per driver, and shows the ran+lost d
   expect(await screen.findByText("By weekday")).toBeInTheDocument();
   expect(screen.getByText("By reason")).toBeInTheDocument();
 
-  await user.click(screen.getByRole("button", { name: "View as table" }));
+  await user.click(screen.getByRole("tab", { name: "Table" }));
   expect(screen.getByText("3 / 8")).toBeInTheDocument();
   expect(screen.getByText("Rs 1,500")).toBeInTheDocument();
 });

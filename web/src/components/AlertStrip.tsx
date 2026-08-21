@@ -34,7 +34,7 @@ export function AlertStrip({ severity, icon: Icon, children, action, className }
         <button
           type="button"
           onClick={action.onClick}
-          className="shrink-0 text-body-sm font-medium underline underline-offset-2"
+          className="flex min-h-tap shrink-0 items-center -my-2 px-1 text-body-sm font-medium underline underline-offset-2"
         >
           {action.label}
         </button>

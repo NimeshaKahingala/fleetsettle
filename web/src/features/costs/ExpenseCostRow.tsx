@@ -10,6 +10,7 @@ import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
 import { cn } from "../../lib/cn.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ReceiptSheet } from "./ReceiptSheet.js";
 import { VoidExpenseSheet } from "./VoidExpenseSheet.js";
@@ -97,7 +98,10 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
         <button
           type="button"
           onClick={() => setReceiptsOpen(true)}
-          className="inline-flex min-h-tap w-fit items-center gap-1 self-start rounded-sm px-2 text-caption text-ink-secondary active:bg-brand-wash"
+          className={cn(
+            "inline-flex min-h-tap w-fit items-center gap-1 self-start rounded-sm px-2 text-caption text-ink-secondary active:bg-brand-wash",
+            rowButtonFocus,
+          )}
         >
           <ImageIcon className="size-4" aria-hidden />
           {receiptCount} receipt{receiptCount === 1 ? "" : "s"}

@@ -349,6 +349,8 @@ export function VehicleOverviewScreen({
             key: "archive-vehicle",
             label: "Archive vehicle",
             icon: Archive,
+            variant: "destructive" as const,
+            groupStart: true,
             onSelect: () => setArchiveVehicleOpen(true),
           },
         ]
@@ -358,6 +360,7 @@ export function VehicleOverviewScreen({
               key: "unarchive-vehicle",
               label: "Unarchive vehicle",
               icon: ArchiveRestore,
+              groupStart: true,
               onSelect: () => setArchiveVehicleOpen(true),
             },
           ]
@@ -377,7 +380,7 @@ export function VehicleOverviewScreen({
           of="this vehicle"
         />
       ) : vehicle === undefined ? (
-        <p className="text-body-sm text-ink-muted">Loading…</p>
+        <p className="text-body-sm text-ink-muted">Loading this vehicle…</p>
       ) : (
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">

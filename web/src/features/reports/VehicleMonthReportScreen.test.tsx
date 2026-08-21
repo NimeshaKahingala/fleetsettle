@@ -96,7 +96,7 @@ test("the per-vehicle card reads the G-1 golden figure, and expanding it shows e
     get,
   });
 
-  await user.click(await screen.findByRole("button", { name: "View as table" }));
+  await user.click(await screen.findByRole("tab", { name: "Table" }));
   expect(await screen.findByText("Rs 134,000")).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: /NB-1234/ }));
@@ -114,7 +114,7 @@ test("defaults to the open period when none is given", async () => {
     get,
   });
 
-  expect(await screen.findByText("2026-07-01 – 2026-07-31")).toBeInTheDocument();
+  expect(await screen.findByText("1 Jul 2026 – 31 Jul 2026")).toBeInTheDocument();
 });
 
 test("GAP-101: a failed period-list read shows a failure notice — without it resolvedPeriodId can never resolve", async () => {
