@@ -67,7 +67,7 @@ export function EntityPicker({
         {value !== null ? (
           value.label
         ) : (
-          <span className="text-ink-faint">Choose {label.toLowerCase()}</span>
+          <span className="text-ink-muted">Choose {label.toLowerCase()}</span>
         )}
       </button>
 

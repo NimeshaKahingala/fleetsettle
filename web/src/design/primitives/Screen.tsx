@@ -1,5 +1,6 @@
 import { ChevronLeft } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { iconButton } from "../../lib/iconButton.js";
 import { Button } from "./Button.js";
 
 export interface ScreenAction {
@@ -60,16 +61,11 @@ export function Screen({
       <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line-hairline px-4 max-md:landscape:h-11 max-md:landscape:px-3">
         <div className="flex min-w-0 items-center gap-1">
           {onBack !== undefined ? (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="Back"
-              className="flex size-tap shrink-0 items-center justify-center rounded-sm text-ink-secondary active:bg-brand-wash"
-            >
+            <button type="button" onClick={onBack} aria-label="Back" className={iconButton}>
               <ChevronLeft className="size-5" aria-hidden />
             </button>
           ) : null}
-          <h1 className="truncate text-title-lg text-ink-primary max-md:landscape:text-title">
+          <h1 className="truncate text-title-lg text-ink-primary max-md:landscape:text-title font-display">
             {title}
           </h1>
         </div>
@@ -78,7 +74,7 @@ export function Screen({
             type="button"
             onClick={action.onClick}
             aria-label={action.label}
-            className="flex size-tap shrink-0 items-center justify-center rounded-sm text-ink-secondary active:bg-brand-wash"
+            className={iconButton}
           >
             <ActionIcon className="size-5" aria-hidden />
           </button>

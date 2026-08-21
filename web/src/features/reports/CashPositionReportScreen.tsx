@@ -79,7 +79,7 @@ const PARTNER_COLUMNS: ReportTableColumn<CashPositionResponse["partners"][number
     key: "held",
     header: "Held",
     align: "end",
-    render: (row) => <Money value={parse(row.heldMinor)} />,
+    money: (row) => parse(row.heldMinor),
   },
 ];
 
@@ -89,7 +89,7 @@ const BANKED_COLUMNS: ReportTableColumn<CashPositionResponse["banked"][number]>[
     key: "held",
     header: "Held",
     align: "end",
-    render: (row) => <Money value={parse(row.heldMinor)} />,
+    money: (row) => parse(row.heldMinor),
   },
 ];
 
@@ -100,7 +100,7 @@ const DRIVER_ADVANCE_COLUMNS: ReportTableColumn<CashPositionResponse["driverAdva
       key: "outstanding",
       header: "Outstanding",
       align: "end",
-      render: (row) => <Money value={parse(row.outstandingMinor)} />,
+      money: (row) => parse(row.outstandingMinor),
     },
   ];
 

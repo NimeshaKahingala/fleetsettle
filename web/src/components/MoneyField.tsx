@@ -73,7 +73,7 @@ export function MoneyField({
         {valueMinor !== null ? (
           <Money value={valueMinor} />
         ) : (
-          <span className="text-ink-faint">Enter {label.toLowerCase()}</span>
+          <span className="text-ink-muted">Enter {label.toLowerCase()}</span>
         )}
       </button>
       <Sheet open={open} onOpenChange={setOpen} title={label}>

@@ -26,7 +26,7 @@ export function Field({ label, htmlFor, optional = false, error, children }: Fie
     <div className="flex flex-col gap-1">
       <Label htmlFor={htmlFor}>
         {label}
-        {optional ? <span className="text-ink-faint"> (optional)</span> : null}
+        {optional ? <span className="text-ink-muted"> (optional)</span> : null}
       </Label>
       {children}
       <FieldError id={fieldErrorId(htmlFor)} {...(error !== undefined ? { message: error } : {})} />

@@ -1,11 +1,35 @@
+import type { Minor } from "@fleetsettle/shared";
+import { Money } from "../../components/Money.js";
 import { cn } from "../../lib/cn.js";
 
-export interface ReportTableColumn<Row> {
+interface ReportTableColumnBase {
   key: string;
   header: string;
   align?: "start" | "end";
-  render: (row: Row) => React.ReactNode;
 }
+
+export interface ReportTableRenderColumn<Row> extends ReportTableColumnBase {
+  render: (row: Row) => React.ReactNode;
+  money?: undefined;
+}
+
+export interface ReportTableMoneyColumn<Row> extends ReportTableColumnBase {
+  /**
+   * A money column, given as the value rather than rendered markup, so the
+   * table can decide cents for the whole column at once.
+   *
+   * `format`'s own contract is "the moment one figure has cents every figure
+   * shows them (M-16)", but a per-cell `<Money>` can only ever see its own
+   * value, so nothing was enforcing it: a right-aligned column mixing
+   * `Rs 12,500` and `Rs 3,200.50` lines the two up by their last character
+   * instead of by place value, which is precisely the comparison a
+   * right-aligned `tabular-nums` column exists to make possible.
+   */
+  money: (row: Row) => Minor;
+  render?: undefined;
+}
+
+export type ReportTableColumn<Row> = ReportTableRenderColumn<Row> | ReportTableMoneyColumn<Row>;
 
 export interface ReportTableProps<Row> {
   columns: ReportTableColumn<Row>[];
@@ -25,6 +49,20 @@ export interface ReportTableProps<Row> {
  * scrolls sideways in its own box, the page body does not.
  */
 export function ReportTable<Row>({ columns, rows, rowKey }: ReportTableProps<Row>) {
+  // M-16, decided per column rather than per cell: one row carrying cents
+  // puts them on every row of that column, so the figures stay comparable
+  // by place value. A column of round thousands still shows no `.00` at all.
+  const columnShowsCents = new Map<string, boolean>();
+  for (const col of columns) {
+    if (col.money !== undefined) {
+      const toMinor = col.money;
+      columnShowsCents.set(
+        col.key,
+        rows.some((row) => toMinor(row) % 100n !== 0n),
+      );
+    }
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-max text-body-sm">
@@ -55,7 +93,11 @@ export function ReportTable<Row>({ columns, rows, rowKey }: ReportTableProps<Row
                     col.align === "end" ? "text-right tabular-nums" : "text-left",
                   )}
                 >
-                  {col.render(row)}
+                  {col.money !== undefined ? (
+                    <Money value={col.money(row)} cents={columnShowsCents.get(col.key) ?? false} />
+                  ) : (
+                    col.render(row)
+                  )}
                 </td>
               ))}
             </tr>

@@ -1,7 +1,6 @@
 import { format, parse } from "@fleetsettle/shared";
 import type { RankedTripsResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -34,25 +33,25 @@ const COLUMNS: ReportTableColumn<RankedTripsResponse[number]>[] = [
     key: "agreed",
     header: "Agreed",
     align: "end",
-    render: (row) => <Money value={parse(row.agreedAmountMinor)} />,
+    money: (row) => parse(row.agreedAmountMinor),
   },
   {
     key: "costs",
     header: "Costs",
     align: "end",
-    render: (row) => <Money value={parse(row.costsMinor)} />,
+    money: (row) => parse(row.costsMinor),
   },
   {
     key: "driverFee",
     header: "Driver fee",
     align: "end",
-    render: (row) => <Money value={parse(row.driverFeeMinor)} />,
+    money: (row) => parse(row.driverFeeMinor),
   },
   {
     key: "profit",
     header: "Profit",
     align: "end",
-    render: (row) => <Money value={parse(row.profitMinor)} />,
+    money: (row) => parse(row.profitMinor),
   },
   {
     key: "profitPerKm",

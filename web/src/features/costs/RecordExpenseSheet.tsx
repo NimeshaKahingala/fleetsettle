@@ -173,7 +173,7 @@ export function RecordExpenseSheet({
             {category !== null ? (
               (EXPENSE_CATEGORY_LABEL[category] ?? category)
             ) : (
-              <span className="text-ink-faint">Choose category</span>
+              <span className="text-ink-muted">Choose category</span>
             )}
           </button>
         </div>

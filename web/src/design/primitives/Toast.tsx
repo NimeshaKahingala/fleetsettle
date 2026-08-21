@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { cn } from "../../lib/cn.js";
+import { iconButton } from "../../lib/iconButton.js";
 
 export interface ToastAction {
   label: string;
@@ -106,7 +107,7 @@ function ToastItem({
       <button
         type="button"
         aria-label={`Dismiss ${toast.title}`}
-        className="flex size-tap shrink-0 items-center justify-center rounded-sm text-ink-secondary active:bg-brand-wash"
+        className={iconButton}
         onClick={() => dismissToast(toast.id)}
       >
         <X className="size-4" aria-hidden />

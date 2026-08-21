@@ -1,7 +1,7 @@
 # Brand Guidelines
 
-**Status:** v1.0.2 — authentication branding added: FleetSettle owns the pre-login entry page and the hosted Asgardeo page must be branded to match, so the sign-in flow no longer breaks from FleetSettle into WSO2/Asgardeo identity.
-**Date:** 14 August 2026
+**Status:** v1.0.3 — House Style (M-34): brand colour moved to `#9C3F2E`, and every rasterised asset regenerated to match (previously flagged pending, now done).
+**Date:** 21 August 2026
 **Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 **Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
 
@@ -95,9 +95,11 @@ In the React app the app-bar lockup should be **live text next to the SVG mark**
 
 The identity uses the system palette unchanged (B-4). For reference, the four values that appear in the assets:
 
+**Regenerated (M-34, 21 Aug 2026):** `ui-ux-guidelines.md` §5.1's `--color-brand` moved to `#9C3F2E` (House Style) — B-4 still holds (no separate brand palette). All nine `docs/design/brand/src/*.svg` sources and `web/public/icons/favicon.svg` were repointed from `#256ABF` to `#9C3F2E`, and every rasterised PNG (`docs/design/brand/png/*` and the live `web/public/icons/*`) was re-rendered from those sources via `rsvg-convert` at each asset's existing pixel size, so the pixels now match the token. `mark.svg`/`mark-compact.svg` already used `stroke="currentColor"` (§2.1) and needed no source change beyond the shared `color="#256ABF"` default they carry for standalone use.
+
 | Role | Hex | Where |
 |---|---|---|
-| Brand | `#256ABF` | Mark, icon tile |
+| Brand | `#9C3F2E` | Mark, icon tile |
 | Off-white | `#FBFBF8` | Reversed mark on the tile |
 | Ink | `#14140F` | Wordmark on light |
 | Ink reverse | `#F5F5F0` | Wordmark on dark |
@@ -107,7 +109,7 @@ Approved combinations, and only these:
 | Ground | Mark | Wordmark |
 |---|---|---|
 | Light page `#F1F1EC` / surface `#FBFBF8` | Brand | Ink |
-| Brand `#256ABF` | Off-white | Off-white |
+| Brand `#9C3F2E` | Off-white | Off-white |
 | Ink `#14140F` / dark surface `#141413` | Off-white | Ink reverse |
 | Any single-colour context (print, fax, forced-colors) | 100% ink | 100% ink |
 
@@ -138,7 +140,7 @@ Copy into `web/public/icons/` when the frontend is scaffolded.
   "start_url": "/",
   "display": "standalone",
   "background_color": "#F1F1EC",
-  "theme_color": "#256ABF",
+  "theme_color": "#9C3F2E",
   "icons": [
     { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
@@ -151,7 +153,7 @@ Copy into `web/public/icons/` when the frontend is scaffolded.
 <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/icons/favicon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon-180.png">
-<meta name="theme-color" content="#256ABF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#9C3F2E" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 ```
 

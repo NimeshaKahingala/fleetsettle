@@ -3,7 +3,6 @@ import type { FuelEfficiencyResponse, VehicleResponse } from "@fleetsettle/share
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
-import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -46,7 +45,7 @@ const COLUMNS: ReportTableColumn<FuelEfficiencyResponse["points"][number]>[] = [
     key: "amount",
     header: "Amount",
     align: "end",
-    render: (row) => <Money value={parse(row.amountMinor)} />,
+    money: (row) => parse(row.amountMinor),
   },
   {
     key: "litres",
