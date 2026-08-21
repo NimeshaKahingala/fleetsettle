@@ -7,6 +7,7 @@ import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { formatShortDate } from "../../lib/formatShortDate.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { TrendLineChart, type TrendLineDatum } from "./charts/TrendLineChart.js";
 import { ReportScreen } from "./ReportScreen.js";
@@ -40,7 +41,7 @@ export function toChartData(points: FuelEfficiencyResponse["points"]): TrendLine
 }
 
 const COLUMNS: ReportTableColumn<FuelEfficiencyResponse["points"][number]>[] = [
-  { key: "date", header: "Date", render: (row) => row.spentOn },
+  { key: "date", header: "Date", render: (row) => formatShortDate(row.spentOn) },
   {
     key: "amount",
     header: "Amount",
@@ -180,7 +181,7 @@ export function FuelEfficiencyReportScreen({
         table={
           <div className="flex flex-col gap-3">
             {paramsForm}
-            <p className="text-body text-ink-muted">Loading…</p>
+            <p className="text-body text-ink-muted">Loading this vehicle's fuel efficiency…</p>
           </div>
         }
       />

@@ -45,7 +45,7 @@ test("the table view shows NotAvailable for a trip with no closing odometer, not
   const get = vi.fn().mockResolvedValue(rows);
   renderWithProviders(<TripRankingReportScreen onBack={() => {}} />, { get });
 
-  await user.click(await screen.findByRole("button", { name: "View as table" }));
+  await user.click(await screen.findByRole("button", { name: "Table" }));
 
   expect(screen.getByText("125.00")).toBeInTheDocument();
   expect(screen.getByLabelText("Not available: no closing odometer")).toBeInTheDocument();

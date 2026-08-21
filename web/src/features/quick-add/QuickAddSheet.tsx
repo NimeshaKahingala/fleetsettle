@@ -71,18 +71,26 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
   const inFlight = (s: { kind: string }): boolean => s.kind === "pending" || s.kind === "idle";
 
   const actions: ActionSheetAction[] = [
-    { key: "fuel", label: "Fuel", icon: Fuel, onSelect: () => setFuelOpen(true) },
-    { key: "expense", label: "Expense", icon: Receipt, onSelect: () => setExpenseOpen(true) },
+    { key: "fuel", label: "Fuel", icon: Fuel, tone: "out", onSelect: () => setFuelOpen(true) },
+    {
+      key: "expense",
+      label: "Expense",
+      icon: Receipt,
+      tone: "out",
+      onSelect: () => setExpenseOpen(true),
+    },
     {
       key: "payment-received",
       label: "Payment received",
       icon: ArrowDownLeft,
+      tone: "in",
       onSelect: () => setReceivedPartyPickerOpen(true),
     },
     {
       key: "payment-made",
       label: "Payment made",
       icon: ArrowUpRight,
+      tone: "out",
       onSelect: () => setPaidPartyPickerOpen(true),
     },
     {

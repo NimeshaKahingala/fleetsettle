@@ -42,7 +42,7 @@ test("GAP-18/UC-73: renders per-vehicle profit, the KPI row and overheads beneat
   expect(screen.getByText("Overheads")).toBeInTheDocument();
   expect(screen.getByText("Rs 41,000")).toBeInTheDocument();
 
-  await userEvent.click(await screen.findByRole("button", { name: "View as table" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Table" }));
   expect(screen.getByRole("button", { name: /NB-1234/ })).toBeInTheDocument();
 });
 

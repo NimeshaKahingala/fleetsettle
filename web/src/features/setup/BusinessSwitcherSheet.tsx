@@ -10,6 +10,8 @@ import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
+import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { setSelectedBusinessId } from "../../lib/storage.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
 import { RedeemInviteForm } from "./RedeemInviteForm.js";
@@ -151,7 +153,10 @@ export function BusinessSwitcherSheet({
                   type="button"
                   onClick={() => selectBusiness(membership.businessId)}
                   aria-current={isCurrent ? "true" : undefined}
-                  className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
+                  className={cn(
+                    "flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash",
+                    rowButtonFocus,
+                  )}
                 >
                   <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
                   <span className="min-w-0 flex-1">
