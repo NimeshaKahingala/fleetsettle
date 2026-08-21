@@ -14,27 +14,11 @@
  * offending row's id otherwise. Read-only — never writes.
  */
 
-import { readFileSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
 import { neonConfig, Pool } from "@neondatabase/serverless";
 import ws from "ws";
+import { databaseUrl } from "./lib/database-url.mjs";
 
 neonConfig.webSocketConstructor = ws;
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-
-function databaseUrl() {
-  if (process.env["DATABASE_URL"]) return process.env["DATABASE_URL"];
-  const devVars = resolve(HERE, "..", ".dev.vars");
-  if (existsSync(devVars)) {
-    for (const line of readFileSync(devVars, "utf8").split("\n")) {
-      const m = /^\s*DATABASE_URL\s*=\s*"?([^"\n]+)"?\s*(?:#.*)?$/.exec(line);
-      if (m?.[1]) return m[1];
-    }
-  }
-  throw new Error("DATABASE_URL is not set, and api/.dev.vars does not define it");
-}
 
 /**
  * The recurring shape behind most of the tenancy checks below: a child row
@@ -51,6 +35,110 @@ function tenancyCheck(childTable, childAlias, fkColumn, parentTable, parentAlias
      JOIN ${parentTable} ${parentAlias} ON ${parentAlias}.id = ${childAlias}.${fkColumn}
      WHERE ${parentAlias}.business_id <> ${childAlias}.business_id`;
 }
+
+// label, child table, child alias, fk column, parent table, parent alias —
+// one row per tenancyCheck() call. Kept as a flat data table rather than
+// twelve repeated `[label, tenancyCheck(...)]` array entries: that shape
+// was itself flagged as duplicated code on PR #93, since the twelve entries
+// were identical in structure even after the SQL bodies were deduped above.
+const TENANCY_CHECKS = [
+  [
+    "obligation's party business_id disagrees with the obligation's own business_id (customer)",
+    "obligation",
+    "o",
+    "party_customer_id",
+    "customer",
+    "c",
+  ],
+  [
+    "obligation's party business_id disagrees with the obligation's own business_id (driver)",
+    "obligation",
+    "o",
+    "party_driver_id",
+    "driver",
+    "d",
+  ],
+  [
+    "obligation's vehicle business_id disagrees with the obligation's own business_id",
+    "obligation",
+    "o",
+    "vehicle_id",
+    "vehicle",
+    "v",
+  ],
+  [
+    "payment's party business_id disagrees with the payment's own business_id (customer)",
+    "payment",
+    "p",
+    "party_customer_id",
+    "customer",
+    "c",
+  ],
+  [
+    "payment's party business_id disagrees with the payment's own business_id (driver)",
+    "payment",
+    "p",
+    "party_driver_id",
+    "driver",
+    "d",
+  ],
+  [
+    "expense's vehicle business_id disagrees with the expense's own business_id",
+    "expense",
+    "e",
+    "vehicle_id",
+    "vehicle",
+    "v",
+  ],
+  [
+    "trip's vehicle business_id disagrees with the trip's own business_id",
+    "trip",
+    "t",
+    "vehicle_id",
+    "vehicle",
+    "v",
+  ],
+  [
+    "day_record's vehicle business_id disagrees with the day_record's own business_id",
+    "day_record",
+    "dr",
+    "vehicle_id",
+    "vehicle",
+    "v",
+  ],
+  [
+    "deposit_movement's deposit business_id disagrees with the movement's own business_id",
+    "deposit_movement",
+    "dm",
+    "deposit_id",
+    "deposit",
+    "d",
+  ],
+  [
+    "lease's vehicle business_id disagrees with the lease's own business_id",
+    "lease",
+    "l",
+    "vehicle_id",
+    "vehicle",
+    "v",
+  ],
+  [
+    "money posted into an accounting_period belonging to a different business",
+    "obligation",
+    "o",
+    "posted_period_id",
+    "accounting_period",
+    "ap",
+  ],
+  [
+    "advance_settlement referencing an advance from a different business",
+    "advance_settlement",
+    "s",
+    "advance_id",
+    "advance",
+    "a",
+  ],
+];
 
 // label, sql returning the offending rows' ids (or any identifying column),
 // one row per violation, empty result = clean.
@@ -116,54 +204,10 @@ const CHECKS = [
      WHERE voided_at IS NULL AND state <> 'open' AND earned_minor IS NULL`,
   ],
   [
-    "obligation's party business_id disagrees with the obligation's own business_id (customer)",
-    tenancyCheck("obligation", "o", "party_customer_id", "customer", "c"),
-  ],
-  [
-    "obligation's party business_id disagrees with the obligation's own business_id (driver)",
-    tenancyCheck("obligation", "o", "party_driver_id", "driver", "d"),
-  ],
-  [
-    "obligation's vehicle business_id disagrees with the obligation's own business_id",
-    tenancyCheck("obligation", "o", "vehicle_id", "vehicle", "v"),
-  ],
-  [
-    "payment's party business_id disagrees with the payment's own business_id (customer)",
-    tenancyCheck("payment", "p", "party_customer_id", "customer", "c"),
-  ],
-  [
-    "payment's party business_id disagrees with the payment's own business_id (driver)",
-    tenancyCheck("payment", "p", "party_driver_id", "driver", "d"),
-  ],
-  [
     "payment_allocation joins a payment and an obligation from different businesses",
     `SELECT pa.id FROM payment_allocation pa
      JOIN payment p ON p.id = pa.payment_id JOIN obligation o ON o.id = pa.obligation_id
      WHERE p.business_id <> o.business_id`,
-  ],
-  [
-    "expense's vehicle business_id disagrees with the expense's own business_id",
-    tenancyCheck("expense", "e", "vehicle_id", "vehicle", "v"),
-  ],
-  [
-    "trip's vehicle business_id disagrees with the trip's own business_id",
-    tenancyCheck("trip", "t", "vehicle_id", "vehicle", "v"),
-  ],
-  [
-    "day_record's vehicle business_id disagrees with the day_record's own business_id",
-    tenancyCheck("day_record", "dr", "vehicle_id", "vehicle", "v"),
-  ],
-  [
-    "deposit_movement's deposit business_id disagrees with the movement's own business_id",
-    tenancyCheck("deposit_movement", "dm", "deposit_id", "deposit", "d"),
-  ],
-  [
-    "lease's vehicle business_id disagrees with the lease's own business_id",
-    tenancyCheck("lease", "l", "vehicle_id", "vehicle", "v"),
-  ],
-  [
-    "money posted into an accounting_period belonging to a different business",
-    tenancyCheck("obligation", "o", "posted_period_id", "accounting_period", "ap"),
   ],
   [
     "more than one accounting_period open at once for the same business",
@@ -184,27 +228,34 @@ const CHECKS = [
      LEFT JOIN payment p ON p.id = wor.payment_id
      WHERE wor.voided_at IS NULL AND (p.id IS NULL OR p.status = 'voided')`,
   ],
-  [
-    "advance_settlement referencing an advance from a different business",
-    tenancyCheck("advance_settlement", "s", "advance_id", "advance", "a"),
-  ],
+  ...TENANCY_CHECKS.map(([label, childTable, childAlias, fkColumn, parentTable, parentAlias]) => [
+    label,
+    tenancyCheck(childTable, childAlias, fkColumn, parentTable, parentAlias),
+  ]),
 ];
 
 const pool = new Pool({ connectionString: databaseUrl() });
 let failures = 0;
 
-for (const [label, sql] of CHECKS) {
-  const { rows } = await pool.query(sql);
-  if (rows.length === 0) {
-    console.log(`  OK    ${label}`);
-  } else {
-    failures++;
-    const ids = rows.map((r) => Object.values(r)[0]).slice(0, 10);
-    console.error(`  FAIL  ${label} — ${rows.length} row(s): ${ids.join(", ")}`);
+try {
+  for (const [label, sql] of CHECKS) {
+    try {
+      const { rows } = await pool.query(sql);
+      if (rows.length === 0) {
+        console.log(`  OK    ${label}`);
+      } else {
+        failures++;
+        const ids = rows.map((r) => Object.values(r)[0]).slice(0, 10);
+        console.error(`  FAIL  ${label} — ${rows.length} row(s): ${ids.join(", ")}`);
+      }
+    } catch (err) {
+      failures++;
+      console.error(`  ERROR ${label} — ${err.message}`);
+    }
   }
+} finally {
+  await pool.end();
 }
-
-await pool.end();
 
 if (failures === 0) {
   console.log(`\nledger audit: clean — ${CHECKS.length} invariants held`);

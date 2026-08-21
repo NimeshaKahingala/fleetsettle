@@ -14,27 +14,16 @@
  * period.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { neonConfig, Pool } from "@neondatabase/serverless";
 import ws from "ws";
+import { databaseUrl } from "./lib/database-url.mjs";
 
 neonConfig.webSocketConstructor = ws;
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-
-function databaseUrl() {
-  if (process.env["DATABASE_URL"]) return process.env["DATABASE_URL"];
-  const devVars = resolve(HERE, "..", ".dev.vars");
-  if (existsSync(devVars)) {
-    for (const line of readFileSync(devVars, "utf8").split("\n")) {
-      const m = /^\s*DATABASE_URL\s*=\s*"?([^"\n]+)"?\s*(?:#.*)?$/.exec(line);
-      if (m?.[1]) return m[1];
-    }
-  }
-  throw new Error("DATABASE_URL is not set, and api/.dev.vars does not define it");
-}
 
 const sql = readFileSync(resolve(HERE, "assert-no-trigger-drift.sql"), "utf8");
 

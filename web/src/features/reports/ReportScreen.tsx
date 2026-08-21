@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Screen } from "../../design/primitives/Screen.js";
 import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 
 export interface ReportScreenProps {
   title: string;
@@ -41,6 +42,7 @@ export function ReportScreen({ title, subtitle, onBack, chart, table }: ReportSc
                   onClick={() => setShowTable(label === "Table")}
                   className={cn(
                     "min-h-tap flex-1 rounded-sm px-3 text-body-sm",
+                    rowButtonFocus,
                     (label === "Table") === showTable
                       ? "bg-brand-wash font-medium text-brand-ink"
                       : "text-ink-secondary",

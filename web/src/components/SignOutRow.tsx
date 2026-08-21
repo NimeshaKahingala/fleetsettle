@@ -4,6 +4,8 @@ import { Card } from "../design/primitives/Card.js";
 import { DialogConfirmFooter } from "../design/primitives/Dialog.js";
 import { Sheet } from "../design/primitives/Sheet.js";
 import { useAuthActions } from "../lib/AuthActionsContext.js";
+import { cn } from "../lib/cn.js";
+import { rowButtonFocus } from "../lib/rowButtonFocus.js";
 
 /**
  * The one sign-out affordance, shared by every shell that needs its own copy
@@ -20,7 +22,11 @@ export function SignOutRow() {
 
   return (
     <>
-      <button type="button" onClick={() => setConfirmOpen(true)} className="w-full text-left">
+      <button
+        type="button"
+        onClick={() => setConfirmOpen(true)}
+        className={cn("w-full rounded-sm text-left", rowButtonFocus)}
+      >
         <Card className="flex items-center gap-3">
           <LogOut className="size-5 text-ink-secondary" aria-hidden />
           <span className="text-body text-ink-primary">Sign out</span>
