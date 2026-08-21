@@ -29,116 +29,21 @@ neonConfig.webSocketConstructor = ws;
  * new code) — the twelve near-identical `SELECT … JOIN … WHERE
  * parent.business_id <> child.business_id` blocks were the same check typed
  * out twelve times, not twelve different checks.
+ *
+ * A flat `TENANCY_CHECKS` data table + `.map()` was tried on PR #93 to also
+ * collapse the twelve `[label, tenancyCheck(...)]` array entries below, but
+ * that made SonarCloud's duplication finding worse (13% → 57%, confirmed via
+ * its own API): removing the non-tenancy checks interspersed between them
+ * turned two ~30-line matches into one ~88-line self-overlapping block, since
+ * every row became byte-identical to its neighbour after literal
+ * normalization. Left inline — the twelve entries below still duplicate each
+ * other by that same normalization, but no worse than before this PR.
  */
 function tenancyCheck(childTable, childAlias, fkColumn, parentTable, parentAlias) {
   return `SELECT ${childAlias}.id FROM ${childTable} ${childAlias}
      JOIN ${parentTable} ${parentAlias} ON ${parentAlias}.id = ${childAlias}.${fkColumn}
      WHERE ${parentAlias}.business_id <> ${childAlias}.business_id`;
 }
-
-// label, child table, child alias, fk column, parent table, parent alias —
-// one row per tenancyCheck() call. Kept as a flat data table rather than
-// twelve repeated `[label, tenancyCheck(...)]` array entries: that shape
-// was itself flagged as duplicated code on PR #93, since the twelve entries
-// were identical in structure even after the SQL bodies were deduped above.
-const TENANCY_CHECKS = [
-  [
-    "obligation's party business_id disagrees with the obligation's own business_id (customer)",
-    "obligation",
-    "o",
-    "party_customer_id",
-    "customer",
-    "c",
-  ],
-  [
-    "obligation's party business_id disagrees with the obligation's own business_id (driver)",
-    "obligation",
-    "o",
-    "party_driver_id",
-    "driver",
-    "d",
-  ],
-  [
-    "obligation's vehicle business_id disagrees with the obligation's own business_id",
-    "obligation",
-    "o",
-    "vehicle_id",
-    "vehicle",
-    "v",
-  ],
-  [
-    "payment's party business_id disagrees with the payment's own business_id (customer)",
-    "payment",
-    "p",
-    "party_customer_id",
-    "customer",
-    "c",
-  ],
-  [
-    "payment's party business_id disagrees with the payment's own business_id (driver)",
-    "payment",
-    "p",
-    "party_driver_id",
-    "driver",
-    "d",
-  ],
-  [
-    "expense's vehicle business_id disagrees with the expense's own business_id",
-    "expense",
-    "e",
-    "vehicle_id",
-    "vehicle",
-    "v",
-  ],
-  [
-    "trip's vehicle business_id disagrees with the trip's own business_id",
-    "trip",
-    "t",
-    "vehicle_id",
-    "vehicle",
-    "v",
-  ],
-  [
-    "day_record's vehicle business_id disagrees with the day_record's own business_id",
-    "day_record",
-    "dr",
-    "vehicle_id",
-    "vehicle",
-    "v",
-  ],
-  [
-    "deposit_movement's deposit business_id disagrees with the movement's own business_id",
-    "deposit_movement",
-    "dm",
-    "deposit_id",
-    "deposit",
-    "d",
-  ],
-  [
-    "lease's vehicle business_id disagrees with the lease's own business_id",
-    "lease",
-    "l",
-    "vehicle_id",
-    "vehicle",
-    "v",
-  ],
-  [
-    "money posted into an accounting_period belonging to a different business",
-    "obligation",
-    "o",
-    "posted_period_id",
-    "accounting_period",
-    "ap",
-  ],
-  [
-    "advance_settlement referencing an advance from a different business",
-    "advance_settlement",
-    "s",
-    "advance_id",
-    "advance",
-    "a",
-  ],
-];
 
 // label, sql returning the offending rows' ids (or any identifying column),
 // one row per violation, empty result = clean.
@@ -228,10 +133,54 @@ const CHECKS = [
      LEFT JOIN payment p ON p.id = wor.payment_id
      WHERE wor.voided_at IS NULL AND (p.id IS NULL OR p.status = 'voided')`,
   ],
-  ...TENANCY_CHECKS.map(([label, childTable, childAlias, fkColumn, parentTable, parentAlias]) => [
-    label,
-    tenancyCheck(childTable, childAlias, fkColumn, parentTable, parentAlias),
-  ]),
+  [
+    "obligation's party business_id disagrees with the obligation's own business_id (customer)",
+    tenancyCheck("obligation", "o", "party_customer_id", "customer", "c"),
+  ],
+  [
+    "obligation's party business_id disagrees with the obligation's own business_id (driver)",
+    tenancyCheck("obligation", "o", "party_driver_id", "driver", "d"),
+  ],
+  [
+    "obligation's vehicle business_id disagrees with the obligation's own business_id",
+    tenancyCheck("obligation", "o", "vehicle_id", "vehicle", "v"),
+  ],
+  [
+    "payment's party business_id disagrees with the payment's own business_id (customer)",
+    tenancyCheck("payment", "p", "party_customer_id", "customer", "c"),
+  ],
+  [
+    "payment's party business_id disagrees with the payment's own business_id (driver)",
+    tenancyCheck("payment", "p", "party_driver_id", "driver", "d"),
+  ],
+  [
+    "expense's vehicle business_id disagrees with the expense's own business_id",
+    tenancyCheck("expense", "e", "vehicle_id", "vehicle", "v"),
+  ],
+  [
+    "trip's vehicle business_id disagrees with the trip's own business_id",
+    tenancyCheck("trip", "t", "vehicle_id", "vehicle", "v"),
+  ],
+  [
+    "day_record's vehicle business_id disagrees with the day_record's own business_id",
+    tenancyCheck("day_record", "dr", "vehicle_id", "vehicle", "v"),
+  ],
+  [
+    "deposit_movement's deposit business_id disagrees with the movement's own business_id",
+    tenancyCheck("deposit_movement", "dm", "deposit_id", "deposit", "d"),
+  ],
+  [
+    "lease's vehicle business_id disagrees with the lease's own business_id",
+    tenancyCheck("lease", "l", "vehicle_id", "vehicle", "v"),
+  ],
+  [
+    "money posted into an accounting_period belonging to a different business",
+    tenancyCheck("obligation", "o", "posted_period_id", "accounting_period", "ap"),
+  ],
+  [
+    "advance_settlement referencing an advance from a different business",
+    tenancyCheck("advance_settlement", "s", "advance_id", "advance", "a"),
+  ],
 ];
 
 const pool = new Pool({ connectionString: databaseUrl() });
