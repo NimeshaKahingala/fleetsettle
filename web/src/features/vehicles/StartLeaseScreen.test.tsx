@@ -355,7 +355,9 @@ test("GAP-84 — a vehicle set up for a different arrangement refuses before the
   );
 
   expect(
-    await screen.findByText("This vehicle is set up for arrangement C, not a monthly rental."),
+    await screen.findByText(
+      "This vehicle is currently set up for trips / charter, not a monthly rental.",
+    ),
   ).toBeInTheDocument();
   expect(screen.queryByText("Step 1 of 7 · Customer")).not.toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();

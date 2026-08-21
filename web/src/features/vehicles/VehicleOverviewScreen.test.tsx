@@ -1128,8 +1128,9 @@ test("GAP-97: Book trip, via the Vehicle actions menu, calls onBookTrip", async 
   expect(onBookTrip).toHaveBeenCalledOnce();
 });
 
-test("GAP-97: Book trip is absent for arrangement A, whose own start flow lives on the calendar", async () => {
+test("GAP-158: Book trip is present for arrangement A too — occupancy on the requested dates decides, not the vehicle's standing arrangement", async () => {
   const user = userEvent.setup();
+  const onBookTrip = vi.fn();
   const get = baseGet({ "/api/vehicle/v1": { ...baseVehicle, arrangement: "A" } });
   renderWithProviders(
     <VehicleOverviewScreen
@@ -1139,11 +1140,13 @@ test("GAP-97: Book trip is absent for arrangement A, whose own start flow lives 
       onSelectLease={() => {}}
       onSelectIncident={() => {}}
       onStartDailyLease={() => undefined}
-      onBookTrip={() => undefined}
+      onBookTrip={onBookTrip}
     />,
     { get },
   );
 
   await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
-  expect(screen.queryByRole("button", { name: "Book trip" })).not.toBeInTheDocument();
+  await user.click(await screen.findByRole("button", { name: "Book trip" }));
+
+  expect(onBookTrip).toHaveBeenCalledOnce();
 });

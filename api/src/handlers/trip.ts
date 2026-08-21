@@ -25,7 +25,7 @@ import {
   type TripRow,
 } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
-import { NotFoundError, VehicleArrangementMismatchError } from "../errors/app-error.js";
+import { NotFoundError } from "../errors/app-error.js";
 import type {
   bookTripRoute,
   cancelTripRoute,
@@ -130,18 +130,13 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
 
   const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
   if (!vehicle) throw new NotFoundError("No such vehicle in this business");
-  // GAP-87: the identical unvalidated shape GAP-84 closed on the lease and
-  // daily-lease start screens, found while fixing them and deliberately
-  // left for its own pass — mirrors the client's own `canBookTrip` gate
-  // (`arrangement === "B" || arrangement === "C"`), so a car out on a full
-  // monthly lease (A) cannot also take a charter, and neither can a vehicle
-  // with no standing arrangement yet (unlike the daily-lease case, `null`
-  // is not accepted here).
-  if (vehicle.arrangement !== "B" && vehicle.arrangement !== "C") {
-    throw new VehicleArrangementMismatchError(
-      `This vehicle is configured for arrangement ${vehicle.arrangement ?? "none"}, not a charter`,
-    );
-  }
+  // GAP-158, reversing GAP-87: F-5.1 carries no `Pre` on arrangement at
+  // all, unlike F-2.1/F-1.7 — a trip is arbitrated by occupancy on the
+  // requested dates (INV-1), never by the vehicle's own current
+  // classification. A car genuinely out on a monthly lease for these dates
+  // already has allocation rows there and is refused below by the real
+  // check — `one_arrangement_per_vehicle_day` via `buildDoubleBookedError`
+  // — with a better error than a bare arrangement mismatch ever gave.
   if (body.customerId !== undefined) {
     const customer = await findCustomerForBusiness(reader, businessId, body.customerId);
     if (!customer) throw new NotFoundError("No such customer in this business");

@@ -22,6 +22,7 @@ import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
+import { ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -227,7 +228,7 @@ export function StartLeaseScreen({
         <p className="text-body text-ink-secondary">
           {vehicleQuery.data.arrangement === undefined
             ? "This vehicle has no current arrangement, so a rental can't be started on it yet."
-            : `This vehicle is set up for arrangement ${vehicleQuery.data.arrangement}, not a monthly rental.`}
+            : `This vehicle is currently set up for ${(ARRANGEMENT_LABEL[vehicleQuery.data.arrangement] ?? vehicleQuery.data.arrangement).toLowerCase()}, not a monthly rental.`}
         </p>
       </Screen>
     );

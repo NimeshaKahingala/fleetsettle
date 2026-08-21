@@ -638,12 +638,12 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
-    // The conflict this reproduces is real precisely because arrangement is
-    // set to C for the booking attempt (matching bookTrip's own gate) while
-    // the vehicle_day_allocation row below carries arrangement A — the
-    // lease's own materialised horizon (P13/day-card-generation.ts), not
-    // something startLease itself would ever write synchronously.
-    await ctx.setVehicleArrangement(vehicleId, "C");
+    // GAP-158 reversed GAP-87's arrangement gate on bookTrip, so this no
+    // longer needs the artificial "C" it once did just to pass that check —
+    // "A" is the true-to-life shape: a vehicle actually out on a monthly
+    // lease, with the lease's own materialised horizon
+    // (P13/day-card-generation.ts) the thing a trip collides with.
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
       startDate: "2026-06-01",
@@ -687,6 +687,30 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
       // no occupied date in it.
       nextFreeFrom: "2026-06-06",
     });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-158 — a vehicle on arrangement A but free for the requested dates books a trip like any other", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    // Idle between rentals — arrangement A, nothing occupying these dates.
+    // F-5.1 has no `Pre` on arrangement (unlike F-2.1/F-1.7); only INV-1's
+    // real occupancy check applies, and there is none here.
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-01",
+      endDate: "2026-07-02",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string } = await res.json();
+    expect(body.status).toBe("booked");
+    ctx.trackCreatedTrip(body.id);
 
     await ctx.cleanup();
   });
