@@ -91,9 +91,13 @@ const CHECKS = [
      GROUP BY d.id HAVING COALESCE(sum(dm.amount_minor), 0) < 0`,
   ],
   [
-    "confirmed day_record with earned/received never both recorded (CLAUDE.md: never collapsed)",
+    // earned/received never collapsing (CLAUDE.md) is a schema-shape guarantee —
+    // received_minor isn't even a day_record column, it's obligation.settled_minor
+    // (DM §7) — so this is defense-in-depth on the NOT NULL constraint, not a
+    // row-level test of the collapse invariant itself
+    "confirmed day_record with a null earned_minor (defense-in-depth on the NOT NULL constraint)",
     `SELECT id FROM day_record
-     WHERE voided_at IS NULL AND state = 'confirmed' AND earned_minor IS NULL`,
+     WHERE voided_at IS NULL AND state <> 'open' AND earned_minor IS NULL`,
   ],
   [
     "obligation's party business_id disagrees with the obligation's own business_id (customer)",
@@ -162,11 +166,11 @@ const CHECKS = [
      GROUP BY business_id HAVING count(*) > 1`,
   ],
   [
-    "a closed accounting_period with a live money row still posted_period_id-ing into it as its OPEN period",
     // sanity check on period sequencing itself: no business_id should have
-    // two periods both claiming to cover the same date
+    // two accounting_periods both claiming to cover the same date
+    "two accounting_periods for the same business have overlapping date ranges",
     `SELECT ap1.business_id FROM accounting_period ap1
-     JOIN accounting_period ap2 ON ap2.business_id = ap1.business_id AND ap2.id <> ap1.id
+     JOIN accounting_period ap2 ON ap2.business_id = ap1.business_id AND ap2.id > ap1.id
      WHERE ap1.period_start <= ap2.period_end AND ap2.period_start <= ap1.period_end`,
   ],
   [
