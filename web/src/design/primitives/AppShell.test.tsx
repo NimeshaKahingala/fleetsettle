@@ -130,7 +130,7 @@ test("GAP-149/M-33: business name is a tappable business hub affordance", async 
       <p>Home content</p>
     </AppShell>,
   );
-  const trigger = screen.getByRole("button", { name: "TESTA" });
+  const trigger = screen.getByRole("button", { name: "BusinessTESTA" });
   await user.click(trigger);
   expect(onSwitchBusiness).toHaveBeenCalledOnce();
 });
