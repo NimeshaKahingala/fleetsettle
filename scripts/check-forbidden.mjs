@@ -494,6 +494,92 @@ function checkVoidTableFilter(paths) {
 }
 
 /**
+ * GAP-158/GAP-159 (21 Aug 2026): CLAUDE.md's "reserved vocabulary" rule has
+ * now shipped as a live bug twice for the identical reason — a raw
+ * internal enum value (`arrangement A`, `revenue_licence`, `mileage_excess`)
+ * rendered straight into user-facing text instead of through the `_LABEL`
+ * map that already exists for it (`arrangementLabel.ts`'s own comment cites
+ * `EXPENSE_CATEGORY_LABEL`/GAP-81 as the first occurrence). Six call sites
+ * across four screens were found and fixed the same sitting the raw
+ * `arrangement A` message was; this rule exists so a seventh has to be
+ * deliberate, not missed.
+ *
+ * **Three fields only, deliberately** — `docType`, `arrangement`,
+ * `partyType` are the fields this audit actually found leaking, and none of
+ * the three collides with an unrelated meaning elsewhere in this codebase.
+ * `kind` and `status` are NOT here even though `obligation.kind` was one of
+ * the six: both names are reused constantly for `useQueryState`'s own
+ * `{ kind: "idle" | "pending" | "ready" | "error" }` discriminator
+ * (`xxxState.kind === "error"` appears dozens of times), so a rule keyed on
+ * the bare field name would flag that discriminator on sight — the kind of
+ * false positive that gets a check disabled rather than obeyed. Widen this
+ * list the same way `VOID_FILTERED_TABLES` above is widened: one real,
+ * confirmed leak at a time, never by relaxing the shape of the check.
+ */
+const ENUM_LABEL_FIELDS = [
+  {
+    field: "docType",
+    // Either is acceptable: `VEHICLE_DOC_TYPE_LABEL` (the vehicle's own 5
+    // document types) or `PAPERWORK_DOC_TYPE_LABEL` (those plus a driver's
+    // own licence, home.ts's `paperworkDocTypeSchema`) — which one a given
+    // file needs depends on whether it reads a vehicle document directly or
+    // a home-screen paperwork warning, and this rule only cares that one of
+    // them is actually in use.
+    labels: ["VEHICLE_DOC_TYPE_LABEL", "PAPERWORK_DOC_TYPE_LABEL"],
+  },
+  { field: "arrangement", labels: ["ARRANGEMENT_LABEL"] },
+  { field: "partyType", labels: ["PARTY_TYPE_LABEL"] },
+];
+
+function checkEnumLabelUsage(paths) {
+  const findings = [];
+  for (const path of paths) {
+    if (!/^web\/src\/.*\.tsx$/.test(path) || /\.test\.tsx$/.test(path)) continue;
+    const abs = resolve(ROOT, path);
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = readText(abs);
+    } catch {
+      continue; // binary, unreadable — not our business
+    }
+    const lines = text.split("\n");
+    for (const { field, labels } of ENUM_LABEL_FIELDS) {
+      // A bare `{expr.field}` or `${expr.field}` — nothing else inside the
+      // braces. A comparison (`.field === "x"`), an index into the label map
+      // itself (`LABEL[expr.field]`), or a `key={expr.field}` prop (never
+      // user-visible) all fall outside this shape by construction; `key=`
+      // is excluded explicitly below since its own braces match otherwise.
+      const raw = new RegExp(`\\{\\s*[\\w.]+\\.${field}\\s*\\}`);
+      const hasLabel = labels.some((name) => text.includes(`${name}[`));
+      if (hasLabel) continue;
+      for (const [i, line] of lines.entries()) {
+        if (OPT_OUT.test(line)) continue;
+        const subject = code(line, path);
+        const m = raw.exec(subject);
+        raw.lastIndex = 0;
+        if (!m) continue;
+        if (/\bkey=/.test(subject.slice(0, m.index))) continue;
+        findings.push({
+          file: path,
+          line: i + 1,
+          column: m.index + 1,
+          id: "copy/raw-enum-in-jsx",
+          match: m[0].trim(),
+          message:
+            `\`.${field}\` is rendered raw here, and this file never uses ${labels.join(" or ")} — ` +
+            "an internal code (CLAUDE.md's reserved-vocabulary rule) reaching the interface " +
+            "unmapped, the same shape GAP-158 found live. Map it through the label, or add " +
+            "`// allow: <reason>` on this line if it is genuinely correct.",
+        });
+        break; // one finding per field per file is enough to point at the fix
+      }
+    }
+  }
+  return findings;
+}
+
+/**
  * IG §7.6/§16.1: `api/src/queries/platform/` may never import money-table
  * schema — the structural half of "a platform admin can never read
  * business money" (INV-38), enforced here rather than trusted to review.
@@ -690,6 +776,7 @@ const findings = [
   ...scanTargets.flatMap(scan),
   ...checkQueryErrorHandling(scanTargets),
   ...checkVoidTableFilter(scanTargets),
+  ...checkEnumLabelUsage(scanTargets),
   ...checkPlatformQueryImports(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];

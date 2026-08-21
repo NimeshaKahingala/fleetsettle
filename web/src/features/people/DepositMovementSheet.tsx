@@ -18,6 +18,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { fieldErrorId } from "../../lib/fieldErrorId.js";
+import { OBLIGATION_KIND_LABEL } from "../../lib/obligationStatusLabel.js";
 
 export interface DepositMovementSheetProps {
   open: boolean;
@@ -150,7 +151,8 @@ export function DepositMovementSheet({
                   parse(obligation.waivedMinor)) as Minor;
                 return (
                   <option key={obligation.id} value={obligation.id}>
-                    {obligation.kind} due {obligation.dueOn} - Rs {format(outstanding)}
+                    {OBLIGATION_KIND_LABEL[obligation.kind] ?? obligation.kind} due{" "}
+                    {obligation.dueOn} - Rs {format(outstanding)}
                   </option>
                 );
               })}

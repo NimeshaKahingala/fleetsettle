@@ -34,6 +34,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { CreateDriverForm } from "../people/CreateDriverForm.js";
@@ -407,9 +408,7 @@ export function BookTripScreen({
                 severity={vehicleWarning.isExpired ? "critical" : "warning"}
                 icon={TriangleAlert}
               >
-                {vehicleWarning.docType === "revenue_licence"
-                  ? "Revenue licence"
-                  : vehicleWarning.docType}{" "}
+                {PAPERWORK_DOC_TYPE_LABEL[vehicleWarning.docType]}{" "}
                 {vehicleWarning.isExpired ? "expired" : "expires"} {vehicleWarning.expiryDate}
               </AlertStrip>
             ) : null}
