@@ -36,6 +36,22 @@ function databaseUrl() {
   throw new Error("DATABASE_URL is not set, and api/.dev.vars does not define it");
 }
 
+/**
+ * The recurring shape behind most of the tenancy checks below: a child row
+ * carries its own `business_id` alongside a foreign key into some parent
+ * table, and the two must never disagree (W-49's own boundary, checked here
+ * rather than trusted). Hand-writing that join once per table pair is what
+ * SonarCloud's quality gate flagged as duplicated code on PR #88 (75.5% on
+ * new code) — the twelve near-identical `SELECT … JOIN … WHERE
+ * parent.business_id <> child.business_id` blocks were the same check typed
+ * out twelve times, not twelve different checks.
+ */
+function tenancyCheck(childTable, childAlias, fkColumn, parentTable, parentAlias) {
+  return `SELECT ${childAlias}.id FROM ${childTable} ${childAlias}
+     JOIN ${parentTable} ${parentAlias} ON ${parentAlias}.id = ${childAlias}.${fkColumn}
+     WHERE ${parentAlias}.business_id <> ${childAlias}.business_id`;
+}
+
 // label, sql returning the offending rows' ids (or any identifying column),
 // one row per violation, empty result = clean.
 const CHECKS = [
@@ -101,28 +117,23 @@ const CHECKS = [
   ],
   [
     "obligation's party business_id disagrees with the obligation's own business_id (customer)",
-    `SELECT o.id FROM obligation o JOIN customer c ON c.id = o.party_customer_id
-     WHERE c.business_id <> o.business_id`,
+    tenancyCheck("obligation", "o", "party_customer_id", "customer", "c"),
   ],
   [
     "obligation's party business_id disagrees with the obligation's own business_id (driver)",
-    `SELECT o.id FROM obligation o JOIN driver d ON d.id = o.party_driver_id
-     WHERE d.business_id <> o.business_id`,
+    tenancyCheck("obligation", "o", "party_driver_id", "driver", "d"),
   ],
   [
     "obligation's vehicle business_id disagrees with the obligation's own business_id",
-    `SELECT o.id FROM obligation o JOIN vehicle v ON v.id = o.vehicle_id
-     WHERE v.business_id <> o.business_id`,
+    tenancyCheck("obligation", "o", "vehicle_id", "vehicle", "v"),
   ],
   [
     "payment's party business_id disagrees with the payment's own business_id (customer)",
-    `SELECT p.id FROM payment p JOIN customer c ON c.id = p.party_customer_id
-     WHERE c.business_id <> p.business_id`,
+    tenancyCheck("payment", "p", "party_customer_id", "customer", "c"),
   ],
   [
     "payment's party business_id disagrees with the payment's own business_id (driver)",
-    `SELECT p.id FROM payment p JOIN driver d ON d.id = p.party_driver_id
-     WHERE d.business_id <> p.business_id`,
+    tenancyCheck("payment", "p", "party_driver_id", "driver", "d"),
   ],
   [
     "payment_allocation joins a payment and an obligation from different businesses",
@@ -132,33 +143,27 @@ const CHECKS = [
   ],
   [
     "expense's vehicle business_id disagrees with the expense's own business_id",
-    `SELECT e.id FROM expense e JOIN vehicle v ON v.id = e.vehicle_id
-     WHERE v.business_id <> e.business_id`,
+    tenancyCheck("expense", "e", "vehicle_id", "vehicle", "v"),
   ],
   [
     "trip's vehicle business_id disagrees with the trip's own business_id",
-    `SELECT t.id FROM trip t JOIN vehicle v ON v.id = t.vehicle_id
-     WHERE v.business_id <> t.business_id`,
+    tenancyCheck("trip", "t", "vehicle_id", "vehicle", "v"),
   ],
   [
     "day_record's vehicle business_id disagrees with the day_record's own business_id",
-    `SELECT dr.id FROM day_record dr JOIN vehicle v ON v.id = dr.vehicle_id
-     WHERE v.business_id <> dr.business_id`,
+    tenancyCheck("day_record", "dr", "vehicle_id", "vehicle", "v"),
   ],
   [
     "deposit_movement's deposit business_id disagrees with the movement's own business_id",
-    `SELECT dm.id FROM deposit_movement dm JOIN deposit d ON d.id = dm.deposit_id
-     WHERE d.business_id <> dm.business_id`,
+    tenancyCheck("deposit_movement", "dm", "deposit_id", "deposit", "d"),
   ],
   [
     "lease's vehicle business_id disagrees with the lease's own business_id",
-    `SELECT l.id FROM lease l JOIN vehicle v ON v.id = l.vehicle_id
-     WHERE v.business_id <> l.business_id`,
+    tenancyCheck("lease", "l", "vehicle_id", "vehicle", "v"),
   ],
   [
     "money posted into an accounting_period belonging to a different business",
-    `SELECT o.id FROM obligation o JOIN accounting_period ap ON ap.id = o.posted_period_id
-     WHERE ap.business_id <> o.business_id`,
+    tenancyCheck("obligation", "o", "posted_period_id", "accounting_period", "ap"),
   ],
   [
     "more than one accounting_period open at once for the same business",
@@ -181,8 +186,7 @@ const CHECKS = [
   ],
   [
     "advance_settlement referencing an advance from a different business",
-    `SELECT s.id FROM advance_settlement s JOIN advance a ON a.id = s.advance_id
-     WHERE a.business_id <> s.business_id`,
+    tenancyCheck("advance_settlement", "s", "advance_id", "advance", "a"),
   ],
 ];
 
