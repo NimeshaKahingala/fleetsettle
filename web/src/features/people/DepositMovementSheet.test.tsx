@@ -42,16 +42,26 @@ test("shows the arrears option in Rs, not raw minor units", async () => {
   expect(screen.queryByText(/6000000/)).not.toBeInTheDocument();
 });
 
-test("a mileage-excess or post-closure-charge arrears option shows its plain-English label, never the raw snake_case kind", async () => {
+test("every arrears kind this screen can actually show renders its plain-English label, never the raw snake_case kind", async () => {
   const user = userEvent.setup();
-  const mileageExcess: LeaseObligationRow = {
+  // GAP-159 review: `obligations` here is a driver's own `owedToUsObligations`
+  // (findOutstandingObligationsForDriver) — `daily_amount` (confirmDay.ts,
+  // arrangement B's driver debt) is the *ordinary* case for this exact
+  // screen, not an edge one, and was the one kind the first pass of this
+  // fix missed entirely.
+  const dailyAmount: LeaseObligationRow = {
     ...obligation,
     id: "o2",
+    kind: "daily_amount",
+  };
+  const mileageExcess: LeaseObligationRow = {
+    ...obligation,
+    id: "o3",
     kind: "mileage_excess",
   };
   const postClosureCharge: LeaseObligationRow = {
     ...obligation,
-    id: "o3",
+    id: "o4",
     kind: "post_closure_charge",
   };
   renderWithProviders(
@@ -60,15 +70,17 @@ test("a mileage-excess or post-closure-charge arrears option shows its plain-Eng
       onOpenChange={vi.fn()}
       driverId="d1"
       depositId="dep1"
-      obligations={[mileageExcess, postClosureCharge]}
+      obligations={[dailyAmount, mileageExcess, postClosureCharge]}
       today={today}
     />,
   );
 
   await user.selectOptions(screen.getByLabelText("Movement"), "applied");
 
+  expect(screen.getByText("Daily lease amount due 2026-08-01 - Rs 60,000")).toBeInTheDocument();
   expect(screen.getByText("Mileage excess due 2026-08-01 - Rs 60,000")).toBeInTheDocument();
   expect(screen.getByText("Late charge due 2026-08-01 - Rs 60,000")).toBeInTheDocument();
+  expect(screen.queryByText(/daily_amount/)).not.toBeInTheDocument();
   expect(screen.queryByText(/mileage_excess/)).not.toBeInTheDocument();
   expect(screen.queryByText(/post_closure_charge/)).not.toBeInTheDocument();
 });

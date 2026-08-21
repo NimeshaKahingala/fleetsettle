@@ -519,17 +519,45 @@ function checkVoidTableFilter(paths) {
 const ENUM_LABEL_FIELDS = [
   {
     field: "docType",
-    // Either is acceptable: `VEHICLE_DOC_TYPE_LABEL` (the vehicle's own 5
-    // document types) or `PAPERWORK_DOC_TYPE_LABEL` (those plus a driver's
-    // own licence, home.ts's `paperworkDocTypeSchema`) — which one a given
-    // file needs depends on whether it reads a vehicle document directly or
-    // a home-screen paperwork warning, and this rule only cares that one of
-    // them is actually in use.
+    // `labels` names what the finding's own message suggests — not a gate
+    // this rule checks the file for. Either map is a correct fix:
+    // `VEHICLE_DOC_TYPE_LABEL` (the vehicle's own 5 document types) or
+    // `PAPERWORK_DOC_TYPE_LABEL` (those plus a driver's own licence,
+    // home.ts's `paperworkDocTypeSchema`) — which one a given file needs
+    // depends on whether it reads a vehicle document directly or a
+    // home-screen paperwork warning.
     labels: ["VEHICLE_DOC_TYPE_LABEL", "PAPERWORK_DOC_TYPE_LABEL"],
   },
   { field: "arrangement", labels: ["ARRANGEMENT_LABEL"] },
   { field: "partyType", labels: ["PARTY_TYPE_LABEL"] },
 ];
+
+/**
+ * Is `prefix` (everything on the line before a match) still inside a
+ * `key={…}`/`rowKey={…}`-style prop's own braces? A composite React key is
+ * routinely built as a template literal (`` key={`${a}-${b}-${c.docType}`} ``,
+ * `rowKey={(row) => `${row.partyType}-${row.partyId}`}`) — never
+ * user-visible text, but the field access it wraps is nested two or three
+ * braces deep, past what a simple "does `key=` sit immediately before this
+ * match" check reaches. Finds the last `key=`/`rowKey=` in the prefix and
+ * counts unmatched `{` from there — if the braces it opened are still open
+ * at the match, the match is inside it. Deliberately unbounded rather than
+ * scoped to `key=` alone (Copilot's own review of an earlier version): a
+ * prop for a different, already-closed attribute earlier in the line must
+ * not mask a real leak later in the same line, and bracket-depth tracking
+ * gets that right where a bare text-contains check cannot.
+ */
+function isInsideKeyProp(prefix) {
+  const opener = /\b(?:key|rowKey)\s*=\s*\{/g;
+  let last = -1;
+  let m;
+  while ((m = opener.exec(prefix)) !== null) last = m.index + m[0].length;
+  if (last === -1) return false;
+  const between = prefix.slice(last);
+  const opens = (between.match(/\{/g) ?? []).length;
+  const closes = (between.match(/\}/g) ?? []).length;
+  return opens >= closes; // the opener's own `{` already counted in `opens` — still open at >=
+}
 
 function checkEnumLabelUsage(paths) {
   const findings = [];
@@ -546,33 +574,50 @@ function checkEnumLabelUsage(paths) {
     const lines = text.split("\n");
     for (const { field, labels } of ENUM_LABEL_FIELDS) {
       // A bare `{expr.field}` or `${expr.field}` — nothing else inside the
-      // braces. A comparison (`.field === "x"`), an index into the label map
-      // itself (`LABEL[expr.field]`), or a `key={expr.field}` prop (never
-      // user-visible) all fall outside this shape by construction; `key=`
-      // is excluded explicitly below since its own braces match otherwise.
-      const raw = new RegExp(`\\{\\s*[\\w.]+\\.${field}\\s*\\}`);
-      const hasLabel = labels.some((name) => text.includes(`${name}[`));
-      if (hasLabel) continue;
+      // braces. This shape alone already excludes a comparison
+      // (`.field === "x"`) and a correctly-labeled render: `LABEL[expr.field]`
+      // opens on `LABEL[`, not on the accessor itself, so it can never match
+      // here — there is no "does this file use the label anywhere" check
+      // to get right or wrong, because the two shapes are syntactically
+      // disjoint. (An earlier file-wide version tried exactly that check and
+      // masked a real leak the moment any *other* line in the same file used
+      // the label correctly — found in review, not shipped.)
+      const raw = new RegExp(`\\{\\s*[\\w.]+\\.${field}\\s*\\}`, "g");
       for (const [i, line] of lines.entries()) {
         if (OPT_OUT.test(line)) continue;
         const subject = code(line, path);
-        const m = raw.exec(subject);
         raw.lastIndex = 0;
-        if (!m) continue;
-        if (/\bkey=/.test(subject.slice(0, m.index))) continue;
-        findings.push({
-          file: path,
-          line: i + 1,
-          column: m.index + 1,
-          id: "copy/raw-enum-in-jsx",
-          match: m[0].trim(),
-          message:
-            `\`.${field}\` is rendered raw here, and this file never uses ${labels.join(" or ")} — ` +
-            "an internal code (CLAUDE.md's reserved-vocabulary rule) reaching the interface " +
-            "unmapped, the same shape GAP-158 found live. Map it through the label, or add " +
-            "`// allow: <reason>` on this line if it is genuinely correct.",
-        });
-        break; // one finding per field per file is enough to point at the fix
+        let m;
+        while ((m = raw.exec(subject)) !== null) {
+          // A prop pass-through (`key={row.id}`, `type={row.partyType}`) is
+          // never user-visible text itself — the receiving component (or
+          // React's own reconciler, for `key`) is responsible for it, the
+          // same reasoning `PartyName` already relies on. Matched against
+          // only the text immediately before this match, not the whole
+          // line's prefix — `<div key={row.id}>{row.partyType}</div>` must
+          // still flag the second brace even though `key=` appears earlier
+          // in the same line, found in review before it shipped. A
+          // composite key built from a template literal nests the field
+          // access two or three braces inside `key=`/`rowKey=` rather than
+          // immediately after it — `isInsideKeyProp` tracks that separately
+          // since the plain immediately-preceding check can't see through
+          // the nesting (also found in review).
+          const prefix = subject.slice(0, m.index);
+          if (/[\w-]+\s*=\s*$/.test(prefix)) continue;
+          if (isInsideKeyProp(prefix)) continue;
+          findings.push({
+            file: path,
+            line: i + 1,
+            column: m.index + 1,
+            id: "copy/raw-enum-in-jsx",
+            match: m[0].trim(),
+            message:
+              `\`.${field}\` is rendered raw here — an internal code (CLAUDE.md's ` +
+              "reserved-vocabulary rule) reaching the interface unmapped, the same shape GAP-158 " +
+              `found live. Map it through ${labels.join(" or ")}, or add ` +
+              "`// allow: <reason>` on this line if it is genuinely correct.",
+          });
+        }
       }
     }
   }
