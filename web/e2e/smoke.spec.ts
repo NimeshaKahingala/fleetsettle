@@ -1,4 +1,12 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import {
+  ME_OPERATE,
+  SESSION_OPERATE,
+  mockJson,
+  mockOperateDashboardEndpoints,
+  mockVehicleOverviewSections,
+  expectNoHorizontalScrollAt360And320,
+} from "./support/mocks.js";
 
 /**
  * These run against a real production build with `VITE_AUTH_MODE=stub`
@@ -10,9 +18,7 @@ import { expect, test, type Page } from "@playwright/test";
  * The stub is not a security hole: it produces an unsigned, obviously-fake
  * token that no Worker will ever accept (see lib/auth-stub.ts), and it is
  * opt-in via an env var a real deployment doesn't set.
- */
-const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
-/**
+ *
  * `FirstRunGate` (Phase 2, 18 Aug 2026) resolves off `/api/session`, not
  * `/api/me` — `/api/me` still exists and is mocked alongside it below for
  * anything that reads it directly, but every gating decision in this suite
@@ -21,13 +27,6 @@ const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
  * timed out waiting on its first assertion — `ECONNREFUSED` against
  * `/api/session`, no backend running here).
  */
-const SESSION_OPERATE = {
-  userId: "u1",
-  isPlatformAdmin: false,
-  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
-  pendingRequest: null,
-  hadMembership: true,
-};
 const SESSION_NO_BUSINESS = {
   userId: "u1",
   isPlatformAdmin: false,
@@ -46,44 +45,6 @@ const SESSION_MANAGER = {
   pendingRequest: null,
   hadMembership: true,
 };
-
-async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
-  await page.route(urlPattern, async (route) => {
-    await route.fulfill({
-      status,
-      contentType: "application/json",
-      body: JSON.stringify(body),
-    });
-  });
-}
-
-async function mockOperateDashboardEndpoints(page: Page) {
-  await Promise.all([
-    mockJson(page, "**/api/home/paperwork-warnings", 200, []),
-    mockJson(page, "**/api/daily-lease", 200, []),
-    mockJson(page, "**/api/day-record", 200, []),
-    mockJson(page, "**/api/reports/receivables", 200, []),
-    mockJson(page, "**/api/home/deposit-releases", 200, []),
-    mockJson(page, "**/api/trip", 200, []),
-  ]);
-}
-
-async function mockVehicleOverviewSections(page: Page, vehicleId: string) {
-  await Promise.all([
-    mockJson(page, `**/api/vehicle/${vehicleId}/document`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/expense`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/lease`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/daily-lease`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/incident`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/**`, 200, []),
-  ]);
-}
-
-async function expectNoHorizontalScrollAt360And320(page: Page): Promise<void> {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-  await page.setViewportSize({ width: 320, height: 640 });
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
-}
 
 test("no business yet: the create-business form loads, fits 360×640, and still fits at 320px", async ({
   page,
@@ -114,7 +75,7 @@ test("a deep link straight to a vehicle's detail route renders it directly, with
   await page.goto("/vehicles/v1");
 
   await expect(page.getByRole("heading", { name: "CAB-1234" })).toBeVisible();
-  await expect(page.getByText("Bus")).toBeVisible();
+  await expect(page.getByText("Bus", { exact: true })).toBeVisible();
   await expectNoHorizontalScrollAt360And320(page);
 });
 
