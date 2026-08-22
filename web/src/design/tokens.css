@@ -71,6 +71,15 @@
      it reads at 10.53:1 — Badge's "brand" variant stacks the two. */
   --l-wash: #e2e6ec;
   --l-payable: #eb6834;
+
+  /* Tactile Ops Phase 6: --l-payable itself (#eb6834) as an icon glyph on
+     its own 15%-opacity wash only reaches 2.71:1 — below the 3:1 non-text
+     floor. §2.1's mockup already solved this for its .aicon-chip.out (a
+     darker, more saturated orange, #9a4620) rather than the raw fill;
+     adopted verbatim here rather than re-derived, since this token is
+     net-new for Phase 6, not an old-system figure being carried over.
+     6.42:1 vs white, 5.43:1 vs the 15%-opacity wash it actually sits on. */
+  --l-payable-ink: #9a4620;
   --l-hair: rgb(21 26 34 / 10%);
 
   /* Phase 2's recessed-fill token (§2.1's #eef1f6 family; final value
@@ -136,6 +145,13 @@
      4.5:1 Badge's "brand" variant needs. */
   --d-wash: #141c2c;
   --d-payable: #d95926;
+
+  /* Tactile Ops Phase 6: --d-payable itself already clears 4.03:1 against
+     its own 15%-opacity wash — dark mode's brighter orange doesn't need a
+     separately darkened ink the way light mode's does, so this repeats
+     --d-payable rather than introducing a second dark hex, the same
+     pattern --color-critical-ink already uses in dark mode. */
+  --d-payable-ink: #d95926;
   --d-hair: rgb(255 255 255 / 10%);
 
   /* Phase 2's recessed-fill token, dark. Not §2.1's mockup value (light-
@@ -177,6 +193,11 @@
   --color-brand-wash: var(--l-wash);
   --color-focus-ring: var(--l-brandink);
   --color-direction-payable: var(--l-payable);
+
+  /* Tactile Ops Phase 6: ActionSheet's "out" tone chip icon — a darker,
+     more saturated step than the fill, the same relationship
+     --color-critical-ink already has to --color-critical. */
+  --color-direction-payable-ink: var(--l-payable-ink);
 
   /* UI §11.2's validated categorical order (B4/§6) — slot 2 is
      --color-direction-payable itself, not a duplicate hex, so a chart
@@ -289,6 +310,7 @@
     --color-brand-wash: var(--d-wash);
     --color-focus-ring: var(--d-brandink);
     --color-direction-payable: var(--d-payable);
+    --color-direction-payable-ink: var(--d-payable-ink);
     --color-chart-1: var(--d-chart-1);
     --color-chart-2: var(--d-payable);
     --color-chart-3: var(--d-chart-3);
@@ -336,6 +358,7 @@
   --color-brand-wash: var(--d-wash);
   --color-focus-ring: var(--d-brandink);
   --color-direction-payable: var(--d-payable);
+  --color-direction-payable-ink: var(--d-payable-ink);
   --color-chart-1: var(--d-chart-1);
   --color-chart-2: var(--d-payable);
   --color-chart-3: var(--d-chart-3);

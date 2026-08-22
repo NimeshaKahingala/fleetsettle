@@ -1024,10 +1024,13 @@ on old radii isn't the frame worth re-approving).
 **A regression found while re-verifying, not papered over: `--d-brand`'s non-text
 contrast against the new dark surface is 1.64:1, worse than House Style's own 3.05:1.**
 `ui-ux-guidelines.md`'s money-direction table (§5.1) uses `--color-brand` as a literal
-3px `border-l` accent bar in six components (`Card.tsx`, `ActionSheet.tsx`,
-`ReviewMoneyScreen.tsx`, `ReviewVehicleDetailScreen.tsx`, `VehicleMonthReportScreen.tsx`,
-`VehicleYearReportScreen.tsx`), not just a button fill — a use case §5B.2's fill/ink
-split didn't cover. `#1E3A6E` was chosen for the fill role (11.14:1 white-on-fill); every
+3px `border-l` accent bar in six components as of this writing (`Card.tsx`,
+`ActionSheet.tsx`, `ReviewMoneyScreen.tsx`, `ReviewVehicleDetailScreen.tsx`,
+`VehicleMonthReportScreen.tsx`, `VehicleYearReportScreen.tsx`), not just a button fill —
+a use case §5B.2's fill/ink split didn't cover. (**Phase 6 (§5I) later drops this border
+from `ActionSheet.tsx` entirely** — its icon chip carries the direction signal instead —
+leaving five consumers, not six; this paragraph is left as it was found, at Phase 1
+time, rather than edited to match.) `#1E3A6E` was chosen for the fill role (11.14:1 white-on-fill); every
 navy light enough to also clear 3:1 against `#12151C` converges toward `--d-chart-1`'s own
 hue (ΔE ~11 at `#4269AC`, below the 15 floor), the same collision §4.2 wrongly generalised
 about the *ink* role and §5B.2 correctly disproved there — but which is genuinely real for
@@ -1266,6 +1269,69 @@ web suite is now 863 tests (10 new, all `EntityAvatar`'s own).
 
 ---
 
+## 5I. Phase 6 executed — 22 August 2026
+
+`ActionSheet.tsx`'s icon moves into a circular wash-tint chip (36px, matching
+`EntityAvatar`'s own `list` size rather than chasing the mockup's literal 38px for a 2px
+difference — the same class of divergence §2.2 already records elsewhere), colour keyed
+on `tone`. Both §5C.8 open questions are decided, not left for a later pass:
+
+1. **The left accent bar is dropped, not kept alongside the chip.** Money-direction
+   actions already name their own direction in the label — "Payment received" and
+   "Payment made" say it in the word, not just the colour — so a `border-l-[3px]`
+   repeating what the chip (and the word) already say would be a second copy of one
+   fact, not a second fact, and CLAUDE.md's own "never colour alone" rule is already
+   satisfied by the label text regardless of the border. Every consumer's `tone` prop is
+   unchanged; only its rendering moved from a border to a chip fill.
+2. **Destructive gets its own critical-wash chip, not the ink-only treatment.** Once
+   every other action in the sheet carries a coloured circular chip, a destructive
+   action with no chip fill at all would read as a bug, not a deliberate absence — this
+   phase makes every action's chip languages consistent rather than leaving one variant
+   behind. Unlike money-direction, "Archive" doesn't say destructive in the word itself,
+   so — unlike the accent bar — the label text *keeps* its `text-critical-ink` colour
+   alongside the new chip: reinforcement, not redundant duplication, because nothing
+   else here conveys "destructive."
+
+**One new token, found necessary by checking contrast rather than assumed:**
+`--color-direction-payable-ink`. `--color-direction-payable` itself as an icon glyph on
+its own 15%-opacity wash reaches only 2.71:1 in light mode — below the 3:1 non-text
+floor an icon needs. `--color-brand`/`--color-brand-ink` (reused directly for the `"in"`
+chip) and `--color-critical-ink` (reused directly for destructive) both already cleared
+their own washes without a new token — checked, not assumed, at 5.33:1/5.22:1 for
+critical. Only the payable pairing needed one: adopted the mockup's own literal
+`.aicon-chip.out` ink (`#9a4620`) rather than re-derived, since this token is net-new for
+Phase 6, not an old-system figure being carried over the way Phase 1's palette was. Dark
+mode needs no separate value — `--d-payable` itself already clears 4.03:1 against its own
+wash, so `--d-payable-ink` just repeats it, the same pattern `--color-critical-ink`
+already uses in dark mode. Added to both dark blocks identically; `tokens.test.ts`'s
+parity test still passes.
+
+`caption?: string` added to `ActionSheetAction`, rendered in `--color-ink-muted` (never
+the mockup's failing `#8a93a3` or its stacked-opacity `.acap`) only when present — every
+existing consumer without a caption renders exactly as before. Caption copy written for
+all 5 of `QuickAddSheet.tsx`'s fixed actions, per §3.2's table, and nowhere else.
+
+**A real accessibility question the caption surfaced, resolved rather than left implicit:**
+the caption sits inside the same `<button>` as the label, so it becomes part of the
+button's computed accessible name (`"FuelA fuel purchase for a vehicle"`, concatenated) —
+a screen reader now announces the caption too, which is the right outcome (parity with
+what a sighted user reads), not a bug. `QuickAddSheet.test.tsx`'s five action-button
+queries moved from exact-string `name` matching to an anchored `RegExp` (`/^Fuel/` etc.)
+to match on the label as a prefix rather than the old full-string equality, since the
+accessible name is no longer just the label alone. `exact: false` was tried first and,
+unexpectedly, did not make `getByRole`'s `name` substring-match against the computed
+accessible name the way it does for text queries — recorded here so a future session
+doesn't spend time re-discovering it; the `RegExp` form is what actually works and is
+now the pattern to reach for.
+
+Confirmed visually in a real browser, both themes: all four chip tones (`in`/`out`/
+neutral/destructive) read as distinct, legible tints, and captions are clearly
+subordinate to their labels without being illegible. `guard`/`lint:css`/`typecheck` pass;
+web suite is 863 tests (all passing, none new — this phase changed behaviour inside an
+existing component and its one real consumer, not added a new one).
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1484,7 +1550,7 @@ the first two whitespace-separated words; if there is only one word, its first t
 characters; if the name is a single character, that character alone. Never render an
 empty chip.
 
-### Phase 6 — `ActionSheet` icon chip + optional caption
+### Phase 6 — `ActionSheet` icon chip + optional caption — DONE, see §5I
 `web/src/design/primitives/ActionSheet.tsx`:
 - Wrap each action's icon in a circular **wash**-tint chip (not solid fill — keep
   distinct from `EntityAvatar`'s solid fill, matching the mockup's own
@@ -1656,8 +1722,16 @@ stale twice.
       specified including the single-character edge case; the WCAG check §6 deferred to
       Phase 8 done now instead (both text pairs clear 4.5:1 with wide margin). Not
       applied anywhere yet — that's Phase 7.
-- [ ] Phase 6 — `ActionSheet` icon chip + caption; **left accent bar and destructive chip
-      both decided and recorded (§5C.8)**
+- [x] **Phase 6 — `ActionSheet`, executed 22 August 2026 (§5I).** Icon chip (36px,
+      wash-tint by tone) replaces the bare icon; left accent bar dropped (the chip + the
+      label word already carry the direction, a border would be a third copy of one
+      fact); destructive gets its own critical-wash chip, kept alongside its existing
+      ink-only label treatment since nothing else says "destructive" the way money
+      actions already say their own direction. One new token,
+      `--color-direction-payable-ink`, found necessary by checking contrast rather than
+      assumed. `caption?` added and used at all 5 of `QuickAddSheet.tsx`'s fixed
+      actions; the caption joining the button's accessible name is correct, not a bug,
+      and the affected tests now match on the label as a `RegExp` prefix.
 - [ ] Phase 7 — Apply `EntityAvatar` at the 5 confirmed call sites
 - [ ] Phase 8 — Docs (M-35, §13 budget, brand-guidelines, icon regeneration) + full
       check + browser QA across all four surface families

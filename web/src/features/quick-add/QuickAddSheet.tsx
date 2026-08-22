@@ -70,11 +70,22 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
   // `open={false}` rather than unmounting).
   const inFlight = (s: { kind: string }): boolean => s.kind === "pending" || s.kind === "idle";
 
+  // Tactile Ops Phase 6 (§3.2): the one confirmed caption case — QuickAddSheet's
+  // fixed 5, and only these 5. The dynamic recent-contact tail below stays
+  // label-only.
   const actions: ActionSheetAction[] = [
-    { key: "fuel", label: "Fuel", icon: Fuel, tone: "out", onSelect: () => setFuelOpen(true) },
+    {
+      key: "fuel",
+      label: "Fuel",
+      caption: "A fuel purchase for a vehicle",
+      icon: Fuel,
+      tone: "out",
+      onSelect: () => setFuelOpen(true),
+    },
     {
       key: "expense",
       label: "Expense",
+      caption: "Any other cost — repairs, tolls, insurance",
       icon: Receipt,
       tone: "out",
       onSelect: () => setExpenseOpen(true),
@@ -82,6 +93,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
     {
       key: "payment-received",
       label: "Payment received",
+      caption: "Money coming in, from a driver or customer",
       icon: ArrowDownLeft,
       tone: "in",
       onSelect: () => setReceivedPartyPickerOpen(true),
@@ -89,6 +101,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
     {
       key: "payment-made",
       label: "Payment made",
+      caption: "Money going out, to a driver or elsewhere",
       icon: ArrowUpRight,
       tone: "out",
       onSelect: () => setPaidPartyPickerOpen(true),
@@ -96,6 +109,7 @@ export function QuickAddSheet({ open, onOpenChange, today, onBookTrip }: QuickAd
     {
       key: "trip",
       label: "New trip",
+      caption: "A charter, off the vehicle's usual lease",
       icon: Route,
       onSelect: () => setTripVehiclePickerOpen(true),
     },
