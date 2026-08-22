@@ -1342,3 +1342,18 @@ stale twice.
   (§5.1/§5.2/§5.3, and the `## 17`-style decision-log table)
 - `docs/design/brand-guidelines.md` — House Style's brand-hex regeneration note, needs
   a second pass once this redesign's navy is locked (Phase 8)
+- **`docs/design/ui-ux-guidelines.md` M-36/M-36a (added 21 Aug 2026) — related, separate
+  scope, not part of this plan.** Reviewing this plan's own mockup surfaced that the
+  real app renders `AppShell`'s business-name strip and `Screen`'s title as two stacked
+  bars (M-33), where the mockup showed one merged bar. M-36 makes that merge real, on
+  the 8 screens `Screen` renders with no `onBack` (checked against every route — see
+  the entry for the full list and the named exclusions); M-36a adds a needs-attention
+  bell to `HomeScreen`'s own `action` slot, badging §3.2's existing item list, no new
+  backend. **This is structural `AppShell`/`Screen`/`HomeScreen` composition, not a
+  Tactile Ops visual token** — §5A.1 above still holds ("AppShell inherits for free");
+  it inherits the *palette*, not this layout change, which is independent of which
+  palette is running underneath it. Sequencing is unordered between the two: M-36 can
+  land on the current tokens or the Tactile Ops ones interchangeably. The Home plate in
+  the finalized mockup (`https://claude.ai/code/artifact/0b3513c9-5c0e-4c8c-ac31-034a85aaaf0d`)
+  reflects M-36/M-36a already, which is why it shows one bar and a bell — that detail
+  belongs to this cross-referenced decision, not to anything in §6's nine phases.
