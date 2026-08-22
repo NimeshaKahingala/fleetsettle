@@ -51,12 +51,10 @@
 **Source:** UC-66, W-32
 **Preconditions:** Overhead cost with null vehicle_id.
 
-**Steps:**
-1. ACTION: Navigate to consolidated P&L
-   VERIFY: Vehicle-level profits shown per vehicle
-   VERIFY: No-vehicle costs in a SEPARATE block beneath
-   VERIFY: Costs are NOT spread across vehicles
-2. VERIFY: Business profit = sum of vehicle profits - overhead costs
+**Steps (corrected 22 Aug 2026 — no "consolidated P&L" screen was found in the current report catalogue, which lists exactly: How was this month, Lost days, Which trips made money, Is the bus drinking fuel, How hard is each vehicle working, How was the year, Who owes us, Who is overdue and by how long, Where is our cash, Goodwill given, Export transactions):**
+1. ACTION: **Cannot navigate to a consolidated P&L** — check each vehicle's own "How was this month" individually; whether overhead costs (null `vehicle_id`) surface anywhere business-wide needs live confirmation rather than assuming a screen this pass didn't find
+   VERIFY: Vehicle-level profits shown per vehicle, on their own separate screens
+2. VERIFY (if a business-wide total is found live): business profit = sum of vehicle profits - overhead costs; record where it actually lives if this case is re-run live
 
 **Assertions (post-test):**
 - [ ] W-32: Overheads shown separately, never allocated across vehicles (unless opt-in)
@@ -70,13 +68,12 @@
 **Source:** A-7, INV-23, UC-65
 **Preconditions:** Week of pooled handovers totalling 300,000.
 
-**Steps:**
-1. ACTION: Bank 300,000 from pooled collections
-2. ACTION: Actual count: 297,000 (shortfall of 3,000)
-3. ACTION: Enter counted amount: 297,000
-   VERIFY: Discrepancy of 3,000 displayed
-4. ACTION: Choose who bears it: "Cash-handling loss" or "Back to driver"
-5. ACTION: Save
+**Steps (corrected 22 Aug 2026 — exact chip labels, `CashScreen.tsx`):**
+1. ACTION: Open "Record banking", enter "Recorded amount" 300,000
+2. ACTION: Enter "Counted amount": 297,000 (shortfall of 3,000)
+   VERIFY: A "Shortfall bearer" chip choice appears — only when recorded ≠ counted
+3. ACTION: Choose "Unattributed" or "Absorbed" (not "Cash-handling loss"/"Back to driver" — those labels don't exist)
+4. ACTION: Click "Save banking"
 
 **Assertions (post-test):**
 - [ ] INV-23: Discrepancy attaches to the BANKING EVENT, not to a guessed receipt
@@ -91,13 +88,12 @@
 **Source:** W-53, UC-03
 **Preconditions:** Manager with a monthly management fee on a vehicle.
 
-**Steps:**
-1. ACTION: Navigate to vehicle monthly P&L
-   VERIFY: Management fee appears as a cost (reduces vehicle profit)
-2. ACTION: Navigate to manager's income view
-   VERIFY: Management fee appears as income to the manager
-3. ACTION: Check consolidated business profit (where manager is also a partner)
-   VERIFY: Fee nets to zero on consolidated view
+**Steps (corrected 22 Aug 2026):**
+1. ACTION: Navigate to vehicle → "How was this month"
+   VERIFY: Management fee appears as a cost (reduces "Profit")
+2. ACTION: Navigate to the manager's own "Partner money" screen
+   VERIFY: Management fee appears in the "Management fee" row
+3. ACTION: **No consolidated business-profit view was found in this pass** (see EC-06-003) — check whether nets-to-zero is verifiable any other way live, rather than assuming this screen exists
 
 **Assertions (post-test):**
 - [ ] W-53: Fee is a vehicle operating cost (to owner) AND income (to manager)
@@ -112,12 +108,12 @@
 **Source:** INV-4
 **Preconditions:** Customer deposit, driver deposit, and driver advance all recorded.
 
-**Steps:**
-1. ACTION: Check monthly P&L for each
-   VERIFY: None of the three appear as income
-2. ACTION: Check yearly P&L
+**Steps (corrected 22 Aug 2026 — exact report names):**
+1. ACTION: Check "How was this month" for each
+   VERIFY: None of the three appear as income (in "Earned")
+2. ACTION: Check "How was the year"
    VERIFY: None appear as income
-3. ACTION: Check cash position
+3. ACTION: Check "Where is our cash"
    VERIFY: All three appear correctly as held/outstanding money
 
 **Assertions (post-test):**
