@@ -105,6 +105,32 @@ test("GAP-124a/§14: at lg the scroll region caps at a readable measure and cent
   expect(container.querySelector("header")?.className).not.toMatch(/lg:max-w/);
 });
 
+test("the action badge's aria-label agrees in number: singular noun and verb together, plural noun and verb together", () => {
+  const { rerender } = render(
+    <Screen
+      title="Home"
+      action={{ label: "What needs attention", icon: Plus, onClick: vi.fn(), badge: 1 }}
+    >
+      <p>Content</p>
+    </Screen>,
+  );
+  expect(
+    screen.getByRole("button", { name: "What needs attention (1 item needs attention)" }),
+  ).toBeInTheDocument();
+
+  rerender(
+    <Screen
+      title="Home"
+      action={{ label: "What needs attention", icon: Plus, onClick: vi.fn(), badge: 3 }}
+    >
+      <p>Content</p>
+    </Screen>,
+  );
+  expect(
+    screen.getByRole("button", { name: "What needs attention (3 items need attention)" }),
+  ).toBeInTheDocument();
+});
+
 test("GAP-124b/§14: a route can opt into a wider canvas for its own two-pane layout", () => {
   const { container } = render(
     <Screen title="Home" contentWidth="wide">

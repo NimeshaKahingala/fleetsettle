@@ -71,13 +71,17 @@ export function ReportTable<Row>({ columns, rows, rowKey, bare = false }: Report
   // M-16, decided per column rather than per cell: one row carrying cents
   // puts them on every row of that column, so the figures stay comparable
   // by place value. A column of round thousands still shows no `.00` at all.
+  // Each money column's values are parsed once here, not once per cell —
+  // `col.money` re-parses a `Minor` string from scratch on every call.
+  const columnValues = new Map<string, Minor[]>();
   const columnShowsCents = new Map<string, boolean>();
   for (const col of columns) {
     if (col.money !== undefined) {
-      const toMinor = col.money;
+      const values = rows.map(col.money);
+      columnValues.set(col.key, values);
       columnShowsCents.set(
         col.key,
-        rows.some((row) => toMinor(row) % 100n !== 0n),
+        values.some((value) => value % 100n !== 0n),
       );
     }
   }
@@ -102,7 +106,7 @@ export function ReportTable<Row>({ columns, rows, rowKey, bare = false }: Report
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
+          {rows.map((row, rowIndex) => (
             <tr key={rowKey(row)} className="border-b border-line-hairline last:border-b-0">
               {columns.map((col) => (
                 <td
@@ -113,7 +117,10 @@ export function ReportTable<Row>({ columns, rows, rowKey, bare = false }: Report
                   )}
                 >
                   {col.money !== undefined ? (
-                    <Money value={col.money(row)} cents={columnShowsCents.get(col.key) ?? false} />
+                    <Money
+                      value={columnValues.get(col.key)?.[rowIndex] as Minor}
+                      cents={columnShowsCents.get(col.key) ?? false}
+                    />
                   ) : (
                     col.render(row)
                   )}

@@ -12,6 +12,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
+import { cn } from "../../lib/cn.js";
 import { useCloseWatcherDismiss } from "../../lib/useCloseWatcherDismiss.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -346,7 +347,16 @@ function ReceiptLightbox({
           <div className="flex justify-end p-4">
             <DialogPrimitive.Close
               aria-label="Close receipt view"
-              className="flex size-tap items-center justify-center rounded-full bg-white/10 text-white active:bg-white/20"
+              className={cn(
+                "flex size-tap items-center justify-center rounded-full bg-white/10 text-white active:bg-white/20",
+                // Copilot review (PR #103): rowButtonFocus's ring reads from
+                // --color-focus-ring, which in light mode is a dark navy —
+                // unreadable against this overlay's permanent near-black
+                // bg-black/95. This view is always dark regardless of app
+                // theme (text-white/border-white/30 above are the same
+                // exception), so the ring is a literal white here too.
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-inset",
+              )}
             >
               <X className="size-6" aria-hidden />
             </DialogPrimitive.Close>

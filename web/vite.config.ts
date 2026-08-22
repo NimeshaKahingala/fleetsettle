@@ -26,7 +26,11 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         "/api": {
-          target: env["VITE_PROXY_TARGET"] ?? "http://localhost:8787",
+          // `||`, not `??`: `loadEnv` always returns a string, so an
+          // override cleared via `VITE_PROXY_TARGET=` (rather than deleting
+          // the line) reaches this as `""`, which `??` would pass straight
+          // through as the proxy target instead of falling back.
+          target: env["VITE_PROXY_TARGET"] || "http://localhost:8787",
           changeOrigin: true,
         },
       },

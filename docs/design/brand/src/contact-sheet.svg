@@ -22,21 +22,21 @@
   </g>
   <!-- icon at real sizes -->
   <g transform="translate(24,32)">
-    <g transform="scale(0.36)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
-    <g transform="translate(200,0) scale(0.1875)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
-    <g transform="translate(310,0) scale(0.09375)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
-    <g transform="translate(370,0) scale(0.0469)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="scale(0.36)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(200,0) scale(0.1875)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(310,0) scale(0.09375)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
+    <g transform="translate(370,0) scale(0.0469)"><rect width="512" height="512" rx="114" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(56,150) scale(2.0)"><use href="#c"/></g></g>
   </g>
   <!-- maskable with a circular mask to prove the safe zone -->
   <g transform="translate(520,32) scale(0.36)">
     <clipPath id="circ"><circle cx="256" cy="256" r="205"/></clipPath>
-    <g clip-path="url(#circ)"><rect width="512" height="512" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(76,175) scale(1.8)"><use href="#c"/></g></g>
+    <g clip-path="url(#circ)"><rect width="512" height="512" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(76,175) scale(1.8)"><use href="#c"/></g></g>
     <circle cx="256" cy="256" r="205" fill="none" stroke="#D03B3B" stroke-width="2" stroke-dasharray="8 8"/>
   </g>
   <!-- favicons -->
   <g transform="translate(24,262)">
-    <g transform="scale(0.0625)"><rect width="512" height="512" rx="96" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
-    <g transform="translate(46,8) scale(0.03125)"><rect width="512" height="512" rx="96" fill="#0F2E63"/><g color="#FBFBF8" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
+    <g transform="scale(0.0625)"><rect width="512" height="512" rx="96" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
+    <g transform="translate(46,8) scale(0.03125)"><rect width="512" height="512" rx="96" fill="#0F2E63"/><g color="#FFFFFF" transform="translate(36,146) scale(2.2)"><use href="#k"/></g></g>
   </g>
   <!-- app bar -->
   <g transform="translate(220,258)">

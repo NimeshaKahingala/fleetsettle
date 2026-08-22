@@ -82,6 +82,14 @@ export async function assessMileage(
       if (alreadyRecorded) {
         const replayed = await replayAssessment(tx, alreadyRecorded.id);
         if (replayed) return replayed;
+        // GAP-164: a reading exists for this date but no assessment ever
+        // closed it out — the handover reading `startLease` writes directly
+        // (lease.ts), not through this function. Falling through here would
+        // treat it as `previous` and then try to insert a second reading for
+        // the same (lease_id, read_on), a deterministic unique-constraint
+        // collision, not a race — so it must be refused with a clear reason
+        // rather than left to surface as an unhandled Postgres error.
+        throw new ValidationError("A reading already exists for this lease on this date");
       }
 
       const previous = await findLatestOdometerReadingForLease(tx, input.leaseId);

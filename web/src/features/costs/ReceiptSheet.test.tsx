@@ -155,6 +155,23 @@ test("tapping a thumbnail opens a full-size view of the same photo, reusing the 
   expect(screen.queryByRole("dialog", { name: "Receipt" })).toBeNull();
 });
 
+test("GAP-161: the lightbox close button carries a focus-visible ring for keyboard users", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
+  const getBlob = vi.fn().mockResolvedValue({
+    blob: new Blob(["fake!"], { type: "image/jpeg" }),
+    contentType: "image/jpeg",
+  });
+  renderWithProviders(
+    <ReceiptSheet open onOpenChange={vi.fn()} subjectType="expense" subjectId="e1" />,
+    { get, getBlob },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Receipt 1 of 1" }));
+  const closeButton = await screen.findByRole("button", { name: "Close receipt view" });
+  expect(closeButton.className).toMatch(/focus-visible:ring/);
+});
+
 test("Remove receipt in the lightbox opens a reason-required confirm sheet; confirming voids the attachment and the thumbnail disappears", async () => {
   const user = userEvent.setup();
   const get = vi
