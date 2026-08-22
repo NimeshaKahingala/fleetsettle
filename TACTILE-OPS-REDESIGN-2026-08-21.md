@@ -6,7 +6,7 @@
 pass — see §5C. Every count, hex, file path and git claim below has now been measured
 three times by three sessions; where they disagreed, §5C says which number is right and
 why the disagreement happened.
-**Status: final — Phase 1 built 22 August 2026 (§5D). Phase 2 may start.** This document exists so a cold session — a fresh
+**Status: final — Phases 1–8 built 22 August 2026 (§5D–§5K). Phase 9 (git) remains.** This document exists so a cold session — a fresh
 context window, a different day, a different agent — can pick this up without re-deriving
 any of it. `docs/` still decides; nothing here is a specification until it lands there
 (Phase 8 of §6 below is exactly that landing). Read this document for *what, why, and
@@ -1375,6 +1375,91 @@ change). `npm run check` passes end to end: `lint` (0 errors), `lint:css`,
 
 ---
 
+## 5K. Phase 8 executed — 22 August 2026
+
+**M-35 recorded** in `ui-ux-guidelines.md`'s decisions log — one summary row citing §5D–§5J
+rather than re-deriving them, M-34's own row updated with a "superseded by M-35, for the
+specific hexes and the real-device caveat" pointer rather than deleted or rewritten, per
+§6's own instruction. §5.1's contrast rows, §5.2's type table and §5.3's elevation section
+were already updated phase-by-phase as each landed (§5D/§5F/§5E) rather than saved up for
+one rewrite at the end — this phase's own job was consolidation into M-35, not a first
+pass over tables already current.
+
+**§13's performance budget corrected, not silently edited.** The `Fonts` row now states
+the self-hosted latin-only subset and both measured sizes (House Style's 9,400 bytes,
+Tactile Ops' 25,284) as a recorded reversal of the original `system-ui`-for-`en` budget,
+the same treatment §5.3's elevation reversal already got. **The "CI gate" line was
+corrected, not softened around:** confirmed by reading `scripts/check-forbidden.mjs` and
+every `package.json` `check` script that nothing measures LCP/INP/CLS/bundle size —
+`npm run check` is `lint`/`lint:css`/`format:check`/`typecheck`/`test`, none of which are
+performance metrics. The budget is now stated as a manual-verification target until a
+Lighthouse-CI-class gate exists, not an enforced one.
+
+**`docs/design/brand-guidelines.md` regenerated a second time**, identical procedure to
+M-34's own pass: all ten SVG sources (`docs/design/brand/src/*.svg` + `favicon.svg`)
+repointed `#9C3F2E` → `#0F2E63`, every rasterised PNG in both `docs/design/brand/png/*`
+and the live `web/public/icons/*` re-rendered via `rsvg-convert` at each asset's existing
+pixel size — confirmed by reading the regenerated `icon-512.png` and `contact-sheet.png`
+directly (both render solid navy, not a stale colour), not assumed from the source-file
+edit alone. **Found beyond the SVG assets themselves, by reading `brand-guidelines.md`
+past its own swatch table rather than stopping at the mark:** the PWA manifest
+(`web/vite.config.ts`'s `VitePWA` config — the file whose own comment says it's "copied
+from §5.2 verbatim") and `web/index.html`'s `theme-color` meta tags still carried House
+Style's `background_color`/`theme_color`/dark-mode hexes. All three — `vite.config.ts`,
+`index.html`, and the doc's own mirrored code blocks — updated together and verified with
+a real `vite build`: the generated `dist/manifest.webmanifest` carries `"background_color":
+"#EDEFF3","theme_color":"#0F2E63"`, not the values that would have shipped if only the SVG
+sources had been touched.
+
+**Real browser QA, the item §5A.5 flagged as mandatory rather than optional.** Getting
+there needed its own investigation: `npm run dev`'s `VITE_AUTH_MODE=stub` bypasses
+`AuthGate` (`web/src/lib/auth-stub.ts`) but does **not** satisfy the API — `authMiddleware`
+does a real JWKS check with no server-side dev bypass, so every data read 401s against
+either a local `wrangler dev` or the hosted QA Worker regardless of the stub token. The
+working path, confirmed by reading `web/e2e/smoke.spec.ts`'s own fixture patterns: an
+`initScript` passed to `navigate_page` that monkey-patches `window.fetch` before the app's
+own JS runs, matching real response shapes from `packages/shared/src/schemas/*.ts` —
+the same technique Playwright's `page.route()` uses, implemented by hand since
+chrome-devtools MCP has no built-in request interception. **One real mechanical limit
+found and worked around:** the mock only survives client-side route changes, not a fresh
+`navigate_page` call (each new top-level navigation is a new document, and `initScript`
+only applies to the *next* one) — so the pass below clicks through the app's own
+navigation rather than re-navigating by URL for every screen.
+
+All four required surface families confirmed, light and dark, 360×640:
+
+1. **`Card`-based screens** — `VehicleListScreen` (all three `VehicleType`s rendering
+   their own `EntityAvatar` icon — `Bus`/`Car`/`Truck` — not one shared glyph, confirming
+   Phase 5's bug fix), `PeopleListScreen` (driver initials including the single-character
+   `"K"` edge case, customer person initials vs. organisation icon, both tones legible),
+   and `DriverDetailScreen`'s header (`EntityAvatar` at `detail` size, no duplicated name
+   — §5J's fix holds in the live app, not just in the test suite).
+2. **The Add sheet** — `QuickAddSheet`'s `ActionSheet`: `in`/`out`/neutral chip tones
+   distinct in both themes, captions legible and subordinate to their labels, no left
+   border anywhere.
+3. **A form screen** — `VehicleOverviewScreen`'s "Change arrangement" sheet:
+   `NativeSelect` and `DateField` both read as unmistakably filled fields against the
+   card, and the primary CTA's `shadow-btn-primary` glow is visible without reading as a
+   halo in dark mode.
+4. **Both report shapes** — `VehicleMonthReportScreen`'s per-vehicle `VehicleRow` expands
+   to reveal its nested owner-shares table with **no** double border/shadow (the `bare`
+   prop from §5G, confirmed in the live app, not only in `VehicleMonthReportScreen.test.tsx`);
+   `ReviewVehicleDetailScreen` (§5C.4's fourth `StatTile`+`ReportTable` screen, reached
+   under the `owner` role's Review shell) shows the default Card-wrapped table correctly
+   elevated, the outlier §3.3 originally found now looking like every other report.
+
+The money-direction accent-bar regression §5.1 flagged (⚑, 1.64:1 dark-mode contrast) is
+**confirmed still perceptible** at 3px next to its paired "Earned"/"Spent" text in the
+driver-detail `TwoBalances` rows, in both themes — the flag can be read as resolved, not
+merely acknowledged, though the numeric contrast itself is unchanged and the flag stays in
+§5.1 for a future session that wants the honest number rather than a verdict alone.
+
+`npm run check` passes end to end after every change in this phase (`lint` 0 errors,
+`lint:css`, `format:check`, `typecheck`, 863 web + 91 shared tests unchanged — this phase
+touched docs, config and generated assets, not application logic).
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1621,7 +1706,7 @@ empty chip.
 branches), `DriverDetailScreen.tsx`, `CustomerDetailScreen.tsx` — mechanical swaps now
 that the component and color rule are fixed in Phase 5.
 
-### Phase 8 — Docs and validation
+### Phase 8 — Docs and validation — DONE, see §5K
 - `docs/design/ui-ux-guidelines.md`: new **M-35** entry, "Tactile Ops supersedes House
   Style (M-34)." States plainly why (seeing House Style live, the actual ask was a
   structural redesign across the component set, not a retheme). M-34's own real-device
@@ -1782,8 +1867,15 @@ stale twice.
       `eslint` error and 8 files of stale Phase 4 formatting, both caught only because
       this phase ran the *full* `npm run check` instead of a hand-picked subset —
       that's now the standard gate per phase, not an occasional extra.
-- [ ] Phase 8 — Docs (M-35, §13 budget, brand-guidelines, icon regeneration) + full
-      check + browser QA across all four surface families
+- [x] **Phase 8 — Docs and validation, executed 22 August 2026 (§5K).** M-35 recorded
+      (summary row + M-34 pointer, not a rewrite); §13's Fonts row and false "CI gate"
+      claim both corrected; brand assets regenerated a second time — found and fixed
+      beyond the SVG sources themselves, `vite.config.ts`'s manifest and `index.html`'s
+      theme-color, verified with a real build; real-browser QA done via a hand-rolled
+      fetch-mock `initScript` (stub auth doesn't satisfy the API, confirmed by
+      investigation) across all four required surface families, both themes — including
+      confirming the money-direction accent-bar regression is still perceptible despite
+      its lower contrast figure. `npm run check` green throughout.
 - [ ] Phase 9 — **rebase onto `origin/develop` first (§5C.1)**; commit scope reviewed
       (visual tokens only, bug fixes untouched); PR description states that House Style
       rides along

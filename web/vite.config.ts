@@ -46,8 +46,8 @@ export default defineConfig(({ mode }) => {
           short_name: "FleetSettle",
           start_url: "/",
           display: "standalone",
-          background_color: "#F1F1EC",
-          theme_color: "#9C3F2E",
+          background_color: "#EDEFF3",
+          theme_color: "#0F2E63",
           icons: [
             { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
             { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
