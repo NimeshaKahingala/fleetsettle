@@ -534,20 +534,28 @@ const ENUM_LABEL_FIELDS = [
 
 /**
  * Is `prefix` (everything on the line before a match) still inside a
- * `key={…}`/`rowKey={…}`-style prop's own braces? A composite React key is
- * routinely built as a template literal (`` key={`${a}-${b}-${c.docType}`} ``,
+ * `key={…}`/`rowKey={…}`-style prop's own braces — including the plain
+ * `key={doc.docType}` case, where the match's own opening `{` *is* the
+ * prop's opening brace and so never appears in `prefix` at all? Handled
+ * first, directly: an immediate `key=`/`rowKey=` right at the end of
+ * `prefix` means the match starts exactly at that prop's own `{`.
+ *
+ * The other shape a React key takes is a composite built as a template
+ * literal (`` key={`${a}-${b}-${c.docType}`} ``,
  * `rowKey={(row) => `${row.partyType}-${row.partyId}`}`) — never
  * user-visible text, but the field access it wraps is nested two or three
- * braces deep, past what a simple "does `key=` sit immediately before this
- * match" check reaches. Finds the last `key=`/`rowKey=` in the prefix and
- * counts unmatched `{` from there — if the braces it opened are still open
- * at the match, the match is inside it. Deliberately unbounded rather than
- * scoped to `key=` alone (Copilot's own review of an earlier version): a
- * prop for a different, already-closed attribute earlier in the line must
- * not mask a real leak later in the same line, and bracket-depth tracking
- * gets that right where a bare text-contains check cannot.
+ * braces deep, past what the immediate check alone reaches (there, the
+ * prop's own `{` *does* land inside `prefix`, with more open braces after
+ * it). Finds the last `key=`/`rowKey=` in the prefix and counts unmatched
+ * `{` from there — if the braces it opened are still open at the match,
+ * the match is inside it. Deliberately unbounded rather than scoped to
+ * `key=` alone (Copilot's own review of an earlier version): a prop for a
+ * different, already-closed attribute earlier in the line must not mask a
+ * real leak later in the same line, and bracket-depth tracking gets that
+ * right where a bare text-contains check cannot.
  */
 function isInsideKeyProp(prefix) {
+  if (/\b(?:key|rowKey)\s*=\s*$/.test(prefix)) return true;
   const opener = /\b(?:key|rowKey)\s*=\s*\{/g;
   let last = -1;
   let m;
@@ -557,6 +565,34 @@ function isInsideKeyProp(prefix) {
   const opens = (between.match(/\{/g) ?? []).length;
   const closes = (between.match(/\}/g) ?? []).length;
   return opens >= closes; // the opener's own `{` already counted in `opens` — still open at >=
+}
+
+/**
+ * Prop names confirmed, by reading the receiving component, to hand the raw
+ * value to something other than user-facing text — never a blanket "any
+ * `prop=` is safe" rule, which Copilot's review of an earlier version
+ * pointed out would just as happily wave through `aria-label={x.docType}`
+ * or `title={x.partyType}`, both genuinely user-facing (the second one is
+ * screen-reader text, not decoration). `key`/`rowKey` are handled by
+ * `isInsideKeyProp` above instead, which already covers the non-nested form
+ * this list would otherwise also need to name.
+ *
+ * - `type` — `ReceivablesReportScreen`/`AgeingReportScreen` pass
+ *   `row.partyType` to `PartyName`'s own `type` prop, which maps it through
+ *   `PARTY_TYPE_LABEL` internally (`features/reports/PartyName.tsx`).
+ * - `currentArrangement` — `VehicleOverviewScreen` passes `vehicle.arrangement`
+ *   to `ChangeVehicleArrangementSheet`, which renders it through its own
+ *   `ARRANGEMENT_LABEL` lookup, not raw.
+ *
+ * Widen by confirming the receiving component maps the value, the same
+ * discipline `ENUM_LABEL_FIELDS` itself is widened by — never by adding a
+ * prop name on the assumption that "it's probably a pass-through."
+ */
+const SAFE_PROP_PASSTHROUGH = ["type", "currentArrangement"];
+
+function isSafePropPassthrough(prefix) {
+  const m = /([\w-]+)\s*=\s*$/.exec(prefix);
+  return m !== null && SAFE_PROP_PASSTHROUGH.includes(m[1]);
 }
 
 function checkEnumLabelUsage(paths) {
@@ -601,9 +637,12 @@ function checkEnumLabelUsage(paths) {
           // access two or three braces inside `key=`/`rowKey=` rather than
           // immediately after it — `isInsideKeyProp` tracks that separately
           // since the plain immediately-preceding check can't see through
-          // the nesting (also found in review).
+          // the nesting (also found in review). The pass-through exemption
+          // itself is a reviewed allowlist (`SAFE_PROP_PASSTHROUGH`), not
+          // "any `prop=`" — that version was flagged in review for waving
+          // through genuinely user-facing props like `aria-label`/`title`.
           const prefix = subject.slice(0, m.index);
-          if (/[\w-]+\s*=\s*$/.test(prefix)) continue;
+          if (isSafePropPassthrough(prefix)) continue;
           if (isInsideKeyProp(prefix)) continue;
           findings.push({
             file: path,
