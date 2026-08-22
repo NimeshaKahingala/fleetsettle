@@ -104,7 +104,7 @@
    VERIFY: Excess of 250 calculated but NOT surfaced (below threshold)
 2. ACTION: Check home screen
    VERIFY: No excess due appears
-3. ACTION: Navigate to annual goodwill report (UC-77)
+3. ACTION: Navigate to "Goodwill given" (owner-only report; UC-77)
    VERIFY: The auto-waived 250 DOES appear in the total
 
 **Assertions (post-test):**
@@ -143,9 +143,9 @@
 **Preconditions:** Active lease with an open incident (repairs not yet final).
 
 **Steps:**
-1. ACTION: Begin lease closure wizard
-   VERIFY: Incident appears in the closure summary (step 4)
-   VERIFY: Summary clearly states "Incident #X still open"
+1. ACTION: Begin lease closure wizard (corrected 22 Aug 2026 — "Closure summary" is step 2 of 5, `CloseLeaseScreen.tsx`, not step 4)
+   VERIFY: Open incidents appear in the closure summary
+   VERIFY: Summary clearly states the incident is still open — verify exact current wording at test time
 2. ACTION: Proceed with closure
    VERIFY: Closure IS allowed (not blocked)
 3. ACTION: Complete closure
@@ -186,7 +186,7 @@
 
 **Steps:**
 1. ACTION: Record an accident with 12 off-road days
-2. ACTION: Choose rent treatment: "Extend the rental by 12 days"
+2. ACTION: Choose rent treatment: "Extend the rental" (day count is a separate field on `OffRoadSheet.tsx`, not part of the option label)
    VERIFY: Lease end date pushed out by 12 days
 3. ACTION: Check the extended billing period's mileage allowance
    VERIFY: Allowance increased by 12 × 100 = 1,200 km
@@ -205,7 +205,7 @@
 **Preconditions:** Lease active using "Standard 100km" package, which says 100 km/day at 25/km.
 
 **Steps:**
-1. ACTION: Navigate to Settings → Mileage Packages
+1. ACTION: Navigate to More → Mileage packages
 2. ACTION: Edit "Standard 100km": change limit to 120, rate to 30
 3. ACTION: Save
 4. ACTION: Navigate to the active lease
@@ -224,12 +224,11 @@
 **Source:** A-23, W-43
 **Preconditions:** Business settings with auto-waive threshold blank or zero.
 
-**Steps:**
-1. ACTION: Navigate to Settings → Business Settings
-2. ACTION: Verify auto-waive threshold is blank or 0
-3. ACTION: Record a mileage excess of 5 km = 125 charge
-   VERIFY: Excess DOES surface as a due (not waived)
-4. VERIFY: No automatic waiver applied
+**Steps (corrected 22 Aug 2026 — no "Business Settings" screen exists anywhere in `web/src` as of this pass; the auto-waive threshold has no UI at all, only a DB default at business creation — W-43):**
+1. ACTION: **Cannot navigate to a threshold screen to verify it's blank** — this case can only be run by checking the actual `business_settings` row directly (read-only, e.g. via `mcp__neon__run_sql` on a live session), not through the client
+2. ACTION: Record a mileage excess of 5 km = 125 charge (via Read the odometer — see suite 01 HP-01-004)
+   VERIFY: Excess DOES surface as a due (not waived) — `ReadOdometerSheet.tsx`'s own auto-waive message is absent
+3. VERIFY: No automatic waiver applied
 
 **Assertions (post-test):**
 - [ ] Blank threshold = zero = waive nothing
@@ -243,19 +242,17 @@
 **Source:** A-11, UC-92, F-10.1, U-7
 **Preconditions:** Vehicle with expired insurance (expiry date in the past).
 
-**Steps:**
-1. ACTION: Navigate to "Start Rental" for the vehicle
-2. ACTION: Fill in all rental details
-3. ACTION: Click "Confirm"
-   VERIFY: Warning displayed: "Vehicle insurance expired on [date]"
-   VERIFY: Warning is NOT a block — user can proceed
-4. ACTION: Click "Proceed anyway" (or equivalent)
-   VERIFY: Rental created, override recorded
+**Steps (corrected 22 Aug 2026 — the warning is a plain `AlertStrip`, shown at the wizard's Confirm step, not a dialog with a "Proceed anyway" button):**
+1. ACTION: Start the 7-step rental wizard (HP-01-001) for the vehicle
+2. ACTION: Fill in all rental details, proceeding to the "Confirm" step
+   VERIFY: An `AlertStrip` reads "{doc type} expired {date}", severity `critical` since it's expired (not just approaching)
+3. ACTION: Click "Start rental" directly — **there is no separate "Proceed anyway" confirmation**; the strip is informational and never disables the primary action
+   VERIFY: Rental created
 
 **Assertions (post-test):**
 - [ ] Warning shown at the moment of sending the vehicle out (U-7)
-- [ ] Proceeding anyway is allowed with reason recorded
-- [ ] Override is logged (who, when, what warning was shown)
+- [ ] Proceeding is allowed with no extra confirmation step
+- [ ] **Not independently confirmed in this refresh pass**: whether the override itself (who/when/that this warning was showing) is logged anywhere beyond the ordinary audit trail — check at test time rather than assuming a dedicated override record exists
 
 ---
 
@@ -265,17 +262,13 @@
 **Source:** UC-12, W-44, F-3.4
 **Preconditions:** Active lease with 50,000 deposit held. Accident with agreed customer contribution of 20,000.
 
-**Steps:**
-1. ACTION: Record accident contribution of 20,000
-2. ACTION: Select "Take from deposit"
-   VERIFY: Deposit reduced by 20,000 (now 30,000)
-3. VERIFY: Deposit movement record created
-4. VERIFY: Reduced deposit balance visible on lease
-5. VERIFY: "Top up deposit" option offered at this moment
+**Steps (corrected 22 Aug 2026 — "how it's paid" is deliberately not a distinct field; `CustomerContributionSheet.tsx`'s own comment: "one go, instalments, or from the deposit — is not a distinct field. The money arriving is `RecoveryReceivedSheet`'s own, separate step"):**
+1. ACTION: Record the accident contribution of 20,000 via "Customer contribution" (agreed amount + note only — no payment-source field here)
+2. ACTION: **There is no "Take from deposit" option anywhere** — mark received later via the incident's own "Mark received" action (`RecoveryReceivedSheet.tsx`), which likewise has no deposit field
+   VERIFY: no automatic deposit reduction happens as a side effect of either step
+3. ACTION: If the intent is genuinely to draw down the deposit, that has to be a separate, explicit deposit-movement action — check at test time whether one reachable from lease detail actually reduces the balance and records a movement, since this pass did not find a call site linking a contribution to a deposit draw-down
 
 **Assertions (post-test):**
-- [ ] Deposit partially applied via deliberate recorded action
-- [ ] `DepositMovement` record created for the 20,000 application
-- [ ] Deposit balance updated to 30,000
-- [ ] Top-up opportunity presented at the moment of draw-down (W-44)
-- [ ] INV-4: Deposit never appears as income
+- [ ] **Not built as described**: no single action both records the contribution and draws from the deposit
+- [ ] `DepositMovement`, if one is manually recorded elsewhere, should show the 20,000 application — verify live rather than assuming the path this case originally described
+- [ ] INV-4: Deposit never appears as income (this part of the invariant is unaffected by the above)
