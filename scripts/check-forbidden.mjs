@@ -561,38 +561,81 @@ function isInsideKeyProp(prefix) {
   let m;
   while ((m = opener.exec(prefix)) !== null) last = m.index + m[0].length;
   if (last === -1) return false;
-  const between = prefix.slice(last);
-  const opens = (between.match(/\{/g) ?? []).length;
-  const closes = (between.match(/\}/g) ?? []).length;
-  return opens >= closes; // the opener's own `{` already counted in `opens` — still open at >=
+  // Walked from the opener's own `{` (depth 1) rather than a total open/close
+  // count: a later, unrelated prop opening on the same line (`title={` +
+  // template literal) used to rebalance the count against the key prop's own
+  // already-closed `}`, keeping `opens >= closes` true and masking a real
+  // leak in that later prop — found in review (Sonnet, 22 Aug 2026). Depth
+  // hitting 0 is the key prop's own close, not a coincidental rebalance.
+  let depth = 1;
+  for (const ch of prefix.slice(last)) {
+    if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) return false;
+  }
+  return depth > 0;
 }
 
 /**
- * Prop names confirmed, by reading the receiving component, to hand the raw
- * value to something other than user-facing text — never a blanket "any
- * `prop=` is safe" rule, which Copilot's review of an earlier version
- * pointed out would just as happily wave through `aria-label={x.docType}`
- * or `title={x.partyType}`, both genuinely user-facing (the second one is
- * screen-reader text, not decoration). `key`/`rowKey` are handled by
- * `isInsideKeyProp` above instead, which already covers the non-nested form
- * this list would otherwise also need to name.
+ * (component, prop) pairs confirmed, by reading the receiving component, to
+ * hand the raw value to something other than user-facing text — never a
+ * blanket "any `prop=` is safe" rule, which Copilot's review of an earlier
+ * version pointed out would just as happily wave through
+ * `aria-label={x.docType}` or `title={x.partyType}`, both genuinely
+ * user-facing (the second one is screen-reader text, not decoration).
+ * **Keyed to the receiving component, not the prop name alone** (Sonnet, 22
+ * Aug 2026 review of the previous version): a bare prop-name list would
+ * exempt `type={row.partyType}` into *any* component, including a future one
+ * that renders it raw — the exact false negative this list exists to avoid.
+ * `key`/`rowKey` are handled by `isInsideKeyProp` above instead, which
+ * already covers the non-nested form this list would otherwise also need to
+ * name.
  *
- * - `type` — `ReceivablesReportScreen`/`AgeingReportScreen` pass
- *   `row.partyType` to `PartyName`'s own `type` prop, which maps it through
- *   `PARTY_TYPE_LABEL` internally (`features/reports/PartyName.tsx`).
- * - `currentArrangement` — `VehicleOverviewScreen` passes `vehicle.arrangement`
- *   to `ChangeVehicleArrangementSheet`, which renders it through its own
- *   `ARRANGEMENT_LABEL` lookup, not raw.
+ * - `PartyName`'s `type` — `ReceivablesReportScreen`/`AgeingReportScreen`
+ *   pass `row.partyType`, which `PartyName` maps through `PARTY_TYPE_LABEL`
+ *   internally (`features/reports/PartyName.tsx`).
+ * - `ChangeVehicleArrangementSheet`'s `currentArrangement` —
+ *   `VehicleOverviewScreen` passes `vehicle.arrangement`, which the sheet
+ *   renders through its own `ARRANGEMENT_LABEL` lookup, not raw.
  *
  * Widen by confirming the receiving component maps the value, the same
  * discipline `ENUM_LABEL_FIELDS` itself is widened by — never by adding a
  * prop name on the assumption that "it's probably a pass-through."
  */
-const SAFE_PROP_PASSTHROUGH = ["type", "currentArrangement"];
+const SAFE_PROP_PASSTHROUGH = [
+  { component: "PartyName", prop: "type" },
+  { component: "ChangeVehicleArrangementSheet", prop: "currentArrangement" },
+];
 
-function isSafePropPassthrough(prefix) {
+/**
+ * The JSX component whose own opening tag is still unclosed at `prefix` —
+ * found by locating the last `>` at or before the match (closing whatever
+ * tag came before) and then the last `<Ident` after it, rather than scanning
+ * only the current line: Prettier puts one prop per line once an opening tag
+ * doesn't fit on one, so the tag name is routinely several lines above the
+ * prop being checked (`<ChangeVehicleArrangementSheet` followed by four more
+ * attribute lines before `currentArrangement={…}`). Bounded to a window
+ * rather than the whole file purely to cap cost — no real JSX attribute list
+ * in this codebase runs anywhere near that long.
+ */
+function enclosingComponentName(lines, lineIndex, prefix) {
+  const WINDOW = 200;
+  const start = Math.max(0, lineIndex - WINDOW);
+  const text = lines.slice(start, lineIndex).join("\n") + "\n" + prefix;
+  const lastClose = text.lastIndexOf(">");
+  const opener = /<([A-Z][\w.]*)\b/g;
+  let name = null;
+  let m;
+  while ((m = opener.exec(text)) !== null) {
+    if (m.index > lastClose) name = m[1];
+  }
+  return name;
+}
+
+function isSafePropPassthrough(lines, lineIndex, prefix) {
   const m = /([\w-]+)\s*=\s*$/.exec(prefix);
-  return m !== null && SAFE_PROP_PASSTHROUGH.includes(m[1]);
+  if (m === null) return false;
+  const component = enclosingComponentName(lines, lineIndex, prefix);
+  return SAFE_PROP_PASSTHROUGH.some((s) => s.prop === m[1] && s.component === component);
 }
 
 function checkEnumLabelUsage(paths) {
@@ -642,7 +685,7 @@ function checkEnumLabelUsage(paths) {
           // "any `prop=`" — that version was flagged in review for waving
           // through genuinely user-facing props like `aria-label`/`title`.
           const prefix = subject.slice(0, m.index);
-          if (isSafePropPassthrough(prefix)) continue;
+          if (isSafePropPassthrough(lines, i, prefix)) continue;
           if (isInsideKeyProp(prefix)) continue;
           findings.push({
             file: path,
