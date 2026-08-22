@@ -6,7 +6,7 @@
 pass — see §5C. Every count, hex, file path and git claim below has now been measured
 three times by three sessions; where they disagreed, §5C says which number is right and
 why the disagreement happened.
-**Status: final — Phases 1–8 built 22 August 2026 (§5D–§5K). Phase 9 (git) remains.** This document exists so a cold session — a fresh
+**Status: DONE — all 9 phases built 22 August 2026 (§5D–§5L). `redesign/tactile-ops-rebased` is pushed; PR #97 is open against `develop` and current.** This document exists so a cold session — a fresh
 context window, a different day, a different agent — can pick this up without re-deriving
 any of it. `docs/` still decides; nothing here is a specification until it lands there
 (Phase 8 of §6 below is exactly that landing). Read this document for *what, why, and
@@ -1460,6 +1460,47 @@ touched docs, config and generated assets, not application logic).
 
 ---
 
+## 5L. Phase 9 executed — 22 August 2026
+
+**§6 Phase 9's own text was stale a third time, exactly as §5C.1 predicted it might be
+("re-measure the topology before acting on this section") — checked against real git and
+GitHub state rather than trusted, and found already out of date in a good way.** The
+`origin/redesign/tactile-ops` vs. `redesign/tactile-ops-rebased` question §6 spent five
+numbered points resolving no longer applies: this session was already on
+`redesign/tactile-ops-rebased`, already backing an **open PR (#97, base `develop`)**
+titled for the plan-and-M-36 work, from before Phase 1 of this build started. Re-measured
+before acting, not assumed from §6's account:
+
+- `git merge-base HEAD origin/develop` plus `gh pr view 97 --json mergeable,mergeStateStatus`
+  showed `MERGEABLE`/`CLEAN` against current `origin/develop`, which has moved 11 commits
+  since this branch last synced (PRs #95/#96/#98). **No rebase was needed or done** —
+  §6's own instruction to rebase first assumed a topology (the pre-existing PR, the
+  already-current `develop`) that no longer matches what's actually on GitHub.
+- The 9 local commits this session made (the M-36 doc fix plus Phases 1–8, one commit
+  each) were a plain fast-forward push — `origin/redesign/tactile-ops-rebased` was still
+  at this session's own starting point, not ahead or diverged, so **no
+  `--force-with-lease` was needed either**, contrary to §6's point 5.
+- **Confirmed with the user before pushing and before editing the PR** — both are visible
+  to anyone watching #97, not local, reversible actions.
+
+**PR #97's description updated, not left silently stale (§6 point 4's own principle,
+still correct even though its premise had changed):** it now states plainly that all 9
+Tactile Ops phases are implemented, not planned, with a phase-by-phase summary and a
+pointer to `§5D`–`§5K` for the full derivation — the same "don't let it pass silently"
+standard §6 asked for when the concern was House Style riding along un-stated. The test
+plan checklist is updated to the real current numbers (863 web tests, not 851) and the
+real-browser QA line changed from "not run" to done, with a citation.
+
+Nothing here reverts or touches the bug-fix work already on this branch (Dialog spacing,
+focus rings, ink-faint contrast, M-16 alignment, the develop-rebase conflict resolutions)
+— §6's original instruction on that point still holds exactly as written.
+
+This closes all 9 phases. `redesign/tactile-ops-rebased` is pushed, PR #97 is open and
+current, and `origin/develop`'s eventual merge decision is the next human action, not an
+automated one.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1744,7 +1785,7 @@ that the component and color rule are fixed in Phase 5.
      (Phase 2's Card wrap), **plus `ReviewVehicleDetailScreen`**, the fourth
      `StatTile`+`ReportTable` screen and the one outside `features/reports/` (§5C.4)
 
-### Phase 9 — Git
+### Phase 9 — Git — DONE, see §5L (this section's own topology was stale — read §5L first)
 House Style's commit ("House Style: brand accent, display face, card elevation (M-34)…")
 bundled unrelated bug fixes with the visual tokens. This redesign **supersedes only the
 visual token values**, via new commits on `redesign/tactile-ops` — does not revert or
@@ -1876,9 +1917,13 @@ stale twice.
       investigation) across all four required surface families, both themes — including
       confirming the money-direction accent-bar regression is still perceptible despite
       its lower contrast figure. `npm run check` green throughout.
-- [ ] Phase 9 — **rebase onto `origin/develop` first (§5C.1)**; commit scope reviewed
-      (visual tokens only, bug fixes untouched); PR description states that House Style
-      rides along
+- [x] **Phase 9 — Git, executed 22 August 2026 (§5L).** This section's own topology was
+      stale a third time — re-measured rather than trusted: PR #97 was already open
+      against `develop` before this build started, GitHub reports it `MERGEABLE`/`CLEAN`
+      against current `develop` with no rebase needed, and the 9 local commits were a
+      plain fast-forward push, no `--force-with-lease`. Confirmed with the user before
+      pushing and before editing the PR. PR #97's description updated to state plainly
+      that all 9 phases are implemented, not planned, with the real current test numbers.
 
 ---
 
