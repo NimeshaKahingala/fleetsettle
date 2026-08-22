@@ -70,7 +70,7 @@ Three rules that have already earned their place:
 | tech-stack | v1.4 | 18 Aug 2026 |
 | implementation-guidelines | v1.7 | 18 Aug 2026 |
 | ui-ux-guidelines | v1.8 | 22 Aug 2026 |
-| brand-guidelines | v1.0.3 | 21 Aug 2026 |
+| brand-guidelines | v1.1.1 | 22 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
 
