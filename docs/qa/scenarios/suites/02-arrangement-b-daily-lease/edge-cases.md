@@ -198,12 +198,12 @@
 **Preconditions:** Fuel fill recorded with borne_by = driver on arrangement B.
 
 **Steps:**
-1. ACTION: Record fuel: 8,500, borne_by = driver
-2. ACTION: Navigate to vehicle monthly P&L
-   VERIFY: 8,500 does NOT appear in the profit calculation
-3. VERIFY: 8,500 appears "below the line" as "costs borne by the driver"
+1. ACTION: Record fuel: 8,500, leaving "Borne by" on its automatic default (§6.7 resolves this to the driver for a daily lease — no manual picker sets it directly, only an "Override to Us" toggle exists)
+2. ACTION: Navigate to "How was this month" for the vehicle
+   VERIFY: 8,500 does NOT appear in the "Spent" tile or reduce "Profit"
+3. VERIFY (no dedicated breakdown exists as of 22 Aug 2026): 8,500 is simply absent from the report — there is no "below the line, costs borne by the driver" section to check it against
 
 **Assertions (post-test):**
 - [ ] INV-5: Cost with borne_by ≠ us is excluded from profit
-- [ ] Below-the-line section shows driver-borne costs for information
+- [ ] No below-the-line section exists — silent exclusion from "Spent"/"Profit" is the whole mechanism
 - [ ] A report with no fuel data says "not available", never 0

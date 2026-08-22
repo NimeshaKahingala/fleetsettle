@@ -22,7 +22,7 @@
 2. **The Accident (July 8):**
    - Create incident on Jul 8
    - Set off-road days: 12 (Jul 8 – Jul 19)
-   - Select rent treatment: "Extend the rental by 12 days"
+   - Select rent treatment: "Extend the rental" (day count is a separate field on the same sheet, `OffRoadSheet.tsx`, not part of the option label)
 
 3. **Costs & Recoveries:**
    - Record repair cost: 70,000 in July

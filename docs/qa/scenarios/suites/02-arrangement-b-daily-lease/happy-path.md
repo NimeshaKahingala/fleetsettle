@@ -170,18 +170,19 @@
 **Preconditions:** Vehicle BUS-5678 on daily lease.
 
 **Steps:**
-1. ACTION: Navigate to vehicle BUS-5678
-2. ACTION: Click "Add fuel"
-3. ACTION: Enter litres: 45
-4. ACTION: Enter odometer: 126500 (optional on arrangement B — W-20)
-5. ACTION: Enter amount: 8,500
-6. ACTION: Borne-by: pre-filled as "driver" (W-7 default for arrangement B)
-7. ACTION: Click "Save"
+1. ACTION: Open Quick Add → Fuel (sheet title "Log a fuel fill")
+2. ACTION: Choose vehicle: BUS-5678
+3. ACTION: Enter amount: 8,500 (level 1 — required)
+4. ACTION: Open the "Litres, borne by and photo" disclosure (level 2/3, U-2)
+5. ACTION: Enter litres: 45
+6. ACTION: Leave "Borne by" on its default — reads "Resolved automatically" (not a driver/us picker; an "Override to Us" toggle exists but is not exercised in this case)
+   VERIFY: odometer has **no field on this sheet as of 22 Aug 2026** — `expense.odometer_reading_id` has no domain/query wiring yet (`FuelFillSheet.tsx`'s own comment); do not expect an odometer step here
+7. ACTION: Click "Log fuel fill"
    VERIFY: Fuel record saved
 
 **Assertions (post-test):**
-- [ ] Fuel cost recorded with borne_by = driver
+- [ ] Fuel cost recorded, "Borne by" resolved automatically per §6.7's default for this vehicle
 - [ ] INV-5: Cost with borne_by ≠ us excluded from profit
-- [ ] Fuel shown "below the line" as "costs borne by the driver"
-- [ ] Odometer was NOT prompted / nagged (W-20) — fully optional
+- [ ] No dedicated report line shows it as "borne by the driver" — it's simply absent from "Spent"/"Profit" (see `invariants/invariant-checks.md` INV-5)
+- [ ] No odometer field or prompt anywhere on this sheet (W-20's "fully optional" is now moot — it isn't built, not merely skippable)
 - [ ] Litres stored for efficiency calculations (arrangement C only)

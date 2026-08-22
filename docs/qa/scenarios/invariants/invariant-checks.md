@@ -55,11 +55,11 @@ When a test case says `ASSERT: INV-3`, the agent should run the corresponding ch
 **Source:** §6.13, W-8, UC-58
 **Check:**
 1. ACTION: Record a driver deposit of 25,000
-2. ACTION: Navigate to the vehicle's monthly P&L
-3. VERIFY: Deposit amount does NOT appear in the income section
-4. VERIFY: Deposit amount does NOT appear in the expense section
-5. ACTION: Navigate to cash position report
-6. VERIFY: Deposit IS shown under "cash held"
+2. ACTION: Navigate to "How was this month" for the vehicle
+3. VERIFY: Deposit amount does NOT appear in the "Earned" tile
+4. VERIFY: Deposit amount does NOT appear in the "Spent" tile
+5. ACTION: Navigate to "Where is our cash"
+6. VERIFY: Deposit IS shown as held under deposits ("Rs n held as deposits — a liability, not partner cash")
 7. Repeat for customer deposit and driver advance
 
 ---
@@ -69,9 +69,9 @@ When a test case says `ASSERT: INV-3`, the agent should run the corresponding ch
 **Source:** §6.1, UC-34
 **Check:**
 1. ACTION: Record a fuel expense with `borne_by = driver`
-2. ACTION: Navigate to vehicle monthly P&L
-3. VERIFY: Expense does NOT appear in the main profit calculation
-4. VERIFY: Expense appears "below the line" labelled "costs borne by the driver"
+2. ACTION: Navigate to "How was this month" for the vehicle
+3. VERIFY: Expense does NOT appear in the "Spent" tile or reduce "Profit"
+4. VERIFY (no dedicated breakdown exists as of 22 Aug 2026): the expense is simply absent from the report, not shown in any "borne by driver" line item — confirm this silent exclusion is what INV-5 actually requires (it is), not a gap in the check
 
 ---
 
@@ -166,10 +166,10 @@ When a test case says `ASSERT: INV-3`, the agent should run the corresponding ch
 **Check:**
 1. ACTION: Record a waiver (goodwill discount)
 2. ACTION: Record a write-off (bad debt)
-3. ACTION: Navigate to the goodwill given report (UC-77)
-4. VERIFY: Waiver appears here, write-off does NOT
-5. ACTION: Navigate to write-off / bad debt reporting
-6. VERIFY: Write-off appears here, waiver does NOT
+3. ACTION: Navigate to "Goodwill given" (owner-only report; UC-77)
+4. VERIFY: Waiver appears here, write-off does NOT (confirmed in source — `GoodwillReportScreen.tsx`'s own comment: "never pooled with write-offs")
+5. **No consolidated write-off/bad-debt report exists as of 22 Aug 2026** — a write-off is visible only on the party's own detail screen (customer/driver), not in any report
+6. VERIFY (on the party's detail screen instead): the write-off is listed there, and does not appear on "Goodwill given"
 
 ---
 

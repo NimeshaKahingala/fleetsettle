@@ -12,12 +12,12 @@
 **Source:** UC-02, F-1.3, INV-16
 **Preconditions:** Vehicle exists with no ownership set.
 
-**Steps:**
-1. ACTION: Navigate to vehicle ownership settings
+**Steps (corrected 22 Aug 2026 — relocated to More → Vehicle sharing, same as HP-00-005):**
+1. ACTION: Navigate to More → Vehicle sharing → "Set ownership shares" for the vehicle
 2. ACTION: Add owner A with 60% share
 3. ACTION: Add owner B with 30% share
    VERIFY: Total displayed as 90%
-4. ACTION: Click "Save"
+4. ACTION: Click "Save shares"
    VERIFY: System REFUSES to save — shares must total exactly 100%
    VERIFY: Error message clearly states the requirement
 
@@ -34,9 +34,9 @@
 **Preconditions:** Vehicle "CAR-1234" already exists.
 
 **Steps:**
-1. ACTION: Navigate to "Add a vehicle"
+1. ACTION: Click "Add a vehicle"
 2. ACTION: Enter registration: "CAR-1234" (duplicate)
-3. ACTION: Click "Save"
+3. ACTION: Click "Add vehicle"
    VERIFY: System warns about duplicate registration
    VERIFY: Either refuses or asks for confirmation with a clear warning
 
@@ -52,7 +52,7 @@
 **Preconditions:** Business exists, vehicles and drivers exist.
 
 **Steps:**
-1. ACTION: Navigate to "Go Live" / "Opening Balances"
+1. ACTION: Navigate to More → Opening balances
 2. ACTION: Set go-live date: "2026-07-01"
 3. ACTION: Enter data for ONE vehicle only (bus)
 4. ACTION: Click "Save as Draft"
@@ -61,7 +61,7 @@
 6. ACTION: Return to opening balances
    VERIFY: Previously entered data is preserved
 7. ACTION: Complete remaining vehicles and drivers
-8. ACTION: Click "Confirm" / "Commit"
+8. ACTION: Click "Confirm and go live"
    VERIFY: Full batch now committed
 
 **Assertions (post-test):**
@@ -124,11 +124,11 @@
 **Source:** UC-03, F-1.4
 **Preconditions:** Manager "Kamal" has manage rights on a vehicle.
 
-**Steps:**
-1. ACTION: Navigate to vehicle detail → sharing
-2. ACTION: Click "Revoke" on manager Kamal
-3. ACTION: Confirm revocation
-   VERIFY: Kamal no longer listed as manager
+**Steps (corrected 22 Aug 2026 — same relocation as HP-00-005/006):**
+1. ACTION: Navigate to More → Vehicle sharing
+2. ACTION: Find manager Kamal under "Management agreements" (status badge "Active") and tap Revoke
+3. ACTION: Confirm in the "Revoke sharing?" dialog (confirm button "Revoke sharing")
+   VERIFY: Kamal's badge now reads "Revoked"
 
 **Assertions (post-test):**
 - [ ] Manager access ended — Kamal cannot see or operate the vehicle
@@ -143,14 +143,14 @@
 **Source:** UC-95, F-1.5
 **Preconditions:** Vehicle BUS-5678 with daily lease, some days confirmed, a trip booked.
 
-**Steps:**
+**Steps (corrected 22 Aug 2026 — exact current legend, `VehicleCalendarScreen.tsx`):**
 1. ACTION: Navigate to vehicle BUS-5678 → Calendar view
-   VERIFY: Month view loads with each day coloured by its derived state
-2. VERIFY: Confirmed days show as "ran" (one colour)
-3. VERIFY: Unconfirmed days show as "open" (different colour)
-4. VERIFY: Trip days show as "on trip" (distinct from "ran")
-5. VERIFY: Days outside the pattern show as "not scheduled" (if applicable)
-6. ACTION: Click on a free day
+   VERIFY: Month view loads with each day coloured by its derived state; the legend row below lists exactly: "On a lease", "Daily lease, ran", "Daily lease, not yet confirmed", "Daily lease, lost", "On a trip", "Hold (tentative)", "Off the road"
+2. VERIFY: Confirmed days show the "Daily lease, ran" state (not the doc's old "ran")
+3. VERIFY: Unconfirmed-but-due days show "Daily lease, not yet confirmed" (not "open" — that label doesn't exist)
+4. VERIFY: Trip days show "On a trip", distinct from "Daily lease, ran"
+5. VERIFY: A day with no state applied is simply blank (no "not scheduled" label exists — its absence of a badge is the signal)
+6. ACTION: Click on a free (blank) day
    VERIFY: Opens the appropriate booking form (F-2.1 or F-5.1) with that date pre-filled
 
 **Assertions (post-test):**
