@@ -354,17 +354,18 @@ The amount itself is always `--color-ink-primary`, whichever direction it points
 ### 5.2 Typography
 
 ```
---font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
---font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+--font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
 --font-sinhala: "Noto Sans Sinhala", var(--font-sans);
 ```
 
-Noto Sans Sinhala is *specified* as self-hosted, subset, and `font-display: swap` — building M-34 found this was never actually implemented (`tokens.css` carries neither the token nor an `@font-face`; the Sinhala UI silently falls back to `--font-sans` today). Left as a known gap rather than fixed in passing, since real subsetting needs the Sinhala glyph set sourced, which is separate work. `--font-display` (M-34, 21 Aug 2026) is the reference implementation this description was always meant to match: a self-hosted `woff2`, `font-display: swap`, and subset to exactly the character set it renders — here that's the Latin letters/digits/punctuation of a fixed English vocabulary (screen titles, hero money figures), never a user-entered name, which is why it never needs to cover more than that. It is applied by `font-display` on the specific hero/title elements below rather than globally, so ordinary body text never pays for it. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
+**Tactile Ops Phase 3 (22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5F) replaces House Style's display serif with self-hosted Sora — as `--font-sans`, app-wide, not scoped to a handful of hero elements the way the serif was.** `--font-sans` did not exist in `tokens.css` before this phase; the app ran on Tailwind v4's own default sans stack. Setting it here overrides that default *and* becomes the whole app's body font in one declaration, because Tailwind v4's `preflight.css` reads its own `--default-font-family` from `--font-sans`. One self-hosted variable-weight `woff2` covers the full 400–700 range, `latin` subset only (25,284 bytes measured, §5A.4) — Sri Lankan romanized names and vehicle plates are ASCII, and `latin-ext` adds ~48% weight for glyphs this app is unlikely to render. There is no display face any more: every element that used to carry the serif (`Screen`'s title, `StatTile`'s hero value, `AmountPad`/`DayCard`/`ConfirmDayCard`'s hero figures) now carries `font-semibold` instead — Sora is a true variable font, so an explicit weight utility reproduces the same 600-weight hierarchy the serif's single-static-weight file used to provide as a side effect, rather than losing it to "weight alone" at the browser default.
+
+Noto Sans Sinhala is *specified* as self-hosted, subset, and `font-display: swap` — this was never actually implemented (`tokens.css` carries neither the token nor an `@font-face`; the Sinhala UI silently falls back to `--font-sans` today, unaffected by the Phase 3 swap since `:lang(si)`/`:lang(ta)` are untouched). Left as a known gap rather than fixed in passing, since real subsetting needs the Sinhala glyph set sourced, which is separate work. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
 
 | Token | Size / line-height | Weight | Use |
 |---|---|---|---|
-| `hero` | 36 / 40 (desktop 48 / 52) | 600, `--font-display` (M-34) | The one number a screen leads with |
-| `title-lg` | 22 / 28 | 600, `--font-display` (M-34) | Screen titles |
+| `hero` | 36 / 40 (desktop 48 / 52) | 600, `font-semibold` (Tactile Ops Phase 3) | The one number a screen leads with |
+| `title-lg` | 22 / 28 | 600, `font-semibold` (Tactile Ops Phase 3) | Screen titles |
 | `title` | 18 / 24 | 600 | Card headings, amounts in list rows |
 | `body` | **16 / 24** | 400 | Everything. Minimum for inputs (M-19) |
 | `body-sm` | 14 / 20 | 400 | Secondary lines in rows |
@@ -1076,15 +1077,16 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --d-hair:rgba(255,255,255,.10); --d-surface-sunken:#2A2C33;
 }
 
-/* M-34: self-hosted, subset to the fixed English vocabulary --font-display
-   renders (screen titles, hero money figures — never a name). */
+/* Tactile Ops Phase 3: self-hosted, variable weight 400-700, latin
+   subset only (25,284 bytes) — app-wide via --font-sans below, not
+   scoped to a handful of elements. */
 @font-face {
-  font-family: Fraunces;
+  font-family: Sora;
   font-style: normal;
-  font-weight: 600;
+  font-weight: 400 700;
   font-display: swap;
-  src: url("/fonts/fraunces-600-latin.woff2") format("woff2");
-  unicode-range: U+25,U+2C,U+2E,U+30-39,U+41-5A,U+61-7A,U+B7,U+2014,U+2019,U+20A8,U+2212,U+25B2,U+25BC;
+  src: url("/fonts/sora-variable-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
 /* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
@@ -1114,8 +1116,10 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --spacing-tap: 44px;
   --radius-sm: 8px;  --radius-md: 18px;  --radius-lg: 20px;
 
-  /* M-34 */
-  --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
+  /* Tactile Ops Phase 3: introduces --font-sans (did not exist before this
+     phase), overriding Tailwind's own default and — via --default-font-family
+     in Tailwind's preflight.css — the whole app's body font in one line. */
+  --font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
 
   /* Tactile Ops Phase 2 */
   --shadow-card: 0 10px 26px -14px rgb(21 26 34 / 28%);

@@ -67,3 +67,19 @@ describe("tokens.css base layer", () => {
     expect(base?.match(/(?<!prefers-)color-scheme:\s*dark/g)).toHaveLength(2);
   });
 });
+
+// Tactile Ops Phase 3 (§5F): the highest-blast-radius change in the plan —
+// every text element in the app — with no other automated net under it
+// (§5A.5: nothing anywhere asserts font-display, --font-display, or the old
+// serif). This is deliberately cheap rather than thorough: it can't catch a
+// wrong weight or a missed call site, only a *partial* removal, which is
+// the failure mode worth a two-line guard.
+describe("tokens.css typography", () => {
+  test("--font-sans is set, replacing Tailwind's own default", () => {
+    expect(css).toMatch(/--font-sans:\s*"Sora"/);
+  });
+
+  test("the retired display serif left no trace — token, @font-face, or asset reference", () => {
+    expect(css.toLowerCase()).not.toContain("fraunces");
+  });
+});

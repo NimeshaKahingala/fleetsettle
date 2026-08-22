@@ -58,7 +58,7 @@ export function AmountPad({
       <div>
         <p className="text-label text-ink-secondary">{title}</p>
         <div role="textbox" aria-readonly="true" aria-label={title} className="select-none py-2">
-          <Money value={valueMinor} className="text-hero font-display" />
+          <Money value={valueMinor} className="text-hero font-semibold" />
         </div>
         {expectedMinor !== undefined ? (
           <p className="text-caption text-ink-muted">

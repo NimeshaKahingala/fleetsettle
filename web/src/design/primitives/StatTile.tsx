@@ -76,7 +76,7 @@ export function StatTile({
       <p className="text-label font-medium text-ink-secondary">{label}</p>
       <div
         className={cn(
-          size === "hero" ? "text-hero font-display" : "text-title",
+          size === "hero" ? "text-hero font-semibold" : "text-title",
           "text-ink-primary",
         )}
       >

@@ -162,7 +162,7 @@ export function ConfirmDayCard({
         <p className="text-body text-ink-secondary">{stateLabel(settled.state)}</p>
         <div>
           <p className="text-label font-medium text-ink-muted">Earned</p>
-          <Money value={parse(settled.earnedMinor)} className="text-hero font-display" />
+          <Money value={parse(settled.earnedMinor)} className="text-hero font-semibold" />
         </div>
         {confirmMutation.isError ? (
           <p className="text-body-sm text-critical-ink">{confirmMutation.error.message}</p>

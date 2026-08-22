@@ -82,7 +82,7 @@ export function Screen({
               <ChevronLeft className="size-5" aria-hidden />
             </button>
           ) : null}
-          <h1 className="truncate text-title-lg text-ink-primary max-md:landscape:text-title font-display">
+          <h1 className="truncate text-title-lg font-semibold text-ink-primary max-md:landscape:text-title">
             {title}
           </h1>
         </div>

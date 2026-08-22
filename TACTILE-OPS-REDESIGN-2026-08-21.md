@@ -1096,6 +1096,59 @@ CSS property, so only the later class in `cn()`'s output ever applies.
 
 ---
 
+## 5F. Phase 3 executed — 22 August 2026
+
+Self-hosted Sora as `--font-sans`, app-wide — the token did not exist in `tokens.css`
+before this phase (§5C.7), so this is an introduction overriding Tailwind v4's own
+default, not a redefinition. Fetched live from Google Fonts' `css2` API
+(`family=Sora:wght@400..700`) rather than assumed: the downloaded `latin`-subset file is
+exactly **25,284 bytes**, matching §5A.4's measured number precisely, confirming that
+figure wasn't stale. `web/public/fonts/sora-variable-latin.woff2`, variable weight
+400–700, `font-display: swap`, its own `latin` unicode-range copied verbatim from the
+fetched CSS. The old display serif is removed completely per §6: its `@font-face`, its
+token, its asset file (`fraunces-600-latin.woff2`, deleted), and every one of the 5 class
+usages the research phase found (`Screen.tsx`, `StatTile.tsx`, `DayCard.tsx`,
+`AmountPad.tsx`, `ConfirmDayCard.tsx`) — no dormant reference left anywhere in `docs/` or
+`web/src/`, confirmed by a full-tree grep.
+
+**One substitution beyond a literal find-and-replace, made deliberately:** each of the 5
+retired-serif call sites gains `font-semibold` in place of the removed class, not nothing.
+The old serif's `@font-face` shipped exactly one static weight (600) — any element bound
+to it rendered at 600 *regardless of its own CSS `font-weight`*, since no other weight
+existed to select. None of the 5 sites carried an explicit weight utility, so that 600
+look was an accident of the single-weight file, not a stated design intent living in the
+component code. Sora ships as a true variable font (weight range 400–700 in one file), so
+removing the old class without adding a weight utility would have silently dropped these
+elements to browser-default 400 — losing not just the serif-vs-sans hierarchy §5B.9 asked
+to confirm survives, but the boldness itself. `font-semibold` makes the 600 an explicit,
+intentional choice living in the component rather than a side effect of which font file
+happened to be bound — matching what `ui-ux-guidelines.md` §5.2's own weight column
+already specified for `hero`/`title-lg` (600) before this phase, which the serif's
+accident had been satisfying without anyone writing it down.
+
+**Verified, not assumed:** a scratch HTML page loading the real downloaded woff2
+confirmed Sora renders with a genuine, visible weight difference between 400 and 600 —
+the hero figure still dominates (§5B.9's explicit requirement) rather than reading flat
+now that the serif-vs-sans cue is gone. The real app was also loaded in a browser to
+confirm `--font-sans` reaches body text app-wide, not just the 5 former serif sites — the
+sign-in screen (the only screen reachable without live credentials in this environment)
+renders visibly in Sora. A full before/after spread across authenticated screens is
+Phase 8's browser-QA pass, not repeated here.
+
+**The cheap guard §5B.9 asked for lands with this phase, not before it** (§5A.5: no
+other test anywhere asserts `font-display`, `--font-display`, or the old serif, under
+what is simultaneously the highest-blast-radius change in the plan). Two assertions in
+`tokens.test.ts`: `--font-sans` is set to Sora, and the string `"fraunces"` (lowercased)
+appears nowhere in `tokens.css` — catching a *partial* removal, not a wrong weight or a
+missed call site, which is what a two-line guard can actually promise. The guard's own
+existence forced a small rewrite of this phase's `tokens.css` comments: they explain the
+substitution without naming the retired face, so the file doesn't fail its own new test.
+
+`tokens.css` passes `guard`/`lint:css`/`typecheck`/853 web tests (2 new, both the font
+guard); `ui-ux-guidelines.md` §5.2/§12.3 are updated to match.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1211,7 +1264,7 @@ that choice.** Do not invent them silently.
   single-layer shadow; this now shadows rows, stat tiles, buttons and the sheet
   simultaneously and needs its own measurement, not an inherited pass.
 
-### Phase 3 — Typography (Sora, full replacement)
+### Phase 3 — Typography (Sora, full replacement) — DONE, see §5F
 - Self-host Sora as `--font-sans`. **This token does not exist in `tokens.css` today**
   (§5C.7) — it appears only inside an M-34 comment, and the app currently runs on
   Tailwind v4's default sans stack. Phase 3 *introduces* it in the `@theme` block,
@@ -1464,8 +1517,12 @@ stale twice.
       offered); the one real nested-card case (`VehicleRow`) fixed with a `bare` prop;
       re-run perf benchmark shows no measurable cost (mean 7.02ms shadowed vs 6.95ms
       unshadowed, 100-card list, 10× throttle); `Card.tsx`'s stale comment fixed.
-- [ ] Phase 3 — Sora self-hosting (latin subset), `--font-sans` introduced, Fraunces
-      removal, font guard landing with the phase
+- [x] **Phase 3 — Sora self-hosting, executed 22 August 2026 (§5F).** `--font-sans`
+      introduced app-wide (25,284-byte latin-subset woff2, fetched live and confirmed
+      exact byte match to §5A.4); old serif removed completely — token, `@font-face`,
+      asset file, all 5 class usages; each of those 5 gains `font-semibold` (Sora is a
+      true variable font, so the serif's single-static-weight 600 look needs an explicit
+      weight utility now, not nothing); `tokens.test.ts` guard lands with the phase.
 - [ ] Phase 4 — controls: buttons, **seven** form primitives (Pass A), **and the ~30
       inline call sites** (Pass B, §5C.3)
 - [ ] Phase 5 — `EntityAvatar` component (short-name initials rule stated)
