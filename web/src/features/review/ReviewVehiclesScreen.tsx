@@ -9,6 +9,8 @@ import { VehiclePerformanceCard } from "./VehiclePerformanceCard.js";
 
 export interface ReviewVehiclesScreenProps {
   onSelectVehicle: (vehicleId: string, periodId: string) => void;
+  /** Present only when reached through Operate's `/more` (M-36) — absent for `owner`, whose Review shell never gives this screen a back button. */
+  onBack?: () => void;
 }
 
 /**
@@ -21,7 +23,7 @@ export interface ReviewVehiclesScreenProps {
  * both tabs are visited in one session) — the period picker lives on the
  * detail screen this list taps into, not here.
  */
-export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenProps) {
+export function ReviewVehiclesScreen({ onSelectVehicle, onBack }: ReviewVehiclesScreenProps) {
   const api = useApi();
   const me = useMe();
 
@@ -46,7 +48,7 @@ export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenPr
   // never resolves, so `reportQuery` stays `idle` forever, not `pending`.
   if (periodsState.kind === "error") {
     return (
-      <Screen title="Vehicles">
+      <Screen title="Vehicles" {...(onBack !== undefined ? { onBack } : {})}>
         <QueryStateFailure
           error={periodsState.error}
           retry={periodsState.retry}
@@ -57,7 +59,7 @@ export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenPr
   }
   if (reportState.kind === "error") {
     return (
-      <Screen title="Vehicles">
+      <Screen title="Vehicles" {...(onBack !== undefined ? { onBack } : {})}>
         <QueryStateFailure
           error={reportState.error}
           retry={reportState.retry}
@@ -68,14 +70,14 @@ export function ReviewVehiclesScreen({ onSelectVehicle }: ReviewVehiclesScreenPr
   }
   if (reportState.kind !== "ready") {
     return (
-      <Screen title="Vehicles">
+      <Screen title="Vehicles" {...(onBack !== undefined ? { onBack } : {})}>
         <p className="text-body text-ink-muted">Loading…</p>
       </Screen>
     );
   }
 
   return (
-    <Screen title="Vehicles">
+    <Screen title="Vehicles" {...(onBack !== undefined ? { onBack } : {})}>
       <div className="flex flex-col gap-2">
         {reportState.data.vehicles.map((v) => {
           const mine = v.ownerShares.find((s) => s.userId === me.userId);

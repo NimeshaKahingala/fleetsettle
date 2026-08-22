@@ -1,12 +1,23 @@
 import { ChevronLeft } from "lucide-react";
+import { useContext } from "react";
 import { cn } from "../../lib/cn.js";
 import { iconButton } from "../../lib/iconButton.js";
+import { AppBarMergeContext } from "./AppShell.js";
 import { Button } from "./Button.js";
 
 export interface ScreenAction {
   label: string;
   onClick: () => void;
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  /**
+   * M-36a (21 Aug 2026), `HomeScreen`'s bell only today: a small marker on
+   * the action button. A number renders as a count ("9+" past 9); the
+   * literal `"unknown"` renders a plain dot with no digit — for when a
+   * contributing read has failed and the true count can't be stated (W-56:
+   * never render a confident number over data that didn't actually load).
+   * Omit entirely, not `0`, when nothing needs marking.
+   */
+  badge?: number | "unknown";
 }
 
 export interface ScreenPrimaryAction {
@@ -56,9 +67,15 @@ export function Screen({
   children,
 }: ScreenProps) {
   const ActionIcon = action?.icon;
+  const merged = useContext(AppBarMergeContext);
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line-hairline px-4 max-md:landscape:h-11 max-md:landscape:px-3">
+      <header
+        className={cn(
+          "flex h-14 shrink-0 items-center justify-between gap-2 border-b border-line-hairline px-4 max-md:landscape:h-11 max-md:landscape:px-3",
+          merged && "bg-surface",
+        )}
+      >
         <div className="flex min-w-0 items-center gap-1">
           {onBack !== undefined ? (
             <button type="button" onClick={onBack} aria-label="Back" className={iconButton}>
@@ -73,10 +90,29 @@ export function Screen({
           <button
             type="button"
             onClick={action.onClick}
-            aria-label={action.label}
-            className={iconButton}
+            aria-label={
+              action.badge !== undefined
+                ? `${action.label} (${action.badge === "unknown" ? "some items couldn't load" : `${action.badge.toString()} ${action.badge === 1 ? "item" : "items"}`} need attention)`
+                : action.label
+            }
+            className={cn(iconButton, "relative")}
           >
             <ActionIcon className="size-5" aria-hidden />
+            {action.badge !== undefined ? (
+              <span
+                aria-hidden
+                className={cn(
+                  "absolute top-1.5 right-1.5 flex min-w-3.5 items-center justify-center rounded-full bg-critical px-1 text-[10px] leading-3.5 font-semibold text-white",
+                  action.badge === "unknown" ? "size-2 min-w-0 p-0" : "h-3.5",
+                )}
+              >
+                {action.badge === "unknown"
+                  ? null
+                  : action.badge > 9
+                    ? "9+"
+                    : action.badge.toString()}
+              </span>
+            ) : null}
           </button>
         ) : null}
       </header>
