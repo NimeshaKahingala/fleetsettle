@@ -3,6 +3,8 @@ import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   adjustment,
   billingPeriod,
+  incident,
+  incidentRecovery,
   mileageAssessment,
   obligation,
   offsetAllocation,
@@ -583,12 +585,18 @@ export interface LeaseObligationRow {
  * Web-P6b's lease hub: every obligation this lease has ever raised, oldest
  * due first. There is no `lease_id` column on `obligation` itself — a rent
  * due points at its `billing_period`, a mileage-excess due at its
- * `mileage_assessment`, and only a post-closure charge (F-8.4) points at the
- * lease directly — so this is three source paths, the same shape
- * `trackCreatedLease` (tests/support/factories.ts) already tears down by.
- * Two round trips to collect the child ids, then one query, rather than a
- * correlated subquery — the convention this codebase already uses
- * (queries/day-record.ts's `listDayRecordsForDriver`).
+ * `mileage_assessment`, an incident-driven customer contribution (D-9/GAP-10,
+ * `recordCustomerContribution`, domain/incident.ts) at its `incident_recovery`
+ * — always lease-scoped by construction, since a contribution needs a
+ * customer and "no lease means no customer" — and only a post-closure charge
+ * (F-8.4) points at the lease directly — so this is four source paths, the
+ * same shape `trackCreatedLease` (tests/support/factories.ts) already tears
+ * down by (GAP-163: the fourth was missing until now, confirmed invisible on
+ * `LeaseHubScreen`). Two round trips to collect the child ids, then one
+ * query, rather than a correlated subquery — the convention this codebase
+ * already uses (queries/day-record.ts's `listDayRecordsForDriver`); the
+ * incident-recovery path is a single join instead, since
+ * `incident_recovery.incident_id → incident.lease_id` is only one hop.
  */
 export async function findObligationsForLease(
   db: ReadDb,
@@ -607,6 +615,13 @@ export async function findObligationsForLease(
     .where(eq(mileageAssessment.leaseId, leaseId));
   const assessmentIds = assessments.map((a) => a.id);
 
+  const recoveries = await db
+    .select({ id: incidentRecovery.id })
+    .from(incidentRecovery)
+    .innerJoin(incident, eq(incident.id, incidentRecovery.incidentId))
+    .where(and(eq(incident.leaseId, leaseId), isNull(incidentRecovery.voidedAt)));
+  const recoveryIds = recoveries.map((r) => r.id);
+
   const sourceClauses = [and(eq(obligation.sourceType, "lease"), eq(obligation.sourceId, leaseId))];
   if (periodIds.length > 0) {
     sourceClauses.push(
@@ -618,6 +633,14 @@ export async function findObligationsForLease(
       and(
         eq(obligation.sourceType, "mileage_assessment"),
         inArray(obligation.sourceId, assessmentIds),
+      ),
+    );
+  }
+  if (recoveryIds.length > 0) {
+    sourceClauses.push(
+      and(
+        eq(obligation.sourceType, "incident_recovery"),
+        inArray(obligation.sourceId, recoveryIds),
       ),
     );
   }
