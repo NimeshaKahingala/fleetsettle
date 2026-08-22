@@ -592,7 +592,7 @@ test("GAP-149/M-33: a single-membership identity can open the business hub from 
 
   renderWithRouter("/", { get });
 
-  await user.click(await screen.findByRole("button", { name: "BusinessTest Fleet" }));
+  await user.click(await screen.findByRole("button", { name: "Test Fleet" }));
 
   expect(await screen.findByRole("heading", { name: "Businesses" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Create a business" })).toBeInTheDocument();
@@ -628,7 +628,7 @@ test("UI §3.1/M-33: a multi-membership identity can voluntarily reopen the swit
   if (firstRow === null) throw new Error("business row button not found");
   await user.click(firstRow);
 
-  const trigger = await screen.findByRole("button", { name: "BusinessTESTA" });
+  const trigger = await screen.findByRole("button", { name: "TESTA" });
   await user.click(trigger);
 
   expect(await screen.findByText("TestBusinesByChamath")).toBeInTheDocument();
@@ -678,7 +678,7 @@ test("UI §3.1/M-33: actually selecting a business from the voluntary switcher n
   if (firstRow === null) throw new Error("business row button not found");
   await user.click(firstRow);
 
-  await user.click(await screen.findByRole("button", { name: "BusinessTESTA" }));
+  await user.click(await screen.findByRole("button", { name: "TESTA" }));
   const secondRow = (await screen.findByText("TestBusinesByChamath")).closest("button");
   if (secondRow === null) throw new Error("business row button not found");
   await user.click(secondRow);
