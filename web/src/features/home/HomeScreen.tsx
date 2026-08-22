@@ -16,7 +16,9 @@ import type {
 import { useQuery } from "@tanstack/react-query";
 import {
   Banknote,
+  Bell,
   CalendarCheck,
+  Clock,
   HandCoins,
   Route,
   TriangleAlert,
@@ -32,6 +34,7 @@ import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
+import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
@@ -216,9 +219,43 @@ function TodayCards({ leases, today }: { leases: ActiveDailyLeaseRow[]; today: B
  * same thing as no work; only render "Nothing needs you today" after every
  * Home read has answered successfully and all six lists are genuinely empty.
  */
+
+/**
+ * M-36a: one row of the bell's summary sheet. A count, not a list — every
+ * one of these can hold more than one item with no single navigation
+ * target among them (which vehicle's paperwork? which trip?), so this
+ * stays a glance, same as the sheet around it. The full, tappable list for
+ * each is already the section directly below this screen's own hero card.
+ */
+function NeedsAttentionRow({
+  icon: Icon,
+  label,
+  count,
+  total,
+}: {
+  icon: LucideIcon;
+  label: string;
+  count: number;
+  total?: Minor;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-b border-line-hairline py-3 last:border-b-0">
+      <div className="flex min-w-0 items-center gap-3">
+        <Icon className="size-5 shrink-0 text-ink-secondary" aria-hidden />
+        <span className="truncate text-body text-ink-primary">{label}</span>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="text-body-sm text-ink-muted">{count}</span>
+        {total !== undefined ? <Money value={total} /> : null}
+      </div>
+    </div>
+  );
+}
+
 export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
   const api = useApi();
   const today = businessToday();
+  const [bellOpen, setBellOpen] = useState(false);
 
   const paperworkQuery = useQuery({
     queryKey: ["home", "paperwork-warnings"],
@@ -300,147 +337,186 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
     depositReleasesState.kind === "error" ||
     tripsState.kind === "error";
 
+  // M-36a (21 Aug 2026): §3.2's items 1/2/4–7, never item 3 — `activeLeases`
+  // (today's own elevated card) is deliberately excluded from every one of
+  // these three. Item 1 (failed messages) has no query yet — P14 is
+  // deferred — so it contributes nothing today and nothing here needs to
+  // change once it does; a new source just joins this same list.
+  const badgeSourceStates = [
+    paperworkState,
+    unconfirmedState,
+    receivablesState,
+    depositReleasesState,
+    tripsState,
+  ];
+  const badgeAllReady = badgeSourceStates.every((s) => s.kind === "ready");
+  const badgeHasError = badgeSourceStates.some((s) => s.kind === "error");
+  const badgeCount =
+    paperworkWarnings.length +
+    unconfirmedDays.length +
+    rentDue.length +
+    depositReleases.length +
+    inProgressTrips.length;
+  // M-28/W-56: no badge while any source is still loading — not a badge
+  // reading zero — and a failed source marks "unknown" rather than folding
+  // silently into a number that would then be confidently wrong.
+  const bellBadge = badgeHasError
+    ? ("unknown" as const)
+    : badgeAllReady && badgeCount > 0
+      ? badgeCount
+      : undefined;
+
   return (
-    <Screen title="Home" contentWidth="wide">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] lg:items-start">
-        {!anySectionHasContent && !anySectionErrored && allSectionsReady ? (
-          <div className="lg:col-span-2">
-            <EmptyState message="Nothing needs you today" detail={formatHomeDate(today)} />
-          </div>
-        ) : null}
-        {!anySectionHasContent && !anySectionErrored && !allSectionsReady ? (
-          <div className="lg:col-span-2">
-            <p className="p-4 text-body-sm text-ink-muted">Loading…</p>
-          </div>
-        ) : null}
-
-        <div className="flex flex-col gap-2 lg:col-span-2">
-          {paperworkState.kind === "error" ? (
-            <QueryStateFailure
-              error={paperworkState.error}
-              retry={paperworkState.retry}
-              of="paperwork warnings"
-            />
+    <>
+      <Screen
+        title="Home"
+        contentWidth="wide"
+        action={{
+          label: "What needs attention",
+          icon: Bell,
+          onClick: () => setBellOpen(true),
+          ...(bellBadge !== undefined ? { badge: bellBadge } : {}),
+        }}
+      >
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)] lg:items-start">
+          {!anySectionHasContent && !anySectionErrored && allSectionsReady ? (
+            <div className="lg:col-span-2">
+              <EmptyState message="Nothing needs you today" detail={formatHomeDate(today)} />
+            </div>
           ) : null}
-          {paperworkWarnings.map((row) => (
-            <AlertStrip
-              key={`${row.subjectType}-${row.subjectId}-${row.docType}`}
-              severity={row.isExpired ? "critical" : "warning"}
-              icon={TriangleAlert}
-              {...(row.subjectType === "vehicle"
-                ? {
-                    action: {
-                      label: "View vehicle",
-                      onClick: () => onSelectVehicle(row.subjectId),
-                    },
-                  }
-                : {})}
-            >
-              <span className="flex flex-col gap-0.5">
-                <span className="font-medium">{paperworkTitle(row)}</span>
-                <span>{paperworkMessage(row)}</span>
-              </span>
-            </AlertStrip>
-          ))}
-        </div>
-
-        {anySectionHasContent ? (
-          <Card className="flex flex-wrap divide-x divide-line-hairline p-0 lg:col-span-2">
-            <HomeSummaryItem
-              label="Rent due"
-              icon={Banknote}
-              tone={
-                receivablesState.kind === "error"
-                  ? "warning"
-                  : rentDue.length > 0
-                    ? "critical"
-                    : "good"
-              }
-              value={
-                receivablesState.kind === "error" ? (
-                  <NotAvailable reason="read failed" className="text-body-sm" />
-                ) : receivablesState.kind !== "ready" ? (
-                  <NotAvailable reason="loading" className="text-body-sm" />
-                ) : (
-                  <Money value={rentDueTotal} />
-                )
-              }
-              detail={
-                receivablesState.kind === "error"
-                  ? "Needs retry"
-                  : receivablesState.kind !== "ready"
-                    ? "Loading"
-                    : `${rentDue.length.toString()} customer ${rentDue.length === 1 ? "balance" : "balances"}`
-              }
-            />
-            <HomeSummaryItem
-              label="Trips"
-              icon={Route}
-              tone={
-                tripsState.kind === "error"
-                  ? "warning"
-                  : inProgressTrips.length > 0
-                    ? "brand"
-                    : "good"
-              }
-              value={
-                tripsState.kind === "error" ? (
-                  <NotAvailable reason="read failed" className="text-body-sm" />
-                ) : tripsState.kind !== "ready" ? (
-                  <NotAvailable reason="loading" className="text-body-sm" />
-                ) : (
-                  <span className="tabular-nums">{inProgressTrips.length}</span>
-                )
-              }
-              detail={
-                tripsState.kind === "error"
-                  ? "Needs retry"
-                  : tripsState.kind !== "ready"
-                    ? "Loading"
-                    : "Open trip containers"
-              }
-            />
-            <HomeSummaryItem
-              label="Expected"
-              icon={CalendarCheck}
-              tone={
-                activeLeasesState.kind === "error"
-                  ? "warning"
-                  : activeLeases.length > 0
-                    ? "brand"
-                    : "good"
-              }
-              value={
-                activeLeasesState.kind === "error" ? (
-                  <NotAvailable reason="read failed" className="text-body-sm" />
-                ) : activeLeasesState.kind !== "ready" ? (
-                  <NotAvailable reason="loading" className="text-body-sm" />
-                ) : (
-                  <Money value={todayExpectedTotal} />
-                )
-              }
-              detail={
-                activeLeasesState.kind === "error"
-                  ? "Needs retry"
-                  : activeLeasesState.kind !== "ready"
-                    ? "Loading"
-                    : `${activeLeases.length.toString()} ${activeLeases.length === 1 ? "vehicle" : "vehicles"} to confirm`
-              }
-            />
-          </Card>
-        ) : null}
-
-        <div className="flex flex-col gap-4">
-          {activeLeasesState.kind === "error" ? (
-            <QueryStateFailure
-              error={activeLeasesState.error}
-              retry={activeLeasesState.retry}
-              of="today's vehicles"
-            />
+          {!anySectionHasContent && !anySectionErrored && !allSectionsReady ? (
+            <div className="lg:col-span-2">
+              <p className="p-4 text-body-sm text-ink-muted">Loading…</p>
+            </div>
           ) : null}
-          {activeLeases.length > 0 ? <TodayCards leases={activeLeases} today={today} /> : null}
 
-          {/* Reuses ConfirmDayCard verbatim for a past date. F-4.3/GAP-2 landed
+          <div className="flex flex-col gap-2 lg:col-span-2">
+            {paperworkState.kind === "error" ? (
+              <QueryStateFailure
+                error={paperworkState.error}
+                retry={paperworkState.retry}
+                of="paperwork warnings"
+              />
+            ) : null}
+            {paperworkWarnings.map((row) => (
+              <AlertStrip
+                key={`${row.subjectType}-${row.subjectId}-${row.docType}`}
+                severity={row.isExpired ? "critical" : "warning"}
+                icon={TriangleAlert}
+                {...(row.subjectType === "vehicle"
+                  ? {
+                      action: {
+                        label: "View vehicle",
+                        onClick: () => onSelectVehicle(row.subjectId),
+                      },
+                    }
+                  : {})}
+              >
+                <span className="flex flex-col gap-0.5">
+                  <span className="font-medium">{paperworkTitle(row)}</span>
+                  <span>{paperworkMessage(row)}</span>
+                </span>
+              </AlertStrip>
+            ))}
+          </div>
+
+          {anySectionHasContent ? (
+            <Card className="flex flex-wrap divide-x divide-line-hairline p-0 lg:col-span-2">
+              <HomeSummaryItem
+                label="Rent due"
+                icon={Banknote}
+                tone={
+                  receivablesState.kind === "error"
+                    ? "warning"
+                    : rentDue.length > 0
+                      ? "critical"
+                      : "good"
+                }
+                value={
+                  receivablesState.kind === "error" ? (
+                    <NotAvailable reason="read failed" className="text-body-sm" />
+                  ) : receivablesState.kind !== "ready" ? (
+                    <NotAvailable reason="loading" className="text-body-sm" />
+                  ) : (
+                    <Money value={rentDueTotal} />
+                  )
+                }
+                detail={
+                  receivablesState.kind === "error"
+                    ? "Needs retry"
+                    : receivablesState.kind !== "ready"
+                      ? "Loading"
+                      : `${rentDue.length.toString()} customer ${rentDue.length === 1 ? "balance" : "balances"}`
+                }
+              />
+              <HomeSummaryItem
+                label="Trips"
+                icon={Route}
+                tone={
+                  tripsState.kind === "error"
+                    ? "warning"
+                    : inProgressTrips.length > 0
+                      ? "brand"
+                      : "good"
+                }
+                value={
+                  tripsState.kind === "error" ? (
+                    <NotAvailable reason="read failed" className="text-body-sm" />
+                  ) : tripsState.kind !== "ready" ? (
+                    <NotAvailable reason="loading" className="text-body-sm" />
+                  ) : (
+                    <span className="tabular-nums">{inProgressTrips.length}</span>
+                  )
+                }
+                detail={
+                  tripsState.kind === "error"
+                    ? "Needs retry"
+                    : tripsState.kind !== "ready"
+                      ? "Loading"
+                      : "Open trip containers"
+                }
+              />
+              <HomeSummaryItem
+                label="Expected"
+                icon={CalendarCheck}
+                tone={
+                  activeLeasesState.kind === "error"
+                    ? "warning"
+                    : activeLeases.length > 0
+                      ? "brand"
+                      : "good"
+                }
+                value={
+                  activeLeasesState.kind === "error" ? (
+                    <NotAvailable reason="read failed" className="text-body-sm" />
+                  ) : activeLeasesState.kind !== "ready" ? (
+                    <NotAvailable reason="loading" className="text-body-sm" />
+                  ) : (
+                    <Money value={todayExpectedTotal} />
+                  )
+                }
+                detail={
+                  activeLeasesState.kind === "error"
+                    ? "Needs retry"
+                    : activeLeasesState.kind !== "ready"
+                      ? "Loading"
+                      : `${activeLeases.length.toString()} ${activeLeases.length === 1 ? "vehicle" : "vehicles"} to confirm`
+                }
+              />
+            </Card>
+          ) : null}
+
+          <div className="flex flex-col gap-4">
+            {activeLeasesState.kind === "error" ? (
+              <QueryStateFailure
+                error={activeLeasesState.error}
+                retry={activeLeasesState.retry}
+                of="today's vehicles"
+              />
+            ) : null}
+            {activeLeases.length > 0 ? <TodayCards leases={activeLeases} today={today} /> : null}
+
+            {/* Reuses ConfirmDayCard verbatim for a past date. F-4.3/GAP-2 landed
             a daily lease's own effective-dated rate history, so a date here
             can now genuinely differ from the lease's CURRENT rate — but
             ConfirmDayCard's own `expectedMinor` derivation already prefers
@@ -451,167 +527,217 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
             keeps that figure correct across a rate change, so no
             date-aware lookup was needed here after all — only the write
             side (domain/dailyLease.ts) had to change. */}
-          {unconfirmedState.kind === "error" ? (
-            <QueryStateFailure
-              error={unconfirmedState.error}
-              retry={unconfirmedState.retry}
-              of="earlier unconfirmed days"
-            />
-          ) : null}
-          {unconfirmedDays.length > 0 ? (
-            <Section
-              title="Earlier days"
-              count={unconfirmedDays.length}
-              items={groupUnconfirmedByLease(unconfirmedDays).flatMap((group) => {
-                if (group.days.length >= 2) {
+            {unconfirmedState.kind === "error" ? (
+              <QueryStateFailure
+                error={unconfirmedState.error}
+                retry={unconfirmedState.retry}
+                of="earlier unconfirmed days"
+              />
+            ) : null}
+            {unconfirmedDays.length > 0 ? (
+              <Section
+                title="Earlier days"
+                count={unconfirmedDays.length}
+                items={groupUnconfirmedByLease(unconfirmedDays).flatMap((group) => {
+                  if (group.days.length >= 2) {
+                    return [
+                      <ConfirmWeekGroupCard
+                        key={group.dailyLeaseId}
+                        dailyLeaseId={group.dailyLeaseId}
+                        vehicleLabel={group.vehicleRegistration}
+                        driverLabel={group.driverName}
+                        days={group.days}
+                      />,
+                    ];
+                  }
+                  const [only] = group.days;
+                  if (only === undefined) return [];
                   return [
-                    <ConfirmWeekGroupCard
-                      key={group.dailyLeaseId}
+                    <ConfirmDayCard
+                      key={only.id}
                       dailyLeaseId={group.dailyLeaseId}
                       vehicleLabel={group.vehicleRegistration}
                       driverLabel={group.driverName}
-                      days={group.days}
+                      dateLabel={formatHomeDate(only.businessDate)}
+                      today={asBusinessDate(only.businessDate)}
+                      elevated={false}
                     />,
                   ];
-                }
-                const [only] = group.days;
-                if (only === undefined) return [];
-                return [
-                  <ConfirmDayCard
-                    key={only.id}
-                    dailyLeaseId={group.dailyLeaseId}
-                    vehicleLabel={group.vehicleRegistration}
-                    driverLabel={group.driverName}
-                    dateLabel={formatHomeDate(only.businessDate)}
-                    today={asBusinessDate(only.businessDate)}
-                    elevated={false}
-                  />,
-                ];
-              })}
-            />
-          ) : null}
-        </div>
+                })}
+              />
+            ) : null}
+          </div>
 
-        {hasSecondaryContent ? (
-          <aside className="flex flex-col gap-4 lg:sticky lg:top-4" aria-label="Waiting work">
-            {receivablesState.kind === "error" ? (
-              <QueryStateFailure
-                error={receivablesState.error}
-                retry={receivablesState.retry}
-                of="rent due"
-              />
-            ) : null}
-            {rentDue.length > 0 ? (
-              <Section
-                title="Rent due"
-                count={rentDue.length}
-                total={<Money value={rentDueTotal} />}
-                items={rentDue.map((row) => (
-                  <Card
-                    key={row.partyId}
-                    accent="critical"
-                    className="flex items-center justify-between gap-4"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
-                      <div className="min-w-0">
-                        <p className="truncate text-title text-ink-primary">
-                          {row.partyName ?? "—"}
-                        </p>
-                        <p className="text-body-sm text-ink-muted">
-                          {dueLabel(row.oldestDueOn, today)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge variant="critical">Due</Badge>
-                      <Money value={parse(row.outstandingMinor)} />
-                    </div>
-                  </Card>
-                ))}
-              />
-            ) : null}
-
-            {depositReleasesState.kind === "error" ? (
-              <QueryStateFailure
-                error={depositReleasesState.error}
-                retry={depositReleasesState.retry}
-                of="deposits to release"
-              />
-            ) : null}
-            {depositReleases.length > 0 ? (
-              <Section
-                title="Deposits to release"
-                count={depositReleases.length}
-                total={<Money value={depositReleaseTotal} />}
-                items={depositReleases.map((row) => (
-                  <Card
-                    key={row.depositId}
-                    accent="warning"
-                    className="flex items-center justify-between gap-4"
-                  >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
-                      <div className="min-w-0">
-                        <p className="truncate text-title text-ink-primary">
-                          {row.partyName ?? "—"}
-                        </p>
-                        <p className="text-body-sm text-ink-muted">
-                          Held since {formatShortDate(row.holdReleaseDate)}
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1">
-                      <Badge variant="warning">Release</Badge>
-                      <Money value={parse(row.heldMinor)} />
-                    </div>
-                  </Card>
-                ))}
-              />
-            ) : null}
-
-            {tripsState.kind === "error" ? (
-              <QueryStateFailure
-                error={tripsState.error}
-                retry={tripsState.retry}
-                of="trips in progress"
-              />
-            ) : null}
-            {inProgressTrips.length > 0 ? (
-              <Section
-                title="Trips in progress"
-                count={inProgressTrips.length}
-                items={inProgressTrips.map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    onClick={() => onSelectTrip(row.id)}
-                    className="w-full text-left"
-                  >
-                    <Card accent="brand" className="flex items-center justify-between gap-4">
+          {hasSecondaryContent ? (
+            <aside className="flex flex-col gap-4 lg:sticky lg:top-4" aria-label="Waiting work">
+              {receivablesState.kind === "error" ? (
+                <QueryStateFailure
+                  error={receivablesState.error}
+                  retry={receivablesState.retry}
+                  of="rent due"
+                />
+              ) : null}
+              {rentDue.length > 0 ? (
+                <Section
+                  title="Rent due"
+                  count={rentDue.length}
+                  total={<Money value={rentDueTotal} />}
+                  items={rentDue.map((row) => (
+                    <Card
+                      key={row.partyId}
+                      accent="critical"
+                      className="flex items-center justify-between gap-4"
+                    >
                       <div className="flex min-w-0 items-center gap-3">
-                        <Route className="size-5 shrink-0 text-brand-ink" aria-hidden />
+                        <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
                         <div className="min-w-0">
                           <p className="truncate text-title text-ink-primary">
-                            {row.vehicleRegistration}
+                            {row.partyName ?? "—"}
                           </p>
                           <p className="text-body-sm text-ink-muted">
-                            {row.destination ?? "No destination recorded"} ·{" "}
-                            {formatDateRange(row.startDate, row.endDate)}
+                            {dueLabel(row.oldestDueOn, today)}
                           </p>
                         </div>
                       </div>
-                      <Badge variant="brand" className="shrink-0 whitespace-nowrap">
-                        Open
-                      </Badge>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <Badge variant="critical">Due</Badge>
+                        <Money value={parse(row.outstandingMinor)} />
+                      </div>
                     </Card>
-                  </button>
-                ))}
-              />
-            ) : null}
-          </aside>
-        ) : null}
-      </div>
-    </Screen>
+                  ))}
+                />
+              ) : null}
+
+              {depositReleasesState.kind === "error" ? (
+                <QueryStateFailure
+                  error={depositReleasesState.error}
+                  retry={depositReleasesState.retry}
+                  of="deposits to release"
+                />
+              ) : null}
+              {depositReleases.length > 0 ? (
+                <Section
+                  title="Deposits to release"
+                  count={depositReleases.length}
+                  total={<Money value={depositReleaseTotal} />}
+                  items={depositReleases.map((row) => (
+                    <Card
+                      key={row.depositId}
+                      accent="warning"
+                      className="flex items-center justify-between gap-4"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
+                        <div className="min-w-0">
+                          <p className="truncate text-title text-ink-primary">
+                            {row.partyName ?? "—"}
+                          </p>
+                          <p className="text-body-sm text-ink-muted">
+                            Held since {formatShortDate(row.holdReleaseDate)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <Badge variant="warning">Release</Badge>
+                        <Money value={parse(row.heldMinor)} />
+                      </div>
+                    </Card>
+                  ))}
+                />
+              ) : null}
+
+              {tripsState.kind === "error" ? (
+                <QueryStateFailure
+                  error={tripsState.error}
+                  retry={tripsState.retry}
+                  of="trips in progress"
+                />
+              ) : null}
+              {inProgressTrips.length > 0 ? (
+                <Section
+                  title="Trips in progress"
+                  count={inProgressTrips.length}
+                  items={inProgressTrips.map((row) => (
+                    <button
+                      key={row.id}
+                      type="button"
+                      onClick={() => onSelectTrip(row.id)}
+                      className="w-full text-left"
+                    >
+                      <Card accent="brand" className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Route className="size-5 shrink-0 text-brand-ink" aria-hidden />
+                          <div className="min-w-0">
+                            <p className="truncate text-title text-ink-primary">
+                              {row.vehicleRegistration}
+                            </p>
+                            <p className="text-body-sm text-ink-muted">
+                              {row.destination ?? "No destination recorded"} ·{" "}
+                              {formatDateRange(row.startDate, row.endDate)}
+                            </p>
+                          </div>
+                        </div>
+                        <Badge variant="brand" className="shrink-0 whitespace-nowrap">
+                          Open
+                        </Badge>
+                      </Card>
+                    </button>
+                  ))}
+                />
+              ) : null}
+            </aside>
+          ) : null}
+        </div>
+      </Screen>
+      <Sheet
+        open={bellOpen}
+        onOpenChange={setBellOpen}
+        title="What needs attention"
+        description={
+          badgeHasError
+            ? "Some of this couldn't load. Close this and press retry on the home screen."
+            : "A summary of what needs your attention. Close this and scroll for the full list."
+        }
+      >
+        <div className="flex flex-col">
+          {paperworkWarnings.length > 0 ? (
+            <NeedsAttentionRow
+              icon={TriangleAlert}
+              label="Paperwork"
+              count={paperworkWarnings.length}
+            />
+          ) : null}
+          {unconfirmedDays.length > 0 ? (
+            <NeedsAttentionRow icon={Clock} label="Earlier days" count={unconfirmedDays.length} />
+          ) : null}
+          {rentDue.length > 0 ? (
+            <NeedsAttentionRow
+              icon={Banknote}
+              label="Rent due"
+              count={rentDue.length}
+              total={rentDueTotal}
+            />
+          ) : null}
+          {depositReleases.length > 0 ? (
+            <NeedsAttentionRow
+              icon={HandCoins}
+              label="Deposits to release"
+              count={depositReleases.length}
+              total={depositReleaseTotal}
+            />
+          ) : null}
+          {inProgressTrips.length > 0 ? (
+            <NeedsAttentionRow
+              icon={Route}
+              label="Trips in progress"
+              count={inProgressTrips.length}
+            />
+          ) : null}
+          {badgeAllReady && badgeCount === 0 && !badgeHasError ? (
+            <p className="py-3 text-body-sm text-ink-muted">Nothing needs you today.</p>
+          ) : null}
+        </div>
+      </Sheet>
+    </>
   );
 }

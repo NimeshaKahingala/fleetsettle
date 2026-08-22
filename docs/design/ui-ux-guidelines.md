@@ -1,8 +1,11 @@
 # UI/UX Guidelines
 
-**Status:** v1.5 — **M-32/M-33 added: the admin panel and the business switcher, neither a fourth shell.** §1.1 and §3.1 gain the explicit sentence the platform-admin design's own §11 flagged as necessary — M-3 (three shells, never a fourth) is not being quietly reversed; the admin panel is a platform surface reached from within whichever shell an identity already has, and the switcher changes which business a shell's numbers describe, never the shell itself. The business name moves into `AppShell`'s app bar (§6.1), separate from `Screen`'s own `title`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §8. Decided 18 Aug 2026.
+**Status:** v1.8 — **§5.1's colour table updated to Tactile Ops Phase 1** (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5D) — full cool-neutral/navy palette replacing House Style's warm/terracotta pair, built and passing `guard`/`lint:css`/`typecheck`/tests. Not yet a numbered `M-35` decision — that lands once Phase 8 closes the whole 9-phase redesign; this bump only keeps the token table from lying about what `tokens.css` ships today. Updated 22 Aug 2026.
+**v1.7** — **M-36 added: the app bar merges business name and screen title on true top-level screens, and Home gains a needs-attention bell.** M-33's two-bar chrome (business-name strip above `Screen`'s own title bar) stays exactly as specified on any screen reached with a back button; on the 8 screens that are never reached with one, the two collapse into a single two-line bar, saving the vertical space CLAUDE.md's 360×640 constraint makes scarce. The bell is `Home`'s own `Screen.action` — the one top-level screen where that slot is free — badging the same reads §3.2 already specifies, items 1/2/4–7, never item 3's hero card. No new backend: it aggregates data `HomeScreen.tsx` already fetches. Decided 21 Aug 2026.
+**v1.6** — **M-34 added: House Style, the first brand-identity revision since §16 left it open.** The owner-manager found the shipped system generic — a fair read, since §5.1's brand blue and §5.2's system-only type stack were both cost trade-offs, not taste. §5.1's palette, §5.2's typography and §5.3's elevation rule all change; the reasoning and the measured numbers behind each are in M-34's own decisions-log entry rather than repeated at each section. Decided 21 Aug 2026.
+**v1.5** — **M-32/M-33 added: the admin panel and the business switcher, neither a fourth shell.** §1.1 and §3.1 gain the explicit sentence the platform-admin design's own §11 flagged as necessary — M-3 (three shells, never a fourth) is not being quietly reversed; the admin panel is a platform surface reached from within whichever shell an identity already has, and the switcher changes which business a shell's numbers describe, never the shell itself. The business name moves into `AppShell`'s app bar (§6.1), separate from `Screen`'s own `title`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §8. Decided 18 Aug 2026.
 **v1.4.1** — GAP-134: `Sheet`'s mobile back-button/gesture mechanism changed from a hand-rolled `history.pushState`/`.back()` scheme to the platform `CloseWatcher` API (§3.3, §6.1, M-27's Why column); no conclusion changes, only how it's answered. M-31: the whole-app visual refresh is now a planned, route-wide design-system pass rather than a Home-only polish item. It keeps the mobile-first contract, uses semantic colour/icon/word pairings, and folds the live QA findings on login, Home and desktop stretch into §7.11, §14 and §15. M-30 still stands for `PhotoCapture`.
-**Date:** 16 August 2026
+**Date:** 21 August 2026
 **Companions:** `use-cases.md` (intent) · `user-flows.md` (mechanics) · `data-model.md` (schema) · `tech-stack.md` (platform) · `brand-guidelines.md` (identity)
 
 This document owns **surface**: what the user sees, touches and reads. It does not re-decide behaviour — the use-case document owns intent, the flows document owns mechanics, and every rule below is downstream of one of them. Where a rule here contradicts either, they win and this document is wrong.
@@ -120,6 +123,10 @@ Each is reversible on its own. Entries marked ⚑ are my judgement rather than s
 | **M-31** ⚑ | **The visual refresh is a system pass, not decoration.** Every phase-1 route gets the same hierarchy model: one focal job, semantic status/action treatment, icon + word for meaning, responsive panes at `lg`, and no new raw palette | Found by the 14 August 2026 QA/code audit prompted by the login and Home review. The live app is structurally usable, but several routes read as one flat stack: Home's work queues use quiet section labels, `Rs 0` lacks enough context, critical alerts are heavy without structure, and desktop stretches mobile rows to 1280px despite §14. The correction is not "add colour everywhere." Material 3's current theming guidance maps colour through roles and hierarchy, Apple HIG warns against reusing a colour for several meanings, and WCAG 2.2 adds mobile-relevant focus/target criteria; those all match rules this document already had. So this decision tightens usage: brand colour is for the primary action/active destination, status tokens are for status with icons and words, surfaces remain mostly neutral, and every route is reviewed against the route inventory in §7.11 before any code refresh is called done |
 | **M-32** ⚑ *(added 18 Aug 2026)* | **The admin panel reuses `Screen`, `Card`, `Sheet` and the existing primitives — no parallel design system.** Every phase-1 rule applies unchanged: 360×640 no horizontal scroll (M-1), 44×44 targets, no raw hex. Rejecting a request and revoking an admin are both re-grantable, therefore reversible, therefore `Sheet` — never `Dialog` (M-5, W-67) | Decision 14/15 (`PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md`): mobile-first like everything else, and a hand-run-SQL interim was explicitly declined. A self-approved request renders **visibly distinct** from an arms-length one (W-67) — the kind of thing that cannot be added credibly after the fact, so it is specified here rather than left to whoever builds the screen |
 | **M-33** ⚑ *(added 18 Aug 2026)* | **The business switcher is a `Sheet`, not a `Dialog`** — switching is neither destructive nor one-way, the same test M-5 already applies everywhere else. `MoreScreen`'s sign-out confirm is the pattern to copy. **On switch: a full `queryClient.clear()` and hard remount, never `invalidateQueries`** | No react-query key in this client contains a business id — every key is business-implicit (`["vehicles"]`, `["partner", userId]`). Without a full clear, business A's money can render under business B's name after a switch — **the highest-severity failure mode this decisions log contains**: a confident, plausible, wrong number, on the exact promise CLAUDE.md opens with. `BUSINESS_NOT_SELECTED` (`user-flows.md` §2.4) shows the switcher itself, never a bare error screen |
+| **M-34** ⚑ *(added 21 Aug 2026 — superseded by M-35, 22 Aug 2026, for the specific hexes and the real-device caveat below; its `--shadow-card` mechanism and its resolution of §16's brand-identity item stand, under a different palette)* | **House Style — a new brand accent, a display face on hero figures and screen titles, and a cheap shadow on every card, not only the day card.** §5.1's `--l-brand`/`--l-brandink`/`--l-wash` (and the dark trio) move from the chart-palette blue to `#9c3f2e` light / `#ab3f2b` fill + `#e08260` ink dark — `--color-direction-payable` and chart slot 2 are untouched. §5.2 adds `--font-display` (self-hosted Fraunces 600, subset to the fixed English vocabulary it actually renders — screen titles and hero money figures, never a name). §5.3's "hairlines, not shadows" default is reversed for the ordinary `Card`, via one new token, `--shadow-card` | Resolves §16's open brand-identity item — the owner-manager's own read that the shipped system was generic, not a rules violation. Every new hex ran through `dataviz`'s `validate_palette.js`, not eyeballed: light brand clears CVD ΔE 18.7 / normal-vision ΔE 18.7 against `--l-payable`, cleanly. Dark cannot clear the strict ≥15 normal-vision floor against `--d-payable` at the lightness dark mode needs — every rust bright enough to read against `#141413` converges on orange — so dark ships the best-scoring pair found (ΔE 11.2/9.2, still clearing the CVD target of 8), accepted on the same basis this document already uses for the sub-3:1 light-mode `warning`/`serious` fills: brand and payable never appear without their own word (M-15), so two colours never have to carry the distinction alone. The elevation reversal is a deliberate, recorded trade-off against §5.3's original cheap-GPU reasoning, not a quiet one — benchmarked (100-card list, 360×640, Chrome's 10× CPU throttle) against an unshadowed control: mean frame time 8.32 ms shadowed vs 8.35 ms unshadowed, p95 9.2 ms both, 1 dropped frame (>16.7 ms) out of 300 in both runs, 0 severe drops (>33 ms) in either — a static single-layer `box-shadow` costs nothing measurable to composite because it rasterizes once per card layer rather than repainting every scroll frame. This is throttled-Chrome emulation, not the physical mid-range-Android hardware the original reasoning named; it substantially de-risks the reversal but a real-device pass before the next release is still the more trustworthy confirmation |
+| **M-35** ⚑ *(added 22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md`)* | **Tactile Ops supersedes House Style (M-34) — not a retheme, a structural pass across the component set.** Seeing M-34 live, the owner-manager's actual ask was depth, iconography and real form controls, not a second colour swap; §5D–§5J carry the full derivation, this row is the summary and the measured numbers a reviewer needs without re-reading nine sections. **Palette (§5D):** cool neutral family (`--l-page #EDEFF3`/`--l-surface #FFFFFF`/`--l-ink1 #151A22`, dark `#0B0E14`/`#12151C`/`#F6F7FA`) replaces House Style's warm one; brand moves to `#0F2E63` light / `#1E3A6E` fill + `#9CBAF7` ink dark — widest CVD margin of four finalists (27.0), and the dark ink is chosen separately from the dark fill (§5B.2's corrected two-token approach), not searched as one hex the way M-34's own §4.2 mistakenly did. New `--color-surface-sunken` for Phase 4's filled controls. **Typography (§5F):** self-hosted Sora replaces the display serif **app-wide**, not scoped to hero figures — `--font-sans` did not exist before this and now sets the whole app's body font via Tailwind's own `--default-font-family`. **Elevation (§5E):** `--radius-md` 12→18px, `--radius-lg` 16→20px, `--shadow-card` moves to a heavier value (mechanism unchanged from M-34), plus two net-new tokens (`--shadow-sheet`, `--shadow-btn-primary`). **Controls (§5G):** every form primitive and 37 hand-rolled call sites move from outlined to filled/recessed. **New primitives:** `EntityAvatar` (§5H) and `ActionSheet`'s icon chip + optional caption (§5I), which also drops the money-direction accent border in favour of the chip's own colour. **Contrast checklist, measured not eyeballed:** `EntityAvatar` white-on-brand 13.20:1 light/11.14:1 dark, dark-on-sunken initials 13.31:1 light/13.01:1 dark; `ActionSheet` caption `--color-ink-muted` (never the mockup's failing `#8a93a3`); `--d-brandink` as text 9.38:1 vs `--color-surface` / 9.92:1 vs `--color-page`, and therefore `--color-focus-ring` at the same figures; the sunken fill's separation from surface 1.31:1 light/1.31:1 dark, clearing §5B.3's ≥1.3:1 floor both the mockup's own literal value failed. **One regression found and flagged, not hidden:** the money-direction accent bar's dark-mode contrast is 1.64:1, worse than M-34's own 3.05:1 — accepted under the same M-15 basis, recorded in §5.1 with a ⚑ pending Phase 8's real-browser confirmation below. **Real-browser QA (§5K), chrome-devtools MCP against a running dev server with mocked API responses, both themes:** `Card`-based screens (Vehicles, People, a driver detail), the Add sheet (`ActionSheet` chips + captions), a form screen (`Change arrangement` — filled `NativeSelect`/`DateField`, the CTA glow), and both report shapes (`VehicleMonthReportScreen`'s nested `bare` table inside `VehicleRow`'s own `Card`, and `ReviewVehicleDetailScreen`'s default Card-wrapped table, the fourth `StatTile`+`ReportTable` screen §5C.4 found outside `features/reports/`) — all read correctly, and the money-direction bar above is confirmed still perceptible at 3px despite the lower contrast figure. | House Style was a fair first read of a generic system but a cost-scoped fix — one accent, one font role, one shadow. Living with it surfaced that the actual complaint was structural: bare icons with no identity chip, outlined fields indistinguishable from static text on a form-heavy screen, one flat shadow layer everywhere. M-15's "always paired with a word" precedent, first used for M-34's dark rust-vs-orange collision, recurs twice more here (the dark brand-ink search, the accent-bar regression) — the same shape of problem each time: a hue-family collision at the lightness dark mode needs, solved by picking the ink and the fill against their own separate requirements rather than one hex for both. |
+| **M-36** ⚑ *(added 21 Aug 2026 — M-35 is reserved, not skipped: `TACTILE-OPS-REDESIGN-2026-08-21.md` §6 Phase 8 commits to landing House Style's successor as M-35 once that plan is built, and this decision was made before that phase ran)* | **The app bar merges business name and screen title into one two-line block on any screen `Screen` renders with no `onBack` — every other screen keeps M-33's two-bar layout unchanged.** Line 1 stays exactly what M-33 specified: the business name, unstyled for a single membership, or with the same `ChevronsUpDown` affordance opening the same switcher `Sheet` for more than one — only its position moves, from its own full-height strip to the top line of the merged block. Line 2 is `Screen`'s own `title`, at its existing weight. **Qualifying screens, checked against every route in the router, not assumed:** `HomeScreen`, `VehicleListScreen`, `PeopleListScreen`, `MoreScreen` (Operate's four tab roots), `ReviewVehiclesScreen` (Review's `vehicles` tab), `MineScreen` (Mine's sole screen, no tab bar to speak of), and — because their `onBack` is already role-conditional today, exactly the same signal — `ReviewThisMonthScreen`, `ReviewMoneyScreen`, `ReportsCatalogueScreen` get the merged bar for an `owner` and keep the two-bar layout for `owner_manager`/`manager`, with no new conditional to write: the rule reads the same `onBack` presence these three already compute. **Named exclusion:** `CloseLeaseScreen` drops `onBack` past wizard step 0, but that signals "mid-flow," not "this is a hub" — it keeps the two-bar layout throughout regardless of which step is showing. The admin shell has no qualifying screens at all — every one of its six, including its own hub `AdminHomeScreen`, carries `onBack` on purpose (§3.1: "an explicit back affordance to the business shell" where no tab bar exists), so M-36 does not reach it, and no exception needs writing for it. **A related latent inconsistency, surfaced by this change rather than caused by it:** `ReviewVehiclesScreen` has no `onBack` prop at all, unconditional or otherwise, unlike its three `useOperateReviewBack()` siblings above — harmless today only because `MoreScreen` never links to `/review/vehicles` directly. Fix it to use the same hook while touching this area, so a future link from Operate doesn't put a business-name line on a screen an `owner_manager` reached by drilling down. **Confirmed 22 Aug 2026:** `MineScreen` does have a `businessName` to show — `MineLayout` calls the same `useSelectedBusiness()` hook `OperateLayout` and `ReviewLayout` do and passes `businessName={selected.name}` to `AppShell` on the identical path, so a linked driver's single membership renders the name unstyled exactly as M-33 already specifies for one membership; nothing about `MineScreen` is a special case. | Merging saves real vertical space — M-33's two bars cost a strip plus a 56px header, roughly 100px of a 640px screen, entirely on chrome, on exactly the eight screens where `Screen`'s title is otherwise least informative (it already restates the active tab's own label). The rule is "no `onBack`," not a hand-maintained screen list, because that is already the exact signal this codebase uses to distinguish a hub from a drill-down (`Screen.tsx`'s own doc comment: "absent on a tab's own top-level screen") — a second, parallel list would drift from the first the way `assert_period_open()`'s array already proved a hand-maintained list does. M-33's actual requirements — shell ownership of the name, the same switcher mechanism, "nothing to tap" for one membership — are about *ownership and behaviour*, not about occupying a dedicated full-height bar, so collapsing the layout doesn't reopen that decision; it refines where its output renders. Preserving the strip on every screen that *does* have a back button keeps M-33's stated guarantee — the name reachable "whichever screen is open" — intact for the screens where collapsing it would have quietly narrowed that to "only from a tab root," which is not what M-33 decided. |
+| **M-36a** ⚑ *(added 21 Aug 2026, alongside M-36)* | **`HomeScreen` gains a bell in its now-free `Screen.action` slot, badging §3.2's items 1, 2 and 4–7 — never item 3.** The count is a sum across reads `HomeScreen.tsx` already performs today: failed messages (0 until P14 ships a read endpoint — see IG's own note on that), expired/expiring paperwork, earlier unconfirmed days, rent due and overdue, expired deposit holds, and trips in progress. Item 3, today's elevated day card, is excluded on purpose — it is already the single most prominent thing on the screen; counting it in a badge would double-announce the one interaction §3.2 already built the whole layout around. Tapping the bell opens a sheet grouping the same items §3.2's own "section groups with counts" already describes, each row using whatever navigation that item's own Home rendering already performs today (a paperwork row already calls `onSelectVehicle`; where a section currently has no tap-through of its own, its bell row is count-only for this pass rather than inventing a new destination). No new read, no new endpoint — this is a second rendering of data already on the screen, valuable mainly as a during-the-day glance that doesn't require scrolling past the hero card, not a general notification centre. It is deliberately **not** wired to message-delivery status: P14 (WhatsApp messaging) is Phase 2 and was deliberately deferred whole by the owner on 17 Aug 2026 (`TRACKER.md`, Blocked) — once it ships a read endpoint, item 1 stops being permanently zero and needs no change here to start counting, which is the point of keying the badge to §3.2's list rather than to WhatsApp specifically. **Scope, stated so it isn't accidentally widened:** the bell exists only on `HomeScreen`. `VehicleListScreen` and `PeopleListScreen` already spend their one `Screen.action` slot on their own "Add" buttons (§6.1's "never more than one contextual action" is `Screen`'s rule, unchanged), and the underlying reads are Operate/Home-specific — extending the bell to `MoreScreen`, `ReviewVehiclesScreen` or `MineScreen` is a separate decision this entry does not make. | The action slot was free on exactly one qualifying screen (`Screen.action` is used today by `VehicleListScreen`'s "Add a vehicle" and `PeopleListScreen`'s "Add", both unconditional), so the placement question answers itself rather than needing a new shell-level convention invented for it. Keying the count to §3.2's already-fixed, already-argued item order (rather than re-deriving "what counts as needing attention") means this decision adds no new judgement call about priority — it reuses one already made and recorded. |
 
 ---
 
@@ -164,7 +171,7 @@ Five tabs maximum, labels always visible, 56px tall plus `env(safe-area-inset-bo
 
 **The admin panel is not a fourth shell** (added 18 Aug 2026, mirrors the owner-manager note above). It has no tab bar of its own and grows no sixth tab (M-3) anywhere else's — reached from **More** when `isPlatformAdmin` is true, or, for an admin holding no business membership at all, standing alone as the only thing `/api/session` gives them anything to open. Same reasoning as the owner-manager: a role held by very few identities, at this business's scale, does not earn permanent navigation real estate.
 
-**Business name lives in the app bar, not in `Screen`'s title.** `Screen`'s `title` prop names the *screen* ("Vehicles", "Close July"); the business name is shell-level chrome, owned by `AppShell` (§6) alongside the tab bar and the offline banner, and it is the same one line whichever screen is open. An identity with only one membership sees the name, unstyled as an affordance — nothing to tap, nothing to switch. An identity with more than one sees the name **with a switcher affordance**, opening the business-selection `Sheet` (M-33 below).
+**Business name lives in the app bar, not in `Screen`'s title.** `Screen`'s `title` prop names the *screen* ("Vehicles", "Close July"); the business name is shell-level chrome, owned by `AppShell` (§6) alongside the tab bar and the offline banner, and it is the same one line whichever screen is open. An identity with only one membership sees the name, unstyled as an affordance — nothing to tap, nothing to switch. An identity with more than one sees the name **with a switcher affordance**, opening the business-selection `Sheet` (M-33 below). **On a screen with no back button, that line and `Screen`'s own title now render as one merged two-line bar rather than two stacked ones — M-36 has the full rule and the exact screen list; nothing about the switcher's mechanism changes, only where its trigger sits.**
 
 ### 3.2 The home screen is an ordered stack, not a dashboard
 
@@ -187,6 +194,7 @@ The order is already fixed by the flows document (FL §7) and is not a design ch
 - Items 4–7 are **section groups with counts** (`Earlier days · 5`), collapsed to three rows each with "Show all".
 - **Nothing about successful messaging appears.** Success is invisible by design (UC-87).
 - **Empty is a real state and it is a good one.** Show "Nothing needs you today" with the date only after the Home reads have answered with real nothing, not during the initial loading window and not as a nudge to go find work.
+- **A bell in the app bar badges the count across items 1, 2 and 4–7 — never item 3** (M-36a has the mechanics: which slot, why it excludes the elevated card, why it isn't wired to message status yet). It answers with real nothing exactly like the page body does — no badge, not a badge reading zero, while any of those reads is still loading, matching the same distinction M-28 already requires everywhere else.
 
 **When more than one vehicle has a card today.** The worked examples describe one bus, but the model allows any number of daily leases, and five stacked cards at ~200px each is a 1,000px home screen before anything else appears — which turns U-4's "the home screen holds the truth" into a wall nobody reads to the bottom of.
 
@@ -292,29 +300,34 @@ All tokens are CSS custom properties consumed through Tailwind v4's `@theme`. No
 
 ### 5.1 Colour
 
-**Surfaces and ink** — warm neutrals; a pure-white card at full brightness is unreadable in the sun and harsh at night.
+**Tactile Ops (Phase 1 built 22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5D) is replacing this palette in flight.** The table below is what `tokens.css` ships *today* — cool neutrals and a navy brand, not House Style's warm/terracotta pair, which this same phase retired. The redesign is 9 phases; only Phase 1 (palette) has landed, so the values are final but the *look* (radius, elevation, type) is not — a formal `M-35` decision-log entry lands once Phase 8 closes the whole thing out, superseding M-34 the way M-34 superseded the chart-palette blue before it. Cite the plan doc, not M-34, for anything below.
+
+**Surfaces and ink** — cool neutrals (Tactile Ops); House Style's warm family (`#F1F1EC`/`#FBFBF8`/`#14140F`…) is retired.
 
 **Every colour token is named `--color-*`, and that prefix is not a style choice.** Tailwind v4's `@theme` is namespaced: only a variable in the `--color-*` namespace generates colour utilities, so `--color-ink-primary` yields `text-ink-primary` / `bg-ink-primary` / `border-ink-primary`, while a token named `--color-ink-primary` generates nothing and fails silently. The tokens below are therefore written exactly as they appear in §12.3 — one name, one place, no translation step.
 
 | Token | Utility | Light | Dark | Contrast (light / dark) |
 |---|---|---|---|---|
-| `--color-page` | `bg-page` | `#F1F1EC` | `#0D0D0C` | — |
-| `--color-surface` (cards, sheets, charts) | `bg-surface` | `#FBFBF8` | `#141413` | — |
-| `--color-ink-primary` | `text-ink-primary` | `#14140F` | `#F5F5F0` | 17.8 / 16.9 |
-| `--color-ink-secondary` | `text-ink-secondary` | `#52514E` | `#C3C2B7` | 7.7 / 10.3 |
-| `--color-ink-muted` (supporting text) | `text-ink-muted` | `#6E6C66` | `#96948C` | 5.1 / 6.1 |
-| `--color-ink-faint` (axis, hairlines — **non-text only**) | `text-ink-faint` | `#898781` | `#898781` | **3.5 / 5.1** |
-| `--color-line-hairline` | `border-line-hairline` | `rgba(20,20,15,0.10)` | `rgba(255,255,255,0.10)` | — |
-| `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DCDBD3` | `#2C2C2A` | — |
+| `--color-page` | `bg-page` | `#EDEFF3` | `#0B0E14` | — |
+| `--color-surface` (cards, sheets, charts) | `bg-surface` | `#FFFFFF` | `#12151C` | — |
+| `--color-ink-primary` | `text-ink-primary` | `#151A22` | `#F6F7FA` | 17.5 / 17.1 |
+| `--color-ink-secondary` | `text-ink-secondary` | `#5B6472` | `#C2C3C7` | 5.98 / 10.4 |
+| `--color-ink-muted` (supporting text) | `text-ink-muted` | `#646D7C` | `#94969B` | 5.22 / 6.16 |
+| `--color-ink-faint` (axis, hairlines — **non-text only**) | `text-ink-faint` | `#8A93A3` | `#84868B` | **3.10 / 5.01** |
+| `--color-line-hairline` | `border-line-hairline` | `rgba(21,26,34,0.10)` | `rgba(255,255,255,0.10)` | — |
+| `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DEDFE0` | `#292C32` | — |
+| `--color-surface-sunken` (recessed fill, filled form controls — §6 Phase 4) | `bg-surface-sunken` | `#DDE1E8` | `#2A2C33` | 1.31 / 1.31 vs surface |
 
-**Brand and interactive**
+**Brand and interactive** (Tactile Ops Phase 1, 22 Aug 2026 — supersedes M-34's terracotta pair)
 
 | Token | Light | Dark | Note |
 |---|---|---|---|
-| `--color-brand` (filled buttons) | `#256ABF` | `#3987E5` | White on light brand = 5.39:1; 5.2 / 5.1 against its own surface |
-| `--color-brand-ink` (links, brand-coloured text) | `#1C5CAB` | `#86B6EF` | 6.39:1 on light |
-| `--color-brand-wash` (selected rows, chips) | `#E6F0FC` | `#16283F` | |
-| `--color-focus-ring` | `#1C5CAB` | `#86B6EF` | 3px, 2px offset, never removed |
+| `--color-brand` (filled buttons) | `#0F2E63` | `#1E3A6E` | White on light brand = 13.20:1; white on dark brand = 11.14:1 |
+| `--color-brand-ink` (links, brand-coloured text) | `#0F2E63` | `#9CBAF7` | Light mode: one hex serves fill and ink both, same as House Style's own pattern. Dark ink is a separate, much lighter hex from the fill (§5B.2 — the two tokens have opposite requirements) — 9.38:1 against the dark surface |
+| `--color-brand-wash` (selected rows, chips) | `#E2E6EC` | `#141C2C` | Brand-ink text on wash: 10.53:1 light / 8.71:1 dark |
+| `--color-focus-ring` | `#0F2E63` | `#9CBAF7` | 3px, 2px offset, never removed |
+
+Light mode: `#0F2E63` was the widest-margin survivor of a four-candidate battery run against the new neutrals (CVD/normal-vision ΔE 27.0 vs `--color-chart-1`/`--color-direction-payable`, the next-best candidate at 22–23). Dark mode uses `dataviz`'s `validate_palette.js` on the *ink* role alone, corrected from an earlier single-hex search that conflated fill and ink requirements (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5B.2): `#9CBAF7` clears the strict ≥15 normal-vision floor outright (ΔE 18.1) rather than needing the M-15 "always paired with a word" exception House Style's dark rust pair required.
 
 **Status** — fixed, never themed, never reused as a series colour.
 
@@ -329,27 +342,31 @@ Status colours **always ship with an icon and a word** — the light-mode warnin
 
 **Money direction** is *identity*, not polarity (UC §6.4, W-2), so it is not a status colour and it is not a raw hex:
 
-| Token | Light | Dark | Contrast (light / dark) | Meaning |
+| Token | Light | Dark | Contrast (light / dark, vs `--color-surface`) | Meaning |
 |---|---|---|---|---|
-| `--color-brand` | `#256ABF` | `#3987E5` | 5.2 / 5.1 | **He owes you** — 3px leading rule + the words "owes you" |
-| `--color-direction-payable` | `#EB6834` | `#D95926` | 3.1 / 4.8 | **You owe him** — 3px leading rule + the words "you owe" |
-| `--color-ink-faint` hatched | `#898781` | `#898781` | 3.5 / 5.1 | **Held, not yours** (deposits, advances) + the word "held" |
+| `--color-brand` | `#0F2E63` | `#1E3A6E` | 13.20 / **1.64** ⚑ | **He owes you** — 3px leading rule + the words "owes you" |
+| `--color-direction-payable` | `#EB6834` | `#D95926` | 3.20 / 4.70 | **You owe him** — 3px leading rule + the words "you owe" |
+| `--color-ink-faint` hatched | `#8A93A3` | `#84868B` | 3.10 / 5.01 | **Held, not yours** (deposits, advances) + the word "held" |
 
-The amount itself is always `--color-ink-primary`, whichever direction it points (M-15). `--color-direction-payable` is deliberately the same hex as chart slot 2 in both modes (§11.2), so the marker beside a driver's balance and the series in a chart about that driver are the same orange rather than two oranges. All three clear the 3:1 non-text threshold (SC 1.4.11) against the surface they render on.
+The amount itself is always `--color-ink-primary`, whichever direction it points (M-15). `--color-direction-payable` is deliberately the same hex as chart slot 2 in both modes (§11.2), so the marker beside a driver's balance and the series in a chart about that driver are the same orange rather than two oranges.
+
+⚑ **`--color-brand`'s dark-mode accent bar is below the 3:1 non-text floor, and worse than House Style's own 3.05:1 it replaces.** Found while re-verifying Tactile Ops' Phase 1 palette (22 Aug 2026) — `#1E3A6E` was chosen for its *fill* role (white-on-fill 11.14:1, §5B.2), and every navy light enough to also clear 3:1 against the new dark surface (`#12151C`) converges toward `--color-chart-1`'s own hue (ΔE drops to ~11, below the 15 floor `#4269AC` and lighter candidates were tested at) — the same structural collision §4.2 wrongly generalised from and §5B.2 correctly scoped to the *ink* role only. For the *fill* role used as a thin non-text accent bar, the collision is real: no hex serves "dark enough for white text" and "light enough to read as a line against a dark card" at once. Accepted under the same M-15 "always paired with a word" basis House Style's own dark pair already used at 3.05:1 — every remaining consumer (`Card.tsx`, `ReviewMoneyScreen.tsx`, `ReviewVehicleDetailScreen.tsx`, `VehicleMonthReportScreen.tsx`, `VehicleYearReportScreen.tsx`) pairs the bar with "owes you"/"owed to you" text, so the direction is never conveyed by colour alone even at 1.64:1. (`ActionSheet.tsx` dropped this border entirely in Tactile Ops Phase 6 — its icon chip carries the direction signal now, so it is no longer a consumer of this token at all, not merely an unaffected one.) **Flagged for Phase 8's browser QA pass**, not silently shipped: confirm in a real dark-mode browser that the bar is still perceptible at 3px next to its paired text before treating this as settled, since 1.64:1 is materially worse than the 3.05:1 precedent that established the exception.
 
 ### 5.2 Typography
 
 ```
---font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+--font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
 --font-sinhala: "Noto Sans Sinhala", var(--font-sans);
 ```
 
-Noto Sans Sinhala is self-hosted, subset, and `font-display: swap`. It is applied by `:lang(si)` rather than globally, so the English UI never pays for it. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
+**Tactile Ops Phase 3 (22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5F) replaces House Style's display serif with self-hosted Sora — as `--font-sans`, app-wide, not scoped to a handful of hero elements the way the serif was.** `--font-sans` did not exist in `tokens.css` before this phase; the app ran on Tailwind v4's own default sans stack. Setting it here overrides that default *and* becomes the whole app's body font in one declaration, because Tailwind v4's `preflight.css` reads its own `--default-font-family` from `--font-sans`. One self-hosted variable-weight `woff2` covers the full 400–700 range, `latin` subset only (25,284 bytes measured, §5A.4) — Sri Lankan romanized names and vehicle plates are ASCII, and `latin-ext` adds ~48% weight for glyphs this app is unlikely to render. There is no display face any more: every element that used to carry the serif (`Screen`'s title, `StatTile`'s hero value, `AmountPad`/`DayCard`/`ConfirmDayCard`'s hero figures) now carries `font-semibold` instead — Sora is a true variable font, so an explicit weight utility reproduces the same 600-weight hierarchy the serif's single-static-weight file used to provide as a side effect, rather than losing it to "weight alone" at the browser default.
+
+Noto Sans Sinhala is *specified* as self-hosted, subset, and `font-display: swap` — this was never actually implemented (`tokens.css` carries neither the token nor an `@font-face`; the Sinhala UI silently falls back to `--font-sans` today, unaffected by the Phase 3 swap since `:lang(si)`/`:lang(ta)` are untouched). Left as a known gap rather than fixed in passing, since real subsetting needs the Sinhala glyph set sourced, which is separate work. South-Asian scripts need extra line height for their glyph extents ([Material language support](https://m2.material.io/design/typography/language-support.html)) — hence the `si` row below.
 
 | Token | Size / line-height | Weight | Use |
 |---|---|---|---|
-| `hero` | 36 / 40 (desktop 48 / 52) | 600 | The one number a screen leads with |
-| `title-lg` | 22 / 28 | 600 | Screen titles |
+| `hero` | 36 / 40 (desktop 48 / 52) | 600, `font-semibold` (Tactile Ops Phase 3) | The one number a screen leads with |
+| `title-lg` | 22 / 28 | 600, `font-semibold` (Tactile Ops Phase 3) | Screen titles |
 | `title` | 18 / 24 | 600 | Card headings, amounts in list rows |
 | `body` | **16 / 24** | 400 | Everything. Minimum for inputs (M-19) |
 | `body-sm` | 14 / 20 | 400 | Secondary lines in rows |
@@ -366,10 +383,12 @@ Noto Sans Sinhala is self-hosted, subset, and `font-display: swap`. It is applie
 
 ```
 space:   4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64
-radius:  sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)
+radius:  sm 8 (controls) · md 18 (cards) · lg 20 (sheets) · full (chips, avatars)
 ```
 
-**Elevation is hairlines, not shadows.** Cards are `--color-surface` on `--color-page` with a 1px `--color-line-hairline`. Shadow is reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it. Two shadow tokens only. Cheap GPUs render large blurs slowly and repaint them on every scroll frame.
+**Tactile Ops Phase 2 (22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5E) moves `--radius-md` 12→18px and `--radius-lg` 16→20px, and replaces `--shadow-card` with a heavier single layer.** `--radius-md`'s bump reaches `StatTile` too, not just `Card`/`Dialog` — the real app renders both through the one token, and the mockup's own 12px-vs-18px split between `.stattile` and `.card` was judged not worth a fourth radius token for a 6px difference. Cards are still `--color-surface` on `--color-page` with a 1px `--color-line-hairline`, now plus the heavier `--shadow-card`, tuned separately per mode (light: `rgb(21 26 34 / 28%)`, ink-tinted, matching §2.1's mockup literally; dark: pure black at 55% — a black shadow reads as a smudge on `#12151C` at the light value's opacity, the same reasoning M-34 established). Two further tokens are net-new: `--shadow-sheet` (upward-cast, `Sheet.tsx` had no shadow at all before this) and `--shadow-btn-primary` (a brand-coloured glow on `Button.tsx`'s `primary` variant only, tuned down rather than dropped in dark mode — a coloured glow at the light value's opacity reads as a halo on a near-black ground).
+
+Re-benchmarked against this heavier, multi-surface load (cards, buttons and the sheet simultaneously, not House Style's one subtle layer) with the same method M-34 established — a scripted scroll, 100-card list, 360×640, Chrome's 10× CPU throttle: mean frame time 7.02 ms shadowed vs 6.95 ms unshadowed, p95 7.60 ms vs 7.70 ms, 1 frame over the 16.7 ms budget out of 299 shadowed vs 0 unshadowed, 0 severe drops (>33 ms) in either — no measurable cost, for the same reason M-34 found none: a static `box-shadow` rasterizes once per layer rather than repainting every scroll frame. That's throttled desktop-Chrome emulation, not physical mid-range-Android hardware — real enough to ship on, not a substitute for an on-device pass. The stronger tier is unchanged in kind, changed in mechanism: shadow beyond `--shadow-card` is still reserved for things that genuinely float — sheets (now `--shadow-sheet`), popovers, the sticky action bar once content scrolls under it, and the day card's own `elevated` prop, which **replaces** `--shadow-card` with `shadow-md` rather than stacking on top of it (both set the same CSS property; `elevated` is a two-tier switch, not an additive one — corrected from this document's own prior description).
 
 **Motion**
 
@@ -404,14 +423,15 @@ The set below is complete for phase 1. Anything not here is a composition of the
 
 | Component | Spec |
 |---|---|
-| `AppShell` | Safe areas, tab bar, offline banner, toast host. Owns the single scroll region. **Added 18 Aug 2026:** the business name in the app bar, with a switcher affordance only when more than one membership exists (M-33) |
-| `Screen` | App bar + scroll region + optional sticky action. Enforces `scroll-padding-bottom` |
+| `AppShell` | Safe areas, tab bar, offline banner, toast host. Owns the single scroll region. **Added 18 Aug 2026:** the business name in the app bar, with a switcher affordance only when more than one membership exists (M-33). **Added 21 Aug 2026:** on a screen `Screen` renders with no `onBack`, that name merges with `Screen`'s own title into one bar instead of two (M-36) |
+| `Screen` | App bar + scroll region + optional sticky action. Enforces `scroll-padding-bottom`. **Added 21 Aug 2026:** `HomeScreen` uses its one `action` slot for the needs-attention bell (M-36a) — every other screen's use of that slot is unaffected |
 | `Sheet` | Bottom sheet. Drag-to-dismiss **plus** a visible close button (M-23). Focus trapped, `aria-modal`, restores focus, answers the hardware back button/gesture on mobile via a `CloseWatcher` |
-| `ActionSheet` | List of actions in a sheet. The quick-add target |
+| `ActionSheet` | List of actions in a sheet. The quick-add target. **Added 22 Aug 2026, Tactile Ops Phase 6** (§5I, in-flight status as `EntityAvatar` above): each action's icon sits in a circular wash-tint chip keyed on `tone`/`destructive`, replacing the old left accent border — the chip (and the label word) already carry the direction, so the border was a second copy of one fact. Optional `caption?` under the label, used only by `QuickAddSheet.tsx`'s 5 fixed actions |
 | `Dialog` | Centre modal. **Only** for INV-1, INV-17 and M-10 confirms. Three per app |
 | `Card` | Hairline surface. One elevated variant, used only by the day card |
 | `Section` | Heading + count + collapsible body + "Show all" |
 | `Badge` | Small semantic label — `brand`/`good`/`warning`/`serious`/`critical`/`neutral`, always paired with the same word the screen already shows (M-15) |
+| `EntityAvatar` | **Added 22 Aug 2026, Tactile Ops Phase 5** (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5H — not yet a numbered `M-35` decision, same in-flight status as §5.1's palette). Circular identity chip, 36px (list) / 48px (detail header). Vehicles + drivers: brand-tone fill, white icon/initials. Customers (person or organisation): neutral fill, dark icon/initials — a customer isn't "ours" the way a vehicle or driver is. Always `aria-hidden`; the caller's own text carries the accessible name. Not yet applied anywhere (Phase 7) |
 
 ### 6.2 The load-bearing five
 
@@ -1043,20 +1063,32 @@ This is the **complete** set, not an excerpt. §5 is its documentation; this is 
 Dark mode has to be reachable two ways — the OS setting and the in-app toggle (M-20) — and CSS has no include. So the hex values live once as **palette constants** and the two mode blocks only remap semantic tokens onto them. That is what stops the toggle and the media query drifting apart, which is the failure mode where switching to dark manually does nothing.
 
 ```css
-/* design/tokens.css */
+/* design/tokens.css — Tactile Ops Phase 1 palette (22 Aug 2026, §5D) */
 @import "tailwindcss";
 
 /* 1 — palette constants. The only place a hex appears. */
 :root {
-  --l-page:#F1F1EC; --l-surface:#FBFBF8; --l-ink1:#14140F; --l-ink2:#52514E;
-  --l-ink3:#6E6C66; --l-faint:#898781;  --l-strong:#DCDBD3;
-  --l-brand:#256ABF; --l-brandink:#1C5CAB; --l-wash:#E6F0FC; --l-payable:#EB6834;
-  --l-hair:rgba(20,20,15,.10);
+  --l-page:#EDEFF3; --l-surface:#FFFFFF; --l-ink1:#151A22; --l-ink2:#5B6472;
+  --l-ink3:#646D7C; --l-faint:#8A93A3;  --l-strong:#DEDFE0;
+  --l-brand:#0F2E63; --l-brandink:#0F2E63; --l-wash:#E2E6EC; --l-payable:#EB6834;
+  --l-hair:rgba(21,26,34,.10); --l-surface-sunken:#DDE1E8;
 
-  --d-page:#0D0D0C; --d-surface:#141413; --d-ink1:#F5F5F0; --d-ink2:#C3C2B7;
-  --d-ink3:#96948C; --d-faint:#898781;  --d-strong:#2C2C2A;
-  --d-brand:#3987E5; --d-brandink:#86B6EF; --d-wash:#16283F; --d-payable:#D95926;
-  --d-hair:rgba(255,255,255,.10);
+  --d-page:#0B0E14; --d-surface:#12151C; --d-ink1:#F6F7FA; --d-ink2:#C2C3C7;
+  --d-ink3:#94969B; --d-faint:#84868B;  --d-strong:#292C32;
+  --d-brand:#1E3A6E; --d-brandink:#9CBAF7; --d-wash:#141C2C; --d-payable:#D95926;
+  --d-hair:rgba(255,255,255,.10); --d-surface-sunken:#2A2C33;
+}
+
+/* Tactile Ops Phase 3: self-hosted, variable weight 400-700, latin
+   subset only (25,284 bytes) — app-wide via --font-sans below, not
+   scoped to a handful of elements. */
+@font-face {
+  font-family: Sora;
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/sora-variable-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
 }
 
 /* 2 — the theme. Light is the :root default, so no [data-theme="light"] block
@@ -1070,6 +1102,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-faint:       var(--l-faint);
   --color-line-hairline:   var(--l-hair);
   --color-line-strong:     var(--l-strong);
+  --color-surface-sunken:  var(--l-surface-sunken);
   --color-brand:           var(--l-brand);
   --color-brand-ink:       var(--l-brandink);
   --color-brand-wash:      var(--l-wash);
@@ -1083,7 +1116,21 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-critical: #D03B3B;  --color-critical-ink: #B3231F;
 
   --spacing-tap: 44px;
-  --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
+  --radius-sm: 8px;  --radius-md: 18px;  --radius-lg: 20px;
+
+  /* Tactile Ops Phase 3: introduces --font-sans (did not exist before this
+     phase), overriding Tailwind's own default and — via --default-font-family
+     in Tailwind's preflight.css — the whole app's body font in one line. */
+  --font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
+
+  /* Tactile Ops Phase 2 */
+  --shadow-card: 0 10px 26px -14px rgb(21 26 34 / 28%);
+  --shadow-sheet: 0 -8px 24px -10px rgb(21 26 34 / 25%);
+  --shadow-btn-primary: 0 8px 16px -6px rgb(15 46 99 / 45%);
+  /* dark mode overrides: --shadow-card 0 10px 26px -14px rgb(0 0 0 / 55%);
+     --shadow-sheet 0 -8px 24px -10px rgb(0 0 0 / 50%);
+     --shadow-btn-primary 0 4px 10px -4px rgb(30 58 110 / 35%) —
+     a light-based/full-opacity shadow reads as a smudge or a halo on a near-black ground */
 
   --text-hero: 2.25rem;      --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem; --text-title-lg--line-height: 1.75rem;
@@ -1106,6 +1153,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
   --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
   --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-surface-sunken:var(--d-surface-sunken);
   --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
   --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
   --color-direction-payable:var(--d-payable);
@@ -1118,6 +1166,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
   --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
   --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-surface-sunken:var(--d-surface-sunken);
   --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
   --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
   --color-direction-payable:var(--d-payable);
@@ -1191,11 +1240,13 @@ Measured on a mid-range Android over 4G — a Moto G-class device, not a flagshi
 | CLS | < 0.05 — the day card must not shift after load |
 | Initial JS (gzip) | ≤ 180KB |
 | Reports chunk | ≤ 120KB, lazy |
-| Fonts | System sans only for `en`; Sinhala subset ≤ 60KB, `swap`, loaded on demand |
+| Fonts | Self-hosted `en` sans, `swap`, latin subset only — **~9.4KB under House Style's Fraunces (hero/title only), ~25.3KB under Tactile Ops' Sora (app-wide)**; Sinhala subset ≤ 60KB, `swap`, loaded on demand |
 | Images | Photos are compressed client-side before upload; thumbnails served from R2, never full-size in lists |
 | Day-card tap → visible state change | < 100ms, offline included (optimistic) |
 
-The budget is a CI gate, not an aspiration. A PR that exceeds it fails.
+**This row's own history is the reversal record, not silently edited.** The original budget assumed `system-ui` for `en` — free, zero bytes. House Style (M-34) was the first exception: one self-hosted `woff2`, scoped to hero figures and screen titles only, subset to a fixed vocabulary, 9,400 bytes measured. Tactile Ops (M-35) goes further — Sora replaces `system-ui` **app-wide**, not scoped to a handful of elements, because the ask was a real typographic identity, not just a hero accent; `latin`-only, 25,284 bytes measured (§5A.4/§5F), verified by fetching the actual Google Fonts asset rather than assumed. Each step traded a real byte cost for a real design requirement, recorded here rather than treated as a number that just happens to have moved.
+
+**"CI gate" was aspirational language, not a built one — corrected, not left standing.** No script or CI workflow measures any row above; `npm run check` runs `guard`/`lint`/`lint:css`/`format:check`/`typecheck`/`test`, none of which touch bundle size, LCP, INP or CLS (§5A.3, confirmed by reading `scripts/check-forbidden.mjs` and every `package.json` `check` script, not assumed). This budget is a **target for manual verification during QA passes** — the mid-range-Android real-device check this document already asks for elsewhere — until a Lighthouse-CI-class gate exists to enforce it automatically. Recording that a check is manual rather than automatic is not a downgrade of the standard; asserting an automatic gate that doesn't exist is the failure mode this correction closes.
 
 ---
 
@@ -1241,11 +1292,12 @@ Aligned with UC §9.1. The design work that must exist before a flow can be buil
 
 **The second language is closed: Sinhala**, chosen by the owner on 31 July 2026. `Noto Sans Sinhala` is the subset that ships and `:lang(si)` is the rule that matters. The `:lang(ta)` row in §5.2 and §12.3 stays — it costs two lines, it documents that the line-height rule is about South-Asian glyph extents rather than about Sinhala specifically, and removing it would have to be undone the first time a Tamil-speaking customer appears.
 
-Both remaining items are blocking nothing and are mine to have proposed rather than yours to have chosen:
+**Brand identity is now closed too — M-34 (21 Aug 2026).** This section used to read: *"the brand blue is the validated chart palette, so the two are one system — a different colour must be re-validated against the surfaces, the palette is not a matter of taste, it is a script that passes or fails."* That is exactly what happened: the owner-manager found the shipped system generic, a new accent was chosen, and it was run through `dataviz`'s `validate_palette.js` against every surface and against `--color-direction-payable` before it shipped — §5.1 carries the numbers. The one open sub-question that decision surfaced: dark mode cannot clear the strict swatch-alone distinguishability bar against `--d-payable` within the rust hue family, at any lightness dark mode's surfaces require. §5.1 records the accepted trade-off; a future reviewer who wants a cleaner separation there should read that note before proposing a third hex.
+
+One remaining item is blocking nothing and is mine to have proposed rather than yours to have chosen:
 
 | | |
 |---|---|
-| **Brand identity** | §5.1 derives the brand blue from the validated chart palette, so the two are one system. If you want a different brand colour, it must be re-validated against the surfaces (§11.2) — the palette is not a matter of taste, it is a script that passes or fails |
 | **The `＋` quick-add set** (M-4) | I chose fuel, expense, payment received, payment made, new trip. Worth a week of real use before fixing it |
 
 ---

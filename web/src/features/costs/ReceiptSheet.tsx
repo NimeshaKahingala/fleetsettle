@@ -12,6 +12,7 @@ import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useLocalAttachmentUploads } from "../../lib/attachmentUploader.js";
+import { cn } from "../../lib/cn.js";
 import { useCloseWatcherDismiss } from "../../lib/useCloseWatcherDismiss.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -276,7 +277,7 @@ function ReceiptThumbnail({
   if (failed) {
     return (
       <div className="flex flex-col items-center gap-1">
-        <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface text-critical">
+        <div className="flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken text-critical">
           <AlertCircle className="size-5" aria-hidden />
         </div>
         <button
@@ -292,7 +293,7 @@ function ReceiptThumbnail({
 
   if (url === null) {
     return (
-      <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface">
+      <div className="flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken">
         <RefreshCw className="size-5 animate-spin text-ink-secondary" aria-hidden />
       </div>
     );
@@ -303,7 +304,7 @@ function ReceiptThumbnail({
       type="button"
       onClick={onView}
       aria-label={label}
-      className="size-20 overflow-hidden rounded-sm border border-line-strong"
+      className="size-20 overflow-hidden rounded-sm border border-transparent bg-surface-sunken"
     >
       <img src={url} alt="" className="size-full object-cover" />
     </button>
@@ -346,7 +347,16 @@ function ReceiptLightbox({
           <div className="flex justify-end p-4">
             <DialogPrimitive.Close
               aria-label="Close receipt view"
-              className="flex size-tap items-center justify-center rounded-full bg-white/10 text-white active:bg-white/20"
+              className={cn(
+                "flex size-tap items-center justify-center rounded-full bg-white/10 text-white active:bg-white/20",
+                // Copilot review (PR #103): rowButtonFocus's ring reads from
+                // --color-focus-ring, which in light mode is a dark navy —
+                // unreadable against this overlay's permanent near-black
+                // bg-black/95. This view is always dark regardless of app
+                // theme (text-white/border-white/30 above are the same
+                // exception), so the ring is a literal white here too.
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-inset",
+              )}
             >
               <X className="size-6" aria-hidden />
             </DialogPrimitive.Close>
@@ -442,7 +452,7 @@ function PendingReceiptTile({
 }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="relative flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface">
+      <div className="relative flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken">
         {upload.status === "uploading" ? (
           <RefreshCw className="size-5 animate-spin text-ink-secondary" aria-hidden />
         ) : (

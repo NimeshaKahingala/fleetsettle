@@ -73,7 +73,7 @@ const SHARE_COLUMNS: ReportTableColumn<
     key: "profitShare",
     header: "Profit share",
     align: "end",
-    render: (row) => <Money value={parse(row.profitShareMinor)} />,
+    money: (row) => parse(row.profitShareMinor),
   },
 ];
 
@@ -98,8 +98,12 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
           )}
         </span>
       </button>
-      {parse(vehicle.profitMinor) === 0n ? (
-        <p className="text-caption text-ink-muted">No activity this month yet</p>
+      {/* GAP-162: gated on earned/costs, not profit — a vehicle with equal earned and costs has
+          real activity and nets to a 0 profit, which is not the same fact as no activity at all.
+          Copilot review (PR #103): this VehicleRow is shared with VehicleYearReportScreen's own
+          arbitrary date range, so the copy stays period-neutral rather than naming "this month". */}
+      {parse(vehicle.earnedMinor) === 0n && parse(vehicle.costsMinor) === 0n ? (
+        <p className="text-caption text-ink-muted">No activity yet</p>
       ) : null}
       {open ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line-hairline pt-3">
@@ -117,6 +121,7 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
               columns={SHARE_COLUMNS}
               rows={vehicle.ownerShares}
               rowKey={(row) => row.userId}
+              bare
             />
           ) : null}
         </div>
@@ -265,7 +270,7 @@ export function VehicleMonthReportScreen({
             <button
               type="button"
               onClick={() => setPickerOpen(true)}
-              className="min-h-tap self-start rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+              className="min-h-tap self-start rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
             >
               {formatShortDate(report.period.periodStart)} –{" "}
               {formatShortDate(report.period.periodEnd)} ▾

@@ -83,7 +83,7 @@ export function MarkVehicleUnavailableSheet({
               className={
                 reason === value
                   ? "min-h-tap rounded-sm border border-brand bg-brand-wash px-2 text-body-sm text-brand-ink"
-                  : "min-h-tap rounded-sm border border-line-strong px-2 text-body-sm text-ink-primary"
+                  : "min-h-tap rounded-sm border border-transparent bg-surface-sunken px-2 text-body-sm text-ink-primary"
               }
             >
               {label}

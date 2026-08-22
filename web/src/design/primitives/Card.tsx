@@ -24,14 +24,26 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   accent?: CardAccent | undefined;
 }
 
-/** §6.1 `Card`: a hairline surface — `--color-surface` on `--color-page`, 1px `--color-line-hairline`. Elevation is the exception, not the default. */
+/**
+ * §6.1 `Card`: a hairline surface — `--color-surface` on `--color-page`, 1px
+ * `--color-line-hairline`, `shadow-card` by default (Tactile Ops Phase 2,
+ * §5A.6's correction). **`elevated` replaces `shadow-card` with `shadow-md`
+ * rather than stacking on top of it** — the two are applied as an
+ * either/or so exactly one `box-shadow` utility ever reaches the class
+ * list; `cn()`'s tailwind-merge doesn't know `shadow-card` and `shadow-md`
+ * conflict (their theme scale isn't extended in `cn.ts`), so leaving both
+ * classes present at once would leave the winner to Tailwind's own
+ * generated-CSS order, not the order written here. `elevated` is still the
+ * day card's own stronger tier, just not an additive one — a two-tier
+ * switch between "flat" and "float", not "float" plus "flatter float".
+ */
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ className, elevated = false, accent, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
         "rounded-md border border-line-hairline bg-surface p-4",
-        elevated && "shadow-md",
+        elevated ? "shadow-md" : "shadow-card",
         accent !== undefined && ACCENT_CLASS[accent],
         className,
       )}

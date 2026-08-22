@@ -1,7 +1,6 @@
 import { parse } from "@fleetsettle/shared";
 import type { ReceivablesResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { formatShortDate } from "../../lib/formatShortDate.js";
@@ -30,7 +29,7 @@ const COLUMNS: ReportTableColumn<ReceivablesResponse[number]>[] = [
     key: "outstanding",
     header: "Outstanding",
     align: "end",
-    render: (row) => <Money value={parse(row.outstandingMinor)} />,
+    money: (row) => parse(row.outstandingMinor),
   },
   {
     key: "oldestDueOn",

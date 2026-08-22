@@ -75,6 +75,16 @@ test("revoking asks for confirmation before removing access", async () => {
   await vi.waitFor(() => expect(post).toHaveBeenCalledWith("/api/admin/admins/u1/revoke", {}));
 });
 
+test("GAP-161: the revoke button carries a focus-visible ring for keyboard users", async () => {
+  const get = vi.fn().mockResolvedValue([ADMIN_ONE]);
+  renderWithProviders(<AdminManagementScreen onBack={vi.fn()} />, { get });
+
+  const revokeButton = await screen.findByRole("button", {
+    name: "Revoke admin access for Nimal Perera",
+  });
+  expect(revokeButton.className).toMatch(/focus-visible:ring/);
+});
+
 test("INV-40: revoking the last admin shows the specific reason, not a generic failure", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue([ADMIN_ONE]);

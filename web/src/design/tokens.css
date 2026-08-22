@@ -1,23 +1,100 @@
 @import "tailwindcss";
 
+/* Tactile Ops Phase 3 (22 Aug 2026, §5F): self-hosted Sora replaces the
+   House Style display serif entirely — no serif anywhere in this
+   redesign, and Sora is --font-sans app-wide (§5 decision 2: "replacing
+   system-ui everywhere", not scoped to hero figures the way the serif
+   was). One variable-weight file covering 400–700, latin subset only
+   (25,284 bytes measured, §5A.4) — Sri Lankan romanized names and
+   vehicle plates are ASCII, and latin-ext adds ~48% weight for glyphs
+   this app is unlikely to render. Fetched from Google Fonts' css2 API
+   (family=Sora:wght@400..700), its own latin-subset unicode-range copied
+   verbatim below. font-display: swap so a slow fetch never blocks first
+   paint — every element in the app depends on this font now, not just a
+   hero figure. Does not touch :lang(si)/:lang(ta)'s own Noto stacks.
+   `tokens.test.ts` guards against the old serif's family name
+   reappearing here, so it isn't spelled out in this comment either. */
+@font-face {
+  font-family: Sora;
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url("/fonts/sora-variable-latin.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /* 1 — palette constants. The only place a hex appears. */
 :root {
-  --l-page: #f1f1ec;
-  --l-surface: #fbfbf8;
-  --l-ink1: #14140f;
-  --l-ink2: #52514e;
-  --l-ink3: #6e6c66;
-  --l-faint: #898781;
-  --l-strong: #dcdbd3;
-  --l-brand: #256abf;
-  --l-brandink: #1c5cab;
-  --l-wash: #e6f0fc;
+  /* Tactile Ops (M-35 pending, Phase 1, 22 Aug 2026): full replacement of
+     House Style's warm neutrals with TACTILE-OPS-REDESIGN-2026-08-21.md
+     §2.1's cooler family. Locked in this order per §5C.5 — neutrals first,
+     then brand fill/ink against them, then every other ink re-measured
+     against the new neutrals, not the old ones §5B recorded numbers
+     against. All figures below are contrast ratios against the *new*
+     --l-surface #fff / --l-page #EDEFF3, computed fresh, not carried over
+     from the mockup's own numbers (§4.1/§5B.1) which predate this palette. */
+  --l-page: #edeff3;
+  --l-surface: #fff;
+  --l-ink1: #151a22; /* §2.1's literal .m-b ink — 17.46:1 / 15.17:1 */
+  --l-ink2: #5b6472; /* §2.1's literal .biz/.card .top — 5.98:1 / 5.20:1 */
+
+  /* Not §2.1's literal .card .who/.section-head #8a93a3 — that fails
+     4.5:1 for caption-sized text (3.10:1, §5B.4), so it stays --l-faint
+     below instead. This is a new, darker value in the same hue family,
+     interpolated between --l-ink2 and #8a93a3, landing at 5.22:1 / 4.54:1 —
+     the same band --l-ink3 held under the old warm palette (5.06:1 /
+     4.63:1), so captions keep the AA floor they had before. */
+  --l-ink3: #646d7c;
+  --l-faint: #8a93a3; /* §2.1's .card .who/.section-head/.acap, 3.10:1 — sub-AA by design, decorative/large use only, same band as the old --l-faint (3.46:1) */
+
+  /* New value, not §2.1's literal — the mockup gives no line-strong
+     equivalent. Interpolated from --l-surface toward --l-ink1 to match
+     the old --l-strong's contrast band (1.34:1/1.23:1) in the new hue:
+     1.33:1 / 1.16:1. */
+  --l-strong: #dedfe0;
+
+  /* Full battery run against the new neutrals (§4.1's four finalists,
+     §5B.6's gate): #0F2E63 clears white-on-fill 13.20:1, ink-vs-surface
+     13.20:1, ink-vs-page 11.46:1, and the widest CVD/normal-vision margin
+     of the four (27.0, vs 22–23 for the other three) against --l-chart-1
+     and --l-payable. One hex serves both fill and ink roles, same as
+     House Style's own light pair. */
+  --l-brand: #0f2e63;
+  --l-brandink: #0f2e63;
+
+  /* --l-brand blended into --l-surface at the same ~13–17% this codebase's
+     House Style wash used (back-derived from #9c3f2e → #f5e3dc); lands at
+     1.09:1 from --l-page / 1.25:1 from --l-surface, matching that wash's
+     own subtlety (1.10:1 / 1.20:1) almost exactly. --l-brandink text on
+     it reads at 10.53:1 — Badge's "brand" variant stacks the two. */
+  --l-wash: #e2e6ec;
   --l-payable: #eb6834;
-  --l-hair: rgb(20 20 15 / 10%);
+
+  /* Tactile Ops Phase 6: --l-payable itself (#eb6834) as an icon glyph on
+     its own 15%-opacity wash only reaches 2.71:1 — below the 3:1 non-text
+     floor. §2.1's mockup already solved this for its .aicon-chip.out (a
+     darker, more saturated orange, #9a4620) rather than the raw fill;
+     adopted verbatim here rather than re-derived, since this token is
+     net-new for Phase 6, not an old-system figure being carried over.
+     6.42:1 vs white, 5.43:1 vs the 15%-opacity wash it actually sits on. */
+  --l-payable-ink: #9a4620;
+  --l-hair: rgb(21 26 34 / 10%);
+
+  /* Phase 2's recessed-fill token (§2.1's #eef1f6 family; final value
+     picked, not the mockup's literal one — see the comment above it).
+     1.31:1 from --l-surface, clearing §5B.3's ≥1.3:1 separation target
+     (the mockup's own #eef1f6 only reached 1.02:1/1.13:1 and was
+     rejected for exactly that reason). */
+  --l-surface-sunken: #dde1e8;
 
   /* UI §11.2's validated categorical order — slot 2 is deliberately the same
      hex as --l-payable/--d-payable (below), so a driver-balance marker and a
-     chart series about that same driver read as one orange, not two. */
+     chart series about that same driver read as one orange, not two.
+     Unchanged by Tactile Ops (§6 Phase 1) — re-verified against the new
+     --l-surface/--l-page above and every figure held within 0.2:1 of its
+     old value, so "no need found to move it" still holds. */
   --l-chart-1: #2a78d6;
   --l-chart-3: #1baf7a;
   --l-chart-4: #eda100;
@@ -25,18 +102,68 @@
   --l-chart-6: #008300;
   --l-chart-7: #4a3aa7;
   --l-chart-8: #e34948;
-  --d-page: #0d0d0c;
-  --d-surface: #141413;
-  --d-ink1: #f5f5f0;
-  --d-ink2: #c3c2b7;
-  --d-ink3: #96948c;
-  --d-faint: #898781;
-  --d-strong: #2c2c2a;
-  --d-brand: #3987e5;
-  --d-brandink: #86b6ef;
-  --d-wash: #16283f;
+
+  /* Dark neutrals (Tactile Ops, Phase 1): §2.1's mockup is light-mode only
+     (§5C.5) and offered no dark block, so House Style's warm near-blacks
+     had no cool counterpart to copy. Derived deliberately rather than left
+     unchanged — shipping a cool light family against warm dark neutrals
+     would read as two different products depending on OS theme, and every
+     dark-mode brand/ink pick this redesign makes (below) already assumes a
+     cool ground. Hue-matched to --l-ink1 (#151a22, blue-leaning), same
+     lightness band as the values replaced (luminance 0.0044/0.0075 vs the
+     old 0.0040/0.0070). */
+  --d-page: #0b0e14;
+  --d-surface: #12151c;
+
+  /* Each dark ink level interpolated from --d-surface toward a near-white
+     cool point, chosen to land within 0.1–0.3:1 of the old warm family's
+     own contrast band against --d-surface (16.86/10.29/6.07/5.13:1) —
+     parity in legibility, not the literal old hexes hue-shifted. */
+  --d-ink1: #f6f7fa; /* 17.05:1 */
+  --d-ink2: #c2c3c7; /* 10.36:1 */
+  --d-ink3: #94969b; /* 6.16:1 */
+  --d-faint: #84868b; /* 5.01:1 */
+  --d-strong: #292c32; /* 1.30:1, matches old --d-strong's 1.32:1 */
+
+  /* §5B.2's corrected two-token approach (§4.2's single-hex search was
+     wrong — see that section's retained error note). --d-brand is a fill
+     (white text on it must read: #1E3A6E clears 11.14:1, unchanged by the
+     surrounding neutrals since fill contrast is vs white, not vs surface).
+     --d-brandink is text + the focus ring (must read against the dark
+     surface): #9cbaf7 was §5B.2's top-scoring candidate (9.46:1 against
+     the *old* #141413) and re-verified here against the *new* --d-surface
+     at 9.38:1 and --d-page at 9.92:1 — the pick survives the neutral
+     change essentially unchanged, still clearing every floor in §5B.2's
+     table. */
+  --d-brand: #1e3a6e;
+  --d-brandink: #9cbaf7;
+
+  /* --d-surface blended toward --d-brand at ~20%, mirroring House Style's
+     own dark-wash derivation (back-derived from #ab3f2b → #2e1b14).
+     1.08:1 from --d-surface — a subtle tinted panel, not a bright block —
+     and --d-brandink text on it reads at 8.71:1, comfortably above the
+     4.5:1 Badge's "brand" variant needs. */
+  --d-wash: #141c2c;
   --d-payable: #d95926;
+
+  /* Tactile Ops Phase 6: --d-payable itself already clears 4.03:1 against
+     its own 15%-opacity wash — dark mode's brighter orange doesn't need a
+     separately darkened ink the way light mode's does, so this repeats
+     --d-payable rather than introducing a second dark hex, the same
+     pattern --color-critical-ink already uses in dark mode. */
+  --d-payable-ink: #d95926;
   --d-hair: rgb(255 255 255 / 10%);
+
+  /* Phase 2's recessed-fill token, dark. Not §2.1's mockup value (light-
+     mode only, no dark block) — derived the same way as --l-surface-sunken:
+     --d-surface lightened until it clears §5B.3's ≥1.3:1 separation target.
+     1.31:1 from --d-surface, 1.39:1 from --d-page. */
+  --d-surface-sunken: #2a2c33;
+
+  /* Unchanged by Tactile Ops — re-verified against the new --d-surface/
+     --d-page above (§6 Phase 1); every figure held within 0.1:1 of its old
+     value, so §4.2/§5.1's "no need found to move it" verdict still holds
+     under the new dark ground. */
   --d-chart-1: #3987e5;
   --d-chart-3: #199e70;
   --d-chart-4: #c98500;
@@ -57,11 +184,20 @@
   --color-ink-faint: var(--l-faint);
   --color-line-hairline: var(--l-hair);
   --color-line-strong: var(--l-strong);
+
+  /* Tactile Ops Phase 1/2: recessed fill for filled/sunken form controls,
+     distinct from --color-page (§6 Phase 4). */
+  --color-surface-sunken: var(--l-surface-sunken);
   --color-brand: var(--l-brand);
   --color-brand-ink: var(--l-brandink);
   --color-brand-wash: var(--l-wash);
   --color-focus-ring: var(--l-brandink);
   --color-direction-payable: var(--l-payable);
+
+  /* Tactile Ops Phase 6: ActionSheet's "out" tone chip icon — a darker,
+     more saturated step than the fill, the same relationship
+     --color-critical-ink already has to --color-critical. */
+  --color-direction-payable-ink: var(--l-payable-ink);
 
   /* UI §11.2's validated categorical order (B4/§6) — slot 2 is
      --color-direction-payable itself, not a duplicate hex, so a chart
@@ -93,8 +229,49 @@
   --color-trip-ink: #8a3b12;
   --spacing-tap: 44px;
   --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+
+  /* Tactile Ops Phase 2 (§6, 22 Aug 2026): 12px → 18px. 3 production
+     consumers (Card.tsx, Dialog.tsx, StatTile.tsx) — stat tiles move to
+     18px too, a deliberate divergence from the mockup's own .stattile
+     (12px, unchanged there): the real app renders both through this one
+     token, and a fourth radius token for a 6px difference on one
+     component isn't worth it (§2.2/§5C.5). */
+  --radius-md: 18px;
+
+  /* Tactile Ops Phase 2: 16px → 20px. One consumer, Sheet.tsx:77's
+     rounded-t-lg. */
+  --radius-lg: 20px;
+
+  /* Tactile Ops Phase 3: introduces --font-sans, which does not exist in
+     this file before this phase (§5C.7) — the app ran on Tailwind v4's
+     own default sans stack until now. Setting it here overrides
+     Tailwind's own theme.css value of the same name, which
+     --default-font-family (Tailwind's preflight.css) reads to set the
+     body font app-wide — so this one declaration is both the `font-sans`
+     utility's value and the whole app's default typeface, not just a
+     hero-figure treatment the way --font-display was. --font-display
+     itself is removed: Tactile Ops has no serif anywhere. */
+  --font-sans: "Sora", ui-sans-serif, system-ui, sans-serif;
+
+  /* Tactile Ops Phase 2 (22 Aug 2026): House Style's single subtle layer
+     replaced with §2.1's literal, heavier `.card` value — §3.3 found every
+     row in the app already renders through `<Card>`, so this one
+     redefinition elevates cards *and* rows together; no `--shadow-row`
+     token exists or is needed. Re-benchmarked (§6 Phase 2's own
+     requirement) against a 100-card list at 360×640, 10× CPU throttle —
+     see the plan doc for the numbers; still within budget. */
+  --shadow-card: 0 10px 26px -14px rgb(21 26 34 / 28%);
+
+  /* Tactile Ops Phase 2: net-new — Sheet.tsx had no shadow at all. Cast
+     upward (negative y), since a bottom sheet floats *above* the content
+     behind it rather than resting on the page like a card. */
+  --shadow-sheet: 0 -8px 24px -10px rgb(21 26 34 / 25%);
+
+  /* Tactile Ops Phase 2: net-new, Button.tsx's `primary` variant only — a
+     brand-coloured glow, not a neutral shadow. Colour matches the locked
+     --l-brand #0F2E63 (rgb 15 46 99), not the mockup's literal rejected
+     #2952a3. */
+  --shadow-btn-primary: 0 8px 16px -6px rgb(15 46 99 / 45%);
   --text-hero: 2.25rem;
   --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem;
@@ -127,11 +304,13 @@
     --color-ink-faint: var(--d-faint);
     --color-line-hairline: var(--d-hair);
     --color-line-strong: var(--d-strong);
+    --color-surface-sunken: var(--d-surface-sunken);
     --color-brand: var(--d-brand);
     --color-brand-ink: var(--d-brandink);
     --color-brand-wash: var(--d-wash);
     --color-focus-ring: var(--d-brandink);
     --color-direction-payable: var(--d-payable);
+    --color-direction-payable-ink: var(--d-payable-ink);
     --color-chart-1: var(--d-chart-1);
     --color-chart-2: var(--d-payable);
     --color-chart-3: var(--d-chart-3);
@@ -147,6 +326,20 @@
     --color-trip-ink: #ec835a;
     --color-critical: #f0736f;
     --color-critical-ink: #f0736f;
+
+    /* Tactile Ops Phase 2: House Style's own reasoning still holds — a
+       light-based shadow reads as a smudge on a near-black ground — so
+       dark mode keeps pure black at much higher opacity rather than
+       matching the light value's ink-tinted one. */
+    --shadow-card: 0 10px 26px -14px rgb(0 0 0 / 55%);
+    --shadow-sheet: 0 -8px 24px -10px rgb(0 0 0 / 50%);
+
+    /* Tactile Ops Phase 2 (§5B.9's explicit dark-mode call): tuned down,
+       not dropped — a coloured glow this size at the light value's 45%
+       opacity reads as a halo on a near-black ground, so dark mode gets a
+       tighter blur and roughly half the opacity, using the dark brand fill
+       #1E3A6E (rgb 30 58 110) rather than the light hex. */
+    --shadow-btn-primary: 0 4px 10px -4px rgb(30 58 110 / 35%);
   }
 }
 
@@ -159,11 +352,13 @@
   --color-ink-faint: var(--d-faint);
   --color-line-hairline: var(--d-hair);
   --color-line-strong: var(--d-strong);
+  --color-surface-sunken: var(--d-surface-sunken);
   --color-brand: var(--d-brand);
   --color-brand-ink: var(--d-brandink);
   --color-brand-wash: var(--d-wash);
   --color-focus-ring: var(--d-brandink);
   --color-direction-payable: var(--d-payable);
+  --color-direction-payable-ink: var(--d-payable-ink);
   --color-chart-1: var(--d-chart-1);
   --color-chart-2: var(--d-payable);
   --color-chart-3: var(--d-chart-3);
@@ -179,6 +374,9 @@
   --color-trip-ink: #ec835a;
   --color-critical: #f0736f;
   --color-critical-ink: #f0736f;
+  --shadow-card: 0 10px 26px -14px rgb(0 0 0 / 55%);
+  --shadow-sheet: 0 -8px 24px -10px rgb(0 0 0 / 50%);
+  --shadow-btn-primary: 0 4px 10px -4px rgb(30 58 110 / 35%);
 }
 
 /* 4 — the base layer. The page colour is painted once, on the root element,

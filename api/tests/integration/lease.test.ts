@@ -38,6 +38,14 @@ async function getLeaseObligations(token: string, id: string) {
   return request(`/api/lease/${id}/obligation`, bearer(token));
 }
 
+async function post(path: string, token: string, body: unknown) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 async function getLeaseDeposit(token: string, id: string) {
   return request(`/api/lease/${id}/deposit`, bearer(token));
 }
@@ -377,13 +385,14 @@ describe("generate the next billing period (P5)", () => {
 });
 
 /**
- * Web-P6b's lease hub: every due a lease has ever raised, from all three of
+ * Web-P6b's lease hub: every due a lease has ever raised, from all four of
  * its source paths — a rent due (`sourceType: billing_period`), a mileage
- * excess due (`sourceType: mileage_assessment`) and a post-closure charge
- * billed directly against the lease (`sourceType: lease`, F-8.4). There is
- * deliberately no `lease_id` column on `obligation` itself, so this is the
- * one test proving the three-way join actually reassembles them as one list
- * rather than each staying invisible to the others.
+ * excess due (`sourceType: mileage_assessment`), an incident-driven customer
+ * contribution (`sourceType: incident_recovery`, GAP-163) and a post-closure
+ * charge billed directly against the lease (`sourceType: lease`, F-8.4).
+ * There is deliberately no `lease_id` column on `obligation` itself, so this
+ * is the one test proving the four-way join actually reassembles them as one
+ * list rather than each staying invisible to the others.
  */
 describe("a lease's dues (Web-P6a, GET /{id}/obligation)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -473,6 +482,43 @@ describe("a lease's dues (Web-P6a, GET /{id}/obligation)", () => {
       dueOn: "2026-05-01",
       effectiveDueOn: "2026-05-01",
       amountMinor: "150000",
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-163 — an incident-driven customer contribution is a fourth due, alongside the other three", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const leaseId = await ctx.createLease(businessId, vehicleId, customerId, { status: "active" });
+    const manager = await mintUser(db, ctx, businessId, "manager");
+    const token = await signAccessToken(manager.asgardeoSub);
+
+    const opened = await post("/api/incident", token, {
+      vehicleId,
+      leaseId,
+      occurredOn: "2026-07-08",
+    });
+    const { id: incidentId }: { id: string } = await opened.json();
+    ctx.trackCreatedIncident(incidentId);
+
+    const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+      agreedAmountMinor: "20000",
+      agreedOn: "2026-07-20",
+    });
+    expect(agreed.status).toBe(201);
+
+    const res = await getLeaseObligations(token, leaseId);
+    expect(res.status).toBe(200);
+    const body: Array<{ kind: string; amountMinor: string; status: string }> = await res.json();
+
+    expect(body.map((o) => o.kind)).toContain("customer_contribution");
+    expect(body.find((o) => o.kind === "customer_contribution")).toMatchObject({
+      amountMinor: "20000",
+      status: "pending",
     });
 
     await ctx.cleanup();

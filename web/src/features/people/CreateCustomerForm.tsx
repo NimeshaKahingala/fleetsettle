@@ -65,7 +65,7 @@ export function CreateCustomerForm({ onCreated }: CreateCustomerFormProps) {
             className={
               customerType === "person"
                 ? "min-h-tap flex-1 rounded-sm border border-brand bg-brand-wash text-body-sm text-brand-ink"
-                : "min-h-tap flex-1 rounded-sm border border-line-strong text-body-sm text-ink-primary"
+                : "min-h-tap flex-1 rounded-sm border border-transparent bg-surface-sunken text-body-sm text-ink-primary"
             }
           >
             Person
@@ -77,7 +77,7 @@ export function CreateCustomerForm({ onCreated }: CreateCustomerFormProps) {
             className={
               customerType === "organisation"
                 ? "min-h-tap flex-1 rounded-sm border border-brand bg-brand-wash text-body-sm text-brand-ink"
-                : "min-h-tap flex-1 rounded-sm border border-line-strong text-body-sm text-ink-primary"
+                : "min-h-tap flex-1 rounded-sm border border-transparent bg-surface-sunken text-body-sm text-ink-primary"
             }
           >
             Organisation

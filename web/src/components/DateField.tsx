@@ -47,7 +47,7 @@ export function DateField({ label, value, onChange, today }: DateFieldProps) {
       <div className="relative min-h-tap rounded-sm focus-within:ring-[3px] focus-within:ring-offset-2 focus-within:ring-focus-ring">
         <div
           aria-hidden="true"
-          className="pointer-events-none flex min-h-tap items-center justify-between rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+          className="pointer-events-none flex min-h-tap items-center justify-between rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
         >
           {formatWeekday(value)}
         </div>

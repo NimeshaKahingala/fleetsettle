@@ -295,6 +295,48 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     await ctx.cleanup();
   });
 
+  it("GAP-164: 400 with a clear message, not a 500, for a reading dated on the lease's own handover date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // The handover reading is written directly by startLease (lease.ts),
+    // never through assessMileage — so it has no mileage_assessment behind
+    // it. A later submission dated on that same day used to fall through to
+    // a doomed second insert and surface a raw unique-violation as a 500.
+    const leaseRes = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "70000",
+      mileageDailyLimitKm: 100,
+      mileageExcessRateMinor: "25",
+      odometerReadingKm: 0,
+      odometerSource: "in_person",
+    });
+    const { id: leaseId }: { id: string } = await leaseRes.json();
+    ctx.trackCreatedLease(leaseId);
+
+    const res = await postOdometerReading(token, {
+      leaseId,
+      readingKm: 0,
+      readOn: "2026-01-12",
+      source: "in_person",
+    });
+    expect(res.status).toBe(400);
+    const body: { code: string; error: string } = await res.json();
+    expect(body.code).toBe("VALIDATION_ERROR");
+    expect(body.error).toMatch(/already exists/);
+
+    await ctx.cleanup();
+  });
+
   it("400 — no prior odometer reading (a mileage limit added after the lease started, via renew)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

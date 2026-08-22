@@ -13,8 +13,8 @@ export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTML
       type={type}
       ref={ref}
       className={cn(
-        "min-h-tap w-full rounded-sm border border-line-strong bg-surface px-3 text-body text-ink-primary",
-        "placeholder:text-ink-faint",
+        "min-h-tap w-full rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary",
+        "placeholder:text-ink-muted",
         "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-focus-ring",
         "disabled:pointer-events-none disabled:opacity-50",
         "aria-[invalid=true]:border-2 aria-[invalid=true]:border-critical",

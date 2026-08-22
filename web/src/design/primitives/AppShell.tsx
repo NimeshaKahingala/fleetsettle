@@ -9,9 +9,24 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { createContext } from "react";
 import { cn } from "../../lib/cn.js";
 import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { ToastViewport } from "./Toast.js";
+
+/**
+ * M-36 (21 Aug 2026): lets `Screen` know it's rendering directly beneath
+ * the merged business-name line rather than under its own detached strip,
+ * so its header can pick up `bg-surface` and read as the second line of
+ * one bar instead of a separately-grounded block. A context, not a prop
+ * threaded through `ScreenProps`, because the decision is made here from
+ * the route (`topLevel` below) and every one of `Screen`'s ~40 call sites
+ * would otherwise need to learn and forward a value that has nothing to
+ * do with what any of them individually render. Defaults `false`, so a
+ * `Screen` rendered with no `AppShell` above it (tests, Storybook-style
+ * usage) is unaffected.
+ */
+export const AppBarMergeContext = createContext(false);
 
 export type OperateTabKey = "home" | "vehicles" | "people" | "more";
 export type ReviewTabKey = "month" | "vehicles" | "money" | "reports";
@@ -67,6 +82,18 @@ export interface AppShellProps {
   onSwitchBusiness?: () => void;
   /** Platform surface escape hatch (GAP-151): the admin shell has no tab bar. */
   onExit?: { label: string; onClick: () => void };
+  /**
+   * M-36 (21 Aug 2026): true on the screens `Screen` renders with no
+   * `onBack` — collapses the business-name strip's own border and padding
+   * so it reads as line 1 of one bar with `Screen`'s title as line 2,
+   * instead of two separately bordered bars. The caller (a router layout,
+   * which already knows the exact pathname) decides this — `AppShell`
+   * itself only has `activeTab`, and several non-top-level pathnames map
+   * to the same tab as a top-level one (`/more` and `/cash` are both
+   * "more"), so `activeTab` alone can't tell them apart. Omit or `false`
+   * for every other screen; the strip renders exactly as before M-36.
+   */
+  topLevel?: boolean;
   children: React.ReactNode;
 }
 
@@ -81,7 +108,11 @@ export interface AppShellProps {
  * `children`, its own flex sibling — a second, slimmer app bar rather than
  * a slot inside `Screen`'s, since it names the *business*, the same one
  * line regardless of which screen is open, where `Screen`'s own `title`
- * names the screen and changes on every route.
+ * names the screen and changes on every route. **M-36 (21 Aug 2026):** on
+ * `topLevel` screens the strip drops its own border and bottom padding so
+ * it reads as line 1 of one bar with `Screen`'s title as line 2 — the
+ * strip's *content* doesn't change, only whether it's visually detached
+ * from what `Screen` renders directly beneath it.
  *
 
  * §14/M-31 (GAP-124a, Wave 5 Step 0): at `lg`, the same tab bar becomes a
@@ -99,6 +130,7 @@ export function AppShell({
   businessName,
   onSwitchBusiness,
   onExit,
+  topLevel = false,
   children,
 }: AppShellProps) {
   const tabs = shell === "operate" ? OPERATE_TABS : shell === "review" ? REVIEW_TABS : null;
@@ -112,7 +144,8 @@ export function AppShell({
               type="button"
               onClick={onSwitchBusiness}
               className={cn(
-                "flex min-h-tap shrink-0 items-center gap-1.5 border-b border-line-hairline bg-surface px-4 py-1.5 text-left active:bg-brand-wash",
+                "flex min-h-tap shrink-0 items-center gap-1.5 bg-surface px-4 py-1.5 text-left active:bg-brand-wash",
+                topLevel ? "pb-0.5" : "border-b border-line-hairline",
                 rowButtonFocus,
               )}
             >
@@ -141,14 +174,21 @@ export function AppShell({
               </span>
             </button>
           ) : (
-            <div className="flex h-tap shrink-0 items-center border-b border-line-hairline bg-surface px-4">
+            <div
+              className={cn(
+                "flex h-tap shrink-0 items-center bg-surface px-4",
+                topLevel ? "pb-0.5" : "border-b border-line-hairline",
+              )}
+            >
               <span className="truncate text-caption font-medium text-ink-secondary">
                 {businessName}
               </span>
             </div>
           )
         ) : null}
-        <div className="min-h-0 flex-1">{children}</div>
+        <div className="min-h-0 flex-1">
+          <AppBarMergeContext.Provider value={topLevel}>{children}</AppBarMergeContext.Provider>
+        </div>
       </div>
       {tabs !== null ? (
         <nav

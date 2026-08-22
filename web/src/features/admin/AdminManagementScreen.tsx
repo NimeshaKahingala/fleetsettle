@@ -11,7 +11,9 @@ import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { adminIdentityLabel } from "../../lib/adminIdentityLabel.js";
+import { cn } from "../../lib/cn.js";
 import { formatTimestamp } from "../../lib/formatTimestamp.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface AdminManagementScreenProps {
@@ -95,7 +97,10 @@ export function AdminManagementScreen({ onBack }: AdminManagementScreenProps) {
                   setRevokeOpen(true);
                 }}
                 aria-label={`Revoke admin access for ${adminIdentityLabel(admin)}`}
-                className="flex size-tap shrink-0 items-center justify-center rounded-sm text-critical-ink active:bg-critical/10"
+                className={cn(
+                  "flex size-tap shrink-0 items-center justify-center rounded-sm text-critical-ink active:bg-critical/10",
+                  rowButtonFocus,
+                )}
               >
                 <UserMinus className="size-5" aria-hidden />
               </button>

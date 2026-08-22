@@ -160,7 +160,7 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
               <button
                 type="button"
                 onClick={() => setBorneByUs((b) => !b)}
-                className="min-h-tap w-fit rounded-sm border border-line-strong px-3 text-body text-brand-ink"
+                className="min-h-tap w-fit rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-brand-ink"
               >
                 {borneByUs ? "Use the automatic default instead" : "Override to Us"}
               </button>

@@ -404,11 +404,22 @@ function ReviewThisMonthRoute() {
   );
 }
 
-/** B4/§5.5: `Vehicles`' own tab — one vehicle × all periods, cutting orthogonally from `This month`'s one period × all vehicles. */
+/**
+ * B4/§5.5: `Vehicles`' own tab — one vehicle × all periods, cutting
+ * orthogonally from `This month`'s one period × all vehicles.
+ * `useOperateReviewBack()` (M-36, 21 Aug 2026): this screen was missing the
+ * conditional back button its three `useOperateReviewBack()` siblings
+ * (`ReviewThisMonthRoute`, `ReviewMoneyRoute`, `ReportsCatalogueRoute`)
+ * already have — harmless only because `MoreScreen` never links to
+ * `/review/vehicles` directly, which stopped being safe to rely on once
+ * `AppShell`'s merged-bar decision started reading the same signal.
+ */
 function ReviewVehiclesRoute() {
   const navigate = useNavigate();
+  const reviewBack = useOperateReviewBack();
   return (
     <ReviewVehiclesScreen
+      {...(reviewBack !== undefined ? { onBack: reviewBack } : {})}
       onSelectVehicle={(vehicleId, periodId) => {
         void navigate({
           to: "/review/vehicles/$vehicleId",
@@ -851,6 +862,26 @@ function useBusinessSwitcherToggle(): {
  * the same reason `FirstRunGate` already defers routing decisions until its
  * own data is ready — one redirect pattern in this file, not two.
  */
+/**
+ * M-36 (21 Aug 2026): the exact 4 pathnames the Review shell renders with
+ * no `onBack` — its whole tab set, since `owner` (the only role that ever
+ * sees this shell) never gets a back button on any of them. `Screen`'s own
+ * `onBack` conditionality for these same 4 components under the *Operate*
+ * shell (`useOperateReviewBack`) is a separate, independent computation
+ * that happens to agree by construction, not by referencing this one —
+ * `owner_manager`/`manager` reach these pathnames through `/more`, where
+ * they keep the two-bar layout, matching the back button `Screen` already
+ * gives them there.
+ */
+function isReviewTopLevelPathname(pathname: string): boolean {
+  return (
+    pathname === "/review" ||
+    pathname === "/review/vehicles" ||
+    pathname === "/review/money" ||
+    pathname === "/reports"
+  );
+}
+
 function ReviewLayout() {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -871,6 +902,7 @@ function ReviewLayout() {
       }}
       businessName={selected.name}
       onSwitchBusiness={switcher.openSwitcher}
+      topLevel={isReviewTopLevelPathname(pathname)}
     >
       {inReview ? <Outlet /> : null}
       <BusinessSwitcherSheet
@@ -898,7 +930,15 @@ function MineLayout() {
   }, [inMine, navigate]);
 
   return (
-    <AppShell shell="mine" businessName={selected.name} onSwitchBusiness={switcher.openSwitcher}>
+    // M-36: Mine's one screen is always top-level — there is no back
+    // button to gate this on, and never will be (§3.1: "a shell with
+    // nothing to navigate to should not render navigation").
+    <AppShell
+      shell="mine"
+      businessName={selected.name}
+      onSwitchBusiness={switcher.openSwitcher}
+      topLevel
+    >
       {inMine ? <Outlet /> : null}
       <BusinessSwitcherSheet
         open={switcher.open}
@@ -952,6 +992,13 @@ function OperateLayout({ today }: { today: BusinessDate }) {
   const selected = useSelectedBusiness();
   const switcher = useBusinessSwitcherToggle();
   const blockedShellPathname = isBlockedOperatePathname(pathname);
+  // M-36 (21 Aug 2026): the exact 4 pathnames for Operate's own tab roots —
+  // deliberately excludes `/review`, `/reports` and every other pathname
+  // `tabForPathname` also maps to "more" (`/cash`, `/members`, …), since
+  // those are drill-downs reached *through* More, not More itself, and
+  // `Screen` already gives every one of them a back button.
+  const isOperateTopLevel =
+    pathname === "/" || pathname === "/vehicles" || pathname === "/people" || pathname === "/more";
 
   // GAP-134: `QuickAddSheet` lives here, outside every route, so a route
   // change while it's open (an iOS edge-swipe back — iOS has no hardware
@@ -980,6 +1027,7 @@ function OperateLayout({ today }: { today: BusinessDate }) {
       onQuickAdd={() => setQuickAddOpen(true)}
       businessName={selected.name}
       onSwitchBusiness={switcher.openSwitcher}
+      topLevel={isOperateTopLevel}
     >
       {blockedShellPathname ? null : <Outlet />}
       <QuickAddSheet

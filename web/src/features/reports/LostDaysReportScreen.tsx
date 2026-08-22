@@ -2,7 +2,6 @@ import { parse, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { LostDaysResponse, LostReason } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
-import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { LOST_REASON_OPTIONS } from "../../lib/lostReasonLabel.js";
@@ -139,7 +138,7 @@ const COLUMNS: ReportTableColumn<DriverLostDaysTotal>[] = [
     key: "value",
     header: "Value",
     align: "end",
-    render: (row) => <Money value={row.lostValueMinor} />,
+    money: (row) => row.lostValueMinor,
   },
 ];
 

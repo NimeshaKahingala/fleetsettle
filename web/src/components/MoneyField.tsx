@@ -68,12 +68,12 @@ export function MoneyField({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="min-h-tap w-full rounded-sm border border-line-strong bg-surface px-3 text-left text-body"
+        className="min-h-tap w-full rounded-sm border border-transparent bg-surface-sunken px-3 text-left text-body"
       >
         {valueMinor !== null ? (
           <Money value={valueMinor} />
         ) : (
-          <span className="text-ink-faint">Enter {label.toLowerCase()}</span>
+          <span className="text-ink-muted">Enter {label.toLowerCase()}</span>
         )}
       </button>
       <Sheet open={open} onOpenChange={setOpen} title={label}>
