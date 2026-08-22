@@ -1,5 +1,6 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { Card } from "./Card.js";
 
 export interface StatTileDelta {
@@ -123,6 +124,7 @@ export function StatTile({
         aria-label={label}
         className={cn(
           "flex min-h-tap w-full flex-col items-start gap-1 rounded-md border border-line-hairline bg-surface p-4 text-left active:bg-brand-wash",
+          rowButtonFocus,
           className,
         )}
       >

@@ -9,6 +9,7 @@ import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ReportTable, type ReportTableColumn } from "../reports/ReportTable.js";
 
@@ -148,6 +149,7 @@ export function ReviewVehicleDetailScreen({
               }}
               className={cn(
                 "min-h-tap rounded-sm px-3 text-left text-body",
+                rowButtonFocus,
                 p.id === currentPeriodId
                   ? "bg-brand-wash text-brand-ink"
                   : "text-ink-primary active:bg-brand-wash",

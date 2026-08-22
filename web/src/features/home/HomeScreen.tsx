@@ -34,6 +34,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { ConfirmDayCard } from "../daily/ConfirmDayCard.js";
 import { ConfirmWeekGroupCard } from "../daily/ConfirmWeekGroupCard.js";
 
@@ -111,9 +112,8 @@ function groupUnconfirmedByLease(rows: UnconfirmedDayRecordRow[]): UnconfirmedGr
 }
 
 function paperworkMessage(row: PaperworkWarningRow): string {
-  const doc = row.docType === "revenue_licence" ? "revenue licence" : row.docType;
   const verb = row.isExpired ? "expired" : "expires";
-  return `${row.subjectLabel} — ${doc} ${verb} ${formatShortDate(row.expiryDate)}`;
+  return `${row.subjectLabel} — ${PAPERWORK_DOC_TYPE_LABEL[row.docType]} ${verb} ${formatShortDate(row.expiryDate)}`;
 }
 
 function paperworkTitle(row: PaperworkWarningRow): string {

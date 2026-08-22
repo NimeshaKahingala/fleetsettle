@@ -34,6 +34,7 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { CreateDriverForm } from "../people/CreateDriverForm.js";
@@ -107,8 +108,6 @@ export function BookTripScreen({
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
 
-  // allow: title fallback only ("Book a trip") — the booking flow itself
-  // reads no other field off this query.
   const vehicleQuery = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => api.get<VehicleResponse>(`/api/vehicle/${vehicleId}`),
@@ -163,6 +162,7 @@ export function BookTripScreen({
   // "nothing to warn about" — `?? []` alone can't tell them apart, and this
   // screen has two such warnings: the paperwork strip and the paused-lease-
   // days strip, both specified above the primary action (UI §7.4/§7.5).
+  const vehicleState = useQueryState(vehicleQuery);
   const customersState = useQueryState(customersQuery);
   const driversState = useQueryState(driversQuery);
   const paperworkState = useQueryState(paperworkWarningsQuery);
@@ -237,6 +237,20 @@ export function BookTripScreen({
   }
   function goNext(): void {
     setStep((s) => Math.min(s + 1, STEP_LABELS.length - 1));
+  }
+
+  // GAP-101: a failed vehicle read degrades to a retry surface rather than
+  // silently falling back to the "Book a trip" title placeholder.
+  if (vehicleState.kind === "error") {
+    return (
+      <Screen title="Book a trip" onBack={onBack}>
+        <QueryStateFailure
+          error={vehicleState.error}
+          retry={vehicleState.retry}
+          of="this vehicle"
+        />
+      </Screen>
+    );
   }
 
   const primaryAction =
@@ -394,9 +408,7 @@ export function BookTripScreen({
                 severity={vehicleWarning.isExpired ? "critical" : "warning"}
                 icon={TriangleAlert}
               >
-                {vehicleWarning.docType === "revenue_licence"
-                  ? "Revenue licence"
-                  : vehicleWarning.docType}{" "}
+                {PAPERWORK_DOC_TYPE_LABEL[vehicleWarning.docType]}{" "}
                 {vehicleWarning.isExpired ? "expired" : "expires"} {vehicleWarning.expiryDate}
               </AlertStrip>
             ) : null}

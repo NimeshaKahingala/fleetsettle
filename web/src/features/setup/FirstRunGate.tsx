@@ -6,14 +6,12 @@ import type {
   SessionPendingRequest,
   SessionResponse,
 } from "@fleetsettle/shared/schemas";
-import { Building2, KeyRound, LogOut, ShieldCheck } from "lucide-react";
+import { Building2, KeyRound, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
+import { SignOutRow } from "../../components/SignOutRow.js";
 import { Card } from "../../design/primitives/Card.js";
-import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
-import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
-import { useAuthActions } from "../../lib/AuthActionsContext.js";
 import { clearSelectedBusinessId, getSelectedBusinessId } from "../../lib/storage.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { isBlockedOperatePathname } from "../../lib/blockedOperatePathname.js";
@@ -64,44 +62,6 @@ function AdminEntry({ onOpenAdmin }: { onOpenAdmin: () => void }) {
         <span className="flex-1 text-body text-ink-primary">Open the admin panel</span>
       </Card>
     </button>
-  );
-}
-
-/**
- * GAP-152/F-7: zero-membership setup states cannot reach `/more`, so they
- * need their own copy of the existing sign-out affordance. The underlying
- * action still comes from `AuthActionsContext`, which is where query/cache
- * clearing and selected-business cleanup live.
- */
-function SetupSignOut() {
-  const { signOut } = useAuthActions();
-  const [confirmOpen, setConfirmOpen] = useState(false);
-
-  return (
-    <>
-      <button type="button" onClick={() => setConfirmOpen(true)} className="w-full text-left">
-        <Card className="flex items-center gap-3">
-          <LogOut className="size-5 text-ink-secondary" aria-hidden />
-          <span className="text-body text-ink-primary">Sign out</span>
-        </Card>
-      </button>
-
-      <Sheet open={confirmOpen} onOpenChange={setConfirmOpen} title="Sign out?">
-        <div className="flex flex-col gap-4 pb-2">
-          <p className="text-body text-ink-secondary">
-            You will need to sign in again to use FleetSettle on this device.
-          </p>
-          <DialogConfirmFooter
-            confirmLabel="Sign out"
-            onConfirm={() => {
-              setConfirmOpen(false);
-              void signOut();
-            }}
-            onCancel={() => setConfirmOpen(false)}
-          />
-        </div>
-      </Sheet>
-    </>
   );
 }
 
@@ -166,7 +126,7 @@ function GetStartedCards({
         </Card>
       </div>
 
-      <SetupSignOut />
+      <SignOutRow />
     </div>
   );
 }
@@ -332,7 +292,7 @@ function FirstRunGateInner({
               You no longer have access to any business. Contact the business owner.
             </p>
           </Card>
-          <SetupSignOut />
+          <SignOutRow />
         </div>
       );
     }

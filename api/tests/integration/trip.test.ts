@@ -10,6 +10,11 @@ import {
   trip as tripTable,
   vehicleDayAllocation,
 } from "../../src/db/schema.js";
+import { materializeDailyLeaseHorizon } from "../../src/domain/day-card-generation.js";
+import {
+  findDailyLeaseForBusiness,
+  listDailyLeaseRatesForLease,
+} from "../../src/queries/dailyLease.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -476,6 +481,76 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-146 follow-up — a backfilled past date with no open period at all (not just one that starts later) is reported unrestorable, not silently dropped", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    // Deliberately no ctx.createOpenPeriod call — this business has never
+    // opened its first accounting period. materializeDailyLeaseHorizon's
+    // own period-gating branches were both guarded by `openPeriod !== null`,
+    // so a `null` openPeriod fell through both and the past date's
+    // allocation was created with no day_record and no report of either.
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: addDays(today, -15),
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const fullLease = await findDailyLeaseForBusiness(db, businessId, leaseBody.id);
+    if (!fullLease) throw new Error("daily lease not found immediately after creating it");
+    const rates = await listDailyLeaseRatesForLease(db, leaseBody.id);
+
+    // startDailyLease already materialised today..horizon synchronously
+    // (D-9/GAP-88), so this call's own `from` is the only genuinely new
+    // ground it covers — the forward dates are already `existing` and are
+    // skipped regardless of `openPeriod`.
+    const from = addDays(today, -5);
+    const result = await materializeDailyLeaseHorizon(
+      db,
+      { ...fullLease, businessId },
+      rates,
+      null,
+      today,
+      undefined,
+      from,
+    );
+
+    expect(result.allocationsCreated).toBe(5);
+    expect(result.dayRecordsCreated).toBe(0);
+    expect(result.unrestorableDayRecordDates).toEqual([
+      from,
+      addDays(from, 1),
+      addDays(from, 2),
+      addDays(from, 3),
+      addDays(from, 4),
+    ]);
+
+    const restoredDayRecords = await db
+      .select({ businessDate: dayRecord.businessDate })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, from),
+          lte(dayRecord.businessDate, addDays(today, -1)),
+        ),
+      );
+    expect(restoredDayRecords).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
   it("defaults agreedAmountMinor and driverFeeMinor to zero when omitted", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
@@ -638,12 +713,12 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const vehicleId = await ctx.createVehicle(businessId);
-    // The conflict this reproduces is real precisely because arrangement is
-    // set to C for the booking attempt (matching bookTrip's own gate) while
-    // the vehicle_day_allocation row below carries arrangement A — the
-    // lease's own materialised horizon (P13/day-card-generation.ts), not
-    // something startLease itself would ever write synchronously.
-    await ctx.setVehicleArrangement(vehicleId, "C");
+    // GAP-158 reversed GAP-87's arrangement gate on bookTrip, so this no
+    // longer needs the artificial "C" it once did just to pass that check —
+    // "A" is the true-to-life shape: a vehicle actually out on a monthly
+    // lease, with the lease's own materialised horizon
+    // (P13/day-card-generation.ts) the thing a trip collides with.
+    await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
     const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
       startDate: "2026-06-01",
@@ -687,6 +762,140 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
       // no occupied date in it.
       nextFreeFrom: "2026-06-06",
     });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-158 — a vehicle on arrangement A but free for the requested dates books a trip like any other", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    // Idle between rentals — arrangement A, nothing occupying these dates.
+    // F-5.1 has no `Pre` on arrangement (unlike F-2.1/F-1.7); only INV-1's
+    // real occupancy check applies, and there is none here.
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-07-01",
+      endDate: "2026-07-02",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string } = await res.json();
+    expect(body.status).toBe("booked");
+    ctx.trackCreatedTrip(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-160 (review of GAP-158) — 409, not a silent double-booking, for a trip past an open-ended lease's own 90-day allocation horizon", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    // Open-ended (no endDate) and started long enough ago that
+    // generate-day-cards's own 90-day horizon, had it ever run for this
+    // lease, would already be far behind the trip dates below — the shape
+    // that actually matters is "no vehicle_day_allocation row exists this
+    // far out yet," which an open-ended lease with no cron run reproduces
+    // directly, no cron needed.
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const today = businessToday();
+    const farStart = addDays(today, 120);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: addDays(farStart, 1),
+    });
+    expect(res.status).toBe(409);
+    const body: {
+      code: string;
+      details?: { conflict: { sourceType: string; holderLabel: string }; nextFreeFrom: null };
+    } = await res.json();
+    expect(body.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    expect(body.details).toMatchObject({
+      conflict: { sourceType: "lease", holderLabel: "Test Customer" },
+      // Open-ended — there is no known date this lease frees up.
+      nextFreeFrom: null,
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-160 — 409 for a trip inside a fixed-term lease's own dates but past the materialisation horizon, naming when the lease actually ends", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const today = businessToday();
+    const leaseEnd = addDays(today, 200);
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: today,
+      endDate: leaseEnd,
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // Well inside the lease's own term, well past the 90-day horizon.
+    const farStart = addDays(today, 150);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: farStart,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string; details?: { nextFreeFrom: string } } = await res.json();
+    expect(body.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    expect(body.details?.nextFreeFrom).toBe(addDays(leaseEnd, 1));
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-160 — a closed lease, its own endDate correctly shortened by closeLease, does not block a trip past the horizon", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const today = businessToday();
+    // closeLease rewrites endDate to the real closing date at the same
+    // updateLeaseStatus call that moves status to "closing"
+    // (lease-closure.ts) — so a genuinely closed lease's own endDate is
+    // already accurate, in the past here, and this alone is enough to free
+    // the vehicle. The `status` filter in findLeaseOverlappingRange is
+    // belt-and-braces on top of that, not the thing doing the work in this
+    // particular case — this test locks in the ordinary shape, not a
+    // contrived "stale endDate" that the closure path doesn't actually
+    // produce.
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      endDate: addDays(today, -30),
+      status: "closed",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const farStart = addDays(today, 150);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: farStart,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string } = await res.json();
+    expect(body.status).toBe("booked");
+    ctx.trackCreatedTrip(body.id);
 
     await ctx.cleanup();
   });

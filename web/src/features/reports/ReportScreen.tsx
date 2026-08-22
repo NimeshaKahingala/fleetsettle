@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { Screen } from "../../design/primitives/Screen.js";
+import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 
 export interface ReportScreenProps {
   title: string;
@@ -27,13 +29,29 @@ export function ReportScreen({ title, subtitle, onBack, chart, table }: ReportSc
         {chart !== undefined ? (
           <>
             {showTable ? table : chart}
-            <button
-              type="button"
-              onClick={() => setShowTable((v) => !v)}
-              className="min-h-tap self-start text-body-sm text-brand-ink"
+            <div
+              role="group"
+              aria-label="View"
+              className="flex rounded-sm border border-line-hairline p-0.5"
             >
-              {showTable ? "View as chart" : "View as table"}
-            </button>
+              {(["Chart", "Table"] as const).map((label) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={(label === "Table") === showTable}
+                  onClick={() => setShowTable(label === "Table")}
+                  className={cn(
+                    "min-h-tap flex-1 rounded-sm px-3 text-body-sm",
+                    rowButtonFocus,
+                    (label === "Table") === showTable
+                      ? "bg-brand-wash font-medium text-brand-ink"
+                      : "text-ink-secondary",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </>
         ) : (
           table

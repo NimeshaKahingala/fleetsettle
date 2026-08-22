@@ -11,6 +11,8 @@ import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
 import { cn } from "../../lib/cn.js";
+import { formatShortDate } from "../../lib/formatShortDate.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { HorizontalBarChart, type HorizontalBarDatum } from "./charts/HorizontalBarChart.js";
 import { ReportScreen } from "./ReportScreen.js";
@@ -96,6 +98,9 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
           )}
         </span>
       </button>
+      {parse(vehicle.profitMinor) === 0n ? (
+        <p className="text-caption text-ink-muted">No activity this month yet</p>
+      ) : null}
       {open ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line-hairline pt-3">
           {/* §7.11/TwoBalances: earned (brand) vs spent (direction-payable), same 3px leading-border marker. */}
@@ -146,12 +151,13 @@ function PeriodPickerSheet({
             }}
             className={cn(
               "min-h-tap rounded-sm px-3 text-left text-body",
+              rowButtonFocus,
               p.id === currentPeriodId
                 ? "bg-brand-wash text-brand-ink"
                 : "text-ink-primary active:bg-brand-wash",
             )}
           >
-            {p.periodStart} – {p.periodEnd}
+            {formatShortDate(p.periodStart)} – {formatShortDate(p.periodEnd)}
             {p.status === "open" ? " (open)" : ""}
           </button>
         ))}
@@ -239,7 +245,7 @@ export function VehicleMonthReportScreen({
       <ReportScreen
         title="How was this month"
         onBack={onBack}
-        table={<p className="text-body text-ink-muted">Loading…</p>}
+        table={<p className="text-body text-ink-muted">Loading how this month went…</p>}
       />
     );
   }
@@ -252,7 +258,7 @@ export function VehicleMonthReportScreen({
     <>
       <ReportScreen
         title="How was this month"
-        subtitle={`${report.period.periodStart} – ${report.period.periodEnd}`}
+        subtitle={`${formatShortDate(report.period.periodStart)} – ${formatShortDate(report.period.periodEnd)}`}
         onBack={onBack}
         chart={
           <div className="flex flex-col gap-3">
@@ -261,7 +267,8 @@ export function VehicleMonthReportScreen({
               onClick={() => setPickerOpen(true)}
               className="min-h-tap self-start rounded-sm border border-line-strong px-3 text-body text-ink-primary"
             >
-              {report.period.periodStart} – {report.period.periodEnd} ▾
+              {formatShortDate(report.period.periodStart)} –{" "}
+              {formatShortDate(report.period.periodEnd)} ▾
             </button>
             {/* §7.11/TwoBalances: same direction markers as VehicleRow's own
                 Earned/Spent below; profit is a derived net, left unmarked. */}

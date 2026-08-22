@@ -1,13 +1,20 @@
-import type { SessionMembership, SessionPendingRequest } from "@fleetsettle/shared/schemas";
+import type {
+  RedeemInviteResponse,
+  SessionMembership,
+  SessionPendingRequest,
+} from "@fleetsettle/shared/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { Building2, Check, Plus } from "lucide-react";
+import { Building2, Check, KeyRound, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
+import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { setSelectedBusinessId } from "../../lib/storage.js";
 import { CreateBusinessForm } from "./CreateBusinessForm.js";
+import { RedeemInviteForm } from "./RedeemInviteForm.js";
 
 export interface BusinessSwitcherSheetProps {
   open: boolean;
@@ -24,7 +31,10 @@ export interface BusinessSwitcherSheetProps {
   /**
    * Present for the in-shell business hub. Omitted for FirstRunGate's
    * mandatory "choose one of your existing memberships" state, where showing
-   * another create path would make the required choice less clear.
+   * another create/join path would make the required choice less clear.
+   * Also gates the "Join a business" section (GAP-157) — the two doors this
+   * hub offers an existing member always travel together, so one prop covers
+   * both rather than threading a second flag through every call site.
    */
   createBusiness?: { pendingRequest: SessionPendingRequest | null };
   /**
@@ -72,13 +82,17 @@ export function BusinessSwitcherSheet({
 }: BusinessSwitcherSheetProps) {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   // Every caller mounts this sheet unconditionally and drives it by `open`, so
   // the component instance — and this state with it — survives a dismiss.
   // Without the reset, closing on the create form reopens on the create form,
   // hiding every other business until a full page reload.
   useEffect(() => {
-    if (open) setCreating(false);
+    if (open) {
+      setCreating(false);
+      setJoining(false);
+    }
   }, [open]);
 
   function selectBusiness(businessId: string) {
@@ -105,6 +119,23 @@ export function BusinessSwitcherSheet({
     onOpenChange(false);
   }
 
+  /**
+   * GAP-157: the join half of GAP-149's create door, on the same screen.
+   * `RedeemInviteResponse` is one endpoint serving two destinations (W-57) —
+   * only the `business_member` kind carries a `businessId` to select
+   * straight into; a `driver_link` redemption (this identity linking to a
+   * driver record in a different business) leaves the current selection
+   * alone, same as `FirstRunGate`'s own zero-membership `onRedeemed` does,
+   * and the new membership is reachable from this same sheet next time it
+   * opens.
+   */
+  function handleBusinessJoined(result: RedeemInviteResponse) {
+    if (result.kind === "business_member") setSelectedBusinessId(result.businessId);
+    queryClient.clear();
+    onSelected?.();
+    onOpenChange(false);
+  }
+
   return (
     // "Businesses", not "Choose a business" — `FirstRunGate`'s own
     // mandatory-choice state already renders that exact heading as its page
@@ -122,7 +153,10 @@ export function BusinessSwitcherSheet({
                   type="button"
                   onClick={() => selectBusiness(membership.businessId)}
                   aria-current={isCurrent ? "true" : undefined}
-                  className="flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash"
+                  className={cn(
+                    "flex min-h-tap w-full items-center gap-3 rounded-sm px-2 text-left active:bg-brand-wash",
+                    rowButtonFocus,
+                  )}
                 >
                   <Building2 className="size-5 shrink-0 text-ink-secondary" aria-hidden />
                   <span className="min-w-0 flex-1">
@@ -160,9 +194,51 @@ export function BusinessSwitcherSheet({
                 />
               </Card>
             ) : (
-              <Button type="button" variant="outline" size="cta" onClick={() => setCreating(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="cta"
+                onClick={() => {
+                  setCreating(true);
+                  setJoining(false);
+                }}
+              >
                 <Plus className="size-5" aria-hidden />
                 Create a business
+              </Button>
+            )}
+          </div>
+        ) : null}
+
+        {/* GAP-157: the join door this hub was missing — an existing member
+            could create a second business here but had no way to join one
+            by invite code, the same fix `RedeemInviteForm` already gives
+            FirstRunGate's zero-membership state (F-1.4/F-1.8, W-57). */}
+        {createBusiness !== undefined ? (
+          <div className="border-t border-line-hairline pt-4">
+            {joining ? (
+              <Card className="flex flex-col gap-4">
+                <div className="flex items-start gap-3">
+                  <KeyRound className="mt-0.5 size-5 shrink-0 text-brand-ink" aria-hidden />
+                  <div>
+                    <h2 className="text-title text-ink-primary">Join a business</h2>
+                    <p className="text-body-sm text-ink-muted">Enter the code you were given.</p>
+                  </div>
+                </div>
+                <RedeemInviteForm onRedeemed={handleBusinessJoined} />
+              </Card>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="cta"
+                onClick={() => {
+                  setJoining(true);
+                  setCreating(false);
+                }}
+              >
+                <KeyRound className="size-5" aria-hidden />
+                Join a business
               </Button>
             )}
           </div>

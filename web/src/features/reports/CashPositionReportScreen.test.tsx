@@ -62,7 +62,7 @@ test("GAP-111: the table view gives an empty banked/driverAdvances section the s
   const get = vi.fn().mockResolvedValue(response);
   renderWithProviders(<CashPositionReportScreen onBack={() => {}} />, { get });
 
-  await user.click(await screen.findByRole("button", { name: "View as table" }));
+  await user.click(await screen.findByRole("button", { name: "Table" }));
 
   expect(screen.getByText("Nothing banked yet.")).toBeInTheDocument();
   expect(screen.getByText("No advances outstanding.")).toBeInTheDocument();

@@ -11,7 +11,7 @@ import { useQueryState } from "../../lib/useQueryState.js";
 import { PartyName } from "./PartyName.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
-import { PARTY_TYPE_LABEL } from "./lib/partyTypeLabel.js";
+import { PARTY_TYPE_LABEL } from "../../lib/partyTypeLabel.js";
 
 export interface AgeingReportScreenProps {
   asOfDate: BusinessDate;

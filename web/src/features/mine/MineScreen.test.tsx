@@ -1,6 +1,7 @@
 import { asBusinessDate } from "@fleetsettle/shared";
 import type { DriverViewResponse } from "@fleetsettle/shared/schemas";
 import { screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
@@ -77,14 +78,35 @@ test("B5: linked driver sees his own balances and recent activity without a driv
   expect(get.mock.calls[0]?.[0]).not.toContain("driverId");
 });
 
-test("B5: Mine is read-only and has no write buttons on a successful read", async () => {
+test("B5: Mine is read-only and has no write buttons on a successful read — Sign out (GAP-156) is the one control this shell has", async () => {
   renderWithProviders(<MineScreen today={today} />, {
     get: vi.fn().mockResolvedValue(populatedView),
   });
 
   await screen.findByText("Recent days · 1");
 
-  expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  const buttons = screen.getAllByRole("button");
+  expect(buttons).toHaveLength(1);
+  expect(buttons[0]).toHaveTextContent("Sign out");
+});
+
+test("GAP-156: a linked driver can sign out from the Mine shell", async () => {
+  const user = userEvent.setup();
+  const signOut = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+  renderWithProviders(
+    <MineScreen today={today} />,
+    { get: vi.fn().mockResolvedValue(populatedView) },
+    signOut,
+  );
+
+  await user.click(await screen.findByText("Sign out"));
+  expect(await screen.findByText("Sign out?")).toBeInTheDocument();
+  const buttons = await screen.findAllByRole("button", { name: "Sign out" });
+  const confirmButton = buttons.at(-1);
+  if (!confirmButton) throw new Error("expected a confirm button inside the sheet");
+  await user.click(confirmButton);
+
+  expect(signOut).toHaveBeenCalledTimes(1);
 });
 
 test("GAP-101: failed driver-view read shows a scoped failure", async () => {

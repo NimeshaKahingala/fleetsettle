@@ -15,6 +15,7 @@ import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useMe } from "../../lib/useMe.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { VehiclePerformanceCard } from "./VehiclePerformanceCard.js";
 
 export interface ReviewThisMonthScreenProps {
@@ -180,7 +181,10 @@ export function ReviewThisMonthScreen({
     warningsState.kind === "ready"
       ? warningsState.data
           .filter((w) => w.subjectType === "vehicle")
-          .map((w) => [w.subjectId, `${w.docType} expires ${w.expiryDate}`])
+          .map((w) => [
+            w.subjectId,
+            `${PAPERWORK_DOC_TYPE_LABEL[w.docType]} expires ${w.expiryDate}`,
+          ])
       : [],
   );
 

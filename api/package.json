@@ -10,6 +10,7 @@
     "migrate:status": "node scripts/migrate.mjs --status",
     "migrate:check": "node scripts/migrate.mjs --check",
     "check:drift": "node scripts/check-drift.mjs",
+    "audit:ledger": "node scripts/ledger-audit.mjs",
     "test": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "deploy:qa": "wrangler deploy --env qa",

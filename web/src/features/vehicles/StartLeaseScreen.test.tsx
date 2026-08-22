@@ -259,7 +259,7 @@ test("a paperwork warning for this vehicle shows on the confirm step (F-10.1)", 
     await user.click(await screen.findByRole("button", { name: "Next" }));
   }
 
-  expect(await screen.findByText(/insurance/)).toHaveTextContent("insurance expired 2026-06-01");
+  expect(await screen.findByText(/Insurance/)).toHaveTextContent("Insurance expired 2026-06-01");
 });
 
 test("GAP-101 (Mode 3): a failed paperwork read shows a warning, never silently nothing, on the confirm step", async () => {
@@ -355,7 +355,9 @@ test("GAP-84 — a vehicle set up for a different arrangement refuses before the
   );
 
   expect(
-    await screen.findByText("This vehicle is set up for arrangement C, not a monthly rental."),
+    await screen.findByText(
+      "This vehicle is currently set up for trips / charter, not a monthly rental.",
+    ),
   ).toBeInTheDocument();
   expect(screen.queryByText("Step 1 of 7 · Customer")).not.toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();

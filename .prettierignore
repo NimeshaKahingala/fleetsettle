@@ -20,3 +20,8 @@ package-lock.json
 # Hand-authored on an integer grid — reformatting moves the coordinates around
 # and makes a geometry change indistinguishable from a whitespace change.
 *.svg
+
+# Vendored Claude Code skill packs — third-party content, not this
+# project's source.
+.claude/skills/
+.agents/skills/

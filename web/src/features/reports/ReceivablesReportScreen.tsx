@@ -4,11 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { formatShortDate } from "../../lib/formatShortDate.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { PartyName } from "./PartyName.js";
 import { ReportScreen } from "./ReportScreen.js";
 import { ReportTable, type ReportTableColumn } from "./ReportTable.js";
-import { PARTY_TYPE_LABEL } from "./lib/partyTypeLabel.js";
+import { PARTY_TYPE_LABEL } from "../../lib/partyTypeLabel.js";
 
 export interface ReceivablesReportScreenProps {
   onBack: () => void;
@@ -35,7 +36,7 @@ const COLUMNS: ReportTableColumn<ReceivablesResponse[number]>[] = [
     key: "oldestDueOn",
     header: "Oldest due",
     align: "end",
-    render: (row) => row.oldestDueOn,
+    render: (row) => formatShortDate(row.oldestDueOn),
   },
 ];
 
@@ -63,7 +64,7 @@ export function ReceivablesReportScreen({ onBack }: ReceivablesReportScreenProps
         state.kind === "error" ? (
           <QueryStateFailure error={state.error} retry={state.retry} of="who owes us" />
         ) : state.kind !== "ready" ? (
-          <p className="text-body text-ink-muted">Loading…</p>
+          <p className="text-body text-ink-muted">Loading who owes us…</p>
         ) : state.data.length === 0 ? (
           <p className="text-body text-ink-secondary">No one owes us anything.</p>
         ) : (

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { Input } from "../design/primitives/Input.js";
 import { Sheet } from "../design/primitives/Sheet.js";
+import { cn } from "../lib/cn.js";
+import { rowButtonFocus } from "../lib/rowButtonFocus.js";
 
 export interface EntityOption {
   id: string;
@@ -90,7 +92,10 @@ export function EntityPicker({
                       setOpen(false);
                       setQuery("");
                     }}
-                    className="flex min-h-tap w-full flex-col items-start justify-center rounded-sm px-2 text-left active:bg-brand-wash"
+                    className={cn(
+                      "flex min-h-tap w-full flex-col items-start justify-center rounded-sm px-2 text-left active:bg-brand-wash",
+                      rowButtonFocus,
+                    )}
                   >
                     <span className="text-body text-ink-primary">{option.label}</span>
                     {option.sublabel !== undefined ? (
