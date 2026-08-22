@@ -1,6 +1,7 @@
 # UI/UX Guidelines
 
-**Status:** v1.7 — **M-36 added: the app bar merges business name and screen title on true top-level screens, and Home gains a needs-attention bell.** M-33's two-bar chrome (business-name strip above `Screen`'s own title bar) stays exactly as specified on any screen reached with a back button; on the 8 screens that are never reached with one, the two collapse into a single two-line bar, saving the vertical space CLAUDE.md's 360×640 constraint makes scarce. The bell is `Home`'s own `Screen.action` — the one top-level screen where that slot is free — badging the same reads §3.2 already specifies, items 1/2/4–7, never item 3's hero card. No new backend: it aggregates data `HomeScreen.tsx` already fetches. Decided 21 Aug 2026.
+**Status:** v1.8 — **§5.1's colour table updated to Tactile Ops Phase 1** (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5D) — full cool-neutral/navy palette replacing House Style's warm/terracotta pair, built and passing `guard`/`lint:css`/`typecheck`/tests. Not yet a numbered `M-35` decision — that lands once Phase 8 closes the whole 9-phase redesign; this bump only keeps the token table from lying about what `tokens.css` ships today. Updated 22 Aug 2026.
+**v1.7** — **M-36 added: the app bar merges business name and screen title on true top-level screens, and Home gains a needs-attention bell.** M-33's two-bar chrome (business-name strip above `Screen`'s own title bar) stays exactly as specified on any screen reached with a back button; on the 8 screens that are never reached with one, the two collapse into a single two-line bar, saving the vertical space CLAUDE.md's 360×640 constraint makes scarce. The bell is `Home`'s own `Screen.action` — the one top-level screen where that slot is free — badging the same reads §3.2 already specifies, items 1/2/4–7, never item 3's hero card. No new backend: it aggregates data `HomeScreen.tsx` already fetches. Decided 21 Aug 2026.
 **v1.6** — **M-34 added: House Style, the first brand-identity revision since §16 left it open.** The owner-manager found the shipped system generic — a fair read, since §5.1's brand blue and §5.2's system-only type stack were both cost trade-offs, not taste. §5.1's palette, §5.2's typography and §5.3's elevation rule all change; the reasoning and the measured numbers behind each are in M-34's own decisions-log entry rather than repeated at each section. Decided 21 Aug 2026.
 **v1.5** — **M-32/M-33 added: the admin panel and the business switcher, neither a fourth shell.** §1.1 and §3.1 gain the explicit sentence the platform-admin design's own §11 flagged as necessary — M-3 (three shells, never a fourth) is not being quietly reversed; the admin panel is a platform surface reached from within whichever shell an identity already has, and the switcher changes which business a shell's numbers describe, never the shell itself. The business name moves into `AppShell`'s app bar (§6.1), separate from `Screen`'s own `title`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §8. Decided 18 Aug 2026.
 **v1.4.1** — GAP-134: `Sheet`'s mobile back-button/gesture mechanism changed from a hand-rolled `history.pushState`/`.back()` scheme to the platform `CloseWatcher` API (§3.3, §6.1, M-27's Why column); no conclusion changes, only how it's answered. M-31: the whole-app visual refresh is now a planned, route-wide design-system pass rather than a Home-only polish item. It keeps the mobile-first contract, uses semantic colour/icon/word pairings, and folds the live QA findings on login, Home and desktop stretch into §7.11, §14 and §15. M-30 still stands for `PhotoCapture`.
@@ -298,31 +299,34 @@ All tokens are CSS custom properties consumed through Tailwind v4's `@theme`. No
 
 ### 5.1 Colour
 
-**Surfaces and ink** — warm neutrals; a pure-white card at full brightness is unreadable in the sun and harsh at night.
+**Tactile Ops (Phase 1 built 22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5D) is replacing this palette in flight.** The table below is what `tokens.css` ships *today* — cool neutrals and a navy brand, not House Style's warm/terracotta pair, which this same phase retired. The redesign is 9 phases; only Phase 1 (palette) has landed, so the values are final but the *look* (radius, elevation, type) is not — a formal `M-35` decision-log entry lands once Phase 8 closes the whole thing out, superseding M-34 the way M-34 superseded the chart-palette blue before it. Cite the plan doc, not M-34, for anything below.
+
+**Surfaces and ink** — cool neutrals (Tactile Ops); House Style's warm family (`#F1F1EC`/`#FBFBF8`/`#14140F`…) is retired.
 
 **Every colour token is named `--color-*`, and that prefix is not a style choice.** Tailwind v4's `@theme` is namespaced: only a variable in the `--color-*` namespace generates colour utilities, so `--color-ink-primary` yields `text-ink-primary` / `bg-ink-primary` / `border-ink-primary`, while a token named `--color-ink-primary` generates nothing and fails silently. The tokens below are therefore written exactly as they appear in §12.3 — one name, one place, no translation step.
 
 | Token | Utility | Light | Dark | Contrast (light / dark) |
 |---|---|---|---|---|
-| `--color-page` | `bg-page` | `#F1F1EC` | `#0D0D0C` | — |
-| `--color-surface` (cards, sheets, charts) | `bg-surface` | `#FBFBF8` | `#141413` | — |
-| `--color-ink-primary` | `text-ink-primary` | `#14140F` | `#F5F5F0` | 17.8 / 16.9 |
-| `--color-ink-secondary` | `text-ink-secondary` | `#52514E` | `#C3C2B7` | 7.7 / 10.3 |
-| `--color-ink-muted` (supporting text) | `text-ink-muted` | `#6E6C66` | `#96948C` | 5.1 / 6.1 |
-| `--color-ink-faint` (axis, hairlines — **non-text only**) | `text-ink-faint` | `#898781` | `#898781` | **3.5 / 5.1** |
-| `--color-line-hairline` | `border-line-hairline` | `rgba(20,20,15,0.10)` | `rgba(255,255,255,0.10)` | — |
-| `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DCDBD3` | `#2C2C2A` | — |
+| `--color-page` | `bg-page` | `#EDEFF3` | `#0B0E14` | — |
+| `--color-surface` (cards, sheets, charts) | `bg-surface` | `#FFFFFF` | `#12151C` | — |
+| `--color-ink-primary` | `text-ink-primary` | `#151A22` | `#F6F7FA` | 17.5 / 17.1 |
+| `--color-ink-secondary` | `text-ink-secondary` | `#5B6472` | `#C2C3C7` | 5.98 / 10.4 |
+| `--color-ink-muted` (supporting text) | `text-ink-muted` | `#646D7C` | `#94969B` | 5.22 / 6.16 |
+| `--color-ink-faint` (axis, hairlines — **non-text only**) | `text-ink-faint` | `#8A93A3` | `#84868B` | **3.10 / 5.01** |
+| `--color-line-hairline` | `border-line-hairline` | `rgba(21,26,34,0.10)` | `rgba(255,255,255,0.10)` | — |
+| `--color-line-strong` (baselines, header dividers) | `border-line-strong` | `#DEDFE0` | `#292C32` | — |
+| `--color-surface-sunken` (recessed fill, filled form controls — §6 Phase 4) | `bg-surface-sunken` | `#DDE1E8` | `#2A2C33` | 1.31 / 1.31 vs surface |
 
-**Brand and interactive** (M-34, 21 Aug 2026 — House Style; superseded the chart-palette blue this table carried through v1.5)
+**Brand and interactive** (Tactile Ops Phase 1, 22 Aug 2026 — supersedes M-34's terracotta pair)
 
 | Token | Light | Dark | Note |
 |---|---|---|---|
-| `--color-brand` (filled buttons) | `#9C3F2E` | `#AB3F2B` | White on light brand = 6.64:1; light brand-ink on page/surface = 5.86 / 6.40:1 |
-| `--color-brand-ink` (links, brand-coloured text) | `#9C3F2E` | `#E08260` | Dark ink is deliberately a lighter, more saturated step than the dark fill — 6.5–7:1 against both dark surfaces |
-| `--color-brand-wash` (selected rows, chips) | `#F5E3DC` | `#2E1B14` | |
-| `--color-focus-ring` | `#9C3F2E` | `#E08260` | 3px, 2px offset, never removed |
+| `--color-brand` (filled buttons) | `#0F2E63` | `#1E3A6E` | White on light brand = 13.20:1; white on dark brand = 11.14:1 |
+| `--color-brand-ink` (links, brand-coloured text) | `#0F2E63` | `#9CBAF7` | Light mode: one hex serves fill and ink both, same as House Style's own pattern. Dark ink is a separate, much lighter hex from the fill (§5B.2 — the two tokens have opposite requirements) — 9.38:1 against the dark surface |
+| `--color-brand-wash` (selected rows, chips) | `#E2E6EC` | `#141C2C` | Brand-ink text on wash: 10.53:1 light / 8.71:1 dark |
+| `--color-focus-ring` | `#0F2E63` | `#9CBAF7` | 3px, 2px offset, never removed |
 
-Validated against `--color-direction-payable` (unchanged, below) with `dataviz`'s `validate_palette.js`: light clears every check (CVD ΔE 18.7, normal-vision ΔE 18.7). Dark does not clear the strict ≥15 normal-vision floor — no rust bright enough to read against `#141413` stays far enough from `--d-payable`'s own orange — so dark ships the best pair found (ΔE 11.2 fill / 9.2 ink, both still clearing the CVD target of 8), on the same "always paired with a word" basis (M-15) this section already uses for the light-mode `warning`/`serious` fills below.
+Light mode: `#0F2E63` was the widest-margin survivor of a four-candidate battery run against the new neutrals (CVD/normal-vision ΔE 27.0 vs `--color-chart-1`/`--color-direction-payable`, the next-best candidate at 22–23). Dark mode uses `dataviz`'s `validate_palette.js` on the *ink* role alone, corrected from an earlier single-hex search that conflated fill and ink requirements (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5B.2): `#9CBAF7` clears the strict ≥15 normal-vision floor outright (ΔE 18.1) rather than needing the M-15 "always paired with a word" exception House Style's dark rust pair required.
 
 **Status** — fixed, never themed, never reused as a series colour.
 
@@ -337,13 +341,15 @@ Status colours **always ship with an icon and a word** — the light-mode warnin
 
 **Money direction** is *identity*, not polarity (UC §6.4, W-2), so it is not a status colour and it is not a raw hex:
 
-| Token | Light | Dark | Contrast (light / dark) | Meaning |
+| Token | Light | Dark | Contrast (light / dark, vs `--color-surface`) | Meaning |
 |---|---|---|---|---|
-| `--color-brand` | `#9C3F2E` | `#AB3F2B` | 6.4 / 3.05 (M-34) | **He owes you** — 3px leading rule + the words "owes you" |
-| `--color-direction-payable` | `#EB6834` | `#D95926` | 3.1 / 4.8 | **You owe him** — 3px leading rule + the words "you owe" |
-| `--color-ink-faint` hatched | `#898781` | `#898781` | 3.5 / 5.1 | **Held, not yours** (deposits, advances) + the word "held" |
+| `--color-brand` | `#0F2E63` | `#1E3A6E` | 13.20 / **1.64** ⚑ | **He owes you** — 3px leading rule + the words "owes you" |
+| `--color-direction-payable` | `#EB6834` | `#D95926` | 3.20 / 4.70 | **You owe him** — 3px leading rule + the words "you owe" |
+| `--color-ink-faint` hatched | `#8A93A3` | `#84868B` | 3.10 / 5.01 | **Held, not yours** (deposits, advances) + the word "held" |
 
-The amount itself is always `--color-ink-primary`, whichever direction it points (M-15). `--color-direction-payable` is deliberately the same hex as chart slot 2 in both modes (§11.2), so the marker beside a driver's balance and the series in a chart about that driver are the same orange rather than two oranges. All three clear the 3:1 non-text threshold (SC 1.4.11) against the surface they render on.
+The amount itself is always `--color-ink-primary`, whichever direction it points (M-15). `--color-direction-payable` is deliberately the same hex as chart slot 2 in both modes (§11.2), so the marker beside a driver's balance and the series in a chart about that driver are the same orange rather than two oranges.
+
+⚑ **`--color-brand`'s dark-mode accent bar is below the 3:1 non-text floor, and worse than House Style's own 3.05:1 it replaces.** Found while re-verifying Tactile Ops' Phase 1 palette (22 Aug 2026) — `#1E3A6E` was chosen for its *fill* role (white-on-fill 11.14:1, §5B.2), and every navy light enough to also clear 3:1 against the new dark surface (`#12151C`) converges toward `--color-chart-1`'s own hue (ΔE drops to ~11, below the 15 floor `#4269AC` and lighter candidates were tested at) — the same structural collision §4.2 wrongly generalised from and §5B.2 correctly scoped to the *ink* role only. For the *fill* role used as a thin non-text accent bar, the collision is real: no hex serves "dark enough for white text" and "light enough to read as a line against a dark card" at once. Accepted under the same M-15 "always paired with a word" basis House Style's own dark pair already used at 3.05:1 — every consumer (`Card.tsx`, `ActionSheet.tsx`, `ReviewMoneyScreen.tsx`, `ReviewVehicleDetailScreen.tsx`, `VehicleMonthReportScreen.tsx`, `VehicleYearReportScreen.tsx`) pairs the bar with "owes you"/"owed to you" text, so the direction is never conveyed by colour alone even at 1.64:1. **Flagged for Phase 8's browser QA pass**, not silently shipped: confirm in a real dark-mode browser that the bar is still perceptible at 3px next to its paired text before treating this as settled, since 1.64:1 is materially worse than the 3.05:1 precedent that established the exception.
 
 ### 5.2 Typography
 
@@ -1052,20 +1058,20 @@ This is the **complete** set, not an excerpt. §5 is its documentation; this is 
 Dark mode has to be reachable two ways — the OS setting and the in-app toggle (M-20) — and CSS has no include. So the hex values live once as **palette constants** and the two mode blocks only remap semantic tokens onto them. That is what stops the toggle and the media query drifting apart, which is the failure mode where switching to dark manually does nothing.
 
 ```css
-/* design/tokens.css */
+/* design/tokens.css — Tactile Ops Phase 1 palette (22 Aug 2026, §5D) */
 @import "tailwindcss";
 
 /* 1 — palette constants. The only place a hex appears. */
 :root {
-  --l-page:#F1F1EC; --l-surface:#FBFBF8; --l-ink1:#14140F; --l-ink2:#52514E;
-  --l-ink3:#6E6C66; --l-faint:#898781;  --l-strong:#DCDBD3;
-  --l-brand:#9C3F2E; --l-brandink:#9C3F2E; --l-wash:#F5E3DC; --l-payable:#EB6834;
-  --l-hair:rgba(20,20,15,.10);
+  --l-page:#EDEFF3; --l-surface:#FFFFFF; --l-ink1:#151A22; --l-ink2:#5B6472;
+  --l-ink3:#646D7C; --l-faint:#8A93A3;  --l-strong:#DEDFE0;
+  --l-brand:#0F2E63; --l-brandink:#0F2E63; --l-wash:#E2E6EC; --l-payable:#EB6834;
+  --l-hair:rgba(21,26,34,.10); --l-surface-sunken:#DDE1E8;
 
-  --d-page:#0D0D0C; --d-surface:#141413; --d-ink1:#F5F5F0; --d-ink2:#C3C2B7;
-  --d-ink3:#96948C; --d-faint:#898781;  --d-strong:#2C2C2A;
-  --d-brand:#AB3F2B; --d-brandink:#E08260; --d-wash:#2E1B14; --d-payable:#D95926;
-  --d-hair:rgba(255,255,255,.10);
+  --d-page:#0B0E14; --d-surface:#12151C; --d-ink1:#F6F7FA; --d-ink2:#C2C3C7;
+  --d-ink3:#94969B; --d-faint:#84868B;  --d-strong:#292C32;
+  --d-brand:#1E3A6E; --d-brandink:#9CBAF7; --d-wash:#141C2C; --d-payable:#D95926;
+  --d-hair:rgba(255,255,255,.10); --d-surface-sunken:#2A2C33;
 }
 
 /* M-34: self-hosted, subset to the fixed English vocabulary --font-display
@@ -1090,6 +1096,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-faint:       var(--l-faint);
   --color-line-hairline:   var(--l-hair);
   --color-line-strong:     var(--l-strong);
+  --color-surface-sunken:  var(--l-surface-sunken);
   --color-brand:           var(--l-brand);
   --color-brand-ink:       var(--l-brandink);
   --color-brand-wash:      var(--l-wash);
@@ -1131,6 +1138,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
   --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
   --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-surface-sunken:var(--d-surface-sunken);
   --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
   --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
   --color-direction-payable:var(--d-payable);
@@ -1143,6 +1151,7 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-ink-primary:var(--d-ink1); --color-ink-secondary:var(--d-ink2);
   --color-ink-muted:var(--d-ink3); --color-ink-faint:var(--d-faint);
   --color-line-hairline:var(--d-hair); --color-line-strong:var(--d-strong);
+  --color-surface-sunken:var(--d-surface-sunken);
   --color-brand:var(--d-brand); --color-brand-ink:var(--d-brandink);
   --color-brand-wash:var(--d-wash); --color-focus-ring:var(--d-brandink);
   --color-direction-payable:var(--d-payable);

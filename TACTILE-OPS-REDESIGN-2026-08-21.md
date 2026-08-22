@@ -6,7 +6,7 @@
 pass — see §5C. Every count, hex, file path and git claim below has now been measured
 three times by three sessions; where they disagreed, §5C says which number is right and
 why the disagreement happened.
-**Status: final — ready to build. Phase 1 may start.** This document exists so a cold session — a fresh
+**Status: final — Phase 1 built 22 August 2026 (§5D). Phase 2 may start.** This document exists so a cold session — a fresh
 context window, a different day, a different agent — can pick this up without re-deriving
 any of it. `docs/` still decides; nothing here is a specification until it lands there
 (Phase 8 of §6 below is exactly that landing). Read this document for *what, why, and
@@ -958,6 +958,92 @@ rule — the *table* scrolls sideways, never the page — must survive whichever
 
 ---
 
+## 5D. Phase 1 executed — 22 August 2026
+
+The neutrals-first order §5C.5 mandated was followed exactly: `--l-page`/`--l-surface`
+locked, `--l-brand`/`--l-brandink` chosen against them, then every dependent ink
+re-measured against the *new* ground rather than the old figures §5B recorded. All
+numbers below are freshly computed (sRGB relative luminance, WCAG formula), not carried
+over from §4/§5B. `tokens.css`, `guard`, `lint:css`, `typecheck` and the full `web` test
+suite (851 tests) all pass with these values in place; a real-browser check at 360×640 in
+both themes confirms the base layer (page/ink/critical) renders correctly (§5B.6's gate —
+full visual re-approval waits for Phase 2–4 to land geometry/type, since colour alone
+on old radii isn't the frame worth re-approving).
+
+**Light, locked:**
+
+| Token | Value | Source |
+|---|---|---|
+| `--l-page` | `#EDEFF3` | §2.1 literal |
+| `--l-surface` | `#FFFFFF` | §2.1 literal |
+| `--l-ink1` | `#151A22` | §2.1 literal (`.m-b`), 17.46:1 / 15.17:1 |
+| `--l-ink2` | `#5B6472` | §2.1 literal (`.biz`/`.card .top`), 5.98:1 / 5.20:1 |
+| `--l-ink3` | `#646D7C` | **New, not §2.1's literal** — see below |
+| `--l-faint` | `#8A93A3` | §2.1 literal (`.card .who`/`.section-head`/`.acap`), 3.10:1 |
+| `--l-strong` | `#DEDFE0` | **New** — §2.1 has no line-strong equivalent |
+| `--l-brand` / `--l-brandink` | `#0F2E63` | §4.1 finalist, widest CVD margin (27.0), 13.20:1 vs surface |
+| `--l-wash` | `#E2E6EC` | **New** — derived, not in §2.1 |
+| `--l-surface-sunken` | `#DDE1E8` | **New value**, not §2.1's literal `#eef1f6` |
+
+**Dark, locked:**
+
+| Token | Value | Source |
+|---|---|---|
+| `--d-page` | `#0B0E14` | **New — derived**, §2.1 has no dark block |
+| `--d-surface` | `#12151C` | **New — derived** |
+| `--d-ink1`/`2`/`3` | `#F6F7FA` / `#C2C3C7` / `#94969B` | **New — derived**, 17.05 / 10.36 / 6.16:1 |
+| `--d-faint` | `#84868B` | **New — derived**, 5.01:1 |
+| `--d-strong` | `#292C32` | **New — derived**, 1.30:1 |
+| `--d-brand` | `#1E3A6E` | §5B.2 fill candidate, 11.14:1 white-on-fill |
+| `--d-brandink` | `#9CBAF7` | §5B.2's top-scoring ink candidate, re-verified 9.38:1 vs new surface |
+| `--d-wash` | `#141C2C` | **New — derived** |
+| `--d-surface-sunken` | `#2A2C33` | **New — derived**, 1.31:1 vs new surface |
+
+**Two decisions this section makes that §6 Phase 1 left open:**
+
+1. **Dark neutrals were derived, not left unchanged.** §5C.5 offered both paths. Leaving
+   `--d-page #0d0d0c`/`--d-surface #141413` (warm) under a now-cool light family would
+   ship two different products depending on OS theme, and §5B.2's own dark brand/ink pair
+   already assumes a cool ground. Hue-matched to `--l-ink1`'s blue-lean, same lightness
+   band as the values replaced (luminance 0.0044/0.0075 vs the old 0.0040/0.0070) — every
+   dark-mode "unchanged" colour (`--d-payable`, `--d-chart-*`, the four status inks) was
+   re-verified against the new pair and held within 0.1:1 of its old figure, so §4.2/§5.1's
+   "no need found to move it" verdict still stands under the new ground.
+2. **`--l-ink3`/`--l-surface-sunken`/`--d-surface-sunken` are not §2.1's literal mockup
+   values.** §2.1's `.card .who`/`.section-head` hex (`#8a93a3`) already had a home —
+   it became `--l-faint`, matching the old `--l-faint`'s own sub-AA contrast band
+   (3.10:1 vs the old 3.46:1). A *second*, darker value was needed for the muted-but-legible
+   tier `--l-ink3` fills (captions, secondary reads) — §5B.4 requires that tier to clear
+   AA, which `#8a93a3` cannot. Interpolated between `--l-ink2` and `#8a93a3`, landing at
+   5.22:1/4.54:1, the same band the old warm `--l-ink3` held (5.06:1/4.63:1). The sunken
+   fill is the §5B.3 case restated: the mockup's own `#eef1f6` measured 1.02:1/1.13:1
+   against the *old* surface and was rejected for exactly that flatness; `#DDE1E8`/`#2A2C33`
+   are fresh derivations clearing the ≥1.3:1 target against the *new* surfaces in both
+   modes, not a literal carry-over that would have failed the same way twice.
+
+**A regression found while re-verifying, not papered over: `--d-brand`'s non-text
+contrast against the new dark surface is 1.64:1, worse than House Style's own 3.05:1.**
+`ui-ux-guidelines.md`'s money-direction table (§5.1) uses `--color-brand` as a literal
+3px `border-l` accent bar in six components (`Card.tsx`, `ActionSheet.tsx`,
+`ReviewMoneyScreen.tsx`, `ReviewVehicleDetailScreen.tsx`, `VehicleMonthReportScreen.tsx`,
+`VehicleYearReportScreen.tsx`), not just a button fill — a use case §5B.2's fill/ink
+split didn't cover. `#1E3A6E` was chosen for the fill role (11.14:1 white-on-fill); every
+navy light enough to also clear 3:1 against `#12151C` converges toward `--d-chart-1`'s own
+hue (ΔE ~11 at `#4269AC`, below the 15 floor), the same collision §4.2 wrongly generalised
+about the *ink* role and §5B.2 correctly disproved there — but which is genuinely real for
+this *fill* role, used as a thin line against a dark card. Accepted under the same M-15
+"paired with a word" basis already governing this exact token's dark-mode history — every
+consumer pairs the bar with "owes you"/"owed to you" text — but flagged, not assumed:
+**Phase 8's browser QA must confirm the bar is still perceptible at 3px in a real
+dark-mode browser** before this is treated as settled, since it's a real degradation from
+the 3.05:1 precedent that established the exception in the first place.
+
+`ui-ux-guidelines.md` §5.1's contrast table is updated to these figures in the same pass
+(§6 Phase 8 no longer needs a first-pass table rewrite, only the re-validation Phase 8's
+own bullet already calls for once Phase 2–4 add geometry).
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -979,7 +1065,7 @@ rule — the *table* scrolls sideways, never the page — must survive whichever
   downloaded `woff2` → `@font-face` with `unicode-range`) is the template for Sora,
   adjusted per §6 Phase 3 for a broader charset.
 
-### Phase 1 — Palette (full replacement)
+### Phase 1 — Palette (full replacement) — DONE, see §5D
 
 **Do these in order (§5C.5).** Every contrast figure recorded anywhere in this document
 was measured against the *current* palette, which this phase replaces. Measuring in a
@@ -1312,9 +1398,13 @@ stale twice.
       all reproduce and are folded in; seven further findings from a third verification
       pass, including the merge-topology correction (§5C.1) and Phase 4's understated
       reach (§5C.3)
-- [ ] Phase 1 — palette. **Neutrals first, then brand fill/ink against them, then
-      re-measure every dependent ink (§5C.5)**; dark neutrals decided explicitly; visual
-      re-approval gate before Phase 5+
+- [x] **Phase 1 — palette, executed 22 August 2026 (§5D).** Neutrals locked first, brand
+      fill/ink chosen against them, every dependent ink re-measured against the new
+      ground; dark neutrals derived explicitly, not left warm; `tokens.css` updated,
+      `guard`/`lint:css`/`typecheck`/851 web tests pass, base layer confirmed in a real
+      browser both themes at 360×640. **Visual re-approval gate for the full look still
+      waits on Phase 2–4** (radius/shadow/type/controls) — colour alone on old geometry
+      isn't the frame §5B.6 meant to re-approve.
 - [ ] Phase 2 — elevation/radius (3 `--radius-md` consumers; stat tiles move to 18px by
       design) + `ReportTable` Card wrap **with the padding/corner decision recorded** +
       four nested-card screens checked + re-run perf benchmark

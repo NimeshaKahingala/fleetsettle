@@ -18,26 +18,65 @@
 
 /* 1 — palette constants. The only place a hex appears. */
 :root {
-  --l-page: #f1f1ec;
-  --l-surface: #fbfbf8;
-  --l-ink1: #14140f;
-  --l-ink2: #52514e;
-  --l-ink3: #6e6c66;
-  --l-faint: #898781;
-  --l-strong: #dcdbd3;
+  /* Tactile Ops (M-35 pending, Phase 1, 22 Aug 2026): full replacement of
+     House Style's warm neutrals with TACTILE-OPS-REDESIGN-2026-08-21.md
+     §2.1's cooler family. Locked in this order per §5C.5 — neutrals first,
+     then brand fill/ink against them, then every other ink re-measured
+     against the new neutrals, not the old ones §5B recorded numbers
+     against. All figures below are contrast ratios against the *new*
+     --l-surface #fff / --l-page #EDEFF3, computed fresh, not carried over
+     from the mockup's own numbers (§4.1/§5B.1) which predate this palette. */
+  --l-page: #edeff3;
+  --l-surface: #fff;
+  --l-ink1: #151a22; /* §2.1's literal .m-b ink — 17.46:1 / 15.17:1 */
+  --l-ink2: #5b6472; /* §2.1's literal .biz/.card .top — 5.98:1 / 5.20:1 */
 
-  /* House Style (M-34): validated against dataviz's validate_palette.js —
-     #9c3f2e clears CVD ΔE 18.7 / normal-vision ΔE 18.7 against the
-     unchanged --l-payable #eb6834, and white-on-fill contrast is 6.64:1. */
-  --l-brand: #9c3f2e;
-  --l-brandink: #9c3f2e;
-  --l-wash: #f5e3dc;
+  /* Not §2.1's literal .card .who/.section-head #8a93a3 — that fails
+     4.5:1 for caption-sized text (3.10:1, §5B.4), so it stays --l-faint
+     below instead. This is a new, darker value in the same hue family,
+     interpolated between --l-ink2 and #8a93a3, landing at 5.22:1 / 4.54:1 —
+     the same band --l-ink3 held under the old warm palette (5.06:1 /
+     4.63:1), so captions keep the AA floor they had before. */
+  --l-ink3: #646d7c;
+  --l-faint: #8a93a3; /* §2.1's .card .who/.section-head/.acap, 3.10:1 — sub-AA by design, decorative/large use only, same band as the old --l-faint (3.46:1) */
+
+  /* New value, not §2.1's literal — the mockup gives no line-strong
+     equivalent. Interpolated from --l-surface toward --l-ink1 to match
+     the old --l-strong's contrast band (1.34:1/1.23:1) in the new hue:
+     1.33:1 / 1.16:1. */
+  --l-strong: #dedfe0;
+
+  /* Full battery run against the new neutrals (§4.1's four finalists,
+     §5B.6's gate): #0F2E63 clears white-on-fill 13.20:1, ink-vs-surface
+     13.20:1, ink-vs-page 11.46:1, and the widest CVD/normal-vision margin
+     of the four (27.0, vs 22–23 for the other three) against --l-chart-1
+     and --l-payable. One hex serves both fill and ink roles, same as
+     House Style's own light pair. */
+  --l-brand: #0f2e63;
+  --l-brandink: #0f2e63;
+
+  /* --l-brand blended into --l-surface at the same ~13–17% this codebase's
+     House Style wash used (back-derived from #9c3f2e → #f5e3dc); lands at
+     1.09:1 from --l-page / 1.25:1 from --l-surface, matching that wash's
+     own subtlety (1.10:1 / 1.20:1) almost exactly. --l-brandink text on
+     it reads at 10.53:1 — Badge's "brand" variant stacks the two. */
+  --l-wash: #e2e6ec;
   --l-payable: #eb6834;
-  --l-hair: rgb(20 20 15 / 10%);
+  --l-hair: rgb(21 26 34 / 10%);
+
+  /* Phase 2's recessed-fill token (§2.1's #eef1f6 family; final value
+     picked, not the mockup's literal one — see the comment above it).
+     1.31:1 from --l-surface, clearing §5B.3's ≥1.3:1 separation target
+     (the mockup's own #eef1f6 only reached 1.02:1/1.13:1 and was
+     rejected for exactly that reason). */
+  --l-surface-sunken: #dde1e8;
 
   /* UI §11.2's validated categorical order — slot 2 is deliberately the same
      hex as --l-payable/--d-payable (below), so a driver-balance marker and a
-     chart series about that same driver read as one orange, not two. */
+     chart series about that same driver read as one orange, not two.
+     Unchanged by Tactile Ops (§6 Phase 1) — re-verified against the new
+     --l-surface/--l-page above and every figure held within 0.2:1 of its
+     old value, so "no need found to move it" still holds. */
   --l-chart-1: #2a78d6;
   --l-chart-3: #1baf7a;
   --l-chart-4: #eda100;
@@ -45,26 +84,61 @@
   --l-chart-6: #008300;
   --l-chart-7: #4a3aa7;
   --l-chart-8: #e34948;
-  --d-page: #0d0d0c;
-  --d-surface: #141413;
-  --d-ink1: #f5f5f0;
-  --d-ink2: #c3c2b7;
-  --d-ink3: #96948c;
-  --d-faint: #898781;
-  --d-strong: #2c2c2a;
 
-  /* House Style (M-34): the strictest normal-vision-ΔE bar (>=15, matched
-     against a chart legend's bare-swatch case) can't clear at the lightness
-     dark mode needs — every rust bright enough to read against #141413
-     converges on --d-payable's own orange. #ab3f2b/#e08260 are the best
-     scoring pair found (ΔE 11.2/9.2, still clearing the CVD target of 8),
-     accepted on the same basis §5.1 already uses for sub-3:1 status fills:
-     brand and payable never appear without their own word attached (M-15). */
-  --d-brand: #ab3f2b;
-  --d-brandink: #e08260;
-  --d-wash: #2e1b14;
+  /* Dark neutrals (Tactile Ops, Phase 1): §2.1's mockup is light-mode only
+     (§5C.5) and offered no dark block, so House Style's warm near-blacks
+     had no cool counterpart to copy. Derived deliberately rather than left
+     unchanged — shipping a cool light family against warm dark neutrals
+     would read as two different products depending on OS theme, and every
+     dark-mode brand/ink pick this redesign makes (below) already assumes a
+     cool ground. Hue-matched to --l-ink1 (#151a22, blue-leaning), same
+     lightness band as the values replaced (luminance 0.0044/0.0075 vs the
+     old 0.0040/0.0070). */
+  --d-page: #0b0e14;
+  --d-surface: #12151c;
+
+  /* Each dark ink level interpolated from --d-surface toward a near-white
+     cool point, chosen to land within 0.1–0.3:1 of the old warm family's
+     own contrast band against --d-surface (16.86/10.29/6.07/5.13:1) —
+     parity in legibility, not the literal old hexes hue-shifted. */
+  --d-ink1: #f6f7fa; /* 17.05:1 */
+  --d-ink2: #c2c3c7; /* 10.36:1 */
+  --d-ink3: #94969b; /* 6.16:1 */
+  --d-faint: #84868b; /* 5.01:1 */
+  --d-strong: #292c32; /* 1.30:1, matches old --d-strong's 1.32:1 */
+
+  /* §5B.2's corrected two-token approach (§4.2's single-hex search was
+     wrong — see that section's retained error note). --d-brand is a fill
+     (white text on it must read: #1E3A6E clears 11.14:1, unchanged by the
+     surrounding neutrals since fill contrast is vs white, not vs surface).
+     --d-brandink is text + the focus ring (must read against the dark
+     surface): #9cbaf7 was §5B.2's top-scoring candidate (9.46:1 against
+     the *old* #141413) and re-verified here against the *new* --d-surface
+     at 9.38:1 and --d-page at 9.92:1 — the pick survives the neutral
+     change essentially unchanged, still clearing every floor in §5B.2's
+     table. */
+  --d-brand: #1e3a6e;
+  --d-brandink: #9cbaf7;
+
+  /* --d-surface blended toward --d-brand at ~20%, mirroring House Style's
+     own dark-wash derivation (back-derived from #ab3f2b → #2e1b14).
+     1.08:1 from --d-surface — a subtle tinted panel, not a bright block —
+     and --d-brandink text on it reads at 8.71:1, comfortably above the
+     4.5:1 Badge's "brand" variant needs. */
+  --d-wash: #141c2c;
   --d-payable: #d95926;
   --d-hair: rgb(255 255 255 / 10%);
+
+  /* Phase 2's recessed-fill token, dark. Not §2.1's mockup value (light-
+     mode only, no dark block) — derived the same way as --l-surface-sunken:
+     --d-surface lightened until it clears §5B.3's ≥1.3:1 separation target.
+     1.31:1 from --d-surface, 1.39:1 from --d-page. */
+  --d-surface-sunken: #2a2c33;
+
+  /* Unchanged by Tactile Ops — re-verified against the new --d-surface/
+     --d-page above (§6 Phase 1); every figure held within 0.1:1 of its old
+     value, so §4.2/§5.1's "no need found to move it" verdict still holds
+     under the new dark ground. */
   --d-chart-1: #3987e5;
   --d-chart-3: #199e70;
   --d-chart-4: #c98500;
@@ -85,6 +159,10 @@
   --color-ink-faint: var(--l-faint);
   --color-line-hairline: var(--l-hair);
   --color-line-strong: var(--l-strong);
+
+  /* Tactile Ops Phase 1/2: recessed fill for filled/sunken form controls,
+     distinct from --color-page (§6 Phase 4). */
+  --color-surface-sunken: var(--l-surface-sunken);
   --color-brand: var(--l-brand);
   --color-brand-ink: var(--l-brandink);
   --color-brand-wash: var(--l-wash);
@@ -167,6 +245,7 @@
     --color-ink-faint: var(--d-faint);
     --color-line-hairline: var(--d-hair);
     --color-line-strong: var(--d-strong);
+    --color-surface-sunken: var(--d-surface-sunken);
     --color-brand: var(--d-brand);
     --color-brand-ink: var(--d-brandink);
     --color-brand-wash: var(--d-wash);
@@ -204,6 +283,7 @@
   --color-ink-faint: var(--d-faint);
   --color-line-hairline: var(--d-hair);
   --color-line-strong: var(--d-strong);
+  --color-surface-sunken: var(--d-surface-sunken);
   --color-brand: var(--d-brand);
   --color-brand-ink: var(--d-brandink);
   --color-brand-wash: var(--d-wash);
