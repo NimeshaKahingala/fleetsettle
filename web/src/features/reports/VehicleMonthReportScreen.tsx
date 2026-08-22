@@ -99,9 +99,11 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
         </span>
       </button>
       {/* GAP-162: gated on earned/costs, not profit — a vehicle with equal earned and costs has
-          real activity and nets to a 0 profit, which is not the same fact as no activity at all. */}
+          real activity and nets to a 0 profit, which is not the same fact as no activity at all.
+          Copilot review (PR #103): this VehicleRow is shared with VehicleYearReportScreen's own
+          arbitrary date range, so the copy stays period-neutral rather than naming "this month". */}
       {parse(vehicle.earnedMinor) === 0n && parse(vehicle.costsMinor) === 0n ? (
-        <p className="text-caption text-ink-muted">No activity this month yet</p>
+        <p className="text-caption text-ink-muted">No activity yet</p>
       ) : null}
       {open ? (
         <div className="mt-3 flex flex-col gap-2 border-t border-line-hairline pt-3">

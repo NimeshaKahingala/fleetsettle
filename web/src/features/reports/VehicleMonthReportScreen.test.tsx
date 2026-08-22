@@ -60,7 +60,7 @@ describe("VehicleRow — GAP-162: 'No activity' must track earned/costs, not pro
         }}
       />,
     );
-    expect(screen.queryByText("No activity this month yet")).not.toBeInTheDocument();
+    expect(screen.queryByText("No activity yet")).not.toBeInTheDocument();
   });
 
   test("both earned and costs genuinely zero shows 'No activity'", () => {
@@ -76,7 +76,7 @@ describe("VehicleRow — GAP-162: 'No activity' must track earned/costs, not pro
         }}
       />,
     );
-    expect(screen.getByText("No activity this month yet")).toBeInTheDocument();
+    expect(screen.getByText("No activity yet")).toBeInTheDocument();
   });
 });
 

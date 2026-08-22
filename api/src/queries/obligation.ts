@@ -592,11 +592,12 @@ export interface LeaseObligationRow {
  * (F-8.4) points at the lease directly — so this is four source paths, the
  * same shape `trackCreatedLease` (tests/support/factories.ts) already tears
  * down by (GAP-163: the fourth was missing until now, confirmed invisible on
- * `LeaseHubScreen`). Two round trips to collect the child ids, then one
- * query, rather than a correlated subquery — the convention this codebase
- * already uses (queries/day-record.ts's `listDayRecordsForDriver`); the
- * incident-recovery path is a single join instead, since
- * `incident_recovery.incident_id → incident.lease_id` is only one hop.
+ * `LeaseHubScreen`). Three round trips to collect the child ids (periods,
+ * assessments, recoveries), then one query, rather than a correlated
+ * subquery — the convention this codebase already uses
+ * (queries/day-record.ts's `listDayRecordsForDriver`); the incident-recovery
+ * path is a single join rather than two hops, since
+ * `incident_recovery.incident_id → incident.lease_id` is only one.
  */
 export async function findObligationsForLease(
   db: ReadDb,
