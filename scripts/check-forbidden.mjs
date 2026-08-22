@@ -588,17 +588,28 @@ function isInsideKeyProp(prefix) {
  * discipline `ENUM_LABEL_FIELDS` itself is widened by — never by adding a
  * prop name on the assumption that "it's probably a pass-through."
  */
-const SAFE_PROP_PASSTHROUGH = ["type", "currentArrangement"];
+const SAFE_PROP_PASSTHROUGH = new Set(["type", "currentArrangement"]);
 
+// Walks backward by hand rather than `/([\w-]+)\s*=\s*$/.exec(prefix)`
+// (SonarCloud S8786, confirmed by direct reproduction — that unanchored
+// pattern took 65+ seconds against a 200k-char line with no `=` in it,
+// O(n²) backtracking): trimEnd()/endsWith() are native linear scans, and
+// the identifier walk below tests one character at a time with no
+// quantifier to backtrack through.
 function isSafePropPassthrough(prefix) {
-  const m = /([\w-]+)\s*=\s*$/.exec(prefix);
-  return m !== null && SAFE_PROP_PASSTHROUGH.includes(m[1]);
+  const trimmed = prefix.trimEnd();
+  if (!trimmed.endsWith("=")) return false;
+  const beforeEq = trimmed.slice(0, -1).trimEnd();
+  let start = beforeEq.length;
+  while (start > 0 && /[\w-]/.test(beforeEq[start - 1])) start--;
+  const name = beforeEq.slice(start);
+  return name.length > 0 && SAFE_PROP_PASSTHROUGH.has(name);
 }
 
 function checkEnumLabelUsage(paths) {
   const findings = [];
   for (const path of paths) {
-    if (!/^web\/src\/.*\.tsx$/.test(path) || /\.test\.tsx$/.test(path)) continue;
+    if (!/^web\/src\/.*\.tsx$/.test(path) || path.endsWith(".test.tsx")) continue;
     const abs = resolve(ROOT, path);
     if (!existsSync(abs)) continue;
     let text;
@@ -618,7 +629,7 @@ function checkEnumLabelUsage(paths) {
       // disjoint. (An earlier file-wide version tried exactly that check and
       // masked a real leak the moment any *other* line in the same file used
       // the label correctly — found in review, not shipped.)
-      const raw = new RegExp(`\\{\\s*[\\w.]+\\.${field}\\s*\\}`, "g");
+      const raw = new RegExp(String.raw`\{\s*[\w.]+\.${field}\s*\}`, "g");
       for (const [i, line] of lines.entries()) {
         if (OPT_OUT.test(line)) continue;
         const subject = code(line, path);
