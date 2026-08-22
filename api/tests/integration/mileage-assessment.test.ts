@@ -330,9 +330,9 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
       source: "in_person",
     });
     expect(res.status).toBe(400);
-    const body: { code: string; message: string } = await res.json();
+    const body: { code: string; error: string } = await res.json();
     expect(body.code).toBe("VALIDATION_ERROR");
-    expect(body.message).toMatch(/already exists/);
+    expect(body.error).toMatch(/already exists/);
 
     await ctx.cleanup();
   });
