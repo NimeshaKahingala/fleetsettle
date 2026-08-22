@@ -11,10 +11,10 @@
 **Source:** F-9.1, U-7
 **Preconditions:** Open period with unconfirmed days and unresolved dues.
 
-**Steps:**
-1. ACTION: Begin period close
+**Steps (corrected 22 Aug 2026 — same finding as HP-08-001: no "Proceed Anyway" button exists, there's only "Close this month"):**
+1. ACTION: Begin period close ("Close the month")
    VERIFY: Checklist displays warnings about the open items
-2. ACTION: Click "Proceed Anyway"
+2. ACTION: Click "Close this month" directly — no separate override confirmation exists
    VERIFY: Period closes successfully
 
 **Assertions (post-test):**
