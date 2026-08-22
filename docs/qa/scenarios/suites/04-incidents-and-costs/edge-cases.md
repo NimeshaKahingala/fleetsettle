@@ -11,11 +11,11 @@
 **Source:** UC-12, F-3.4, G-2 fixture
 **Preconditions:** Incident from G-2: repairs in July and August, customer contribution in August, insurance in September.
 
-**Steps:**
-1. ACTION: Create incident on Jul 8
-2. ACTION: Add bodywork 70,000 in July, parts 25,000 in August
-3. ACTION: Record customer contribution 20,000 agreed/paid in August
-4. ACTION: Record insurance settlement 60,000 received in September
+**Steps (corrected 22 Aug 2026 — costs go through the vehicle-scoped Quick Add "Record expense" sheet, not an incident-detail action; see HP-04-002):**
+1. ACTION: Create incident on Jul 8 ("Report incident" from vehicle detail)
+2. ACTION: Quick Add → Expense → this vehicle: bodywork 70,000 in July, parts 25,000 in August
+3. ACTION: Record customer contribution 20,000 agreed in August ("Customer contribution"), then "Mark received" 20,000 separately
+4. ACTION: Submit an insurance claim, then "Settle insurance claim" for 60,000 received in September
 5. ACTION: Check each month's report
 
 **Assertions (post-test):**
@@ -103,16 +103,9 @@
 **Source:** W-44, UC-12
 **Preconditions:** Active lease with 50,000 deposit, incident with 20,000 contribution.
 
-**Steps:**
-1. ACTION: Record customer contribution of 20,000
-2. ACTION: Select "Take from deposit"
-   VERIFY: Deposit reduced to 30,000
-3. VERIFY: Top-up opportunity offered at this moment (W-44)
-4. ACTION: Decline top-up
-   VERIFY: Reduced balance (30,000) visible on the lease
+**Not built as described (as of 22 Aug 2026).** Same finding as suite 01's EC-01-013: `CustomerContributionSheet.tsx` has no payment-source field — its own comment states this is deliberate ("*how* it gets paid — one go, instalments, or from the deposit — is not a distinct field"). No "Take from deposit" option, and no top-up prompt was found triggered by recording a contribution.
+
+**Steps:** none — kept as a description of intended behaviour (W-44) rather than a runnable case until a real draw-down path is confirmed live or built.
 
 **Assertions (post-test):**
-- [ ] Deposit partially applied via deliberate action
-- [ ] `DepositMovement` created
-- [ ] Top-up offered at the draw-down moment (the only time customer is willing)
-- [ ] Remaining deposit = 30,000
+- [ ] **Not built**: verify live before filing a GAP — a session may find a path (e.g. from lease detail's own deposit handling) this static read missed
