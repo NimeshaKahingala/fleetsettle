@@ -4,6 +4,8 @@
 **Depends on:** Suite 01, Suite 02
 **Source:** UC-80–UC-87, F-10.2–F-10.4, W-14, W-21, W-22, W-23
 
+**Confirmed still unbuilt, 22 Aug 2026 — this is the correct status, not drift.** Every case below describes UI that doesn't exist yet anywhere in `web/src` or `api/src`: no Settings → Messaging screen, no message log, no kill switch, no template configuration, no per-message send/status tracking. This matches `TRACKER.md`'s own record — P14/WhatsApp dispatch was deliberately deferred whole to phase 2 (owner decision, 31 July 2026: "the Queue binding and the kill switch are not needed at bootstrap"), pending Meta template approvals. **Unlike suites 00–08's corrections, nothing here needed rewriting** — these cases are correct as *design*, they're just not yet runnable. Don't "fix" the steps to match a screen that isn't there; re-check this note's own currency before running anything in this file, and only once messaging actually ships does this suite's content need the same UI-literal audit the others just got.
+
 ---
 
 ### HP-09-001: Configure messaging — sending window, language, opt-in

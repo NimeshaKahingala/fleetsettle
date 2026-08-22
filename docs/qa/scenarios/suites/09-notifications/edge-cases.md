@@ -3,6 +3,8 @@
 **Phase:** 2
 **Source:** INV-11, INV-12, INV-13, F-10.2, F-10.4
 
+**Confirmed still unbuilt, 22 Aug 2026** — see `happy-path.md`'s own note in this same directory. No messaging transport, retry/failover, or kill-switch UI exists anywhere in the client yet; this is correct phase-2 design, not stale content.
+
 ---
 
 ### EC-09-001: Reminder cancelled when payment recorded (INV-12)
