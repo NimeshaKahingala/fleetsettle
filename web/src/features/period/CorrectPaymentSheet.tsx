@@ -36,7 +36,7 @@ type CorrectPaymentWireRequest = z.input<typeof correctPaymentRequestSchema>;
 function chipClass(selected: boolean): string {
   return cn(
     "min-h-tap flex-1 rounded-sm border px-3 text-body text-center",
-    selected ? "border-brand bg-brand-wash text-brand-ink" : "border-line-strong text-ink-primary",
+    selected ? "border-brand bg-brand-wash text-brand-ink" : "border-transparent bg-surface-sunken text-ink-primary",
   );
 }
 

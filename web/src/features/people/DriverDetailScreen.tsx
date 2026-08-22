@@ -357,7 +357,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
                       <button
                         type="button"
                         onClick={() => setRecoveryTarget(writeOff)}
-                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                        className="min-h-tap rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
                       >
                         Record recovery
                       </button>
@@ -366,7 +366,7 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
                       <button
                         type="button"
                         onClick={() => setRecoveriesTarget(writeOff.id)}
-                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                        className="min-h-tap rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
                       >
                         View recoveries
                       </button>

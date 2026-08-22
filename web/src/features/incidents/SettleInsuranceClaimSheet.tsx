@@ -96,7 +96,7 @@ export function SettleInsuranceClaimSheet({
                   "min-h-tap flex-1 rounded-sm border px-3 text-body",
                   status === option.value
                     ? "border-brand bg-brand-wash text-brand-ink"
-                    : "border-line-strong text-ink-primary",
+                    : "border-transparent bg-surface-sunken text-ink-primary",
                 )}
               >
                 {option.label}

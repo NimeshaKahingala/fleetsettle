@@ -62,7 +62,7 @@ const WEEKDAYS = [
 function chipClass(selected: boolean): string {
   return cn(
     "min-h-tap rounded-sm border px-3 text-body",
-    selected ? "border-brand bg-brand-wash text-brand-ink" : "border-line-strong text-ink-primary",
+    selected ? "border-brand bg-brand-wash text-brand-ink" : "border-transparent bg-surface-sunken text-ink-primary",
   );
 }
 

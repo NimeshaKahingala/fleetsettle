@@ -166,7 +166,7 @@ function PhotoSlotTile({
             ? `Retake ${label.toLowerCase()} photo`
             : `Capture ${label.toLowerCase()} photo`
         }
-        className="relative flex size-20 items-center justify-center overflow-hidden rounded-sm border border-line-strong bg-surface"
+        className="relative flex size-20 items-center justify-center overflow-hidden rounded-sm border border-transparent bg-surface-sunken"
       >
         {photo !== undefined ? (
           <img src={photo.url} alt="" className="size-full object-cover" />

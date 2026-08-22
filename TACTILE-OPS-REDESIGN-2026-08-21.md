@@ -1149,6 +1149,81 @@ guard); `ui-ux-guidelines.md` §5.2/§12.3 are updated to match.
 
 ---
 
+## 5G. Phase 4 executed — 22 August 2026
+
+`Button.tsx`'s `outline` variant moved from `border border-line-strong bg-transparent` to
+`border border-transparent bg-surface-sunken` — `primary` already carried
+`shadow-btn-primary` from Phase 2. `ghost`/`destructive` left unchanged, as specified.
+
+**Pass A, all seven primitives**, each moved from `border border-line-strong bg-surface`
+to `border border-transparent bg-surface-sunken`: `Input.tsx`, `NativeSelect.tsx`,
+`NoteField.tsx`, `MoneyField.tsx`'s button variant, both `EntityPicker.tsx` usages (the
+trigger button *and* the "Add new" row — §6 flagged two, not one), and `DateField.tsx`'s
+decorative weekday overlay. `Field.tsx` needed nothing, confirmed by reading it: it
+carries no border of its own, only the label/error shell. **`Checkbox.tsx` stays as-is,
+decided rather than left unexamined:** at a 20×20px glyph, a sunken fill would read as a
+flat colour swatch rather than a checkbox, and the existing checked-state treatment
+(`border-brand bg-brand`) already gives it a clear affordance the unchecked state doesn't
+need help with. `--color-surface-sunken` (Phase 1) already cleared §5B.3's ≥1.3:1
+separation target against `--color-surface` in both modes, so no further derivation was
+needed here — the token built in Phase 1 for exactly this purpose is what Phase 4 spends.
+
+**`grep -rn "border-line-strong" web/src` found 49 total occurrences, not the ~24
+(~14 + ~10) Pass B alone §6 estimated.** Accounted for precisely: 1 in `Button.tsx`'s
+`outline` variant, 7 in Pass A's primitives, **37 in Pass B — not ~24** — and 4 left
+deliberately unchanged (below). Every one handled, categorised properly rather than
+force-fit into the plan's own two buckets:
+
+- **22 choice-chip unselected branches, not ~14.** The literal `selected ? "…" :
+  "border-line-strong…"` search §6 quoted only catches ternaries where the variable is
+  named `selected` — 13 of those (`AdjustObligationSheet.tsx` alone has 3). A second,
+  equally-real group of 9 uses the identical selected/unselected fill pattern with a
+  differently-named comparison (`kind === value`, `docType === code`, `reason === value`,
+  `customerType === "person"`, `arrangement === code`) across `CashScreen.tsx`,
+  `PartnerDetailScreen.tsx`, `SettleAdvanceSheet.tsx`, `RenewVehicleDocumentSheet.tsx`,
+  `MarkVehicleUnavailableSheet.tsx`, `MembersScreen.tsx`, `CreateCustomerForm.tsx` (×2),
+  `CreateVehicleForm.tsx` — same `aria-pressed` segmented-control shape, same
+  `border-brand bg-brand-wash` selected state, just not matched by §6's own literal
+  string. Both groups get the identical fix: the unselected branch's
+  `border-line-strong text-ink-primary` becomes `border-transparent bg-surface-sunken
+  text-ink-primary`; the selected branch is untouched.
+- **10 inline picker/secondary buttons, matching §6's estimate exactly:**
+  `FuelFillSheet.tsx`, `ReviewVehicleDetailScreen.tsx`, `VehicleMonthReportScreen.tsx`,
+  `RecordExpenseSheet.tsx`, and two each in `CustomerDetailScreen.tsx`,
+  `DriverDetailScreen.tsx`, `DriverActivitySections.tsx`. Same substitution.
+- **5 of the 6 photo/receipt frames adopt the language; 1 is a recorded exception.**
+  `PhotoCapture.tsx`'s photo-thumbnail frame and all four `ReceiptSheet.tsx` states
+  (failed/loading/loaded/pending) move to `border-transparent bg-surface-sunken` — they
+  behave as recessed slots that a photo or status icon sits inside. **`PhotoCapture.tsx`'s
+  dashed "Add a photo" tile keeps its `border-dashed border-line-strong` outline
+  unchanged** — the dash pattern is itself the established add/drop-zone convention, and
+  filling it with a flat tint would blur that signal rather than sharpen it, for a
+  component that isn't a field at all.
+- **Left alone, as specified:** `ReportTable.tsx:89`'s header-row rule (a table rule, not
+  a control) and `Checkbox.tsx` (decided above). **Also left alone, not in §6's scope at
+  all:** `Toast.tsx:87` — a notification surface, not a form control; §6 never named it
+  and grep-driven Pass B correctly skipped it.
+
+`--radius-sm` (8px) is unchanged everywhere, as specified — its ~90 usages remain the
+wrong lever for a 2px difference.
+
+**Focus and error states verified, not assumed.** `aria-[invalid=true]:border-2
+aria-[invalid=true]:border-critical` still overrides the new transparent resting border
+correctly (Tailwind's conditional variant wins the same way it did against the old
+hairline). Contrast checked fresh against the new fill: `--color-critical` border vs
+`--color-surface-sunken` is 3.66:1 light / 4.90:1 dark (clears the 3:1 non-text floor);
+`--color-focus-ring` vs `--color-surface-sunken` is 10.06:1 light / 7.16:1 dark. A scratch
+form page (filled/focused/invalid inputs, a selected/unselected chip pair) confirmed in a
+real browser, both themes, at 360×640: every field reads unmistakably as a field, exactly
+the check §6 required before propagating to all seven primitives and Pass B.
+
+`tokens.css`/`web/src` pass `guard`/`lint`/`lint:css`/`typecheck`/853 web tests unchanged
+(no test asserted the old outlined shape, so none needed updating — a gap noted rather
+than papered over: none of Pass A/B's ~40 call sites have their own visual-regression
+coverage, the same class of thin coverage §5A.5 already flagged for the font swap).
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1287,7 +1362,7 @@ that choice.** Do not invent them silently.
   Note both halves are currently false — `--font-sans` is unset and Fraunces is present —
   so the guard must land **with** this phase, not before it, or it fails on arrival.
 
-### Phase 4 — Controls: buttons *and* form fields
+### Phase 4 — Controls: buttons *and* form fields — DONE, see §5G
 Per §5A.2 — this phase was "Button variants" only in the first draft; extending it to
 form controls is what stops form-heavy screens from reading as merely recoloured.
 
@@ -1523,8 +1598,15 @@ stale twice.
       asset file, all 5 class usages; each of those 5 gains `font-semibold` (Sora is a
       true variable font, so the serif's single-static-weight 600 look needs an explicit
       weight utility now, not nothing); `tokens.test.ts` guard lands with the phase.
-- [ ] Phase 4 — controls: buttons, **seven** form primitives (Pass A), **and the ~30
-      inline call sites** (Pass B, §5C.3)
+- [x] **Phase 4 — controls, executed 22 August 2026 (§5G).** `Button.tsx`'s `outline`
+      variant filled; all 7 Pass A primitives moved to `bg-surface-sunken`, `Field.tsx`
+      confirmed needing nothing, `Checkbox.tsx` decided to stay outlined (too small for
+      a fill to read as anything but a colour swatch); Pass B found 37 real call sites,
+      not ~30 — 22 choice chips (not ~14, a second aria-pressed group §6's own literal
+      grep missed), 10 inline buttons (exact), 5 of 6 photo/receipt frames (the dashed
+      "Add" tile kept its outline as a recorded exception); focus/error contrast
+      re-verified against the new fill in both modes; a real-browser scratch form
+      confirmed every field reads unmistakably as a field before this landed everywhere.
 - [ ] Phase 5 — `EntityAvatar` component (short-name initials rule stated)
 - [ ] Phase 6 — `ActionSheet` icon chip + caption; **left accent bar and destructive chip
       both decided and recorded (§5C.8)**

@@ -266,7 +266,7 @@ export function VehicleMonthReportScreen({
             <button
               type="button"
               onClick={() => setPickerOpen(true)}
-              className="min-h-tap self-start rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+              className="min-h-tap self-start rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
             >
               {formatShortDate(report.period.periodStart)} –{" "}
               {formatShortDate(report.period.periodEnd)} ▾
