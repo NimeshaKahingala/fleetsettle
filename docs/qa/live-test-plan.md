@@ -1,6 +1,6 @@
 # Live and browser testing — the pending queue
 
-**Not a specification, and not a record.** `docs/` says what to build and why; [TRACKER.md](../../TRACKER.md) says what is done and carries every gap by id; [Plan.md](../../Plan.md) says what remains and in what order. **This says what can only be answered by a real browser against a real environment, and is therefore still unanswered.** Where they disagree: `docs/` first, then `TRACKER.md`, then `Plan.md`, then this.
+**Not a specification, not a record, and not a scenario catalogue.** `docs/` says what to build and why; [TRACKER.md](../../TRACKER.md) says what is done and carries every gap by id; [Plan.md](../../Plan.md) says what remains and in what order; [scenarios/](scenarios/) says what a real browser should confirm, by flow, at happy-path/edge-case/error-case depth; `.claude/skills/run-qa-pass/SKILL.md` says how to run a session at all. **This file says which of those scenarios (or which ad hoc finding) is still unanswered against the current build, and in what order to answer them.** Where they disagree: `docs/` first, then `TRACKER.md`, then `Plan.md`, then this.
 
 **Written 8 August 2026**, after PR #11 (`acce227`) put B0b, B12, B13 and B3-core on `qa.fleetsettle.com` and PR #12 (`53258d2`) brought the trackers level with the code.
 
@@ -10,33 +10,9 @@
 
 ---
 
-## Why this file exists at all
-
-Four findings now, each of which cost real time, and none of which any amount of source reading would have produced:
-
-- **Mocked review is structurally blind to the auth boundary.** `VITE_AUTH_MODE=stub` skips straight past sign-in, so `AuthGate` and `FirstRunGate`'s non-`renderOperate` branches are exactly the code the mock replaces. GAP-49 and GAP-50 shipped through it. **Standing rule (TRACKER §5): anything touching `AuthGate`, `FirstRunGate`'s non-operate branches, or a component that can render outside `AppShell` gets one real-browser check, both colour schemes, before being called done.**
-- **A source-only pass cannot see a flow that was never wireframed *and* never built.** GAP-51 and GAP-54 each fell through every prior validation pass for that reason.
-- **A display-field bug looks locally correct and only reads as wrong next to real data.** GAP-56 and GAP-75 were both found live, on two consecutive days, by two different passes.
-- **A confirmed-looking write can still connect to nothing.** GAP-103/GAP-109 (opening balances committed pre-F3, materialising nothing) was live, wrong money on a real committed figure, and no amount of reading `commitOpeningBalance` in isolation surfaced it — it took a real balance on a real report disagreeing with itself.
-
-Every live pass run so far has found something. Budget for findings, not for confirmation.
-
----
-
-## Before any run — the preconditions
-
-| | Why |
-|---|---|
-| **Confirm QA is current** — `git fetch && git log origin/develop -1`, and check `deploy-qa` went green on that commit | Twice now, a stale QA nearly produced a false "the product is broken" reading. `git fetch` updates the *remote-tracking* ref, not your local branch — diff against `origin/develop`, never `develop` |
-| **Both colour schemes, every time** | GAP-49 was invisible in light mode by coincidence and illegible in dark. One scheme is half a test |
-| **Open the browser console and read it** | It surfaced GAP-50 in under a minute. Nobody had been doing this before 6 August |
-| **For any assertion that works by watching for browser warnings: enable the accessibility tree first** (`Accessibility.enable` over CDP) | Headless Chromium computes it lazily. Without a client asking, the warning is never emitted and the assertion has nothing to see — **it fails silently, in the passing direction.** The first version of `e2e/sheet-a11y.spec.ts` passed against known-broken code |
-| **Never trust an accessibility snapshot taken immediately after a click** — corroborate against the network log | A snapshot can render before the async data it depends on resolves. This nearly produced a report of a driver record accidentally created by a `Close` button; the network log showed the row had been in the response all along |
-| **In-app browser click transport can silently stop working mid-session** (11 Aug QA pass) | Sheet interactions occasionally timed out dispatching clicks after several actions. If a click stops registering, stop and note it rather than reading a timeout as "the button doesn't work" — GAP-113/QA-02's mobile-sheet finding was confirmed against source for exactly this reason before being trusted |
-
----
-
 ## The queue
+
+**Why this practice exists, the preconditions, sign-in, write ordering and the finding→GAP promotion rule all now live in `.claude/skills/run-qa-pass/SKILL.md`** — trimmed out of this file 22 Aug 2026 so the queue only does the queue's own job (what's pending) rather than also carrying the how-to essay. Nothing here is lost: the skill absorbed it verbatim.
 
 Ordered so that no test contaminates the state a later one needs. **Read-only first, then reversible writes, then one-way writes, with the month close last** — closing a period makes every subsequent write land in its successor and makes opening balances refuse outright.
 
@@ -186,11 +162,10 @@ A confirmed failure becomes a dated `QA-FINDINGS-YYYY-MM-DD.md` entry first, the
 
 ## What this file deliberately does not cover
 
-- **The automated e2e suites** — `npm run test:e2e` (`e2e/smoke.spec.ts`, `e2e/sheet-a11y.spec.ts`, `e2e/mobile-sheet-history.touch.spec.ts`) run locally and in CI against a built client and need no session. They are a gate, not a queue.
-- **Production.** `fleetsettle.com` is live but `main` is 45 commits behind `develop` (checked 11 Aug) and carries none of F3/F4/F5/A7/GAP-101 — there is nothing on production this file's newer items could test yet, and the deploy decision is CLAUDE.md's, not this file's.
-- **`docs/testing/test-manifest.yaml`** — retired 11 Aug 2026 (GAP-58). 178 cases, never run, kept as reference design rather than adopted; this file remains the actual running live-test practice. See `docs/testing/README.md`.
-- **P14 messaging** — twelve Meta template approvals outstanding, phase 2 by the owner's 11 Aug phase model.
+- **The automated e2e suites** — `npm run test:e2e` (`e2e/smoke.spec.ts`, `e2e/sheet-a11y.spec.ts`, `e2e/mobile-sheet-history.touch.spec.ts`, `e2e/home-ordering.spec.ts`, `e2e/trip-lifecycle.spec.ts`, `e2e/reports.spec.ts`) run locally and in CI against a built client and need no session. They are a gate, not a queue.
+- **Production, as of 11 Aug.** At that date `main` was 45 commits behind `develop` and carried none of F3/F4/F5/A7/GAP-101. **This line is now stale and unverified**: PR #99 (`develop` → `main`) merged 22 Aug 2026 and `deploy-production` succeeded — `fleetsettle.com` now carries everything this file's queue covers, including the Tactile Ops redesign, and has not yet had its own live pass. Whether that deploy was a deliberate go-live decision or a side effect of merging (CLAUDE.md: "the pull request is the deploy decision") is a question for whoever approved PR #99, not this file — but until it's answered, treat production as unverified, not as covered by QA's own passes.
+- **P14 messaging** — no UI exists yet anywhere in `web/src` (confirmed 22 Aug 2026); deliberately deferred to phase 2, unchanged since 11 Aug.
 
 ## When one of these finds something
 
-The convention this repository runs on, unchanged: **validate it against source before scheduling it.** Every external review absorbed so far — `UI-UX-REVIEW.md`, both `MUST-FIX-FINDINGS.md` editions, `QA-BROWSER-TEST-FINDINGS-2026-08-08.md`, `findings/2026-08-11.md` — has had findings that did not hold up, and recording which ones and why is what stops the same argument happening twice. A confirmed finding becomes a row in [TRACKER.md](../../TRACKER.md) §4 with a gap id and a track; a rejected one becomes a paragraph in TRACKER.md §6.
+Same convention as `run-qa-pass`'s own promotion rule: validate against source before scheduling, a confirmed finding becomes a `TRACKER.md` §4 row with a gap id, a rejected one becomes a §6 paragraph. Every external review absorbed so far — `UI-UX-REVIEW.md`, both `MUST-FIX-FINDINGS.md` editions, `QA-BROWSER-TEST-FINDINGS-2026-08-08.md`, `findings/2026-08-11.md` — has had findings that did not hold up, and recording which ones and why is what stops the same argument happening twice.
