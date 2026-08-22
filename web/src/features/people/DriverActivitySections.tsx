@@ -172,7 +172,7 @@ export function DriverActivitySections({
                     {canSettle ? (
                       <button
                         type="button"
-                        className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                        className="min-h-tap rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
                         aria-label={`Settle advance from ${formatShortDate(advance.issuedOn)}`}
                         onClick={() => onSettleAdvance(advance)}
                       >
@@ -194,7 +194,7 @@ export function DriverActivitySections({
                 {onViewAdvanceSettlements !== undefined ? (
                   <button
                     type="button"
-                    className="min-h-tap rounded-sm border border-line-strong px-3 text-body text-ink-primary"
+                    className="min-h-tap rounded-sm border border-transparent bg-surface-sunken px-3 text-body text-ink-primary"
                     aria-label={`View settlements for the advance from ${formatShortDate(advance.issuedOn)}`}
                     onClick={() => onViewAdvanceSettlements(advance)}
                   >

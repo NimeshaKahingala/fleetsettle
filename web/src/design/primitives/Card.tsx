@@ -24,13 +24,22 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   accent?: CardAccent | undefined;
 }
 
-/** §6.1 `Card`: a hairline surface — `--color-surface` on `--color-page`, 1px `--color-line-hairline`. Elevation is the exception, not the default. */
+/**
+ * §6.1 `Card`: a hairline surface — `--color-surface` on `--color-page`, 1px
+ * `--color-line-hairline`, `shadow-card` by default (Tactile Ops Phase 2,
+ * §5A.6's correction). **`elevated` replaces `shadow-card` with `shadow-md`
+ * rather than stacking on top of it** — both set the same `box-shadow`
+ * property, so only the later class in `cn()`'s output wins; there is no
+ * layering. `elevated` is still the day card's own stronger tier, just not
+ * an additive one — a two-tier switch between "flat" and "float", not
+ * "float" plus "flatter float".
+ */
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ className, elevated = false, accent, ...props }, ref) => (
     <div
       ref={ref}
       className={cn(
-        "rounded-md border border-line-hairline bg-surface p-4",
+        "rounded-md border border-line-hairline bg-surface p-4 shadow-card",
         elevated && "shadow-md",
         accent !== undefined && ACCENT_CLASS[accent],
         className,

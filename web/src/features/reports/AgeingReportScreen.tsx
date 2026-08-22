@@ -2,7 +2,6 @@ import { parse, type BusinessDate } from "@fleetsettle/shared";
 import type { AgeingResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { DateField } from "../../components/DateField.js";
-import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -38,7 +37,7 @@ const COLUMNS: ReportTableColumn<AgeingResponse[number]>[] = [
     key: "outstanding",
     header: "Outstanding",
     align: "end",
-    render: (row) => <Money value={parse(row.outstandingMinor)} />,
+    money: (row) => parse(row.outstandingMinor),
   },
 ];
 

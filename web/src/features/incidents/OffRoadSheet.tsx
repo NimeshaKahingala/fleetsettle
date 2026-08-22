@@ -88,7 +88,7 @@ export function OffRoadSheet({
                   "min-h-tap rounded-sm border px-3 text-left text-body",
                   rentTreatment === option.value
                     ? "border-brand bg-brand-wash text-brand-ink"
-                    : "border-line-strong text-ink-primary",
+                    : "border-transparent bg-surface-sunken text-ink-primary",
                 )}
               >
                 {option.label}

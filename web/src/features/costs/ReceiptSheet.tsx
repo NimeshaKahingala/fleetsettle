@@ -276,7 +276,7 @@ function ReceiptThumbnail({
   if (failed) {
     return (
       <div className="flex flex-col items-center gap-1">
-        <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface text-critical">
+        <div className="flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken text-critical">
           <AlertCircle className="size-5" aria-hidden />
         </div>
         <button
@@ -292,7 +292,7 @@ function ReceiptThumbnail({
 
   if (url === null) {
     return (
-      <div className="flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface">
+      <div className="flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken">
         <RefreshCw className="size-5 animate-spin text-ink-secondary" aria-hidden />
       </div>
     );
@@ -303,7 +303,7 @@ function ReceiptThumbnail({
       type="button"
       onClick={onView}
       aria-label={label}
-      className="size-20 overflow-hidden rounded-sm border border-line-strong"
+      className="size-20 overflow-hidden rounded-sm border border-transparent bg-surface-sunken"
     >
       <img src={url} alt="" className="size-full object-cover" />
     </button>
@@ -442,7 +442,7 @@ function PendingReceiptTile({
 }) {
   return (
     <div className="flex flex-col items-center gap-1">
-      <div className="relative flex size-20 items-center justify-center rounded-sm border border-line-strong bg-surface">
+      <div className="relative flex size-20 items-center justify-center rounded-sm border border-transparent bg-surface-sunken">
         {upload.status === "uploading" ? (
           <RefreshCw className="size-5 animate-spin text-ink-secondary" aria-hidden />
         ) : (

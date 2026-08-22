@@ -98,7 +98,7 @@ export function AdjustObligationSheet({
                   "min-h-tap rounded-sm border px-3 text-body",
                   adjustmentType === option.value
                     ? "border-brand bg-brand-wash text-brand-ink"
-                    : "border-line-strong text-ink-primary",
+                    : "border-transparent bg-surface-sunken text-ink-primary",
                 )}
               >
                 {option.label}
@@ -119,7 +119,7 @@ export function AdjustObligationSheet({
                   "min-h-tap flex-1 rounded-sm border px-3 text-body",
                   sign === -1
                     ? "border-brand bg-brand-wash text-brand-ink"
-                    : "border-line-strong text-ink-primary",
+                    : "border-transparent bg-surface-sunken text-ink-primary",
                 )}
               >
                 Reduces what's owed
@@ -132,7 +132,7 @@ export function AdjustObligationSheet({
                   "min-h-tap flex-1 rounded-sm border px-3 text-body",
                   sign === 1
                     ? "border-brand bg-brand-wash text-brand-ink"
-                    : "border-line-strong text-ink-primary",
+                    : "border-transparent bg-surface-sunken text-ink-primary",
                 )}
               >
                 Adds to what's owed

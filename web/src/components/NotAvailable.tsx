@@ -1,5 +1,6 @@
 import { Info } from "lucide-react";
 import { cn } from "../lib/cn.js";
+import { rowButtonFocus } from "../lib/rowButtonFocus.js";
 
 export interface NotAvailableProps {
   /** e.g. "no closing odometer" — the reason is mandatory; there is no bare em-dash. */
@@ -27,7 +28,10 @@ export function NotAvailable({ reason, onInfo, className }: NotAvailableProps) {
           type="button"
           aria-label={`Why is this not available? ${reason}`}
           onClick={onInfo}
-          className="flex size-tap items-center justify-center rounded-sm active:bg-brand-wash"
+          className={cn(
+            "flex size-tap items-center justify-center rounded-sm active:bg-brand-wash",
+            rowButtonFocus,
+          )}
         >
           <Info className="size-4" aria-hidden />
         </button>

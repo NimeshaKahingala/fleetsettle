@@ -27,7 +27,7 @@ export function NoteField({ label = "Note", value, onChange }: NoteFieldProps) {
             el.style.height = `${el.scrollHeight.toString()}px`;
           }
         }}
-        className="min-h-tap w-full resize-none rounded-sm border border-line-strong bg-surface px-3 py-2 text-body text-ink-primary"
+        className="min-h-tap w-full resize-none rounded-sm border border-transparent bg-surface-sunken px-3 py-2 text-body text-ink-primary"
       />
     </div>
   );

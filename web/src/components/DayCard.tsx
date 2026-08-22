@@ -44,7 +44,7 @@ export function DayCard({
         <p className="text-body text-ink-secondary">{expectedFromLabel}</p>
       </div>
 
-      <Money value={amountMinor} className="text-hero" />
+      <Money value={amountMinor} className="text-hero font-semibold" />
 
       <div className="flex flex-col gap-2">
         <Button size="cta" onClick={onPaidInFull}>

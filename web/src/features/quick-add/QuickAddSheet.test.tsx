@@ -95,12 +95,15 @@ test("offers all five M-4 actions in the fixed order", () => {
   const get = vi.fn().mockResolvedValue(vehicles);
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  const buttons = screen.getAllByRole("button").map((b) => b.textContent);
-  const fuelIndex = buttons.indexOf("Fuel");
-  const expenseIndex = buttons.indexOf("Expense");
-  const receivedIndex = buttons.indexOf("Payment received");
-  const madeIndex = buttons.indexOf("Payment made");
-  const tripIndex = buttons.indexOf("New trip");
+  // Tactile Ops Phase 6: each button's textContent is now "LabelCaption" —
+  // the caption is real content inside the same button, not a separate node —
+  // so this matches on the label as a prefix rather than full equality.
+  const buttons = screen.getAllByRole("button").map((b) => b.textContent ?? "");
+  const fuelIndex = buttons.findIndex((t) => t.startsWith("Fuel"));
+  const expenseIndex = buttons.findIndex((t) => t.startsWith("Expense"));
+  const receivedIndex = buttons.findIndex((t) => t.startsWith("Payment received"));
+  const madeIndex = buttons.findIndex((t) => t.startsWith("Payment made"));
+  const tripIndex = buttons.findIndex((t) => t.startsWith("New trip"));
   expect(fuelIndex).toBeGreaterThanOrEqual(0);
   expect(fuelIndex).toBeLessThan(expenseIndex);
   expect(expenseIndex).toBeLessThan(receivedIndex);
@@ -113,7 +116,7 @@ test("Fuel opens the fuel-fill sheet, and it stays open on a touch device (GAP-1
   const get = vi.fn().mockResolvedValue(vehicles);
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  await user.click(screen.getByRole("button", { name: "Fuel" }));
+  await user.click(screen.getByRole("button", { name: /^Fuel/ }));
   expect(await screen.findByText("Log a fuel fill")).toBeInTheDocument();
 
   // A basic sanity check, not this repo's primary regression coverage: jsdom
@@ -129,7 +132,7 @@ test("Expense opens the record-expense sheet, and it stays open on a touch devic
   const get = vi.fn().mockResolvedValue(vehicles);
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  await user.click(screen.getByRole("button", { name: "Expense" }));
+  await user.click(screen.getByRole("button", { name: /^Expense/ }));
   expect(await screen.findByRole("heading", { name: "Record expense" })).toBeInTheDocument();
 
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -142,7 +145,7 @@ test("New trip picks a vehicle, then reports it — no route change of its own (
   const onBookTrip = vi.fn();
   renderWithProviders(<QuickAddSheetHarness onBookTrip={onBookTrip} />, { get });
 
-  await user.click(screen.getByRole("button", { name: "New trip" }));
+  await user.click(screen.getByRole("button", { name: /^New trip/ }));
   expect(screen.queryByRole("heading", { name: "Add" })).not.toBeInTheDocument();
   expect(
     await screen.findByRole("heading", { name: "New trip — choose a vehicle" }),
@@ -163,7 +166,7 @@ test("B15/GAP-82: Payment received picks a customer and posts a received payment
   });
   renderWithProviders(<QuickAddSheetHarness />, { get: baseGet, post });
 
-  await user.click(screen.getByRole("button", { name: "Payment received" }));
+  await user.click(screen.getByRole("button", { name: /^Payment received/ }));
   await user.click(await screen.findByRole("button", { name: "Customer - Nimal" }));
 
   expect(screen.getByRole("heading", { name: "Record payment received" })).toBeInTheDocument();
@@ -195,7 +198,7 @@ test("GAP-144: recording a payment invalidates Home's own receivables read, not 
   const { queryClient } = renderWithProviders(<QuickAddSheetHarness />, { get: baseGet, post });
   queryClient.setQueryData(["reports", "receivables"], [{ partyId: "c1" }]);
 
-  await user.click(screen.getByRole("button", { name: "Payment received" }));
+  await user.click(screen.getByRole("button", { name: /^Payment received/ }));
   await user.click(await screen.findByRole("button", { name: "Customer - Nimal" }));
   await enterAmount(user, "5");
   await user.click(screen.getByRole("button", { name: "Record payment" }));
@@ -215,7 +218,7 @@ test("B15/GAP-82: Payment made picks a driver and posts a paid payment", async (
   });
   renderWithProviders(<QuickAddSheetHarness />, { get: baseGet, post });
 
-  await user.click(screen.getByRole("button", { name: "Payment made" }));
+  await user.click(screen.getByRole("button", { name: /^Payment made/ }));
   await user.click(await screen.findByRole("button", { name: "Driver - Sunil" }));
 
   expect(screen.getByRole("heading", { name: "Record payment made" })).toBeInTheDocument();
@@ -246,7 +249,7 @@ test("GAP-101: a failed customer-list read shows a notice in the Payment receive
   });
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  await user.click(screen.getByRole("button", { name: "Payment received" }));
+  await user.click(screen.getByRole("button", { name: /^Payment received/ }));
 
   expect(
     await screen.findByText("Something went wrong loading the customer list."),
@@ -258,7 +261,7 @@ test("GAP-101: a failed vehicle-list read shows a notice in the New trip picker,
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  await user.click(screen.getByRole("button", { name: "New trip" }));
+  await user.click(screen.getByRole("button", { name: /^New trip/ }));
 
   expect(
     await screen.findByText("Something went wrong loading the vehicle list."),
@@ -288,7 +291,7 @@ test("GAP-125: New trip shows a loading notice while the vehicle list is in flig
   });
   renderWithProviders(<QuickAddSheetHarness />, { get });
 
-  await user.click(screen.getByRole("button", { name: "New trip" }));
+  await user.click(screen.getByRole("button", { name: /^New trip/ }));
 
   expect(await screen.findByText("Loading…")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "NC-1234" })).not.toBeInTheDocument();

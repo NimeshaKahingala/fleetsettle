@@ -5,6 +5,7 @@ import { Button } from "../design/primitives/Button.js";
 import { Checkbox } from "../design/primitives/Checkbox.js";
 import { Label } from "../design/primitives/Label.js";
 import { cn } from "../lib/cn.js";
+import { rowButtonFocus } from "../lib/rowButtonFocus.js";
 import { Money } from "./Money.js";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "⌫"] as const;
@@ -57,7 +58,7 @@ export function AmountPad({
       <div>
         <p className="text-label text-ink-secondary">{title}</p>
         <div role="textbox" aria-readonly="true" aria-label={title} className="select-none py-2">
-          <Money value={valueMinor} className="text-hero" />
+          <Money value={valueMinor} className="text-hero font-semibold" />
         </div>
         {expectedMinor !== undefined ? (
           <p className="text-caption text-ink-muted">
@@ -80,6 +81,7 @@ export function AmountPad({
               className={cn(
                 "flex h-14 items-center justify-center rounded-sm text-title text-ink-primary",
                 "active:brightness-90",
+                rowButtonFocus,
                 isInert && "text-ink-faint",
               )}
             >

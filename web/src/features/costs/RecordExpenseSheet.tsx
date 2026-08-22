@@ -168,12 +168,12 @@ export function RecordExpenseSheet({
                 ? `Category: ${EXPENSE_CATEGORY_LABEL[category] ?? category}`
                 : "Choose category"
             }
-            className="min-h-tap w-full rounded-sm border border-line-strong bg-surface px-3 text-left text-body text-ink-primary"
+            className="min-h-tap w-full rounded-sm border border-transparent bg-surface-sunken px-3 text-left text-body text-ink-primary"
           >
             {category !== null ? (
               (EXPENSE_CATEGORY_LABEL[category] ?? category)
             ) : (
-              <span className="text-ink-faint">Choose category</span>
+              <span className="text-ink-muted">Choose category</span>
             )}
           </button>
         </div>

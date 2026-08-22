@@ -62,12 +62,12 @@ export function EntityPicker({
         type="button"
         onClick={() => setOpen(true)}
         aria-label={value !== null ? `${label}: ${value.label}` : `Choose ${label.toLowerCase()}`}
-        className="min-h-tap w-full rounded-sm border border-line-strong bg-surface px-3 text-left text-body text-ink-primary"
+        className="min-h-tap w-full rounded-sm border border-transparent bg-surface-sunken px-3 text-left text-body text-ink-primary"
       >
         {value !== null ? (
           value.label
         ) : (
-          <span className="text-ink-faint">Choose {label.toLowerCase()}</span>
+          <span className="text-ink-muted">Choose {label.toLowerCase()}</span>
         )}
       </button>
 
@@ -112,7 +112,7 @@ export function EntityPicker({
                   setOpen(false);
                   onAddNew();
                 }}
-                className="flex min-h-tap w-full items-center justify-center rounded-sm border border-line-strong text-body text-brand-ink"
+                className="flex min-h-tap w-full items-center justify-center rounded-sm border border-transparent bg-surface-sunken text-body text-brand-ink"
               >
                 {addNewLabel}
               </button>
