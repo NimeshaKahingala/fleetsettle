@@ -1,6 +1,6 @@
 # Brand Guidelines
 
-**Status:** v1.1 — Tactile Ops (M-35 pending, `TACTILE-OPS-REDESIGN-2026-08-21.md`): brand colour moves to `#0F2E63` (from House Style's `#9C3F2E`), and every rasterised asset regenerated a second time to match.
+**Status:** v1.1.1 — Tactile Ops (M-35 pending, `TACTILE-OPS-REDESIGN-2026-08-21.md`): brand colour moves to `#0F2E63` (from House Style's `#9C3F2E`), and every rasterised asset regenerated a second time to match. **v1.1.1**: the reversed-mark stroke, missed by that regeneration, corrected from `#FBFBF8` to the table's own `#FFFFFF`.
 **Date:** 22 August 2026
 **Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 **Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
@@ -98,6 +98,8 @@ The identity uses the system palette unchanged (B-4). For reference, the four va
 **Regenerated (M-34, 21 Aug 2026):** `ui-ux-guidelines.md` §5.1's `--color-brand` moved to `#9C3F2E` (House Style) — B-4 still holds (no separate brand palette). All nine `docs/design/brand/src/*.svg` sources and `web/public/icons/favicon.svg` were repointed from `#256ABF` to `#9C3F2E`, and every rasterised PNG (`docs/design/brand/png/*` and the live `web/public/icons/*`) was re-rendered from those sources via `rsvg-convert` at each asset's existing pixel size, so the pixels now match the token. `mark.svg`/`mark-compact.svg` already used `stroke="currentColor"` (§2.1) and needed no source change beyond the shared `color="#256ABF"` default they carry for standalone use.
 
 **Regenerated a second time (Tactile Ops, 22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5D/§5K):** `--color-brand` moves again, from House Style's `#9C3F2E` to `#0F2E63` — B-4 still holds. The identical procedure repeated: all ten SVG sources (the same nine plus `web/public/icons/favicon.svg`) repointed from `#9C3F2E` to `#0F2E63`, and every rasterised PNG in both `docs/design/brand/png/*` and the live `web/public/icons/*` re-rendered via `rsvg-convert` at each asset's existing pixel size — confirmed by re-reading the regenerated `icon-512.png` and `contact-sheet.png` directly, not assumed from the source-file edit alone. `mark.svg`/`mark-compact.svg` again needed no source change beyond their shared `color` default, for the same `stroke="currentColor"` reason M-34 recorded.
+
+**Corrected, 22 Aug 2026:** the table below's Off-white row moved to `#FFFFFF` with Tactile Ops (matching `--l-surface`), but that regeneration note above only ever covered the brand fill — the reversed-mark *stroke* stayed `#FBFBF8` in every source (`favicon.svg`, `icon-any.svg`, `icon-apple.svg`, `icon-maskable.svg`, seven uses in `contact-sheet.svg`, `web/public/icons/favicon.svg`), so the doc and the shipped assets disagreed. Repointed the stroke to `#FFFFFF` in all six files and re-rendered every affected PNG via `rsvg-convert` at each asset's existing pixel size (sizes unchanged, confirmed by re-reading `icon-512.png`'s own pixels — no `#FBFBF8` remains, pure white present where the mark strokes). `contact-sheet.svg`'s unrelated app-bar-mock background rect (still `#FBFBF8`, representing neither the current page nor surface colour) was left as its own, separate finding rather than folded in here.
 
 | Role | Hex | Where |
 |---|---|---|

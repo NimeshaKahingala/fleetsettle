@@ -695,8 +695,8 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
         title="What needs attention"
         description={
           badgeHasError
-            ? "Some of this couldn't load — pull to retry below."
-            : "Today's stack, at a glance. Tap a section below to see the full list."
+            ? "Some of this couldn't load. Close this and press retry on the home screen."
+            : "A summary of what needs your attention. Close this and scroll for the full list."
         }
       >
         <div className="flex flex-col">
