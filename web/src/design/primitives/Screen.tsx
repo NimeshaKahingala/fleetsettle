@@ -91,9 +91,11 @@ export function Screen({
             type="button"
             onClick={action.onClick}
             aria-label={
-              action.badge !== undefined
-                ? `${action.label} (${action.badge === "unknown" ? "some items couldn't load" : `${action.badge.toString()} ${action.badge === 1 ? "item" : "items"}`} need attention)`
-                : action.label
+              action.badge === undefined
+                ? action.label
+                : action.badge === "unknown"
+                  ? `${action.label} (some items couldn't load)`
+                  : `${action.label} (${action.badge.toString()} ${action.badge === 1 ? "item" : "items"} need attention)`
             }
             className={cn(iconButton, "relative")}
           >
