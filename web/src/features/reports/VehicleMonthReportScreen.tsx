@@ -98,7 +98,9 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
           )}
         </span>
       </button>
-      {parse(vehicle.profitMinor) === 0n ? (
+      {/* GAP-162: gated on earned/costs, not profit — a vehicle with equal earned and costs has
+          real activity and nets to a 0 profit, which is not the same fact as no activity at all. */}
+      {parse(vehicle.earnedMinor) === 0n && parse(vehicle.costsMinor) === 0n ? (
         <p className="text-caption text-ink-muted">No activity this month yet</p>
       ) : null}
       {open ? (

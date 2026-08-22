@@ -1,10 +1,15 @@
 import type { AccountingPeriodListRow, VehicleMonthResponse } from "@fleetsettle/shared/schemas";
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
-import { VehicleMonthReportScreen, toChartData, toKpiTotals } from "./VehicleMonthReportScreen.js";
+import {
+  VehicleMonthReportScreen,
+  VehicleRow,
+  toChartData,
+  toKpiTotals,
+} from "./VehicleMonthReportScreen.js";
 
 const bareVehicles: VehicleMonthResponse["vehicles"] = [
   {
@@ -38,6 +43,40 @@ describe("toKpiTotals", () => {
     expect(totals.earnedMinor).toBe(0n);
     expect(totals.costsMinor).toBe(0n);
     expect(totals.profitMinor).toBe(0n);
+  });
+});
+
+describe("VehicleRow — GAP-162: 'No activity' must track earned/costs, not profit", () => {
+  test("equal earned and costs (real activity, zero profit) does not show 'No activity'", () => {
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "100000",
+          costsMinor: "100000",
+          profitMinor: "0",
+          ownerShares: [],
+        }}
+      />,
+    );
+    expect(screen.queryByText("No activity this month yet")).not.toBeInTheDocument();
+  });
+
+  test("both earned and costs genuinely zero shows 'No activity'", () => {
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "0",
+          costsMinor: "0",
+          profitMinor: "0",
+          ownerShares: [],
+        }}
+      />,
+    );
+    expect(screen.getByText("No activity this month yet")).toBeInTheDocument();
   });
 });
 
