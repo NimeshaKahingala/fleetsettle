@@ -1044,6 +1044,58 @@ own bullet already calls for once Phase 2–4 add geometry).
 
 ---
 
+## 5E. Phase 2 executed — 22 August 2026
+
+`--radius-md` 12px→18px, `--radius-lg` 16px→20px, and `--shadow-card` moved to §2.1's
+literal heavier value exactly as §6 specified. Two tokens are net-new
+(`--shadow-sheet` on `Sheet.tsx`, `--shadow-btn-primary` on `Button.tsx`'s `primary`
+variant only) and both went in **both** dark blocks identically — `tokens.test.ts`'s
+parity test still passes.
+
+**Three decisions §6 Phase 2 left open, made here:**
+
+1. **`--shadow-btn-primary`'s dark-mode value is tuned down, not dropped** (§5B.9's
+   explicit call). Light: `rgb(15 46 99 / 45%)` (the locked `--l-brand`, not the
+   mockup's rejected `#2952a3`). Dark: `rgb(30 58 110 / 35%)` — smaller blur, lower
+   opacity, the locked `--d-brand`. Confirmed in a real browser (360×640, both themes):
+   the light glow reads as a soft lift under the CTA; the dark one reads as a faint
+   cool cast, not a halo.
+2. **`ReportTable`'s padding/corner trap (§5C.9) is resolved with neither of the two
+   options it offered.** Not `-mx-4` bleed-and-restore, not `overflow-hidden` alone on
+   an otherwise-default `Card` — `Card`'s own `p-4` is overridden to `p-0` at this one
+   call site (`cn()`'s last-class-wins already makes this safe) plus `overflow-hidden`.
+   Each cell already carries its own `px-2 py-2`, so the table sits flush with the
+   card's border with no bleed math needed, and `overflow-hidden` stops a
+   horizontally-scrolled row from painting over the rounded corners during the scroll
+   §5C.9 warned about. Simpler than either option on offer, same outcome.
+3. **The nested-card check (§5B.9/§5C.4) found exactly one real case, not four.**
+   `CashPositionReportScreen`, `GoodwillReportScreen` and `ReviewVehicleDetailScreen`
+   render `ReportTable` as a *sibling* of `StatTile`-rendered cards, never nested inside
+   one — no code change needed beyond the automatic wrap. `VehicleMonthReportScreen`'s
+   shared `VehicleRow` (also reused by `VehicleYearReportScreen`) is the one genuine
+   case: its expanded row is itself a `Card`, and `ReportTable` renders inside it. Fixed
+   with a new `bare?: boolean` prop on `ReportTable` that skips its own `Card` wrap,
+   set only at that one call site — not a general escape hatch, since every other of
+   the 9 consumers wants the default.
+
+**Re-benchmarked against the new, heavier multi-surface shadow load** (cards, buttons
+and the sheet simultaneously, not House Style's single subtle layer) — same method as
+M-34: a scripted `requestAnimationFrame` scroll over a 100-card list, 360×640, Chrome
+DevTools' 10× CPU throttle, shadowed vs. an unshadowed control. Mean frame time 7.02 ms
+shadowed vs. 6.95 ms unshadowed, p95 7.60 ms vs. 7.70 ms, 1 frame over the 16.7 ms
+budget out of 299 shadowed vs. 0 unshadowed, 0 severe drops (>33 ms) in either — no
+measurable cost, the same verdict M-34 reached and for the same reason (a static
+`box-shadow` rasterizes once per layer rather than repainting every scroll frame).
+
+Fixed `Card.tsx`'s stale comment in passing (§5A.6): `elevated` **replaces**
+`shadow-card` with `shadow-md` rather than stacking on top of it — both set the same
+CSS property, so only the later class in `cn()`'s output ever applies.
+
+`tokens.css` passes `guard`/`lint:css`/`typecheck`/851 web tests; `ui-ux-guidelines.md`
+§5.3 is updated to match.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1109,7 +1161,7 @@ that choice.** Do not invent them silently.
 - Re-validate every `--color-*` row in `ui-ux-guidelines.md` §5.1 — the one place "full
   palette" costs more than House Style's accent-only change did.
 
-### Phase 2 — Elevation and radius
+### Phase 2 — Elevation and radius — DONE, see §5E
 - `--shadow-card`: redefine to Tactile Ops' heavier value, both modes. Elevates cards
   *and* rows together (§3.3 finding) — no new `--shadow-row` token.
 - `--radius-md` 12px → 18px — **3 production consumers** (`Card.tsx`, `Dialog.tsx`,
@@ -1405,9 +1457,13 @@ stale twice.
       browser both themes at 360×640. **Visual re-approval gate for the full look still
       waits on Phase 2–4** (radius/shadow/type/controls) — colour alone on old geometry
       isn't the frame §5B.6 meant to re-approve.
-- [ ] Phase 2 — elevation/radius (3 `--radius-md` consumers; stat tiles move to 18px by
-      design) + `ReportTable` Card wrap **with the padding/corner decision recorded** +
-      four nested-card screens checked + re-run perf benchmark
+- [x] **Phase 2 — elevation/radius, executed 22 August 2026 (§5E).** `--radius-md`
+      12→18px, `--radius-lg` 16→20px; `--shadow-card` heavier + two net-new tokens
+      (`--shadow-sheet`, `--shadow-btn-primary`, dark-mode glow tuned down not dropped);
+      `ReportTable` wrapped in `Card` (`p-0` + `overflow-hidden`, not either option §5C.9
+      offered); the one real nested-card case (`VehicleRow`) fixed with a `bare` prop;
+      re-run perf benchmark shows no measurable cost (mean 7.02ms shadowed vs 6.95ms
+      unshadowed, 100-card list, 10× throttle); `Card.tsx`'s stale comment fixed.
 - [ ] Phase 3 — Sora self-hosting (latin subset), `--font-sans` introduced, Fraunces
       removal, font guard landing with the phase
 - [ ] Phase 4 — controls: buttons, **seven** form primitives (Pass A), **and the ~30

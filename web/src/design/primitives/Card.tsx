@@ -26,9 +26,13 @@ export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /**
  * §6.1 `Card`: a hairline surface — `--color-surface` on `--color-page`, 1px
- * `--color-line-hairline`. House Style (M-34) adds `shadow-card`, a single
- * cheap layer, to every card by default; `elevated` stays the day card's
- * own stronger tier on top of that, not a switch between "flat" and "float".
+ * `--color-line-hairline`, `shadow-card` by default (Tactile Ops Phase 2,
+ * §5A.6's correction). **`elevated` replaces `shadow-card` with `shadow-md`
+ * rather than stacking on top of it** — both set the same `box-shadow`
+ * property, so only the later class in `cn()`'s output wins; there is no
+ * layering. `elevated` is still the day card's own stronger tier, just not
+ * an additive one — a two-tier switch between "flat" and "float", not
+ * "float" plus "flatter float".
  */
 export const Card = forwardRef<HTMLDivElement, CardProps>(
   ({ className, elevated = false, accent, ...props }, ref) => (

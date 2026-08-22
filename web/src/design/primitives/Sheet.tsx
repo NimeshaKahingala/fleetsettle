@@ -74,7 +74,7 @@ export function Sheet({ open, onOpenChange, title, description, children, classN
             if (opener !== null && opener.isConnected) opener.focus();
           }}
           className={cn(
-            "fixed inset-x-0 bottom-0 z-50 flex max-h-[90svh] flex-col rounded-t-lg bg-surface outline-none",
+            "fixed inset-x-0 bottom-0 z-50 flex max-h-[90svh] flex-col rounded-t-lg bg-surface shadow-sheet outline-none",
             className,
           )}
         >

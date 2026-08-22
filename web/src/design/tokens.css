@@ -199,8 +199,18 @@
   --color-trip-ink: #8a3b12;
   --spacing-tap: 44px;
   --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
+
+  /* Tactile Ops Phase 2 (§6, 22 Aug 2026): 12px → 18px. 3 production
+     consumers (Card.tsx, Dialog.tsx, StatTile.tsx) — stat tiles move to
+     18px too, a deliberate divergence from the mockup's own .stattile
+     (12px, unchanged there): the real app renders both through this one
+     token, and a fourth radius token for a 6px difference on one
+     component isn't worth it (§2.2/§5C.5). */
+  --radius-md: 18px;
+
+  /* Tactile Ops Phase 2: 16px → 20px. One consumer, Sheet.tsx:77's
+     rounded-t-lg. */
+  --radius-lg: 20px;
 
   /* House Style (M-34): "the one number a screen leads with" and screen
      titles only (§5.2) — never a driver/customer/vehicle name, which is
@@ -208,11 +218,25 @@
      cover. */
   --font-display: "Fraunces", ui-serif, georgia, "Times New Roman", serif;
 
-  /* House Style (M-34): reverses §5.3's "hairlines, not shadows" default —
-     recorded there, not repeated here. One layer, no blur radius large
-     enough to be the scroll-jank §5.3 originally warned about; the day
-     card's own stronger `elevated` tier (Card.tsx) is untouched. */
-  --shadow-card: 0 1px 2px rgb(20 20 15 / 6%), 0 3px 8px rgb(20 20 15 / 8%);
+  /* Tactile Ops Phase 2 (22 Aug 2026): House Style's single subtle layer
+     replaced with §2.1's literal, heavier `.card` value — §3.3 found every
+     row in the app already renders through `<Card>`, so this one
+     redefinition elevates cards *and* rows together; no `--shadow-row`
+     token exists or is needed. Re-benchmarked (§6 Phase 2's own
+     requirement) against a 100-card list at 360×640, 10× CPU throttle —
+     see the plan doc for the numbers; still within budget. */
+  --shadow-card: 0 10px 26px -14px rgb(21 26 34 / 28%);
+
+  /* Tactile Ops Phase 2: net-new — Sheet.tsx had no shadow at all. Cast
+     upward (negative y), since a bottom sheet floats *above* the content
+     behind it rather than resting on the page like a card. */
+  --shadow-sheet: 0 -8px 24px -10px rgb(21 26 34 / 25%);
+
+  /* Tactile Ops Phase 2: net-new, Button.tsx's `primary` variant only — a
+     brand-coloured glow, not a neutral shadow. Colour matches the locked
+     --l-brand #0F2E63 (rgb 15 46 99), not the mockup's literal rejected
+     #2952a3. */
+  --shadow-btn-primary: 0 8px 16px -6px rgb(15 46 99 / 45%);
   --text-hero: 2.25rem;
   --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem;
@@ -267,10 +291,19 @@
     --color-critical: #f0736f;
     --color-critical-ink: #f0736f;
 
-    /* House Style (M-34): a light-based shadow reads as a smudge on a
-       near-black ground, so dark mode gets its own darker/tighter pair
-       rather than the light value's soft blur. */
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%);
+    /* Tactile Ops Phase 2: House Style's own reasoning still holds — a
+       light-based shadow reads as a smudge on a near-black ground — so
+       dark mode keeps pure black at much higher opacity rather than
+       matching the light value's ink-tinted one. */
+    --shadow-card: 0 10px 26px -14px rgb(0 0 0 / 55%);
+    --shadow-sheet: 0 -8px 24px -10px rgb(0 0 0 / 50%);
+
+    /* Tactile Ops Phase 2 (§5B.9's explicit dark-mode call): tuned down,
+       not dropped — a coloured glow this size at the light value's 45%
+       opacity reads as a halo on a near-black ground, so dark mode gets a
+       tighter blur and roughly half the opacity, using the dark brand fill
+       #1E3A6E (rgb 30 58 110) rather than the light hex. */
+    --shadow-btn-primary: 0 4px 10px -4px rgb(30 58 110 / 35%);
   }
 }
 
@@ -304,7 +337,9 @@
   --color-trip-ink: #ec835a;
   --color-critical: #f0736f;
   --color-critical-ink: #f0736f;
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%);
+  --shadow-card: 0 10px 26px -14px rgb(0 0 0 / 55%);
+  --shadow-sheet: 0 -8px 24px -10px rgb(0 0 0 / 50%);
+  --shadow-btn-primary: 0 4px 10px -4px rgb(30 58 110 / 35%);
 }
 
 /* 4 — the base layer. The page colour is painted once, on the root element,

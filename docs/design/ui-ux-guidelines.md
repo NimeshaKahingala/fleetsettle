@@ -381,10 +381,12 @@ Noto Sans Sinhala is *specified* as self-hosted, subset, and `font-display: swap
 
 ```
 space:   4 · 8 · 12 · 16 · 20 · 24 · 32 · 40 · 48 · 64
-radius:  sm 8 (controls) · md 12 (cards) · lg 16 (sheets) · full (chips, avatars)
+radius:  sm 8 (controls) · md 18 (cards) · lg 20 (sheets) · full (chips, avatars)
 ```
 
-**Elevation was hairlines-only through v1.5; M-34 (21 Aug 2026) adds one cheap shadow to every ordinary card.** Cards are still `--color-surface` on `--color-page` with a 1px `--color-line-hairline`, now plus `--shadow-card` — a single layer, tuned separately per mode (light: soft and dark-on-light; dark: a black shadow reads as a smudge on `#141413`, so it gets its own tighter, higher-opacity pair rather than the light value). This is a deliberate reversal of the original reasoning below, not a quiet one: **cheap GPUs render large blurs slowly and repaint them on every scroll frame**, which is exactly why `--shadow-card` stays one layer with a small blur radius rather than the heavier treatment a mockup might show. A scripted scroll benchmark (100 real-token-styled cards, 360×640 viewport, Chrome's 10× CPU throttle — the same class of test M-31's shadow discipline was written against) found no measurable cost: mean frame time 8.32 ms shadowed vs 8.35 ms unshadowed, p95 9.2 ms both, one frame over the 16.7 ms budget in 300 either way. That's throttled desktop-Chrome emulation, not the physical mid-range-Android hardware named above — real enough to ship on, not a substitute for an on-device pass the next time this surface is touched. The stronger tier below is unchanged: shadow beyond `--shadow-card` is still reserved for things that genuinely float — sheets, popovers, the sticky action bar once content scrolls under it, and the day card's own `elevated` prop, which stacks on top of `--shadow-card` rather than replacing it.
+**Tactile Ops Phase 2 (22 Aug 2026, `TACTILE-OPS-REDESIGN-2026-08-21.md` §5E) moves `--radius-md` 12→18px and `--radius-lg` 16→20px, and replaces `--shadow-card` with a heavier single layer.** `--radius-md`'s bump reaches `StatTile` too, not just `Card`/`Dialog` — the real app renders both through the one token, and the mockup's own 12px-vs-18px split between `.stattile` and `.card` was judged not worth a fourth radius token for a 6px difference. Cards are still `--color-surface` on `--color-page` with a 1px `--color-line-hairline`, now plus the heavier `--shadow-card`, tuned separately per mode (light: `rgb(21 26 34 / 28%)`, ink-tinted, matching §2.1's mockup literally; dark: pure black at 55% — a black shadow reads as a smudge on `#12151C` at the light value's opacity, the same reasoning M-34 established). Two further tokens are net-new: `--shadow-sheet` (upward-cast, `Sheet.tsx` had no shadow at all before this) and `--shadow-btn-primary` (a brand-coloured glow on `Button.tsx`'s `primary` variant only, tuned down rather than dropped in dark mode — a coloured glow at the light value's opacity reads as a halo on a near-black ground).
+
+Re-benchmarked against this heavier, multi-surface load (cards, buttons and the sheet simultaneously, not House Style's one subtle layer) with the same method M-34 established — a scripted scroll, 100-card list, 360×640, Chrome's 10× CPU throttle: mean frame time 7.02 ms shadowed vs 6.95 ms unshadowed, p95 7.60 ms vs 7.70 ms, 1 frame over the 16.7 ms budget out of 299 shadowed vs 0 unshadowed, 0 severe drops (>33 ms) in either — no measurable cost, for the same reason M-34 found none: a static `box-shadow` rasterizes once per layer rather than repainting every scroll frame. That's throttled desktop-Chrome emulation, not physical mid-range-Android hardware — real enough to ship on, not a substitute for an on-device pass. The stronger tier is unchanged in kind, changed in mechanism: shadow beyond `--shadow-card` is still reserved for things that genuinely float — sheets (now `--shadow-sheet`), popovers, the sticky action bar once content scrolls under it, and the day card's own `elevated` prop, which **replaces** `--shadow-card` with `shadow-md` rather than stacking on top of it (both set the same CSS property; `elevated` is a two-tier switch, not an additive one — corrected from this document's own prior description).
 
 **Motion**
 
@@ -1110,12 +1112,19 @@ Dark mode has to be reachable two ways — the OS setting and the in-app toggle 
   --color-critical: #D03B3B;  --color-critical-ink: #B3231F;
 
   --spacing-tap: 44px;
-  --radius-sm: 8px;  --radius-md: 12px;  --radius-lg: 16px;
+  --radius-sm: 8px;  --radius-md: 18px;  --radius-lg: 20px;
 
   /* M-34 */
   --font-display: "Fraunces", ui-serif, Georgia, "Times New Roman", serif;
-  --shadow-card: 0 1px 2px rgb(20 20 15 / 6%), 0 3px 8px rgb(20 20 15 / 8%);
-  /* dark mode overrides --shadow-card to 0 1px 2px rgb(0 0 0 / 40%), 0 3px 10px rgb(0 0 0 / 45%) — a light-based shadow reads as a smudge on a near-black ground */
+
+  /* Tactile Ops Phase 2 */
+  --shadow-card: 0 10px 26px -14px rgb(21 26 34 / 28%);
+  --shadow-sheet: 0 -8px 24px -10px rgb(21 26 34 / 25%);
+  --shadow-btn-primary: 0 8px 16px -6px rgb(15 46 99 / 45%);
+  /* dark mode overrides: --shadow-card 0 10px 26px -14px rgb(0 0 0 / 55%);
+     --shadow-sheet 0 -8px 24px -10px rgb(0 0 0 / 50%);
+     --shadow-btn-primary 0 4px 10px -4px rgb(30 58 110 / 35%) —
+     a light-based/full-opacity shadow reads as a smudge or a halo on a near-black ground */
 
   --text-hero: 2.25rem;      --text-hero--line-height: 2.5rem;
   --text-title-lg: 1.375rem; --text-title-lg--line-height: 1.75rem;

@@ -17,7 +17,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "bg-brand text-white active:scale-[0.98] active:brightness-90",
+        primary: "bg-brand text-white shadow-btn-primary active:scale-[0.98] active:brightness-90",
         outline: "border border-line-strong bg-transparent text-ink-primary active:bg-brand-wash",
         destructive: "bg-critical text-white active:brightness-90",
         ghost: "bg-transparent text-ink-primary active:bg-brand-wash",

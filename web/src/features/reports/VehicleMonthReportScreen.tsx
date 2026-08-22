@@ -117,6 +117,7 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
               columns={SHARE_COLUMNS}
               rows={vehicle.ownerShares}
               rowKey={(row) => row.userId}
+              bare
             />
           ) : null}
         </div>
