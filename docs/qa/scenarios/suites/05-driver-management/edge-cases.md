@@ -30,12 +30,12 @@
 **Source:** A-8, UC-90, INV-15
 **Preconditions:** Driver owes 30,000 in arrears, holds 25,000 deposit.
 
-**Steps:**
-1. ACTION: Navigate to driver detail
-2. ACTION: Apply deposit against arrears: 25,000
+**Steps (corrected 22 Aug 2026):**
+1. ACTION: Navigate to driver detail, Driver actions → "Record deposit movement" (`DepositMovementSheet.tsx`, title "Record deposit movement")
+2. ACTION: Choose "Movement": "Apply to arrears" (exact option — this exists, contrary to an earlier pass of this refresh that assumed it didn't); enter the arrears due and amount 25,000
    VERIFY: Arrears reduced to 5,000
-3. ACTION: Write off remaining 5,000 (UC-90)
-   VERIFY: Write-off recorded with amount, reason, party
+3. ACTION: Driver actions → "Write off balance" (sheet title "Write off balance", not "Write off"): enter "Amount" 5,000, "Reason", "Written off on"
+   VERIFY: Click "Write off" (the sheet's own submit label) — write-off recorded with amount, reason, party
 4. ACTION: Verify recovery link retained
    VERIFY: If he pays later, it is a recovery against the write-off (INV-15)
 
@@ -71,13 +71,13 @@
 **Source:** INV-4, W-8
 **Preconditions:** Driver deposit of 25,000 recorded.
 
-**Steps:**
-1. ACTION: Navigate to vehicle monthly P&L
+**Steps (corrected 22 Aug 2026 — exact report names):**
+1. ACTION: Navigate to "How was this month" for the vehicle
+   VERIFY: 25,000 deposit NOT in the "Earned"/"Spent" tiles
+2. ACTION: Navigate to "How was the year" (owner-only)
    VERIFY: 25,000 deposit NOT in income
-2. ACTION: Navigate to yearly P&L
-   VERIFY: 25,000 deposit NOT in income
-3. ACTION: Navigate to cash position
-   VERIFY: 25,000 IS shown in cash position
+3. ACTION: Navigate to "Where is our cash"
+   VERIFY: 25,000 IS shown
 
 **Assertions (post-test):**
 - [ ] INV-4: Deposit never appears as income, in any period, in any report
@@ -90,9 +90,9 @@
 **Source:** UC-07, W-13
 **Preconditions:** Driver linked and has view-only access.
 
-**Steps:**
-1. ACTION: Navigate to driver → "Unlink Account"
-2. ACTION: Confirm unlink
+**Steps (corrected 22 Aug 2026):**
+1. ACTION: Navigate to driver → "Unlink account?" (dialog title; trigger action itself not independently re-verified, likely "Unlink" on driver detail)
+2. ACTION: Confirm — button reads "Unlink account" (not a separate "Confirm unlink")
    VERIFY: Driver's app access ends
 3. VERIFY: Driver's record, history, balances all intact
 4. ACTION: Navigate to driver detail as manager
@@ -101,7 +101,7 @@
 **Assertions (post-test):**
 - [ ] Access revoked — driver can no longer log in to see his data
 - [ ] Record and history completely untouched
-- [ ] He gets the printed slip instead (UC-57)
+- [ ] **Not built (as of 22 Aug 2026)**: "he gets the printed slip instead" — no printed-slip feature exists anywhere in the client; see HP-05-006's own note on this, including the discrepancy with `docs/README.md`'s status table
 
 ---
 
