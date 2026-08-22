@@ -1267,6 +1267,18 @@ anywhere** — Phase 6/7 wire it into the confirmed call sites; this phase only 
 tests the primitive, per §6's own phase split. `guard`/`lint:css`/`typecheck` pass; the
 web suite is now 863 tests (10 new, all `EntityAvatar`'s own).
 
+**Fixed post-PR (22 Aug 2026), from Gitar's review of PR #97:** `initialsOf` sliced on
+UTF-16 code units (`charAt(0)`/`slice(0, 2)`), which is correct for the common case this
+phase's own tests covered but wrong for a name where a base character and a combining
+mark form one grapheme cluster across two code units — exactly the shape Sinhala/Tamil
+dependent vowel signs take, and the doc's own §5B.9 already flagged that `driver.name`
+carries no ASCII-only constraint. Fixed with `Intl.Segmenter({ granularity: "grapheme" })`
+rather than `Array.from` (which splits surrogate pairs correctly but still not combining
+sequences) — confirmed available in this project's `lib` (`ES2023`) and at runtime.
+Added a test built from explicit `\u` escapes, not literal source characters, since a
+literal combining-mark sequence risks silent precomposition by the editor/file encoding
+before it ever reaches the assertion. Web suite is now 864 tests.
+
 ---
 
 ## 5I. Phase 6 executed — 22 August 2026

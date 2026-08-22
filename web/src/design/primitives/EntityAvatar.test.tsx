@@ -18,6 +18,16 @@ test("initials: a single-character name renders that character alone, never an e
   expect(screen.getByText("K")).toBeInTheDocument();
 });
 
+// Gitar review, PR #97: a base character plus a combining mark (as Sinhala/
+// Tamil dependent vowel signs attach to a consonant) is two UTF-16 code
+// units forming one grapheme cluster. charAt(0)/slice(0, 2) split on code
+// units and would drop the combining mark; Intl.Segmenter must not.
+test("initials: a combining-mark grapheme cluster is kept whole, not split at the code-unit boundary", () => {
+  const combining = "Á B́"; // "Á B́" decomposed: base letter + combining acute accent
+  render(<EntityAvatar kind="driver" name={combining} />);
+  expect(screen.getByText("ÁB́")).toBeInTheDocument();
+});
+
 test("initials are case-normalised regardless of input casing", () => {
   render(<EntityAvatar kind="driver" name="sunil perera" />);
   expect(screen.getByText("SP")).toBeInTheDocument();

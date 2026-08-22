@@ -38,6 +38,15 @@ export type EntityAvatarProps =
 
 const VEHICLE_ICON: Record<string, LucideIcon> = { Bus, Car, Van: Truck };
 
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** Splits by grapheme cluster, not UTF-16 code unit — a Sinhala/Tamil base
+ * consonant plus its combining vowel sign is one user-perceived character
+ * across two code units, and a naive `charAt`/`slice` would cut it in half. */
+function graphemesOf(text: string): string[] {
+  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+}
+
 /**
  * §5B.9: `driver.name` is `z.string().trim().min(1).max(200)` — a
  * one-character name is schema-valid, and single-word names are common in
@@ -54,9 +63,10 @@ function initialsOf(name: string): string {
   const first = words[0];
   if (first === undefined) return "";
   const second = words[1];
-  return second === undefined
-    ? first.slice(0, 2).toUpperCase()
-    : `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
+  if (second === undefined) return graphemesOf(first).slice(0, 2).join("").toUpperCase();
+  const firstGrapheme = graphemesOf(first)[0] ?? "";
+  const secondGrapheme = graphemesOf(second)[0] ?? "";
+  return `${firstGrapheme}${secondGrapheme}`.toUpperCase();
 }
 
 const SIZE_CLASS: Record<EntityAvatarSize, string> = { list: "size-9", detail: "size-12" };
