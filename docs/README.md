@@ -12,7 +12,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 | 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-36`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
 | 7 | [design/brand-guidelines.md](design/brand-guidelines.md) | **Identity.** The mark, lockups, icon assets, voice | Colour and type — those are §6 |
 
-Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set. [testing/](testing/) (35 files, ~4,900 lines) is retired reference material, not acceptance evidence — GAP-58 found it was aspirational test design that had never been run, and its own README says so; [`LIVE-TEST-PLAN.md`](../LIVE-TEST-PLAN.md) is the live-browser queue that replaced it.
+Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set. [testing/](testing/) (35 files, ~4,900 lines) is retired reference material, not acceptance evidence — GAP-58 found it was aspirational test design that had never been run, and its own README says so; [qa/](qa/) is the live-browser queue and dated findings that replaced it.
 
 ---
 

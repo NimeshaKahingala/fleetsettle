@@ -2,8 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * GAP-104/GAP-134 — the mobile `ActionSheet`/`Sheet` history race(s). Found
- * live (`LIVE-BROWSER-FINDINGS-2026-08-10.md` F-1/F-2, `QA-FINDINGS-
- * 2026-08-16.md`): under real touch input, `ActionSheet` closing itself and
+ * live (`LIVE-BROWSER-FINDINGS-2026-08-10.md` F-1/F-2,
+ * `docs/qa/findings/2026-08-16.md`): under real touch input, `ActionSheet` closing itself and
  * either opening a target sheet (GAP-104) or calling a route `navigate()`
  * (GAP-134) in the same handler raced independent, uncoordinated writes to
  * `window.history` — Quick Add's Fuel and Expense sheets closed themselves
@@ -98,7 +98,7 @@ test("Quick Add → Expense opens the record-expense sheet and it stays open on 
 });
 
 /**
- * GAP-134's own live reproduction, verbatim (`QA-FINDINGS-2026-08-16.md`):
+ * GAP-134's own live reproduction, verbatim (`docs/qa/findings/2026-08-16.md`):
  * Add → New trip → pick a vehicle landed back on Home instead of the trip
  * form, silently, three times running under CDP touch emulation. Unlike
  * GAP-104 above — where the closing sheet only ever raced another `Sheet`'s
