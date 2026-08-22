@@ -1,11 +1,12 @@
 import type { BusinessDate } from "@fleetsettle/shared";
 import type { VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronRight, Plus, Truck } from "lucide-react";
+import { ChevronRight, Plus } from "lucide-react";
 import { useState } from "react";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
+import { EntityAvatar } from "../../design/primitives/EntityAvatar.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -56,7 +57,7 @@ export function VehicleListScreen({ today, onSelectVehicle }: VehicleListScreenP
                   className="flex items-center justify-between gap-4"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <Truck className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    <EntityAvatar kind="vehicle" vehicleType={vehicle.vehicleType} />
                     <div className="min-w-0">
                       <p className="truncate text-title text-ink-primary">{vehicle.registration}</p>
                       <p className="truncate text-body-sm text-ink-muted">{vehicle.vehicleType}</p>

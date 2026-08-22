@@ -1332,6 +1332,49 @@ existing component and its one real consumer, not added a new one).
 
 ---
 
+## 5J. Phase 7 executed — 22 August 2026
+
+Mechanical swap at all 5 confirmed sites — `VehicleListScreen.tsx`, `VehicleOverviewScreen.tsx`,
+`PeopleListScreen.tsx` (both the driver and customer branches), `DriverDetailScreen.tsx`,
+`CustomerDetailScreen.tsx` — replacing each bare `Truck`/`UserRound`/`Building2` icon with
+`EntityAvatar`, `list` size in the two list rows and `detail` size in the three headers.
+Unused icon imports removed only where nothing else in the file still used them
+(`VehicleOverviewScreen.tsx`'s `Truck`); `UserRound`/`Building2` stay imported in
+`PeopleListScreen.tsx`, since both are still used by that screen's own quick-add
+`ActionSheet` actions, unrelated to the row icons this phase touched.
+
+**Not mechanical, and found only by running the existing tests: the two detail-header
+sites (`DriverDetailScreen.tsx`, `CustomerDetailScreen.tsx`) don't get a second copy of
+the name next to the avatar.** The first attempt paired `EntityAvatar` with a `<p>` of
+the entity's name, mirroring `VehicleOverviewScreen.tsx`'s labelled "Registration" row —
+but `Screen`'s own title *is already that name* (`title={driverQuery.data?.name ??
+"Driver"}` / `title={customer?.name ?? "Customer"}`), and `DriverDetailScreen.test.tsx`
+already asserted exactly once, by name, that the driver's name renders exactly once on
+the screen ("never a signed net (W-2)" test, incidentally sharing an assertion with an
+unrelated invariant) — a real regression the test suite caught immediately, not a style
+preference. Fixed by dropping the paragraph: the avatar is a visual identity marker
+under a name the title bar already states, the same reasoning `VehicleOverviewScreen`
+itself doesn't repeat its own screen title as a bare heading in the body.
+
+**A latent `eslint` error from Phase 5, caught only now:** `EntityAvatar.tsx`'s initials
+helper used `first[0]`/`second[0]` inside a template literal, which TypeScript widens to
+`string | undefined` under `noUncheckedIndexedAccess` even though both are provably
+non-empty — `@typescript-eslint/restrict-template-expressions` correctly flagged it.
+Phase 5's own commit ran `guard`/`lint:css`/`typecheck` but not plain `npm run lint`, so
+this slipped through; fixed here with `.charAt(0)`, which returns `string` even for an
+out-of-range index, and confirmed by running the *full* `npm run check` (not the
+piecemeal subset) for the first time this redesign — which also caught 8 files with
+stale `prettier` formatting left over from Phase 4's `sed`-driven edits, fixed the same
+way. **Going forward, `npm run check` is the gate to run per phase, not a hand-picked
+subset of it** — this phase is the reason that rule exists now.
+
+Confirmed the app still boots and renders without a console error in a real browser
+(the only console entry is the expected 401 from being signed out, unrelated to this
+change). `npm run check` passes end to end: `lint` (0 errors), `lint:css`,
+`format:check`, `typecheck`, and 863 web + 91 shared tests.
+
+---
+
 ## 6. Implementation plan — 9 phases
 
 ### What's already true (reuse, don't rebuild)
@@ -1573,7 +1616,7 @@ empty chip.
   to 1.86:1, which is unreadable. Optional text is still text; it takes the 4.5:1 floor
   like any other. Add caption colour to Phase 8's contrast checklist.
 
-### Phase 7 — Apply `EntityAvatar` at the confirmed sites
+### Phase 7 — Apply `EntityAvatar` at the confirmed sites — DONE, see §5J
 `VehicleListScreen.tsx`, `VehicleOverviewScreen.tsx`, `PeopleListScreen.tsx` (both
 branches), `DriverDetailScreen.tsx`, `CustomerDetailScreen.tsx` — mechanical swaps now
 that the component and color rule are fixed in Phase 5.
@@ -1732,7 +1775,13 @@ stale twice.
       assumed. `caption?` added and used at all 5 of `QuickAddSheet.tsx`'s fixed
       actions; the caption joining the button's accessible name is correct, not a bug,
       and the affected tests now match on the label as a `RegExp` prefix.
-- [ ] Phase 7 — Apply `EntityAvatar` at the 5 confirmed call sites
+- [x] **Phase 7 — `EntityAvatar` applied, executed 22 August 2026 (§5J).** All 5 sites
+      swapped; a real regression the test suite caught (a duplicated name next to the
+      new avatar in both detail headers, since `Screen`'s own title already states it)
+      fixed by dropping the redundant text, not the test. Also fixed a latent Phase 5
+      `eslint` error and 8 files of stale Phase 4 formatting, both caught only because
+      this phase ran the *full* `npm run check` instead of a hand-picked subset —
+      that's now the standard gate per phase, not an occasional extra.
 - [ ] Phase 8 — Docs (M-35, §13 budget, brand-guidelines, icon regeneration) + full
       check + browser QA across all four surface families
 - [ ] Phase 9 — **rebase onto `origin/develop` first (§5C.1)**; commit scope reviewed

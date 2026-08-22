@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Route,
   TriangleAlert,
-  Truck,
   UserRound,
   Wrench,
 } from "lucide-react";
@@ -41,6 +40,7 @@ import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
+import { EntityAvatar } from "../../design/primitives/EntityAvatar.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
@@ -385,7 +385,7 @@ export function VehicleOverviewScreen({
         <div className="flex flex-col gap-4">
           <Card className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <Truck className="size-6 shrink-0 text-ink-muted" aria-hidden />
+              <EntityAvatar kind="vehicle" vehicleType={vehicle.vehicleType} size="detail" />
               <div>
                 <p className="text-label text-ink-secondary">Registration</p>
                 <p className="text-title text-ink-primary">{vehicle.registration}</p>

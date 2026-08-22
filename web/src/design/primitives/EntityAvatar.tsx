@@ -56,7 +56,7 @@ function initialsOf(name: string): string {
   const second = words[1];
   return second === undefined
     ? first.slice(0, 2).toUpperCase()
-    : `${first[0]}${second[0]}`.toUpperCase();
+    : `${first.charAt(0)}${second.charAt(0)}`.toUpperCase();
 }
 
 const SIZE_CLASS: Record<EntityAvatarSize, string> = { list: "size-9", detail: "size-12" };

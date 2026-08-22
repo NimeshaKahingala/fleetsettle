@@ -32,6 +32,7 @@ import { Badge } from "../../design/primitives/Badge.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { DialogConfirmFooter } from "../../design/primitives/Dialog.js";
+import { EntityAvatar } from "../../design/primitives/EntityAvatar.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
@@ -283,19 +284,25 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
         <p className="text-body-sm text-ink-muted">Loading…</p>
       ) : (
         <div className="flex flex-col gap-5">
-          <Card>
-            <p className="text-label text-ink-secondary">Status</p>
-            <Badge
-              variant={
-                driverQuery.data.archivedAt !== null && driverQuery.data.archivedAt !== undefined
-                  ? "warning"
-                  : "good"
-              }
-            >
-              {driverQuery.data.archivedAt !== null && driverQuery.data.archivedAt !== undefined
-                ? "Archived"
-                : "Active"}
-            </Badge>
+          <Card className="flex flex-col gap-3">
+            {/* Screen's own title already shows the name (§6.1's h1) — the
+                avatar here is a visual identity marker, not a second copy
+                of the text. */}
+            <EntityAvatar kind="driver" name={driverQuery.data.name} size="detail" />
+            <div>
+              <p className="text-label text-ink-secondary">Status</p>
+              <Badge
+                variant={
+                  driverQuery.data.archivedAt !== null && driverQuery.data.archivedAt !== undefined
+                    ? "warning"
+                    : "good"
+                }
+              >
+                {driverQuery.data.archivedAt !== null && driverQuery.data.archivedAt !== undefined
+                  ? "Archived"
+                  : "Active"}
+              </Badge>
+            </div>
           </Card>
           <TwoBalances
             owedToYouMinor={parse(balancesQuery.data.owedToUsMinor)}

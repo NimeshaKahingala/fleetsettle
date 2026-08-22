@@ -6,6 +6,7 @@ import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet } from "../../design/primitives/ActionSheet.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
+import { EntityAvatar } from "../../design/primitives/EntityAvatar.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
@@ -65,7 +66,7 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
               >
                 <Card className="flex items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    <UserRound className="size-5 shrink-0 text-ink-muted" aria-hidden />
+                    <EntityAvatar kind="driver" name={driver.name} />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-title text-ink-primary">{driver.name}</p>
@@ -103,11 +104,11 @@ export function PeopleListScreen({ onSelectDriver, onSelectCustomer }: PeopleLis
               >
                 <Card className="flex items-center justify-between gap-4">
                   <div className="flex min-w-0 items-center gap-3">
-                    {customer.customerType === "person" ? (
-                      <UserRound className="size-5 shrink-0 text-ink-muted" aria-hidden />
-                    ) : (
-                      <Building2 className="size-5 shrink-0 text-ink-muted" aria-hidden />
-                    )}
+                    <EntityAvatar
+                      kind="customer"
+                      customerType={customer.customerType}
+                      name={customer.name}
+                    />
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-title text-ink-primary">{customer.name}</p>
