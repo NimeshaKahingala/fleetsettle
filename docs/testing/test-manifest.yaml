@@ -4,7 +4,7 @@
 # have been null since this file was written and no case has ever run --
 # decided not to adopt it. Kept as aspirational test design, not a progress
 # tracker; ../README.md carries the full reasoning. The repository's real
-# acceptance evidence is `npm test` plus ../../LIVE-TEST-PLAN.md.
+# acceptance evidence is `npm test` plus ../qa/live-test-plan.md.
 #
 # Original framing, left as written below for anyone who does pick this up:
 # "This file is the single source of truth for test execution progress.

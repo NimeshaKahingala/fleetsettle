@@ -33,7 +33,7 @@ describe("GAP-145: subrequest ceiling on the report/summary endpoints", () => {
     const businessId = await ctx.createBusiness();
 
     // Six vehicles, matching the live business the QA pass actually found
-    // this on (QA-FINDINGS-2026-08-19's F-8/GAP-145 repro).
+    // this on (docs/qa/findings/2026-08-19.md's F-8/GAP-145 repro).
     for (let i = 0; i < 6; i++) {
       await ctx.createVehicle(businessId, { registration: `SR-${String(1000 + i)}` });
     }
