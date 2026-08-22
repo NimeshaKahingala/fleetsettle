@@ -10,6 +10,11 @@ import {
   trip as tripTable,
   vehicleDayAllocation,
 } from "../../src/db/schema.js";
+import { materializeDailyLeaseHorizon } from "../../src/domain/day-card-generation.js";
+import {
+  findDailyLeaseForBusiness,
+  listDailyLeaseRatesForLease,
+} from "../../src/queries/dailyLease.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -469,6 +474,76 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
           eq(dayRecord.dailyLeaseId, leaseBody.id),
           gte(dayRecord.businessDate, holdStart),
           lte(dayRecord.businessDate, holdEnd),
+        ),
+      );
+    expect(restoredDayRecords).toHaveLength(0);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-146 follow-up — a backfilled past date with no open period at all (not just one that starts later) is reported unrestorable, not silently dropped", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const today = businessToday();
+    // Deliberately no ctx.createOpenPeriod call — this business has never
+    // opened its first accounting period. materializeDailyLeaseHorizon's
+    // own period-gating branches were both guarded by `openPeriod !== null`,
+    // so a `null` openPeriod fell through both and the past date's
+    // allocation was created with no day_record and no report of either.
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "B");
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postDailyLease(token, {
+      vehicleId,
+      driverId,
+      patternType: "every_day",
+      effectiveFrom: addDays(today, -15),
+      dailyLeaseAmountMinor: "500000",
+    });
+    expect(leaseRes.status).toBe(201);
+    const leaseBody: { id: string } = await leaseRes.json();
+    ctx.trackCreatedDailyLease(leaseBody.id);
+
+    const fullLease = await findDailyLeaseForBusiness(db, businessId, leaseBody.id);
+    if (!fullLease) throw new Error("daily lease not found immediately after creating it");
+    const rates = await listDailyLeaseRatesForLease(db, leaseBody.id);
+
+    // startDailyLease already materialised today..horizon synchronously
+    // (D-9/GAP-88), so this call's own `from` is the only genuinely new
+    // ground it covers — the forward dates are already `existing` and are
+    // skipped regardless of `openPeriod`.
+    const from = addDays(today, -5);
+    const result = await materializeDailyLeaseHorizon(
+      db,
+      { ...fullLease, businessId },
+      rates,
+      null,
+      today,
+      undefined,
+      from,
+    );
+
+    expect(result.allocationsCreated).toBe(5);
+    expect(result.dayRecordsCreated).toBe(0);
+    expect(result.unrestorableDayRecordDates).toEqual([
+      from,
+      addDays(from, 1),
+      addDays(from, 2),
+      addDays(from, 3),
+      addDays(from, 4),
+    ]);
+
+    const restoredDayRecords = await db
+      .select({ businessDate: dayRecord.businessDate })
+      .from(dayRecord)
+      .where(
+        and(
+          eq(dayRecord.dailyLeaseId, leaseBody.id),
+          gte(dayRecord.businessDate, from),
+          lte(dayRecord.businessDate, addDays(today, -1)),
         ),
       );
     expect(restoredDayRecords).toHaveLength(0);

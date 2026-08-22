@@ -71,16 +71,17 @@ export interface MaterializeDailyLeaseHorizonResult {
    * GAP-146/REV-2026-08-19-02: pattern dates in range that got their
    * allocation row (occupancy has no `posted_period_id` and is never
    * period-gated) but no paired `day_record`, because the date falls
-   * *before* `openPeriod.periodStart` — an already-closed period.
-   * `assert_period_open()` only checks whether the row's *named* period is
-   * closed, never whether the row's own `business_date` actually falls
-   * inside it, so stamping one of these with the open period's id would
-   * silently move a closed month's driver day fee into the currently open
-   * one. Left unposted instead, and reported here rather than dropped —
-   * unlike a date beyond `periodEnd` (simply "not yet", picked up by the
-   * next cron run once its period opens), a date before `periodStart` is
-   * never revisited by anything, since every horizon fill only ever runs
-   * forward from `today`.
+   * *before* `openPeriod.periodStart` — an already-closed period — or
+   * because there is no open period at all (a business between periods, or
+   * one that has never opened its first). `assert_period_open()` only
+   * checks whether the row's *named* period is closed, never whether the
+   * row's own `business_date` actually falls inside it, so stamping one of
+   * these with the open period's id would silently move a closed month's
+   * driver day fee into the currently open one. Left unposted instead, and
+   * reported here rather than dropped — unlike a date beyond `periodEnd`
+   * (simply "not yet", picked up by the next cron run once its period
+   * opens), a date before `today` is never revisited by anything, since
+   * every horizon fill only ever runs forward from `today`.
    */
   unrestorableDayRecordDates: BusinessDate[];
 }
@@ -164,7 +165,10 @@ export async function materializeDailyLeaseHorizon(
           postedPeriodId: openPeriod.id,
         });
       }
-    } else if (openPeriod !== null && d < openPeriod.periodStart) {
+    } else if (d < today) {
+      // A backfilled past date (no open period at all, or one that starts
+      // after `d`) with no day_record — the loop never runs backward again,
+      // so this is the only chance to report it rather than drop it silently.
       unrestorableDayRecordDates.push(d);
     }
   }
