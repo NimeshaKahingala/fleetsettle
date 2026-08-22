@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { ME_OPERATE, SESSION_OPERATE, mockJson } from "./support/mocks.js";
 
 /**
  * GAP-50 — found 6 August 2026 driving a real browser against QA, twice in
@@ -18,25 +19,6 @@ import { expect, test, type Page } from "@playwright/test";
  * below. That difference is the whole reason this class of bug survived every
  * previous automated pass.
  */
-
-const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
-const SESSION_OPERATE = {
-  userId: "u1",
-  isPlatformAdmin: false,
-  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
-  pendingRequest: null,
-  hadMembership: true,
-};
-
-async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
-  await page.route(urlPattern, async (route) => {
-    await route.fulfill({
-      status,
-      contentType: "application/json",
-      body: JSON.stringify(body),
-    });
-  });
-}
 
 /**
  * Collects console output **with the accessibility tree switched on**.
