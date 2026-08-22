@@ -1,5 +1,6 @@
 import {
   addDays,
+  asBusinessDate,
   newId,
   type BusinessDate,
   type Minor,
@@ -25,7 +26,7 @@ import {
   listDailyLeaseRatesForLease,
 } from "../queries/dailyLease.js";
 import { findDriverForBusiness } from "../queries/driver.js";
-import { findLeaseForBusiness } from "../queries/lease.js";
+import { findLeaseForBusiness, findLeaseOverlappingRange } from "../queries/lease.js";
 import { findVehicleCalendar } from "../queries/vehicle.js";
 import { pauseDayRecordsForTrip, resumeDayRecordsForTrip } from "../queries/day-record.js";
 import {
@@ -414,6 +415,54 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
         isHold: asHold,
       }));
       await insertAllocationDays(tx, days);
+
+      // GAP-160 (review of GAP-158): a lease materialises `vehicle_day_
+      // allocation` rows only through day-card-generation's 90-day rolling
+      // horizon, so `one_arrangement_per_vehicle_day` has nothing to catch
+      // a trip booked against a genuinely active lease whose own dates
+      // reach past it — the exact false-negative INV-1 exists to prevent.
+      // Runs *after* the insert above, not before: within the horizon,
+      // `insertAllocationDays` already either succeeded (nothing occupied
+      // these exact days) or threw (caught below, `buildDoubleBookedError`'s
+      // own calendar scan finds the precise conflict and the true nearest
+      // free date — checked here first would only report the lease's raw
+      // end date instead, a real regression on GAP-44's own test). Reaching
+      // this line at all means every requested day was actually free — so
+      // any lease still overlapping the range now must be one whose
+      // relevant days were never materialised in the first place, which is
+      // exactly, and only, the horizon gap this exists to close.
+      const overlappingLease = await findLeaseOverlappingRange(
+        tx,
+        input.vehicleId,
+        input.startDate,
+        input.endDate,
+      );
+      if (overlappingLease !== undefined) {
+        const holderLabel =
+          (await findCustomerForBusiness(tx, input.businessId, overlappingLease.customerId))
+            ?.name ?? "an unnamed customer";
+        throw new VehicleDoubleBookedError(undefined, {
+          conflict: {
+            sourceType: "lease",
+            from: overlappingLease.startDate,
+            to: overlappingLease.endDate,
+            holderLabel,
+            destination: null,
+          },
+          // The lease's own end is the only honest answer here — its future
+          // days are, by construction, exactly the ones the horizon hasn't
+          // materialised yet, so the calendar-scan lookahead
+          // `buildDoubleBookedError` uses for the materialised case has
+          // nothing to search for a free date with. `null` for an
+          // open-ended lease is not a missing feature: there genuinely is
+          // no known next-free date to suggest, and the client already
+          // renders that as a plain OK.
+          nextFreeFrom:
+            overlappingLease.endDate !== null
+              ? addDays(asBusinessDate(overlappingLease.endDate), 1)
+              : null,
+        });
+      }
 
       // ST-5/F-5.1 Accept: "a hold reserves the calendar but does not
       // suppress daily cards" — the daily lease's own already-generated

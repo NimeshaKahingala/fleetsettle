@@ -715,6 +715,116 @@ describe("book a trip (P2, F-5.1/UC-20)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-160 (review of GAP-158) — 409, not a silent double-booking, for a trip past an open-ended lease's own 90-day allocation horizon", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    // Open-ended (no endDate) and started long enough ago that
+    // generate-day-cards's own 90-day horizon, had it ever run for this
+    // lease, would already be far behind the trip dates below — the shape
+    // that actually matters is "no vehicle_day_allocation row exists this
+    // far out yet," which an open-ended lease with no cron run reproduces
+    // directly, no cron needed.
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const today = businessToday();
+    const farStart = addDays(today, 120);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: addDays(farStart, 1),
+    });
+    expect(res.status).toBe(409);
+    const body: {
+      code: string;
+      details?: { conflict: { sourceType: string; holderLabel: string }; nextFreeFrom: null };
+    } = await res.json();
+    expect(body.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    expect(body.details).toMatchObject({
+      conflict: { sourceType: "lease", holderLabel: "Test Customer" },
+      // Open-ended — there is no known date this lease frees up.
+      nextFreeFrom: null,
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-160 — 409 for a trip inside a fixed-term lease's own dates but past the materialisation horizon, naming when the lease actually ends", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const today = businessToday();
+    const leaseEnd = addDays(today, 200);
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: today,
+      endDate: leaseEnd,
+      status: "active",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // Well inside the lease's own term, well past the 90-day horizon.
+    const farStart = addDays(today, 150);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: farStart,
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string; details?: { nextFreeFrom: string } } = await res.json();
+    expect(body.code).toBe("VEHICLE_DOUBLE_BOOKED");
+    expect(body.details?.nextFreeFrom).toBe(addDays(leaseEnd, 1));
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-160 — a closed lease, its own endDate correctly shortened by closeLease, does not block a trip past the horizon", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const today = businessToday();
+    // closeLease rewrites endDate to the real closing date at the same
+    // updateLeaseStatus call that moves status to "closing"
+    // (lease-closure.ts) — so a genuinely closed lease's own endDate is
+    // already accurate, in the past here, and this alone is enough to free
+    // the vehicle. The `status` filter in findLeaseOverlappingRange is
+    // belt-and-braces on top of that, not the thing doing the work in this
+    // particular case — this test locks in the ordinary shape, not a
+    // contrived "stale endDate" that the closure path doesn't actually
+    // produce.
+    await ctx.createLease(businessId, vehicleId, customerId, {
+      startDate: "2026-01-01",
+      endDate: addDays(today, -30),
+      status: "closed",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const farStart = addDays(today, 150);
+    const res = await postTrip(token, {
+      vehicleId,
+      startDate: farStart,
+      endDate: farStart,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; status: string } = await res.json();
+    expect(body.status).toBe("booked");
+    ctx.trackCreatedTrip(body.id);
+
+    await ctx.cleanup();
+  });
+
   it("GAP-23/A6 — raises a trip_fare receivable when there's a customer and an agreed amount", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
