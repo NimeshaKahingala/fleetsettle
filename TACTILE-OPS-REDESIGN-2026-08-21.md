@@ -1219,8 +1219,50 @@ the check §6 required before propagating to all seven primitives and Pass B.
 
 `tokens.css`/`web/src` pass `guard`/`lint`/`lint:css`/`typecheck`/853 web tests unchanged
 (no test asserted the old outlined shape, so none needed updating — a gap noted rather
-than papered over: none of Pass A/B's ~40 call sites have their own visual-regression
-coverage, the same class of thin coverage §5A.5 already flagged for the font swap).
+than papered over: none of Pass A/B's 44 changed call sites (7 + 37) have their own
+visual-regression coverage, the same class of thin coverage §5A.5 already flagged for
+the font swap).
+
+---
+
+## 5H. Phase 5 executed — 22 August 2026
+
+New file `web/src/design/primitives/EntityAvatar.tsx`, with its own test file (10 tests,
+all passing) — the first of the redesign's new primitives to get one, since unlike the
+token-only phases this is genuinely new logic (an initials algorithm) rather than a class
+swap. Three kinds, one component: `"vehicle"` (icon, keyed on type), `"driver"` (initials),
+`"customer"` (initials for `"person"`, icon for `"organisation"`) — matching §3.1's table
+exactly, including the explicit `CashScreen.tsx` partner-row exclusion (not built, since
+that row was never in scope). Two sizes, `list` (36px) and `detail` (48px), per §6.
+
+**One typing decision §6 didn't specify, made deliberately:** `vehicleType` is typed
+`string`, not the closed `VehicleType` enum. Reading `vehicleResponseSchema`
+(`packages/shared/src/schemas/vehicle.ts:49`) found it's `z.string()` there, not
+`vehicleTypeSchema` — F-1.1/GAP-150's own comment says legacy data has spellings outside
+`"Bus" | "Car" | "Van"`. Typing the prop to the strict enum would have been a type error
+against every real call site's actual data. An unrecognised value falls back to `Truck`,
+matching what *every* vehicle type already rendered before this component existed — pure
+improvement (Bus/Car now get their own glyph via `lucide-react`'s `Bus`/`Car`/`Truck`,
+confirmed exported), never a regression for legacy data.
+
+**The initials rule (§5B.9) is implemented exactly as specified, not approximately:**
+first letter of each of the first two whitespace-separated words; a single word uses its
+own first two characters, which already handles the single-character case without a
+third branch (`"K".slice(0, 2)` is just `"K"`). Tested against both edges directly,
+not just the common case.
+
+**The WCAG check §6 deferred to Phase 8 is done now instead, since the numbers were
+already on hand from Phase 1's work:** white text on `--color-brand` is 13.20:1 light /
+11.14:1 dark (identical to the button-fill figures §5D already recorded — same tokens,
+same role); `--color-ink-primary` on `--color-surface-sunken` is 13.31:1 light / 13.01:1
+dark. Both pairs clear 4.5:1 AA with wide margin in both modes — this is real identifying
+text, not decoration, and it was worth confirming rather than assuming forward to Phase 8.
+
+Confirmed visually in a real browser: brand-tone chips at both sizes, neutral chips at
+both sizes, and the single-character edge case, all render legibly. **Not yet applied
+anywhere** — Phase 6/7 wire it into the confirmed call sites; this phase only builds and
+tests the primitive, per §6's own phase split. `guard`/`lint:css`/`typecheck` pass; the
+web suite is now 863 tests (10 new, all `EntityAvatar`'s own).
 
 ---
 
@@ -1425,7 +1467,7 @@ fill, and that `focus-visible:ring-focus-ring` still has enough contrast against
 This is the one place the filled language can regress accessibility if applied
 mechanically.
 
-### Phase 5 — `EntityAvatar` (new shared primitive)
+### Phase 5 — `EntityAvatar` (new shared primitive) — DONE, see §5H
 New file `web/src/design/primitives/EntityAvatar.tsx`. Circular badge, 36px (list) /
 48px (detail header), icon or two-letter initials, solid-filled — full rule table in
 §3.1. Vehicles + drivers → brand-tone solid fill, white glyph/initials. Customers
@@ -1607,7 +1649,13 @@ stale twice.
       "Add" tile kept its outline as a recorded exception); focus/error contrast
       re-verified against the new fill in both modes; a real-browser scratch form
       confirmed every field reads unmistakably as a field before this landed everywhere.
-- [ ] Phase 5 — `EntityAvatar` component (short-name initials rule stated)
+- [x] **Phase 5 — `EntityAvatar`, executed 22 August 2026 (§5H).** New primitive, its own
+      10-test file; `vehicleType` typed `string` (not the closed enum) after reading the
+      actual read-side schema and finding legacy spellings exist, with a `Truck`
+      fallback matching today's behaviour; initials rule implemented exactly as
+      specified including the single-character edge case; the WCAG check §6 deferred to
+      Phase 8 done now instead (both text pairs clear 4.5:1 with wide margin). Not
+      applied anywhere yet — that's Phase 7.
 - [ ] Phase 6 — `ActionSheet` icon chip + caption; **left accent bar and destructive chip
       both decided and recorded (§5C.8)**
 - [ ] Phase 7 — Apply `EntityAvatar` at the 5 confirmed call sites

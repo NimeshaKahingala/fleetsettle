@@ -430,6 +430,7 @@ The set below is complete for phase 1. Anything not here is a composition of the
 | `Card` | Hairline surface. One elevated variant, used only by the day card |
 | `Section` | Heading + count + collapsible body + "Show all" |
 | `Badge` | Small semantic label — `brand`/`good`/`warning`/`serious`/`critical`/`neutral`, always paired with the same word the screen already shows (M-15) |
+| `EntityAvatar` | **Added 22 Aug 2026, Tactile Ops Phase 5** (`TACTILE-OPS-REDESIGN-2026-08-21.md` §5H — not yet a numbered `M-35` decision, same in-flight status as §5.1's palette). Circular identity chip, 36px (list) / 48px (detail header). Vehicles + drivers: brand-tone fill, white icon/initials. Customers (person or organisation): neutral fill, dark icon/initials — a customer isn't "ours" the way a vehicle or driver is. Always `aria-hidden`; the caller's own text carries the accessible name. Not yet applied anywhere (Phase 7) |
 
 ### 6.2 The load-bearing five
 
