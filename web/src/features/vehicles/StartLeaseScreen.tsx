@@ -25,6 +25,7 @@ import { Sheet } from "../../design/primitives/Sheet.js";
 import { ARRANGEMENT_LABEL } from "../../lib/arrangementLabel.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
+import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CreateCustomerForm } from "../people/CreateCustomerForm.js";
 import { TriangleAlert } from "lucide-react";
@@ -504,9 +505,7 @@ export function StartLeaseScreen({
                 severity={vehicleWarning.isExpired ? "critical" : "warning"}
                 icon={TriangleAlert}
               >
-                {vehicleWarning.docType === "revenue_licence"
-                  ? "Revenue licence"
-                  : vehicleWarning.docType}{" "}
+                {PAPERWORK_DOC_TYPE_LABEL[vehicleWarning.docType]}{" "}
                 {vehicleWarning.isExpired ? "expired" : "expires"} {vehicleWarning.expiryDate}
               </AlertStrip>
             ) : null}

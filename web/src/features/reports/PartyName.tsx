@@ -1,5 +1,5 @@
 import type { ReportPartyType } from "@fleetsettle/shared/schemas";
-import { PARTY_TYPE_LABEL } from "./lib/partyTypeLabel.js";
+import { PARTY_TYPE_LABEL } from "../../lib/partyTypeLabel.js";
 
 export interface PartyNameProps {
   value: string | null;

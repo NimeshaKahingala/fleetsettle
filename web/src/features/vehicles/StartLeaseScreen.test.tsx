@@ -259,7 +259,7 @@ test("a paperwork warning for this vehicle shows on the confirm step (F-10.1)", 
     await user.click(await screen.findByRole("button", { name: "Next" }));
   }
 
-  expect(await screen.findByText(/insurance/)).toHaveTextContent("insurance expired 2026-06-01");
+  expect(await screen.findByText(/Insurance/)).toHaveTextContent("Insurance expired 2026-06-01");
 });
 
 test("GAP-101 (Mode 3): a failed paperwork read shows a warning, never silently nothing, on the confirm step", async () => {

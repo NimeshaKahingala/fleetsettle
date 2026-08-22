@@ -221,7 +221,7 @@ test("tapping a payment opens the correction sheet", async () => {
     OWNER_MANAGER,
   );
 
-  await user.click(await screen.findByText(/Received — customer/));
+  await user.click(await screen.findByText(/Received — Customer/));
 
   expect(await screen.findByText("Correct this payment")).toBeInTheDocument();
   expect(screen.getByText("He still owes it")).toBeInTheDocument();
@@ -252,8 +252,8 @@ test("a reversed payment cannot be re-opened for correction", async () => {
     OWNER_MANAGER,
   );
 
-  expect(await screen.findByText(/Received — customer/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Received — customer/ })).toBeDisabled();
+  expect(await screen.findByText(/Received — Customer/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Received — Customer/ })).toBeDisabled();
 });
 
 test("a manager sees the payments list but cannot tap into a correction — reverseReceipt is owners-only (W-49/M-22)", async () => {
@@ -280,9 +280,9 @@ test("a manager sees the payments list but cannot tap into a correction — reve
     MANAGER,
   );
 
-  expect(await screen.findByText(/Received — customer/)).toBeInTheDocument();
+  expect(await screen.findByText(/Received — Customer/)).toBeInTheDocument();
   // The information is visible (dailyOperations covers reading); the
   // affordance to correct it is not (reverseReceipt is owners-only) — no
   // button wraps the row at all for this role.
-  expect(screen.queryByRole("button", { name: /Received — customer/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Received — Customer/ })).not.toBeInTheDocument();
 });

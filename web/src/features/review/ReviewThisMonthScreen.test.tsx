@@ -149,6 +149,38 @@ test("first period: no predecessor, so the delta line is omitted entirely — an
   expect(await screen.findByText("What I'm owed")).toBeInTheDocument();
 });
 
+test("a vehicle's paperwork warning shows the doc type's plain-English label, never the raw code", async () => {
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/accounting-period") return Promise.resolve(periods);
+    if (path.startsWith("/api/reports/vehicle-month")) return Promise.resolve(currentReport);
+    if (path.startsWith("/api/reports/overheads")) return Promise.resolve(overheads);
+    if (path === "/api/home/paperwork-warnings") {
+      return Promise.resolve([
+        {
+          subjectType: "vehicle",
+          subjectId: "v1",
+          subjectLabel: "NB-1234",
+          docType: "revenue_licence",
+          expiryDate: "2026-09-01",
+          isExpired: false,
+        },
+      ]);
+    }
+    if (path === "/api/partner/u1") return Promise.resolve(partner);
+    return Promise.resolve([]);
+  });
+
+  renderWithProviders(
+    <ReviewThisMonthScreen onSelectVehicle={() => {}} onSelectMyMoney={() => {}} />,
+    { get },
+    undefined,
+    me,
+  );
+
+  expect(await screen.findByText(/Revenue licence expires/)).toBeInTheDocument();
+  expect(screen.queryByText(/revenue_licence/)).not.toBeInTheDocument();
+});
+
 test("GAP-153/F-5: can render a Back affordance when opened from Operate's More hub", async () => {
   const user = userEvent.setup();
   const onBack = vi.fn();
