@@ -18,6 +18,8 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { ApiError } from "../../lib/api.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { can } from "../../lib/capabilities.js";
+import { PARTY_TYPE_LABEL } from "../../lib/partyTypeLabel.js";
+import { PAYMENT_STATUS_LABEL } from "../../lib/paymentStatusLabel.js";
 import { useMe } from "../../lib/useMe.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CorrectPaymentSheet } from "./CorrectPaymentSheet.js";
@@ -183,10 +185,11 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
                 <Card className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-body text-ink-primary">
-                      {row.direction === "received" ? "Received" : "Paid"} — {row.partyType}
+                      {row.direction === "received" ? "Received" : "Paid"} —{" "}
+                      {PARTY_TYPE_LABEL[row.partyType]}
                     </p>
                     <p className="text-caption text-ink-muted">
-                      {row.occurredOn} · {row.status}
+                      {row.occurredOn} · {PAYMENT_STATUS_LABEL[row.status]}
                     </p>
                   </div>
                   <Money value={parse(row.amountMinor)} />

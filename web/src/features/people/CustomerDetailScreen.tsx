@@ -28,6 +28,7 @@ import {
 import { useApi } from "../../lib/ApiContext.js";
 import { can } from "../../lib/capabilities.js";
 import { OBLIGATION_KIND_LABEL, OBLIGATION_STATUS_LABEL } from "../../lib/obligationStatusLabel.js";
+import { PAYMENT_STATUS_LABEL } from "../../lib/paymentStatusLabel.js";
 import { resolveSelectedMembership } from "../../lib/selectedMembership.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
@@ -335,7 +336,7 @@ export function CustomerDetailScreen({ customerId, onBack }: CustomerDetailScree
                       {payment.direction === "received" ? "Received" : "Paid"}
                     </p>
                     <p className="text-caption text-ink-muted">
-                      {formatShortDate(payment.occurredOn)} · {payment.status}
+                      {formatShortDate(payment.occurredOn)} · {PAYMENT_STATUS_LABEL[payment.status]}
                     </p>
                   </div>
                   <Money value={parse(payment.amountMinor)} />

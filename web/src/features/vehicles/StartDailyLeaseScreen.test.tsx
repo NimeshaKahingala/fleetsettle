@@ -157,7 +157,9 @@ test("GAP-84 — a vehicle set up for a different arrangement refuses before the
   );
 
   expect(
-    await screen.findByText("This vehicle is set up for arrangement C, not a daily lease."),
+    await screen.findByText(
+      "This vehicle is currently set up for trips / charter, not a daily lease.",
+    ),
   ).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Choose driver" })).not.toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();

@@ -71,7 +71,7 @@ export interface VehicleOverviewScreenProps {
   onSelectIncident: (incidentId: string) => void;
   /** F-1.7 (B10) — offered only for a vehicle that could actually take one; see `vehicleActions` below. */
   onStartDailyLease: () => void;
-  /** GAP-97 — the mirror of B10's own finding: booking works from the calendar and Quick Add, but not from the one screen where a manager is already looking at this vehicle. Offered only for arrangement B or C, matching `canBookTrip` on the calendar and `bookTrip`'s own server-side gate. */
+  /** GAP-97 — the mirror of B10's own finding: booking works from the calendar and Quick Add, but not from the one screen where a manager is already looking at this vehicle. Offered unconditionally (GAP-158 reversed the old arrangement-B/C-only gate) — a trip is arbitrated by occupancy on the requested dates, never by this vehicle's own standing arrangement, so there is no classification that rules it out up front. */
   onBookTrip: () => void;
 }
 
@@ -244,9 +244,6 @@ export function VehicleOverviewScreen({
   // for A and C, whose own start flows live on the calendar (F-2.1/F-5.1);
   // `VehicleCalendarScreen`'s `canStartLease`/`canBookTrip` gate the same way.
   const canStartDailyLease = vehicle?.arrangement === undefined || vehicle.arrangement === "B";
-  // GAP-97: the same gate `bookTrip` itself enforces server-side and
-  // `VehicleCalendarScreen`'s own `canBookTrip` uses — never A, never unset.
-  const canBookTrip = vehicle?.arrangement === "B" || vehicle?.arrangement === "C";
   const archiveMutation = useMutation({
     mutationFn: () => {
       if (vehicle === undefined) throw new Error("Choose a vehicle");
@@ -281,16 +278,12 @@ export function VehicleOverviewScreen({
           },
         ]
       : []),
-    ...(canBookTrip
-      ? [
-          {
-            key: "book-trip",
-            label: "Book trip",
-            icon: Route,
-            onSelect: onBookTrip,
-          },
-        ]
-      : []),
+    {
+      key: "book-trip",
+      label: "Book trip",
+      icon: Route,
+      onSelect: onBookTrip,
+    },
     ...(activeDailyLease !== undefined
       ? [
           {

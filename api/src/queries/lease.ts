@@ -232,3 +232,53 @@ export async function findOpenLeaseForVehicle(
     .limit(1);
   return rows[0];
 }
+
+/**
+ * GAP-160 (review of GAP-158): a lease's own `vehicle_day_allocation` rows
+ * only ever reach `generate-day-cards`'s 90-day rolling horizon
+ * (`day-card-generation.ts`'s `rangeEnd`) — an open-ended lease, or a
+ * fixed-term one whose own `end_date` is further out than that, has no
+ * materialised row for a date past it, so `one_arrangement_per_vehicle_day`
+ * has nothing to collide against there and a trip booked for it would
+ * insert cleanly. `bookTrip` calls this *after* that insert already
+ * succeeded, checking the lease's own `start_date`/`end_date` directly
+ * rather than its calendar shadow, for exactly the dates the horizon
+ * hasn't reached yet.
+ *
+ * `status IN ('active', 'closing')`, the identical filter
+ * `findOpenLeaseForVehicle` above already uses — belt-and-braces, not load-
+ * bearing on its own: `closeLease` already rewrites `endDate` to the real
+ * closing date at the same `updateLeaseStatus` call that moves status to
+ * `closing` (`lease-closure.ts`), so a `closed` lease's own date range is,
+ * in the ordinary case, already accurate without needing `status` at all.
+ * Kept anyway as the same defence-in-depth `findOpenLeaseForVehicle` reads
+ * on, in case that invariant is ever broken by a future change to the
+ * closure path — cheap to keep, expensive to be wrong about twice.
+ */
+export async function findLeaseOverlappingRange(
+  db: ReadDb,
+  vehicleId: string,
+  startDate: string,
+  endDate: string,
+): Promise<
+  { id: string; customerId: string; startDate: string; endDate: string | null } | undefined
+> {
+  const rows = await db
+    .select({
+      id: lease.id,
+      customerId: lease.customerId,
+      startDate: lease.startDate,
+      endDate: lease.endDate,
+    })
+    .from(lease)
+    .where(
+      and(
+        eq(lease.vehicleId, vehicleId),
+        inArray(lease.status, ["active", "closing"]),
+        lte(lease.startDate, endDate),
+        or(isNull(lease.endDate), gte(lease.endDate, startDate)),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}

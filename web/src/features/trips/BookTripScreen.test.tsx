@@ -49,6 +49,27 @@ function baseGet(overrides: Record<string, unknown> = {}) {
   return get;
 }
 
+test("GAP-158: a vehicle set up for arrangement A reaches the ordinary form and can book, same as any other", async () => {
+  const user = userEvent.setup();
+  const get = baseGet({
+    "/api/vehicle/v1": { ...vehicle, arrangement: "A" } satisfies VehicleResponse,
+  });
+  const post = vi.fn().mockResolvedValue({ id: "t1" } satisfies Partial<TripResponse>);
+  const onBooked = vi.fn();
+  renderWithProviders(
+    <BookTripScreen vehicleId="v1" today={today} onBack={() => {}} onBooked={onBooked} />,
+    { get, post },
+  );
+
+  expect(await screen.findByText("Step 1 of 3 · Trip")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Next" }));
+  await user.click(screen.getByRole("button", { name: "Book trip" }));
+
+  await vi.waitFor(() => expect(onBooked).toHaveBeenCalledWith("t1"));
+});
+
 test("saves with just the vehicle and default dates — every other field is skippable (U-2)", async () => {
   const user = userEvent.setup();
   const get = baseGet();
@@ -197,7 +218,7 @@ test("a paperwork warning for this vehicle shows on the confirm step (F-10.1)", 
   await user.click(await screen.findByRole("button", { name: "Next" }));
   await user.click(screen.getByRole("button", { name: "Next" }));
 
-  expect(await screen.findByText(/insurance expires 2026-08-01/)).toBeInTheDocument();
+  expect(await screen.findByText(/Insurance expires 2026-08-01/)).toBeInTheDocument();
 });
 
 test("GAP-101 (Mode 3): a failed paperwork read shows a warning on the confirm step, never silently nothing", async () => {

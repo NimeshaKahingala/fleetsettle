@@ -194,9 +194,9 @@ test("a paperwork warning renders as an alert strip, styled by isExpired, with a
     get,
   });
 
-  const vehicleAlert = await screen.findByText(/CAB-1234 — insurance expires 10 Aug/);
+  const vehicleAlert = await screen.findByText(/CAB-1234 — Insurance expires 10 Aug/);
   expect(vehicleAlert).toBeInTheDocument();
-  expect(screen.getByText(/Nimal — licence expired 20 Jul/)).toBeInTheDocument();
+  expect(screen.getByText(/Nimal — Licence expired 20 Jul/)).toBeInTheDocument();
 
   const alerts = screen.getAllByRole("alert");
   expect(alerts).toHaveLength(2);

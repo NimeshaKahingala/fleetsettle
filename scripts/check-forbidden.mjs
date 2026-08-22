@@ -494,6 +494,187 @@ function checkVoidTableFilter(paths) {
 }
 
 /**
+ * GAP-158/GAP-159 (21 Aug 2026): CLAUDE.md's "reserved vocabulary" rule has
+ * now shipped as a live bug twice for the identical reason — a raw
+ * internal enum value (`arrangement A`, `revenue_licence`, `mileage_excess`)
+ * rendered straight into user-facing text instead of through the `_LABEL`
+ * map that already exists for it (`arrangementLabel.ts`'s own comment cites
+ * `EXPENSE_CATEGORY_LABEL`/GAP-81 as the first occurrence). Six call sites
+ * across four screens were found and fixed the same sitting the raw
+ * `arrangement A` message was; this rule exists so a seventh has to be
+ * deliberate, not missed.
+ *
+ * **Three fields only, deliberately** — `docType`, `arrangement`,
+ * `partyType` are the fields this audit actually found leaking, and none of
+ * the three collides with an unrelated meaning elsewhere in this codebase.
+ * `kind` and `status` are NOT here even though `obligation.kind` was one of
+ * the six: both names are reused constantly for `useQueryState`'s own
+ * `{ kind: "idle" | "pending" | "ready" | "error" }` discriminator
+ * (`xxxState.kind === "error"` appears dozens of times), so a rule keyed on
+ * the bare field name would flag that discriminator on sight — the kind of
+ * false positive that gets a check disabled rather than obeyed. Widen this
+ * list the same way `VOID_FILTERED_TABLES` above is widened: one real,
+ * confirmed leak at a time, never by relaxing the shape of the check.
+ */
+const ENUM_LABEL_FIELDS = [
+  {
+    field: "docType",
+    // `labels` names what the finding's own message suggests — not a gate
+    // this rule checks the file for. Either map is a correct fix:
+    // `VEHICLE_DOC_TYPE_LABEL` (the vehicle's own 5 document types) or
+    // `PAPERWORK_DOC_TYPE_LABEL` (those plus a driver's own licence,
+    // home.ts's `paperworkDocTypeSchema`) — which one a given file needs
+    // depends on whether it reads a vehicle document directly or a
+    // home-screen paperwork warning.
+    labels: ["VEHICLE_DOC_TYPE_LABEL", "PAPERWORK_DOC_TYPE_LABEL"],
+  },
+  { field: "arrangement", labels: ["ARRANGEMENT_LABEL"] },
+  { field: "partyType", labels: ["PARTY_TYPE_LABEL"] },
+];
+
+/**
+ * Is `prefix` (everything on the line before a match) still inside a
+ * `key={…}`/`rowKey={…}`-style prop's own braces — including the plain
+ * `key={doc.docType}` case, where the match's own opening `{` *is* the
+ * prop's opening brace and so never appears in `prefix` at all? Handled
+ * first, directly: an immediate `key=`/`rowKey=` right at the end of
+ * `prefix` means the match starts exactly at that prop's own `{`.
+ *
+ * The other shape a React key takes is a composite built as a template
+ * literal (`` key={`${a}-${b}-${c.docType}`} ``,
+ * `rowKey={(row) => `${row.partyType}-${row.partyId}`}`) — never
+ * user-visible text, but the field access it wraps is nested two or three
+ * braces deep, past what the immediate check alone reaches (there, the
+ * prop's own `{` *does* land inside `prefix`, with more open braces after
+ * it). Finds the last `key=`/`rowKey=` in the prefix and counts unmatched
+ * `{` from there — if the braces it opened are still open at the match,
+ * the match is inside it. Deliberately unbounded rather than scoped to
+ * `key=` alone (Copilot's own review of an earlier version): a prop for a
+ * different, already-closed attribute earlier in the line must not mask a
+ * real leak later in the same line, and bracket-depth tracking gets that
+ * right where a bare text-contains check cannot.
+ */
+function isInsideKeyProp(prefix) {
+  if (/\b(?:key|rowKey)\s*=\s*$/.test(prefix)) return true;
+  const opener = /\b(?:key|rowKey)\s*=\s*\{/g;
+  let last = -1;
+  let m;
+  while ((m = opener.exec(prefix)) !== null) last = m.index + m[0].length;
+  if (last === -1) return false;
+  const between = prefix.slice(last);
+  const opens = (between.match(/\{/g) ?? []).length;
+  const closes = (between.match(/\}/g) ?? []).length;
+  return opens >= closes; // the opener's own `{` already counted in `opens` — still open at >=
+}
+
+/**
+ * Prop names confirmed, by reading the receiving component, to hand the raw
+ * value to something other than user-facing text — never a blanket "any
+ * `prop=` is safe" rule, which Copilot's review of an earlier version
+ * pointed out would just as happily wave through `aria-label={x.docType}`
+ * or `title={x.partyType}`, both genuinely user-facing (the second one is
+ * screen-reader text, not decoration). `key`/`rowKey` are handled by
+ * `isInsideKeyProp` above instead, which already covers the non-nested form
+ * this list would otherwise also need to name.
+ *
+ * - `type` — `ReceivablesReportScreen`/`AgeingReportScreen` pass
+ *   `row.partyType` to `PartyName`'s own `type` prop, which maps it through
+ *   `PARTY_TYPE_LABEL` internally (`features/reports/PartyName.tsx`).
+ * - `currentArrangement` — `VehicleOverviewScreen` passes `vehicle.arrangement`
+ *   to `ChangeVehicleArrangementSheet`, which renders it through its own
+ *   `ARRANGEMENT_LABEL` lookup, not raw.
+ *
+ * Widen by confirming the receiving component maps the value, the same
+ * discipline `ENUM_LABEL_FIELDS` itself is widened by — never by adding a
+ * prop name on the assumption that "it's probably a pass-through."
+ */
+const SAFE_PROP_PASSTHROUGH = new Set(["type", "currentArrangement"]);
+
+// Walks backward by hand rather than `/([\w-]+)\s*=\s*$/.exec(prefix)`
+// (SonarCloud S8786, confirmed by direct reproduction — that unanchored
+// pattern took 65+ seconds against a 200k-char line with no `=` in it,
+// O(n²) backtracking): trimEnd()/endsWith() are native linear scans, and
+// the identifier walk below tests one character at a time with no
+// quantifier to backtrack through.
+function isSafePropPassthrough(prefix) {
+  const trimmed = prefix.trimEnd();
+  if (!trimmed.endsWith("=")) return false;
+  const beforeEq = trimmed.slice(0, -1).trimEnd();
+  let start = beforeEq.length;
+  while (start > 0 && /[\w-]/.test(beforeEq[start - 1])) start--;
+  const name = beforeEq.slice(start);
+  return name.length > 0 && SAFE_PROP_PASSTHROUGH.has(name);
+}
+
+function checkEnumLabelUsage(paths) {
+  const findings = [];
+  for (const path of paths) {
+    if (!/^web\/src\/.*\.tsx$/.test(path) || path.endsWith(".test.tsx")) continue;
+    const abs = resolve(ROOT, path);
+    if (!existsSync(abs)) continue;
+    let text;
+    try {
+      text = readText(abs);
+    } catch {
+      continue; // binary, unreadable — not our business
+    }
+    const lines = text.split("\n");
+    for (const { field, labels } of ENUM_LABEL_FIELDS) {
+      // A bare `{expr.field}` or `${expr.field}` — nothing else inside the
+      // braces. This shape alone already excludes a comparison
+      // (`.field === "x"`) and a correctly-labeled render: `LABEL[expr.field]`
+      // opens on `LABEL[`, not on the accessor itself, so it can never match
+      // here — there is no "does this file use the label anywhere" check
+      // to get right or wrong, because the two shapes are syntactically
+      // disjoint. (An earlier file-wide version tried exactly that check and
+      // masked a real leak the moment any *other* line in the same file used
+      // the label correctly — found in review, not shipped.)
+      const raw = new RegExp(String.raw`\{\s*[\w.]+\.${field}\s*\}`, "g");
+      for (const [i, line] of lines.entries()) {
+        if (OPT_OUT.test(line)) continue;
+        const subject = code(line, path);
+        raw.lastIndex = 0;
+        let m;
+        while ((m = raw.exec(subject)) !== null) {
+          // A prop pass-through (`key={row.id}`, `type={row.partyType}`) is
+          // never user-visible text itself — the receiving component (or
+          // React's own reconciler, for `key`) is responsible for it, the
+          // same reasoning `PartyName` already relies on. Matched against
+          // only the text immediately before this match, not the whole
+          // line's prefix — `<div key={row.id}>{row.partyType}</div>` must
+          // still flag the second brace even though `key=` appears earlier
+          // in the same line, found in review before it shipped. A
+          // composite key built from a template literal nests the field
+          // access two or three braces inside `key=`/`rowKey=` rather than
+          // immediately after it — `isInsideKeyProp` tracks that separately
+          // since the plain immediately-preceding check can't see through
+          // the nesting (also found in review). The pass-through exemption
+          // itself is a reviewed allowlist (`SAFE_PROP_PASSTHROUGH`), not
+          // "any `prop=`" — that version was flagged in review for waving
+          // through genuinely user-facing props like `aria-label`/`title`.
+          const prefix = subject.slice(0, m.index);
+          if (isSafePropPassthrough(prefix)) continue;
+          if (isInsideKeyProp(prefix)) continue;
+          findings.push({
+            file: path,
+            line: i + 1,
+            column: m.index + 1,
+            id: "copy/raw-enum-in-jsx",
+            match: m[0].trim(),
+            message:
+              `\`.${field}\` is rendered raw here — an internal code (CLAUDE.md's ` +
+              "reserved-vocabulary rule) reaching the interface unmapped, the same shape GAP-158 " +
+              `found live. Map it through ${labels.join(" or ")}, or add ` +
+              "`// allow: <reason>` on this line if it is genuinely correct.",
+          });
+        }
+      }
+    }
+  }
+  return findings;
+}
+
+/**
  * IG §7.6/§16.1: `api/src/queries/platform/` may never import money-table
  * schema — the structural half of "a platform admin can never read
  * business money" (INV-38), enforced here rather than trusted to review.
@@ -690,6 +871,7 @@ const findings = [
   ...scanTargets.flatMap(scan),
   ...checkQueryErrorHandling(scanTargets),
   ...checkVoidTableFilter(scanTargets),
+  ...checkEnumLabelUsage(scanTargets),
   ...checkPlatformQueryImports(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
