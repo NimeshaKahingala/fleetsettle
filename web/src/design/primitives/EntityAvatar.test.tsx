@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { EntityAvatar } from "./EntityAvatar.js";
 
 test("initials: two-plus words use the first letter of the first two", () => {
@@ -76,4 +76,24 @@ test("size defaults to list (36px) and detail is explicitly larger", () => {
 test("is always decorative — the caller's own text carries the accessible name", () => {
   const { container } = render(<EntityAvatar kind="vehicle" vehicleType="Car" />);
   expect(container.firstChild).toHaveAttribute("aria-hidden");
+});
+
+// Copilot review, PR #99: Intl.Segmenter was constructed unguarded at
+// module load, so any environment without it (Firefox < 125) threw at
+// import time and crashed the whole app before a single component
+// rendered. Reproduced here by deleting it and re-evaluating the module —
+// this must render, not throw.
+test("does not crash when Intl.Segmenter is unavailable (older-browser fallback)", async () => {
+  const mutableIntl = globalThis.Intl as { Segmenter?: typeof Intl.Segmenter | undefined };
+  const original = mutableIntl.Segmenter;
+  delete mutableIntl.Segmenter;
+  vi.resetModules();
+  try {
+    const { EntityAvatar: EntityAvatarWithoutSegmenter } = await import("./EntityAvatar.js");
+    render(<EntityAvatarWithoutSegmenter kind="driver" name="Sunil Perera" />);
+    expect(screen.getByText("SP")).toBeInTheDocument();
+  } finally {
+    mutableIntl.Segmenter = original;
+    vi.resetModules();
+  }
 });
