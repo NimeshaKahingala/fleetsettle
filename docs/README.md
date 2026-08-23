@@ -80,7 +80,7 @@ Three rules that have already earned their place:
 
 | Criterion | Status | Why |
 |---|---|---|
-| **FL F-6.6** — shareable without a login | printed slip built; **share link deferred** | It would be the first route outside the login, carrying a full financial position (UC-57) |
+| **FL F-6.6** — shareable without a login | **corrected 22 Aug 2026 — neither half is built.** The 17 Aug decision recorded the printed slip as shipping and only the share link as deferred; a live QA pass found no printed slip, statement, or PDF anywhere in `web/src` or `api/src`, for any role (`TRACKER.md` GAP-170) | The share link would be the first route outside the login, carrying a full financial position (UC-57). The slip's absence means an unlinked driver or customer currently has no route at all to see it |
 | **FL F-9.3** — a statement to PDF | CSV built; **PDF deferred** | No renderer has a home in this runtime, `TS §8` (UC-99) |
 | **FL F-4.5** — a weekly settler is not in arrears on Thursday | **unbuilt, and refused rather than mis-served** | `effective_due_on` is never derived from `settlement_rhythm`; the write path errors instead of recording a wrong date (`DM §17` D-5) |
 
