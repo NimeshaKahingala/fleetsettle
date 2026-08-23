@@ -1,9 +1,15 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import {
+  ME_OPERATE,
+  SESSION_OPERATE,
+  mockJson,
+  mockVehicleOverviewSections,
+} from "./support/mocks.js";
 
 /**
  * GAP-104/GAP-134 — the mobile `ActionSheet`/`Sheet` history race(s). Found
- * live (`LIVE-BROWSER-FINDINGS-2026-08-10.md` F-1/F-2, `QA-FINDINGS-
- * 2026-08-16.md`): under real touch input, `ActionSheet` closing itself and
+ * live (`LIVE-BROWSER-FINDINGS-2026-08-10.md` F-1/F-2,
+ * `docs/qa/findings/2026-08-16.md`): under real touch input, `ActionSheet` closing itself and
  * either opening a target sheet (GAP-104) or calling a route `navigate()`
  * (GAP-134) in the same handler raced independent, uncoordinated writes to
  * `window.history` — Quick Add's Fuel and Expense sheets closed themselves
@@ -21,36 +27,6 @@ import { expect, test, type Page } from "@playwright/test";
  * spec runs at the same 360×640 viewport without touch and never exercises
  * this path at all.
  */
-const ME_OPERATE = { userId: "u1", businessId: "b1", role: "owner_manager" };
-const SESSION_OPERATE = {
-  userId: "u1",
-  isPlatformAdmin: false,
-  businesses: [{ businessId: "b1", name: "Test Fleet", role: "owner_manager" as const }],
-  pendingRequest: null,
-  hadMembership: true,
-};
-
-async function mockJson(page: Page, urlPattern: string, status: number, body: unknown) {
-  await page.route(urlPattern, async (route) => {
-    await route.fulfill({
-      status,
-      contentType: "application/json",
-      body: JSON.stringify(body),
-    });
-  });
-}
-
-async function mockVehicleOverviewSections(page: Page, vehicleId: string) {
-  await Promise.all([
-    mockJson(page, `**/api/vehicle/${vehicleId}/document`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/expense`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/lease`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/daily-lease`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/incident`, 200, []),
-    mockJson(page, `**/api/vehicle/${vehicleId}/**`, 200, []),
-  ]);
-}
-
 test("Quick Add → Fuel opens the fuel-fill sheet and it stays open on a touch device", async ({
   page,
 }) => {
@@ -98,7 +74,7 @@ test("Quick Add → Expense opens the record-expense sheet and it stays open on 
 });
 
 /**
- * GAP-134's own live reproduction, verbatim (`QA-FINDINGS-2026-08-16.md`):
+ * GAP-134's own live reproduction, verbatim (`docs/qa/findings/2026-08-16.md`):
  * Add → New trip → pick a vehicle landed back on Home instead of the trip
  * form, silently, three times running under CDP touch emulation. Unlike
  * GAP-104 above — where the closing sheet only ever raced another `Sheet`'s

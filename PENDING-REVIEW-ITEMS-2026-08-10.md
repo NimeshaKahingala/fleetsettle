@@ -261,7 +261,7 @@ Evaluation method: each review file was checked against the current source tree,
 | `FLOW-INVENTORY-AUDIT.md` | Deleted after consolidation. GAP-61/62/63/64/66 are complete; GAP-65/67/68/69 and the advance-completion residue survive. |
 | `GAP-101-READ-ERROR-CONTRACT-PLAN-2026-08-10.md` | Deleted after consolidation. Fully implemented; no unique pending work. |
 | `LIVE-BROWSER-FINDINGS-2026-08-10.md` | Deleted after consolidation. GAP-103, GAP-104, GAP-83/GAP-105, GAP-106, and GAP-100/MP-08 validation survive; GAP-84, GAP-85, and LT-7 are fixed/regression-clean. |
-| `LIVE-TEST-PLAN.md` | Deleted after consolidation. Remaining live checks are listed above; fixed or superseded checks are dropped. |
+| `docs/qa/live-test-plan.md` | Deleted after consolidation. Remaining live checks are listed above; fixed or superseded checks are dropped. |
 | `MOBILE-SHEET-AND-DATE-PICKER-FINDINGS-2026-08-09.md` | Deleted after consolidation. MP-01 through MP-07 survive under GAP-104/GAP-105/GAP-83; MP-08 survives as validation after GAP-100. |
 | `MUST-FIX-FINDINGS.md` | Deleted after consolidation. Arrangement, incident receivables, and management fees are complete; durable credits, per-vehicle scoping, related-ID validation, timezone, close safeguards, DB idempotency, trip states, correction links, and acceptance coverage survive. |
 | `QA-COMPREHENSIVE-TEST-FINDINGS-2026-08-08.md` | Deleted after consolidation. Verified fixes dropped; GAP-89, GAP-91, GAP-83, GAP-96, GAP-97, B16 residue, test noise, and acceptance coverage survive. Row-keyboard app bug was treated as likely tooling artifact, but e2e keyboard coverage survives. |

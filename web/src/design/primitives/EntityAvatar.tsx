@@ -38,13 +38,26 @@ export type EntityAvatarProps =
 
 const VEHICLE_ICON: Record<string, LucideIcon> = { Bus, Car, Van: Truck };
 
-const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+// Copilot review, PR #99: constructing this eagerly at module load threw in
+// any environment without Intl.Segmenter (Firefox < 125, released April
+// 2024 — a real, current gap, not a hypothetical one) and crashed the whole
+// app before render. Built lazily behind a feature check instead.
+const graphemeSegmenter =
+  typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : undefined;
 
 /** Splits by grapheme cluster, not UTF-16 code unit — a Sinhala/Tamil base
  * consonant plus its combining vowel sign is one user-perceived character
- * across two code units, and a naive `charAt`/`slice` would cut it in half. */
+ * across two code units, and a naive `charAt`/`slice` would cut it in half.
+ * Without `Intl.Segmenter` (see above), falls back to code points — still
+ * correct for a plain ASCII/single-codepoint name, just no longer immune to
+ * splitting a combining-mark cluster in that one unsupported-browser case. */
 function graphemesOf(text: string): string[] {
-  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+  if (graphemeSegmenter) {
+    return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+  }
+  return Array.from(text);
 }
 
 /**
