@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyWireSchema, positiveMoneyWireSchema, uuidSchema } from "./common.js";
+import { positiveMoneyWireSchema, uuidSchema } from "./common.js";
 
 /** DM §10.3's `CHECK` on `adjustment.adjustment_type`. `waiver`/`auto_waiver` never share a bucket with a write-off (W-28/INV-14, P10's own table). */
 export const adjustmentTypeSchema = z.enum([

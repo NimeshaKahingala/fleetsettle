@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   businessDateSchema,
-  moneyWireSchema,
   positiveMoneyWireSchema,
   uuidSchema,
 } from "./common.js";
