@@ -2,7 +2,7 @@
 
 > **Start at [the ten-wave plan](#the-ten-wave-plan--12-august-2026). That section, and the waves under it, are the current plan — everything from [“The order, end to end”](#the-order-end-to-end) onward is historical and superseded.** That historical block is roughly three quarters of this file, so without this pointer a reader scrolling from the top reaches deprecated content first and cannot tell. Added 16 August 2026.
 >
-> **What is left, in one line — corrected 20 August 2026 after the platform-admin/multi-business source sweep:** there is build work again unless explicitly deferred — **GAP-147** (void/correction endpoints with no client beyond expense, attachment, customer/driver write-off void, driver advance void, driver offset void, skipped-day undo, and incident contribution void), plus Wave 8's two remaining live-test items (**LT-9, LT-10**), then Wave 9 · Release. **GAP-146 is closed locally on 20 Aug**: vehicle-arrangement, entity-archive/unarchive, daily-lease-driver, skip-day-create, held-driver-deposit movement create/apply/void, and driver-view deposit movement history all have tests. **GAP-148 is closed locally on 20 Aug**: lease-due write-off, closed-lease/closed-trip post-closure-charge, customer/driver vehicle-linked standalone write-off, customer/driver write-off recovery, and write-off vehicle scoping all have tests. **GAP-65, GAP-135 and GAP-136 all moved to phase 2** by owner decision; GAP-131/GAP-132, GAP-18 (both halves — Wave 6), **LT-12/LT-13 (both 17 Aug)**, and **GAP-149 through GAP-154 (20 Aug local develop pass)** all closed.
+> **What is left, in one line — corrected 23 August 2026, and the correction is large.** Phase 1 is **not** two live-test items from done. Thirteen defects were filed 23 Aug as **GAP-174…GAP-186** ([Wave 8c](#wave-8c--the-23-august-evaluation--thirteen-steps-two-tracks-l)), from an external evaluation verified claim by claim against source. **One is a go-live blocker with no concurrency required** — GAP-178: three obligation `UPDATE`s carry no `business_id` predicate, so a wrong id mutates another tenant's books silently. It now gates [Wave 9](#wave-9--release-s) explicitly. The prior edition of this line — **GAP-147**, Wave 8's LT-9 and LT-10 — still stands, and is no longer the whole story.
 >
 > **LT-10 is the one to be least willing to skip:** `CloseWatcher` has no iOS Safari fallback by design and has only ever been tested under CDP emulation — LT-13's own sweep used the same emulation, so it cannot substitute. **LT-9** needs a linked-driver account, which needs a real identity to redeem the invite.
 >
@@ -417,11 +417,37 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 
 **Why this was a wave item and not a chore.** Every entry above was a document that read as live and was not. That is the same failure this plan's own 16 Aug pass found in TRACKER.md's summary tables and in Wave 5's missing completion markers — and the same one LT-11 hit, where this file listed a live-test item as open for four days after [docs/qa/live-test-plan.md](docs/qa/live-test-plan.md) had closed it. **The cost is never the stale file; it is the work someone does twice, or the check someone skips, because a document told them the wrong thing with confidence.** All five closed 17 Aug 2026, same sitting as GAP-18 — full account in TRACKER.md's own 17 Aug §0 entry.
 
+### Wave 8c · The 23 August evaluation — thirteen steps, two tracks (L)
+
+**Added 23 August 2026.** An external code evaluation of 29 defects, independently verified claim by claim against source before any of it was scheduled — ten claims did not survive unchanged, and the verification found five more the evaluation missed. Filed as **GAP-174…GAP-186**, of which **GAP-174 was withdrawn the same day** (B1/B9 are non-bugs — see TRACKER §4). The full plan, with every decision and its declined alternatives, is [COMBINED-PLAN-2026-08-23.md](COMBINED-PLAN-2026-08-23.md); this section is the scheduling view.
+
+**Two tracks, and they are genuinely independent** — nothing in remediation depends on anything in features, and they share only two files.
+
+| Track 1 — remediation | Track 2 — features |
+|---|---|
+| **Step 1** GAP-173 · W-35 flag, **read side only** — GAP-174 withdrawn | **Step 10** GAP-183 · bell rows tappable |
+| **Step 2** GAP-175 · CSV missing categories | **Step 11** GAP-184 · the `docs/` change — **start this first** |
+| **Step 3** GAP-176 · timezone codemod | **Step 12** GAP-185 · vehicle loans |
+| **Step 4** GAP-177 · Zod positivity | **Step 13** GAP-186 · distributable cash |
+| **Step 5** GAP-178 · locking, scoping, migration `0031` — **the go-live blocker** | |
+| **Step 6** GAP-179 · performance | |
+| **Step 7** GAP-180 · hygiene | |
+| **Step 8** GAP-181 · voided-row fixture coverage | |
+| **Step 9** GAP-182 · docs-vs-SQL sync | |
+
+**Step 11 is the critical path and requires no code.** Steps 12 and 13 are strictly serial behind it, and behind each other, so every day that document waits, the whole feature track waits. It collides with no remediation work and can start immediately.
+
+**Step 5 is the one that cannot be dropped**, and not for the reason a severity ranking would give. Its tenancy half is **not a race**: `updateObligationSettled`, `applyAdjustmentToObligation` and `reverseAdjustmentOnObligation` all `UPDATE … WHERE id = ?` with no `business_id` predicate, so a wrong id mutates another tenant's books silently, today, with no concurrency required. Everything else in this wave degrades gracefully; that one corrupts. **It gates Wave 9 — see the amended gate below.**
+
+**Ordering constraints, and there are only three.** Steps 1→2 stay adjacent (same `TransactionRow` shape); Steps 6→7 stay adjacent (both edit `reports.ts`); **Step 3 lands before Step 10** (both edit `HomeScreen.tsx`) and **Step 9 lands before Step 11** (both edit `data-model.md`'s `expense` block). Nothing else is ordered.
+
 ### Wave 9 · Release (S)
 
 Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `main`, post-deploy verification before anyone onboards.
 
 **The gate, decided 17 Aug 2026 and corrected 20 Aug 2026:** all four live-test items had to pass first — LT-9, LT-10, LT-12, LT-13 — and two are now closed. **LT-12 and LT-13 both closed live**: LT-12's `Confirm and go live` re-confirmed twice on the real QA batch; LT-13 closed in full 19 Aug after a real test lease was created specifically to exercise `LeaseHubScreen`'s "Close the lease" path. Full accounts in TRACKER.md's 17/19 Aug entries and docs/qa/live-test-plan.md. **What remains is not only LT-9 and LT-10 anymore**: the 20 Aug source sweep found GAP-147, Phase-1 correction-surface work unless the owner deliberately defers it the way GAP-65/GAP-135/GAP-136 were deferred; GAP-146 and GAP-148 are now closed locally. **LT-10** remains the live-test item to be least willing to skip: GAP-134 replaced the sheet-history mechanism with `CloseWatcher`, which by deliberate decision has **no iOS Safari fallback**, and it has only ever been verified under CDP emulation, LT-13's included — nobody has opened this build on a real iPhone. **LT-9** needs a linked-driver account, which needs a real identity to redeem the invite.
+
+**Amended again, 23 August 2026, and this is the larger of the two amendments.** Until this date the gate read as LT-9, LT-10 and GAP-147 — two live-test items and one correction-surface gap. **It had no knowledge of thirteen defects filed the same day, one of which is a cross-tenant write with no concurrency required** (GAP-178). Merging to `main` deploys production automatically and nothing pauses afterwards, so a reader working from this file would have concluded release was two live-test items away and shipped with `updateObligationSettled` still able to settle another tenant's obligation. **GAP-178 (Wave 8c, Step 5) now gates this wave explicitly.** The remaining twelve do not gate it individually — they degrade gracefully and can ship after — but GAP-173 and GAP-175 are worth taking first regardless, since both are wrong on every read rather than under concurrency. **GAP-174 was withdrawn the day it was filed** — B1 and B9 proved to be non-bugs on reading the schema the fix would have written to; TRACKER §4 carries the account.
 
 **This also amends the premise the wave plan was built on.** The 12 Aug rule was that nothing goes live until every phase-1 gap is fixed and tested; **GAP-65 is the first gap deliberately shipped unfixed**, so the rule now reads *"every phase-1 gap except those explicitly deferred with their reason recorded."* One exception, one reason, written down in its own row — the distinction worth holding is between a premise amended in the open and one that quietly stops being true.
 
