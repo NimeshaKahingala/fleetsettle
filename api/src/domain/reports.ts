@@ -642,7 +642,26 @@ function csvAmount(v: bigint): string {
   return `${negative ? "-" : ""}${major.toString()}.${cents.toString().padStart(2, "0")}`;
 }
 
-const TRANSACTIONS_CSV_HEADER = ["Date", "Vehicle", "Type", "Direction", "Amount (Rs)"];
+/**
+ * GAP-173/W-35/F-8.1: "Belongs to" is last so the four columns every existing
+ * consumer already parses keep their positions — a spreadsheet or import
+ * script built against the previous shape still reads Date…Amount unchanged.
+ * Blank on every ordinary row, which is most of them.
+ *
+ * Carries the period's start date, not a rendered "July 2026" — the same
+ * reasoning `csvAmount` states just above: this is data for a spreadsheet
+ * import, not a screen for a person to read, so it stays sortable and
+ * parseable and matches the `Date` column's own format. The client renders
+ * the month name (`formatPeriodLabel`); the export does not.
+ */
+const TRANSACTIONS_CSV_HEADER = [
+  "Date",
+  "Vehicle",
+  "Type",
+  "Direction",
+  "Amount (Rs)",
+  "Belongs to",
+];
 
 function transactionRowToCsvLine(row: TransactionRow): string {
   return [
@@ -651,6 +670,7 @@ function transactionRowToCsvLine(row: TransactionRow): string {
     labelForTransactionKind(row.kind),
     row.direction === "in" ? "In" : "Out",
     csvAmount(row.amountMinor),
+    row.belongsToPeriodStart ?? "",
   ]
     .map(csvField)
     .join(",");

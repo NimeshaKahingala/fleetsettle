@@ -12,6 +12,7 @@ import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Badge } from "../../design/primitives/Badge.js";
+import { formatPeriodLabel } from "../../lib/formatPeriodLabel.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
@@ -298,6 +299,11 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
                         <p className="text-caption text-ink-muted">
                           Received <Money value={parse(recovery.receivedAmountMinor)} />
                         </p>
+                        {recovery.belongsToPeriodStart !== null ? (
+                          <Badge variant="neutral" className="mt-1">
+                            Belongs to {formatPeriodLabel(recovery.belongsToPeriodStart)}
+                          </Badge>
+                        ) : null}
                       </div>
                       <Money value={parse(recovery.agreedAmountMinor)} />
                     </div>

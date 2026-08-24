@@ -130,6 +130,7 @@ test("a customer recovery not yet fully received is tappable, opening Mark recei
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "0",
         replacesId: null,
+        belongsToPeriodStart: null,
         voidedAt: null,
         voidedReason: null,
       },
@@ -157,6 +158,7 @@ test("GAP-147 — an unreceived customer recovery can be voided from the inciden
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "0",
         replacesId: null,
+        belongsToPeriodStart: null,
         voidedAt: null,
         voidedReason: null,
       },
@@ -190,6 +192,7 @@ test("GAP-147 — a voided customer recovery stays visible with its reason", asy
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "0",
         replacesId: null,
+        belongsToPeriodStart: null,
         voidedAt: "2026-08-20T12:00:00.000Z",
         voidedReason: "entered against the wrong customer",
       },
@@ -219,6 +222,7 @@ test("a fully received customer recovery is a plain row, not a button", async ()
         agreedAmountMinor: "2000000",
         receivedAmountMinor: "2000000",
         replacesId: null,
+        belongsToPeriodStart: null,
         voidedAt: null,
         voidedReason: null,
       },
@@ -378,4 +382,40 @@ test("GAP-101: a failed repair-costs read shows a failure notice rather than a s
   });
 
   expect(await screen.findByText("Something went wrong loading repair costs.")).toBeInTheDocument();
+});
+
+test("GAP-173/F-8.1: a late-posted recovery is flagged with the month it belongs to", async () => {
+  const lateRecovery: IncidentDetailResponse = {
+    ...openIncident,
+    recoveries: [
+      {
+        id: "rec1",
+        incidentId: "inc1",
+        source: "customer",
+        agreedAmountMinor: "2000000",
+        receivedAmountMinor: "0",
+        replacesId: null,
+        // Agreed in July, posted into the open month because July had closed.
+        belongsToPeriodStart: "2026-07-01",
+        voidedAt: null,
+        voidedReason: null,
+      },
+    ],
+  };
+  const get = baseGet({ "/api/incident/inc1": lateRecovery });
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  expect(await screen.findByText("Belongs to July 2026")).toBeInTheDocument();
+});
+
+test("GAP-173: an ordinary recovery carries no belongs-to flag at all", async () => {
+  const get = baseGet();
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+  });
+
+  await screen.findByText("Bottom line");
+  expect(screen.queryByText(/Belongs to/)).not.toBeInTheDocument();
 });

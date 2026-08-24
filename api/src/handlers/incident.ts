@@ -95,7 +95,19 @@ type RecoveryResponseRow = Pick<
   | "replacesId"
   | "voidedAt"
   | "voidedReason"
->;
+> & {
+  /**
+   * GAP-173/W-35: carried by the two listing reads, which join for it.
+   *
+   * The write-path responses below omit it and send `null`. That is not a
+   * silent gap: every recovery mutation in the client invalidates
+   * `["incident", incidentId]` (`CustomerContributionSheet`,
+   * `RecoveryReceivedSheet`, `InsuranceClaimSheet`, `VoidIncidentRecoverySheet`),
+   * so the list re-reads and the flag appears from the joined row. Threading
+   * the period's start through four write paths would buy one render.
+   */
+  belongsToPeriodStart?: string | null;
+};
 
 function recoveryToResponse(row: RecoveryResponseRow) {
   return {
@@ -105,6 +117,7 @@ function recoveryToResponse(row: RecoveryResponseRow) {
     agreedAmountMinor: toWire(row.agreedAmountMinor as Minor),
     receivedAmountMinor: toWire(row.receivedAmountMinor as Minor),
     replacesId: row.replacesId,
+    belongsToPeriodStart: row.belongsToPeriodStart ?? null,
     voidedAt: row.voidedAt,
     voidedReason: row.voidedReason,
   };

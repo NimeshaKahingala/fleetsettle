@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
+  accountingPeriod,
   advance,
   advanceSettlement,
   deposit,
@@ -452,6 +453,8 @@ export interface DepositMovementHistoryRow extends DepositMovementRow {
   occurredOn: string;
   reason: string | null;
   voidedReason: string | null;
+  /** GAP-173/W-35: the `period_start` of the period this movement belongs to, set only when it differs from the one it posted into. */
+  belongsToPeriodStart: string | null;
 }
 
 /** F-6.8/UC-59 and UC-58: the deposit balance must be explainable from the movements, including voided corrections that stay visible in history. */
@@ -469,10 +472,13 @@ export async function listDepositMovementsForDeposit(
       obligationId: depositMovement.obligationId,
       occurredOn: depositMovement.occurredOn,
       reason: depositMovement.reason,
+      // GAP-173/W-35/F-8.1: non-null only for a late fact.
+      belongsToPeriodStart: accountingPeriod.periodStart,
       voidedAt: depositMovement.voidedAt,
       voidedReason: depositMovement.voidedReason,
     })
     .from(depositMovement)
+    .leftJoin(accountingPeriod, eq(depositMovement.belongsToPeriodId, accountingPeriod.id))
     .where(
       and(eq(depositMovement.businessId, businessId), eq(depositMovement.depositId, depositId)),
     )
