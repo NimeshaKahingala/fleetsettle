@@ -50,26 +50,33 @@ export async function issueAdvance(
   writer: Writer,
   input: IssueAdvanceInput,
 ): Promise<IssuedAdvance> {
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.issuedOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findAdvanceForBusiness(writer, input.businessId, input.replacesId);
-    if (!target) throw new NotFoundError("No such advance in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-    // Found by Gitar's review of PR #45: without this, replacesId could
-    // name a voided advance against a *different* driver.
-    if (target.driverId !== input.driverId) {
-      throw new ValidationError("replacesId names an advance against a different driver");
-    }
-  }
-
   const advanceId = newId();
   try {
-    // withActor (db/client.ts) only attributes writes inside a real
-    // transaction — wrapped here for that reason (F-8.6).
-    await writer.transaction((tx) =>
-      insertAdvance(tx, {
+    // GAP-178/B5: the period linkage and the replacesId checks read inside
+    // the transaction that acts on them, not before it. Read outside, the
+    // period they resolved against can close, or the target advance can be
+    // replaced by someone else, between the check and the insert — and the
+    // row lands carrying a posted_period_id for a month that is now settled.
+    //
+    // withActor (db/client.ts) also only attributes writes inside a real
+    // transaction, which is why this was already wrapped (F-8.6).
+    await writer.transaction(async (tx) => {
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.issuedOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findAdvanceForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such advance in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Found by Gitar's review of PR #45: without this, replacesId could
+        // name a voided advance against a *different* driver.
+        if (target.driverId !== input.driverId) {
+          throw new ValidationError("replacesId names an advance against a different driver");
+        }
+      }
+
+      await insertAdvance(tx, {
         id: advanceId,
         businessId: input.businessId,
         driverId: input.driverId,
@@ -82,8 +89,8 @@ export async function issueAdvance(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      }),
-    );
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "advance_replaces_id_key")) {
@@ -123,7 +130,9 @@ export async function settleAdvance(
   input: SettleAdvanceInput,
 ): Promise<SettledAdvance> {
   return writer.transaction(async (tx) => {
-    const adv = await findAdvanceForBusiness(tx, input.businessId, input.advanceId);
+    // GAP-178/B12: locked, so a concurrent voidAdvance cannot decide "no
+    // settlements are live" while this one is landing.
+    const adv = await findAdvanceForBusiness(tx, input.businessId, input.advanceId, true);
     if (!adv || adv.voidedAt !== null) throw new NotFoundError("No such advance in this business");
 
     const alreadySettled = await sumSettledForAdvance(tx, input.advanceId);
@@ -216,7 +225,7 @@ export async function voidAdvanceSettlement(
       if (!settlement) throw new NotFoundError("No such settlement in this business");
       if (settlement.voidedAt !== null) throw new AdvanceSettlementAlreadyVoidedError();
 
-      const adv = await findAdvanceForBusiness(tx, input.businessId, settlement.advanceId);
+      const adv = await findAdvanceForBusiness(tx, input.businessId, settlement.advanceId, true);
       if (!adv) throw new NotFoundError("No such advance in this business");
 
       const voided = await voidAdvanceSettlementRow(tx, input.settlementId, {
@@ -262,29 +271,42 @@ export interface VoidedAdvance {
  * before the advance itself can go.
  */
 export async function voidAdvance(writer: Writer, input: VoidAdvanceInput): Promise<VoidedAdvance> {
-  const adv = await findAdvanceForBusiness(writer, input.businessId, input.advanceId);
-  if (!adv) throw new NotFoundError("No such advance in this business");
-  if (adv.voidedAt !== null) throw new AdvanceAlreadyVoidedError();
-
-  const live = await findLiveSettlementsForAdvance(writer, input.advanceId);
-  if (live.length > 0) {
-    const items: VoidBlockingItem[] = live.map((s) => ({
-      kind: "settlement",
-      id: s.id,
-      amountMinor: s.amountMinor.toString(),
-    }));
-    const totalMinor = live.reduce((sum, s) => sum + s.amountMinor, 0n);
-    throw new VoidBlockedError(
-      `Cannot void — ${live.length.toString()} settlement(s) totalling ${totalMinor.toString()} ` +
-        "are still against it. Void those first, each with its own reason",
-      items,
-    );
-  }
-
   try {
-    const voided = await writer.transaction((tx) =>
-      voidAdvanceRow(tx, input.advanceId, { voidedReason: input.reason, voidedBy: input.userId }),
-    );
+    // GAP-178/B12: same class as `voidObligation` — the settlement check reads
+    // inside the transaction that voids. Read before it, a settlement can be
+    // recorded against this advance between "nothing is live" and the void,
+    // leaving a live settlement against a voided advance.
+    const voided = await writer.transaction(async (tx) => {
+      // GAP-178/B12: the lock, not just the transaction. A plain SELECT here
+      // would not stop a settlement being inserted between this check and the
+      // void — READ COMMITTED has no predicate locking, so "nothing is live"
+      // is only true of rows that already exist. `settleAdvance` takes the
+      // same lock on the same row, so the two serialize.
+      const adv = await findAdvanceForBusiness(tx, input.businessId, input.advanceId, true);
+      if (!adv) throw new NotFoundError("No such advance in this business");
+      if (adv.voidedAt !== null) throw new AdvanceAlreadyVoidedError();
+
+      const live = await findLiveSettlementsForAdvance(tx, input.advanceId);
+      if (live.length > 0) {
+        const items: VoidBlockingItem[] = live.map((s) => ({
+          kind: "settlement",
+          id: s.id,
+          amountMinor: s.amountMinor.toString(),
+        }));
+        const totalMinor = live.reduce((sum, s) => sum + s.amountMinor, 0n);
+        throw new VoidBlockedError(
+          `Cannot void — ${live.length.toString()} settlement(s) totalling ` +
+            `${totalMinor.toString()} are still against it. Void those first, each with its ` +
+            "own reason",
+          items,
+        );
+      }
+
+      return voidAdvanceRow(tx, input.advanceId, {
+        voidedReason: input.reason,
+        voidedBy: input.userId,
+      });
+    });
     if (!voided) throw new AdvanceAlreadyVoidedError();
     return { id: input.advanceId, voidedAt: voided.voidedAt };
   } catch (err) {

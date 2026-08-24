@@ -120,6 +120,6 @@ export async function applyCreditForward(
   const settledMinor = alreadySettledMinor + drawnFromCredit;
   const amountMinor = outstandingMinor + alreadySettledMinor;
   const status = computeObligationStatus(amountMinor, settledMinor, 0n);
-  await updateObligationSettled(tx, obligationId, { settledMinor, status });
+  await updateObligationSettled(tx, businessId, obligationId, { settledMinor, status });
   return { settledMinor, status };
 }

@@ -139,13 +139,23 @@ export interface ObligationForAdjustment {
   voidedAt: string | null;
 }
 
-/** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy).
+ *
+ * GAP-178/B14b, B17: `forUpdate` locks the row for the caller's own
+ * transaction, the same shape `findObligationForDepositApply` and
+ * `findOutstandingObligationsForParty` already use. Every domain caller reads
+ * `settledMinor`/`waivedMinor`, computes a new figure from them and writes it
+ * back — a read-modify-write that loses one of two concurrent updates without
+ * the lock. The two handler call sites are read-only and keep the default.
+ */
 export async function findObligationForBusiness(
   db: ReadDb,
   businessId: string,
   obligationId: string,
+  forUpdate = false,
 ): Promise<ObligationForAdjustment | undefined> {
-  const rows = await db
+  const query = db
     .select({
       id: obligation.id,
       amountMinor: obligation.amountMinor,
@@ -157,6 +167,7 @@ export async function findObligationForBusiness(
     .from(obligation)
     .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as ObligationForAdjustment | undefined;
 }
 
@@ -243,19 +254,49 @@ export async function findObligationPartyForReplacesCheck(
  * changes `amount_minor` itself by `sign * amountMinor`, since it is a real
  * change to what is owed, not money forgiven and still shown as billed.
  */
+/**
+ * GAP-178/B14a. Every `UPDATE` on `obligation` is scoped by `business_id` and
+ * asserts it touched exactly one row.
+ *
+ * The scoping is the tenancy rule (CLAUDE.md → Tenancy) applied where it had
+ * been left off: these updates matched on `id` alone, so an `obligationId`
+ * from another tenant — however it got there — would have been written.
+ *
+ * The assert is the part worth arguing about, so: **zero rows throws a 500,
+ * never a 4xx.** Every caller has already read the row inside the same
+ * transaction, under `FOR UPDATE` after GAP-178/B14b. If the update then
+ * matches nothing, the row did not fail to exist for a reason the user can
+ * act on — it means a tenancy bug reached past every earlier guard, or a
+ * concurrent delete that this schema has no path for. A 404 would tell the
+ * caller their input was wrong when it was not, and would make a real defect
+ * look like ordinary traffic. The transaction rolls back either way, so
+ * nothing is half-written.
+ */
+function assertOneRow(rows: { id: string }[], operation: string, obligationId: string): void {
+  if (rows.length === 1) return;
+  throw new Error(
+    `${operation} matched ${rows.length.toString()} rows for obligation ${obligationId} — ` +
+      "expected exactly 1. The row was read under FOR UPDATE in this same transaction, so " +
+      "this is a tenancy or concurrency defect, not user error",
+  );
+}
+
 export async function applyAdjustmentToObligation(
   db: WriteDb,
+  businessId: string,
   obligationId: string,
   values: { amountMinor: bigint; waivedMinor: bigint; status: string },
 ): Promise<void> {
-  await db
+  const rows = await db
     .update(obligation)
     .set({
       amountMinor: values.amountMinor,
       waivedMinor: values.waivedMinor,
       status: values.status,
     })
-    .where(eq(obligation.id, obligationId));
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .returning({ id: obligation.id });
+  assertOneRow(rows, "applyAdjustmentToObligation", obligationId);
 }
 
 export interface OutstandingObligation {
@@ -375,10 +416,11 @@ export async function findOutstandingObligationsForParty(
  */
 export async function reverseAdjustmentOnObligation(
   db: WriteDb,
+  businessId: string,
   obligationId: string,
   values: { amountMinor: bigint; settledMinor: bigint; waivedMinor: bigint; status: string },
 ): Promise<void> {
-  await db
+  const rows = await db
     .update(obligation)
     .set({
       amountMinor: values.amountMinor,
@@ -386,19 +428,24 @@ export async function reverseAdjustmentOnObligation(
       waivedMinor: values.waivedMinor,
       status: values.status,
     })
-    .where(eq(obligation.id, obligationId));
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .returning({ id: obligation.id });
+  assertOneRow(rows, "reverseAdjustmentOnObligation", obligationId);
 }
 
 /** Settling further against an obligation an offset (or a payment) already touched — never a fresh row. */
 export async function updateObligationSettled(
   db: WriteDb,
+  businessId: string,
   obligationId: string,
   values: { settledMinor: bigint; status: string },
 ): Promise<void> {
-  await db
+  const rows = await db
     .update(obligation)
     .set({ settledMinor: values.settledMinor, status: values.status })
-    .where(eq(obligation.id, obligationId));
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .returning({ id: obligation.id });
+  assertOneRow(rows, "updateObligationSettled", obligationId);
 }
 
 export interface ObligationForVoid {
@@ -528,13 +575,24 @@ export async function voidObligationBySource(
  */
 export async function voidObligationById(
   db: WriteDb,
+  businessId: string,
   obligationId: string,
   values: { voidedReason: string; voidedBy: string },
 ): Promise<void> {
+  // No row-count assert here, deliberately: `voided_at IS NULL` makes a
+  // second void a legitimate no-op (the idempotency guard this already
+  // carried), so zero rows is an expected outcome rather than a defect. The
+  // `business_id` scoping is the part that was missing.
   await db
     .update(obligation)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(and(eq(obligation.id, obligationId), isNull(obligation.voidedAt)));
+    .where(
+      and(
+        eq(obligation.id, obligationId),
+        eq(obligation.businessId, businessId),
+        isNull(obligation.voidedAt),
+      ),
+    );
 }
 
 /** W-2: two sums, one per direction, never netted here or anywhere else in the schema — only an `offset_record` moves both. */
