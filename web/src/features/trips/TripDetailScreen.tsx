@@ -41,7 +41,8 @@ function formatShortDate(date: string, options: { year?: boolean } = {}): string
     day: "numeric",
     month: "short",
     ...(year ? { year: "numeric" as const } : {}),
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 const TRIP_STATUS_LABEL: Record<string, string> = {

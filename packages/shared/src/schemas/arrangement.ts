@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 import { leaseObligationRowSchema, odometerSourceSchema } from "./lease-billing.js";
 
 /**
@@ -16,7 +21,11 @@ export const startLeaseRequestSchema = z
     endDate: businessDateSchema.optional(),
     // eslint-disable-next-line no-restricted-syntax -- day-of-month, not money
     billingDay: z.number().int().min(1).max(31),
-    rentAmountMinor: moneyWireSchema,
+    // GAP-177: a mileage-only lease is not a real arrangement (owner, 23 Aug
+    // 2026), so rent is always a real amount. `mileageExcessRateMinor` below
+    // stays unconstrained — an excess rate of zero is a lease that simply does
+    // not bill excess, which is a legitimate arrangement.
+    rentAmountMinor: positiveMoneyWireSchema,
     // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
     mileageDailyLimitKm: z.number().int().positive().optional(),
     mileageExcessRateMinor: moneyWireSchema.optional(),

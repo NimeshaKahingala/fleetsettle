@@ -51,7 +51,8 @@ function formatShortDate(date: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /** GAP-44/INV-1: turns the enriched conflict into the one sentence the Dialog states — "CAB-1234 is on a trip from 12 Aug 2026 to 18 Aug 2026 — Kandy, for R. Perera." shaped, but built from whichever fields this conflict actually carries. */

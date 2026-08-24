@@ -80,7 +80,8 @@ function formatShortDate(date: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 const VEHICLE_LIFECYCLE_LABEL: Record<VehicleResponse["lifecycle"], string> = {

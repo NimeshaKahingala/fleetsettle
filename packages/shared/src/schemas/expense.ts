@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import { businessDateSchema, positiveMoneyWireSchema, uuidSchema } from "./common.js";
 import { odometerSourceSchema } from "./lease-billing.js";
 
 /** DM §9's `CHECK` on `expense.category` — the borne-by default matrix (UC §6.7) is keyed on this. */
@@ -44,7 +44,8 @@ export const createExpenseRequestSchema = z
     // incident, not exclusive with tripId or vehicleId.
     incidentId: uuidSchema.optional(),
     category: expenseCategorySchema,
-    amountMinor: moneyWireSchema,
+    // GAP-177: a cost of nothing is not a cost. Zero here is a mis-entry.
+    amountMinor: positiveMoneyWireSchema,
     spentOn: businessDateSchema,
     borneBy: borneBySchema.optional(),
     borneByDriverId: uuidSchema.optional(),
