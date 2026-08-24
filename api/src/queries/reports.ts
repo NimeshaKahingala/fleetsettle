@@ -1492,6 +1492,16 @@ export interface TransactionRow {
   kind: string;
   direction: "in" | "out";
   amountMinor: bigint;
+  /**
+   * GAP-173/W-35/F-8.1: the `period_start` of the period this row actually
+   * belongs to, non-null only when that differs from the one it posted into.
+   *
+   * This is the surface where a late fact silently misattributing itself does
+   * external damage — the export is "a year of transactions for an accountant,
+   * a tax filing, or a bank", so a July recovery landing in a September column
+   * with nothing to say otherwise is a wrong number in someone else's filing.
+   */
+  belongsToPeriodStart: string | null;
 }
 
 /** The `sumVehicleEarnedForDateRange`/`sumVehicleCostsForDateRange` obligation halves, row-level and business-wide rather than summed per vehicle — one bulk query per direction (api/CLAUDE.md's bounded-CPU rule), never one per row. */
@@ -1510,9 +1520,11 @@ async function listObligationTransactionsForDateRange(
       registration: vehicle.registration,
       kind: obligation.kind,
       amountMinor: obligation.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(obligation)
     .leftJoin(vehicle, eq(vehicle.id, obligation.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
     .where(
       and(
         eq(obligation.businessId, businessId),
@@ -1530,6 +1542,7 @@ async function listObligationTransactionsForDateRange(
     kind: r.kind,
     direction: direction === "owed_to_us" ? ("in" as const) : ("out" as const),
     amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
   }));
 }
 
@@ -1546,9 +1559,11 @@ async function listClosedTripTransactionsForDateRange(
       vehicleId: trip.vehicleId,
       registration: vehicle.registration,
       amountMinor: trip.agreedAmountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(trip)
     .innerJoin(vehicle, eq(vehicle.id, trip.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, trip.belongsToPeriodId))
     .where(
       and(
         eq(trip.businessId, businessId),
@@ -1566,6 +1581,7 @@ async function listClosedTripTransactionsForDateRange(
       kind: "trip",
       direction: "in" as const,
       amountMinor: r.amountMinor,
+      belongsToPeriodStart: r.belongsToPeriodStart,
     }));
 }
 
@@ -1583,9 +1599,11 @@ async function listCostExpenseTransactionsForDateRange(
       registration: vehicle.registration,
       category: expense.category,
       amountMinor: expense.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(expense)
     .leftJoin(vehicle, eq(vehicle.id, expense.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, expense.belongsToPeriodId))
     .where(
       and(
         eq(expense.businessId, businessId),
@@ -1602,6 +1620,7 @@ async function listCostExpenseTransactionsForDateRange(
     kind: r.category,
     direction: "out" as const,
     amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
   }));
 }
 

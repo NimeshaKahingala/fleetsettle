@@ -55,6 +55,8 @@ export const driverViewDepositSchema = z.object({
       amountMinor: z.string(),
       occurredOn: z.string(),
       reason: z.string().nullable(),
+      // GAP-173/W-35/F-8.1: see `incidentRecoveryResponseSchema`.
+      belongsToPeriodStart: z.string().nullable(),
       voidedAt: z.string().nullable(),
       voidedReason: z.string().nullable(),
     }),

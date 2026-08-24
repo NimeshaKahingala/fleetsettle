@@ -4,6 +4,7 @@ import { Money } from "../../components/Money.js";
 import { Badge, type BadgeProps } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Section } from "../../design/primitives/Section.js";
+import { formatPeriodLabel } from "../../lib/formatPeriodLabel.js";
 import { LOST_REASON_LABEL } from "../../lib/lostReasonLabel.js";
 
 type DriverViewDepositMovement = NonNullable<DriverViewResponse["deposit"]>["movements"][number];
@@ -281,6 +282,11 @@ export function DriverActivitySections({
                         {formatShortDate(movement.occurredOn)}
                         {movement.reason !== null ? <> · {movement.reason}</> : null}
                       </p>
+                      {movement.belongsToPeriodStart !== null ? (
+                        <Badge variant="neutral" className="mt-1">
+                          Belongs to {formatPeriodLabel(movement.belongsToPeriodStart)}
+                        </Badge>
+                      ) : null}
                     </div>
                     <Money value={parse(movement.amountMinor)} />
                   </div>

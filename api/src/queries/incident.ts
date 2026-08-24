@@ -1,6 +1,12 @@
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
-import { incident, incidentRecovery, insuranceClaim, leaseExtension } from "../db/schema.js";
+import {
+  accountingPeriod,
+  incident,
+  incidentRecovery,
+  insuranceClaim,
+  leaseExtension,
+} from "../db/schema.js";
 
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
@@ -288,6 +294,26 @@ const INCIDENT_RECOVERY_COLUMNS = {
   replacesId: incidentRecovery.replacesId,
 };
 
+/**
+ * GAP-173/W-35/F-8.1: the same columns plus the `period_start` of the period
+ * the row actually belongs to, so the screen can flag a late fact without a
+ * second query per row.
+ *
+ * Only the two listing reads join for it. The two single-row lookups above
+ * are write-path validation (`findIncidentRecoveryForBusiness`,
+ * `findIncidentRecoveryBySource`) and never render, so they keep the narrower
+ * projection rather than carrying a join no caller reads.
+ */
+const INCIDENT_RECOVERY_LIST_COLUMNS = {
+  ...INCIDENT_RECOVERY_COLUMNS,
+  belongsToPeriodStart: accountingPeriod.periodStart,
+};
+
+export interface IncidentRecoveryListRow extends IncidentRecoveryRow {
+  /** Non-null only for a late fact — the period it belongs to differs from the one it posted into. */
+  belongsToPeriodStart: string | null;
+}
+
 export async function findIncidentRecoveryForBusiness(
   db: ReadDb,
   businessId: string,
@@ -325,24 +351,26 @@ export async function findIncidentRecoveryBySource(
 export async function listIncidentRecoveries(
   db: ReadDb,
   incidentId: string,
-): Promise<IncidentRecoveryRow[]> {
+): Promise<IncidentRecoveryListRow[]> {
   const rows = await db
-    .select(INCIDENT_RECOVERY_COLUMNS)
+    .select(INCIDENT_RECOVERY_LIST_COLUMNS)
     .from(incidentRecovery)
+    .leftJoin(accountingPeriod, eq(incidentRecovery.belongsToPeriodId, accountingPeriod.id))
     .where(and(eq(incidentRecovery.incidentId, incidentId), isNull(incidentRecovery.voidedAt)));
-  return rows as IncidentRecoveryRow[];
+  return rows as IncidentRecoveryListRow[];
 }
 
 /** W-50 history for the incident screen — includes voided rows, while `listIncidentRecoveries` remains live-only for totals. */
 export async function listIncidentRecoveryHistory(
   db: ReadDb,
   incidentId: string,
-): Promise<IncidentRecoveryRow[]> {
+): Promise<IncidentRecoveryListRow[]> {
   const rows = await db
-    .select(INCIDENT_RECOVERY_COLUMNS)
+    .select(INCIDENT_RECOVERY_LIST_COLUMNS)
     .from(incidentRecovery)
+    .leftJoin(accountingPeriod, eq(incidentRecovery.belongsToPeriodId, accountingPeriod.id))
     .where(eq(incidentRecovery.incidentId, incidentId));
-  return rows as IncidentRecoveryRow[];
+  return rows as IncidentRecoveryListRow[];
 }
 
 /** GAP-12/W-61/INV-36 §3.9: void, never delete — the `voidExpense` shape, `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber. */

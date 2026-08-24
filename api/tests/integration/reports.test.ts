@@ -1598,10 +1598,14 @@ describe("reports (P11)", () => {
       expect(res.headers.get("content-disposition")).toContain("attachment");
       const csv = await res.text();
       const lines = csv.trim().split("\r\n");
-      expect(lines[0]).toBe("Date,Vehicle,Type,Direction,Amount (Rs)");
+      // GAP-173: "Belongs to" appended last so the original five columns keep
+      // their positions for anything already parsing this export.
+      expect(lines[0]).toBe("Date,Vehicle,Type,Direction,Amount (Rs),Belongs to");
       // Oldest first: the fuel expense (Jan) before the rent obligation (Mar).
-      expect(lines[1]).toBe("2026-01-05,A-1111,Fuel,Out,25.50");
-      expect(lines[2]).toBe("2026-03-15,A-1111,Rent,In,500.00");
+      // Both post into the period their own date falls in, so both are
+      // ordinary facts and the new column is empty — the common case.
+      expect(lines[1]).toBe("2026-01-05,A-1111,Fuel,Out,25.50,");
+      expect(lines[2]).toBe("2026-03-15,A-1111,Rent,In,500.00,");
 
       await ctx.cleanup();
     });
