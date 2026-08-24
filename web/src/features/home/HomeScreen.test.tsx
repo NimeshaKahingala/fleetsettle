@@ -7,7 +7,7 @@ import type {
   ReceivableRow,
   UnconfirmedDayRecordRow,
 } from "@fleetsettle/shared/schemas";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
@@ -25,7 +25,6 @@ function homeNavProps() {
     onSelectVehicle: vi.fn(),
     onSelectTrip: vi.fn(),
     onSelectParty: vi.fn(),
-    onOpenReceivables: vi.fn(),
     onOpenDepositReleases: vi.fn(),
   };
 }
@@ -415,8 +414,24 @@ test("deposits to release and trips in progress each render in their own section
  * button, and the two rows that never had a destination stay inert rather
  * than announcing an action they cannot perform.
  */
-test("GAP-183: the bell's rent-due row opens the receivables report and closes the sheet", async () => {
+/**
+ * Corrected after review: this row first pointed at the receivables report,
+ * but "Rent due" counts **customers only** (driver arrears show elsewhere on
+ * Home) while that report lists every party type — so the figure on the row
+ * could not match the screen it opened. It now scrolls to the section it
+ * actually summarises, where the two agree by construction.
+ */
+test("GAP-183: the bell's rent-due row closes the sheet and scrolls to the section it summarises", async () => {
   const user = userEvent.setup();
+  // jsdom implements no scrollIntoView at all, so this both stubs it and is
+  // the assertion — without the stub the click would throw rather than fail.
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(Element.prototype, "scrollIntoView", {
+    configurable: true,
+    writable: true,
+    value: scrollIntoView,
+  });
+
   const receivables: ReceivableRow[] = [
     {
       partyType: "customer",
@@ -427,14 +442,16 @@ test("GAP-183: the bell's rent-due row opens the receivables report and closes t
     },
   ];
   const get = baseGet({ "/api/reports/receivables": receivables });
-  const nav = homeNavProps();
-  renderWithProviders(<HomeScreen {...nav} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   await user.click(await screen.findByRole("button", { name: /What needs attention/ }));
-  const row = await screen.findByRole("button", { name: /Rent due/ });
-  await user.click(row);
+  await user.click(await screen.findByRole("button", { name: /Rent due/ }));
 
-  expect(nav.onOpenReceivables).toHaveBeenCalledOnce();
+  expect(scrollIntoView).toHaveBeenCalledOnce();
+  // The sheet closes on the way — the row is a navigation aid, not a toggle.
+  await waitFor(() => {
+    expect(screen.queryByRole("button", { name: /Rent due/ })).not.toBeInTheDocument();
+  });
 });
 
 test("GAP-183: the bell's deposits row opens the deposit-releases list", async () => {

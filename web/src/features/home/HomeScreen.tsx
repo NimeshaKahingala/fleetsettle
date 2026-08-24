@@ -58,8 +58,6 @@ export interface HomeScreenProps {
    * driver, which is a narrower set and assignable to this one.
    */
   onSelectParty: (partyType: "customer" | "driver" | "partner", partyId: string) => void;
-  /** GAP-183: the bell's "Rent due" row — UC-78's receivables report, which already exists. */
-  onOpenReceivables: () => void;
   /** GAP-183: the bell's "Deposits to release" row — the list screen this gap adds. */
   onOpenDepositReleases: () => void;
 }
@@ -140,6 +138,16 @@ function paperworkMessage(row: PaperworkWarningRow): string {
 
 function paperworkTitle(row: PaperworkWarningRow): string {
   return row.isExpired ? "Paperwork expired" : "Paperwork expires soon";
+}
+
+/**
+ * GAP-183: bring a Home section into view for a bell row that summarises it.
+ * `?.()` on the method as well as the ref — jsdom does not implement
+ * `scrollIntoView`, and a navigation aid must never throw in a place a real
+ * browser would simply scroll.
+ */
+function scrollSectionIntoView(ref: { current: HTMLDivElement | null }): void {
+  ref.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
 }
 
 function sumMinor<T>(rows: T[], amount: (row: T) => string): Minor {
@@ -310,7 +318,6 @@ export function HomeScreen({
   onSelectVehicle,
   onSelectTrip,
   onSelectParty,
-  onOpenReceivables,
   onOpenDepositReleases,
 }: HomeScreenProps) {
   const api = useApi();
@@ -320,6 +327,13 @@ export function HomeScreen({
   // interactive list is the Home section below. The bell closes and brings
   // that section into view rather than navigating away from it.
   const earlierDaysRef = useRef<HTMLDivElement | null>(null);
+  // GAP-183, corrected after review: "Rent due" summarises *customers only*
+  // (driver arrears show elsewhere on Home), while the receivables report
+  // this row first pointed at lists every party type — so the figure on the
+  // row could not match the screen it opened. It now goes to the section it
+  // actually summarises, where the two agree by construction, which is the
+  // same treatment "Earlier days" already had.
+  const rentDueRef = useRef<HTMLDivElement | null>(null);
 
   const paperworkQuery = useQuery({
     queryKey: ["home", "paperwork-warnings"],
@@ -648,42 +662,44 @@ export function HomeScreen({
                 />
               ) : null}
               {rentDue.length > 0 ? (
-                <Section
-                  title="Rent due"
-                  count={rentDue.length}
-                  total={<Money value={rentDueTotal} />}
-                  items={rentDue.map((row) => (
-                    <button
-                      key={row.partyId}
-                      type="button"
-                      onClick={() => {
-                        onSelectParty(row.partyType, row.partyId);
-                      }}
-                      className={cn("min-h-tap w-full text-left", rowButtonFocus)}
-                    >
-                      <Card accent="critical" className="flex items-center justify-between gap-4">
-                        <div className="flex min-w-0 items-center gap-3">
-                          <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
-                          <div className="min-w-0">
-                            <p className="truncate text-title text-ink-primary">
-                              {row.partyName ?? "—"}
-                            </p>
-                            <p className="text-body-sm text-ink-muted">
-                              {dueLabel(row.oldestDueOn, today)}
-                            </p>
+                <div ref={rentDueRef} className="scroll-mt-4">
+                  <Section
+                    title="Rent due"
+                    count={rentDue.length}
+                    total={<Money value={rentDueTotal} />}
+                    items={rentDue.map((row) => (
+                      <button
+                        key={row.partyId}
+                        type="button"
+                        onClick={() => {
+                          onSelectParty(row.partyType, row.partyId);
+                        }}
+                        className={cn("min-h-tap w-full text-left", rowButtonFocus)}
+                      >
+                        <Card accent="critical" className="flex items-center justify-between gap-4">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
+                            <div className="min-w-0">
+                              <p className="truncate text-title text-ink-primary">
+                                {row.partyName ?? "—"}
+                              </p>
+                              <p className="text-body-sm text-ink-muted">
+                                {dueLabel(row.oldestDueOn, today)}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <div className="flex flex-col items-end gap-1">
-                            <Badge variant="critical">Due</Badge>
-                            <Money value={parse(row.outstandingMinor)} />
+                          <div className="flex shrink-0 items-center gap-2">
+                            <div className="flex flex-col items-end gap-1">
+                              <Badge variant="critical">Due</Badge>
+                              <Money value={parse(row.outstandingMinor)} />
+                            </div>
+                            <ChevronRight className="size-4 text-ink-muted" aria-hidden />
                           </div>
-                          <ChevronRight className="size-4 text-ink-muted" aria-hidden />
-                        </div>
-                      </Card>
-                    </button>
-                  ))}
-                />
+                        </Card>
+                      </button>
+                    ))}
+                  />
+                </div>
               ) : null}
 
               {depositReleasesState.kind === "error" ? (
@@ -802,7 +818,7 @@ export function HomeScreen({
               count={unconfirmedDays.length}
               onGo={() => {
                 setBellOpen(false);
-                earlierDaysRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                scrollSectionIntoView(earlierDaysRef);
               }}
             />
           ) : null}
@@ -814,7 +830,7 @@ export function HomeScreen({
               total={rentDueTotal}
               onGo={() => {
                 setBellOpen(false);
-                onOpenReceivables();
+                scrollSectionIntoView(rentDueRef);
               }}
             />
           ) : null}

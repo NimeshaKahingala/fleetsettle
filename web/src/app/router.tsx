@@ -111,9 +111,6 @@ function HomeRoute() {
         void navigate({ to: "/trips/$tripId", params: { tripId } });
       }}
       onSelectParty={selectParty}
-      onOpenReceivables={() => {
-        void navigate({ to: "/reports/receivables" });
-      }}
       onOpenDepositReleases={() => {
         void navigate({ to: "/deposits-to-release" });
       }}
