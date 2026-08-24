@@ -368,6 +368,22 @@ export class PartyHasOpenMoneyError extends AppError {
   }
 }
 
+// GAP-178/B13/W-60: money inserted against a driver or customer that has
+// already been archived, refused by migration 0031's trigger rather than by
+// an application check — the write paths are too many to guard one at a time,
+// and a new one added later would reopen the race in silence.
+//
+// The remedy is a real one and the message says it: unarchive, record the
+// fact, archive again. A party still receiving charges is not gone.
+export class PartyArchivedError extends AppError {
+  constructor(
+    message = "That driver or customer has been archived — restore them first, " +
+      "record this, then archive them again",
+  ) {
+    super(409, "PARTY_ARCHIVED", message);
+  }
+}
+
 // F-1.11: a driver or customer already carrying `voided_at` — a second
 // archive would silently overwrite the first one's own reason and actor,
 // the same shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.
