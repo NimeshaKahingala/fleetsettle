@@ -192,7 +192,9 @@ const RULES = [
     // local time and is the half-fix that looks right in London.
     id: "web/local-midnight-parse",
     when: (p) => /^web\/.*\.tsx?$/.test(p),
-    pattern: /T00:00:00`/g,
+    // Not just the backtick-terminated template-literal form — a quoted or
+    // concatenated `T00:00:00` is the same bug in different syntax.
+    pattern: /T00:00:00(?![\d.Z])/g,
     message:
       'A date parsed without a trailing `Z` lands at the device\'s midnight, not the business day (CLAUDE.md → Time). Use `T00:00:00Z` and give the formatter `timeZone: "UTC"` — see web/src/lib/formatShortDate.ts.',
   },
