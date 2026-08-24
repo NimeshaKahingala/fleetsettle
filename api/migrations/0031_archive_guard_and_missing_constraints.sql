@@ -164,48 +164,76 @@ END $$ LANGUAGE plpgsql;
 -- `customer`. Both halves are catalogue questions, so neither can go stale
 -- against a table or a column someone adds later without saying so.
 --
--- Like 0002's block this runs once, so a party-referencing money table
+-- A view rather than a query written twice.
+--
+-- The first draft put this SELECT in the DO block below and a copy of it in
+-- assert-no-archive-guard-drift.sql, and SonarCloud failed the PR on the
+-- duplication. That was the right call for a better reason than style: the
+-- whole argument for deriving the set from the catalogue is that one
+-- definition cannot disagree with itself, and two transcriptions are two
+-- chances for it to. The definition now lives in the database, and the
+-- migration, the CI assertion and the test all read the same view.
+--
+-- It is also worth being able to ask: `SELECT * FROM archive_guarded_party_column`
+-- answers "what is supposed to be guarded, and why" without reading a
+-- migration.
+CREATE OR REPLACE VIEW archive_guarded_party_column AS
+  SELECT c.oid                         AS table_oid,
+         c.relname                     AS table_name,
+         fk.confrelid::regclass::text  AS party_table,
+         a.attname                     AS party_column
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    JOIN pg_constraint fk ON fk.conrelid = c.oid
+                         AND fk.contype = 'f'
+                         AND fk.confrelid IN ('driver'::regclass, 'customer'::regclass)
+    JOIN pg_attribute a ON a.attrelid = c.oid
+                       AND a.attnum = fk.conkey[1]
+                       AND NOT a.attisdropped
+   WHERE n.nspname = 'public'
+     AND c.relkind = 'r'
+     AND EXISTS (SELECT 1 FROM pg_attribute p
+                  WHERE p.attrelid = c.oid AND NOT p.attisdropped
+                    AND p.attname = 'posted_period_id');
+
+COMMENT ON VIEW archive_guarded_party_column IS
+  'GAP-178/B13: every column naming a driver or customer, in a table that '
+  'carries posted_period_id. The definition of what archive_guard must '
+  'cover — read by migration 0031, by '
+  'api/scripts/assert-no-archive-guard-drift.sql in CI, and by the '
+  'integration suite. Never restate it; select from it.';
+
+-- Like 0002's block this attaches once, so a party-referencing money table
 -- created later gets no trigger from it — and neither does a party column
 -- added to a table already guarded. That is what the drift assertion is
--- for: it checks both, and fails CI rather than going quiet.
+-- for: it checks both against this view, and fails CI rather than going
+-- quiet.
 --
--- What this test does *not* reach, said plainly rather than left to be
+-- What the view does *not* reach, said plainly rather than left to be
 -- discovered: `deposit` and `opening_balance_entry` both name a party and
--- neither carries `posted_period_id`, so neither is guarded here. For
--- `deposit` that is a real if narrow gap — the parent row is a container and
--- the money lives in `deposit_movement`, which names the deposit rather than
--- the party — so taking a *new* deposit from an archived driver is still
--- possible. W-60 makes it unlikely (a party cannot be archived while holding
--- one) but not impossible. Filed as GAP-187 rather than widened: dropping
--- the `posted_period_id` half of the test pulls in `lease`, `daily_lease`,
+-- neither carries `posted_period_id`, so neither is guarded. For `deposit`
+-- that is a real if narrow gap — the parent row is a container and the money
+-- lives in `deposit_movement`, which names the deposit rather than the party
+-- — so taking a *new* deposit from an archived driver is still possible.
+-- W-60 makes it unlikely (a party cannot be archived while holding one) but
+-- not impossible. Filed as GAP-187 rather than widened: dropping the
+-- `posted_period_id` half of the test pulls in `lease`, `daily_lease`,
 -- `driver_link_invite` and `message`, which are arrangements, identity and
 -- correspondence rather than money and want a different answer.
 DO $$
 DECLARE t record;
 BEGIN
   FOR t IN
-    SELECT c.relname,
-           string_agg(format('%L, %L', fk.confrelid::regclass::text, a.attname),
-                      ', ' ORDER BY a.attname) AS args
-      FROM pg_class c
-      JOIN pg_namespace n ON n.oid = c.relnamespace
-      JOIN pg_constraint fk ON fk.conrelid = c.oid
-                           AND fk.contype = 'f'
-                           AND fk.confrelid IN ('driver'::regclass, 'customer'::regclass)
-      JOIN pg_attribute a ON a.attrelid = c.oid
-                         AND a.attnum = fk.conkey[1]
-                         AND NOT a.attisdropped
-     WHERE n.nspname = 'public'
-       AND c.relkind = 'r'
-       AND EXISTS (SELECT 1 FROM pg_attribute p
-                    WHERE p.attrelid = c.oid AND NOT p.attisdropped
-                      AND p.attname = 'posted_period_id')
-     GROUP BY c.relname
-     ORDER BY c.relname
+    SELECT table_name,
+           string_agg(format('%L, %L', party_table, party_column),
+                      ', ' ORDER BY party_column) AS args
+      FROM archive_guarded_party_column
+     GROUP BY table_name
+     ORDER BY table_name
   LOOP
     EXECUTE format(
       'CREATE TRIGGER %I_archive_guard BEFORE INSERT ON %I '
       'FOR EACH ROW EXECUTE FUNCTION assert_party_not_archived(%s)',
-      t.relname, t.relname, t.args);
+      t.table_name, t.table_name, t.args);
   END LOOP;
 END $$;
