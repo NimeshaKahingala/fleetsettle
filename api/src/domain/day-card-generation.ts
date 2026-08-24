@@ -12,10 +12,14 @@ import {
   listActiveDailyLeasesForCalendar,
   listActiveLeasesForCalendar,
   listAllocatedDatesForVehicle,
+  listAllocatedDatesForVehicles,
   type ActiveDailyLeaseForCalendar,
   type NewDayRecordForCron,
 } from "../queries/scheduled.js";
 import type { NewAllocationDay } from "../queries/trip.js";
+
+/** GAP-179/B29: the "this vehicle has no allocated days in the window" case, shared rather than re-allocated per lease. Frozen so a caller cannot mistake it for its own set and write into it. */
+const EMPTY_DATES: ReadonlySet<string> = Object.freeze(new Set<string>());
 
 /** Exported for `restoreDailyLeaseOccupancy` (trip.ts), which must pass its own explicit `from` and therefore also `horizonDays` — JS has no way to skip a positional parameter. */
 export const HORIZON_DAYS = 90;
@@ -231,12 +235,22 @@ export async function generateDayCards(
   }
 
   const activeLeases = await listActiveLeasesForCalendar(writer);
+  // GAP-179/B29: one read for every leased vehicle, not one per lease inside
+  // the loop below. `today → horizonEnd` is the widest window any lease can
+  // ask for (each `rangeEnd` is capped at `horizonEnd`), so this is a
+  // superset and each lease still reads only its own range out of it.
+  const allocatedByVehicle = await listAllocatedDatesForVehicles(
+    writer,
+    activeLeases.map((l) => l.vehicleId),
+    today,
+    horizonEnd,
+  );
   for (const l of activeLeases) {
     try {
       const rangeEnd = l.endDate !== null && l.endDate < horizonEnd ? l.endDate : horizonEnd;
       if (rangeEnd < today) continue;
 
-      const existing = await listAllocatedDatesForVehicle(writer, l.vehicleId, today, rangeEnd);
+      const existing = allocatedByVehicle.get(l.vehicleId) ?? EMPTY_DATES;
       const days: NewAllocationDay[] = [];
       for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
         if (existing.has(d)) continue;

@@ -22,7 +22,21 @@ export const ZERO: Minor = brand(0n);
 /** U+2212 MINUS SIGN. Not a hyphen — it aligns with digits in a tabular column. */
 const MINUS = "−";
 
-const WIRE = /^-?\d+$/;
+/**
+ * GAP-180/B7: the second alternative requires at least one non-zero digit
+ * after the sign, which rejects `"-0"` (and `"-00"`) while accepting every
+ * value this pattern already accepted. Negative zero is the one wire string
+ * that does not survive a round trip — `parse("-0")` is `0n`, `toWire(0n)`
+ * is `"0"` — so a client that sent it back would be sending a different
+ * string than it received, on a money field.
+ *
+ * **Deliberately not tightened any further.** Leading zeros (`"007"`) stay
+ * legal, and `fromInput` stays more permissive than this: `parse` reads the
+ * **wire** shape (integer minor units) and `fromInput` reads what a person
+ * **typed** (major-unit decimals, commas). They are different grammars on
+ * purpose, and making them agree would be a regression, not a fix.
+ */
+const WIRE = /^(?:\d+|-\d*[1-9]\d*)$/;
 
 /**
  * Parse the wire shape. The wire carries minor units as a decimal string, so

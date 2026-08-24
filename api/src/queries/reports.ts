@@ -58,6 +58,26 @@ interface VehicleTotalRow {
  * already excluded by every caller's `inArray(vehicleId, vehicleIds)` —
  * checked here once rather than once per call site.
  */
+/**
+ * GAP-179/B26: the one place the SQL-side sums below are turned back into
+ * `bigint`, and the reason they do not write `?? 0n` at the call site.
+ *
+ * Two different zeros meet here and only one of them is a fact. `COALESCE(
+ * SUM(…), 0)` returning `"0"` is a real Rs 0 — this business genuinely had
+ * no overheads that period — and must be reported as such. A *missing row*
+ * is not that: a bare aggregate with no `GROUP BY` always returns exactly
+ * one row, so its absence means the query itself is broken, and defaulting
+ * that to zero would report a confident wrong number of precisely the kind
+ * W-56 exists to prevent. So the first is returned and the second throws.
+ */
+function singleAggregateTotal(rows: { total: string }[]): bigint {
+  const total = rows[0]?.total;
+  if (total === undefined) {
+    throw new Error("An aggregate query returned no row — the query is wrong, not the data");
+  }
+  return BigInt(total);
+}
+
 function foldIntoBigIntMap(map: Map<string, bigint>, rows: VehicleTotalRow[]): void {
   for (const r of rows) {
     if (r.vehicleId === null) continue;
@@ -84,7 +104,23 @@ function foldIntoNestedBigIntMap(
   }
 }
 
-/** UC-70/DM §15: "everything recognised in the accounting period" (W-40) — rent, the daily amount, and mileage excess all live on `obligation`; trip income is recognised at closing (W-41), never on `obligation`. */
+/**
+ * UC-70/DM §15: "everything recognised in the accounting period" (W-40) —
+ * rent, the daily amount, and mileage excess all live on `obligation`; trip
+ * income is recognised at closing (W-41), never on `obligation`.
+ *
+ * **Has no call site, and neither do `sumVehicleCostsForPeriod` and
+ * `sumVehicleCostsForDateRange` — checked, not assumed, 24 Aug 2026.**
+ * GAP-145 replaced all three with their `…Bulk` variants and left these
+ * behind. GAP-179/B26 lists their JS `reduce` alongside the three live ones
+ * fixed this pass; converting code that never runs buys nothing, so they
+ * were deliberately left as they are rather than "optimised" for the sake of
+ * uniformity. **Not deleted either**, and that is the more interesting half:
+ * each `…Bulk` function's own doc comment explains itself by reference to
+ * these ("`sumVehicleEarnedForPeriod`'s own two queries, grouped across…"),
+ * so deleting them would orphan the explanation of the code that replaced
+ * them. If they are ever removed, those comments move first.
+ */
 export async function sumVehicleEarnedForPeriod(
   db: ReadDb,
   vehicleId: string,
@@ -293,8 +329,12 @@ export async function sumVehicleEarnedForDateRange(
   from: string,
   to: string,
 ): Promise<bigint> {
+  // GAP-179/B26: summed in Postgres, not fetched and reduced in the Worker
+  // (TS §7's bounded-CPU rule). `COALESCE(…, 0)` is load-bearing — `SUM()`
+  // over zero rows is NULL, and the JS `reduce` this replaces returned `0n`
+  // for a vehicle with no activity, which is a fact this report renders.
   const obligationRows = await db
-    .select({ amountMinor: obligation.amountMinor })
+    .select({ total: sql<string>`COALESCE(SUM(${obligation.amountMinor}), 0)` })
     .from(obligation)
     .where(
       and(
@@ -307,7 +347,7 @@ export async function sumVehicleEarnedForDateRange(
       ),
     );
   const tripRows = await db
-    .select({ amountMinor: trip.agreedAmountMinor })
+    .select({ total: sql<string>`COALESCE(SUM(${trip.agreedAmountMinor}), 0)` })
     .from(trip)
     .where(
       and(
@@ -317,10 +357,7 @@ export async function sumVehicleEarnedForDateRange(
         eq(trip.status, "closed"),
       ),
     );
-  return (
-    obligationRows.reduce((sum, r) => sum + r.amountMinor, 0n) +
-    tripRows.reduce((sum, r) => sum + r.amountMinor, 0n)
-  );
+  return singleAggregateTotal(obligationRows) + singleAggregateTotal(tripRows);
 }
 
 /** GAP-145: `sumVehicleEarnedForDateRange`'s own two queries, grouped across every vehicle in `vehicleIds` — `getVehicleYearReport`'s own per-vehicle loop, see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists. */
@@ -547,8 +584,11 @@ export async function sumOverheadsForPeriod(
   businessId: string,
   periodId: string,
 ): Promise<bigint> {
+  // GAP-179/B26: see `sumVehicleEarnedForDateRange` on why `COALESCE(…, 0)`
+  // is not decoration — a business with no overheads this period is a real
+  // Rs 0, and `SUM()` over zero rows would hand back NULL.
   const rows = await db
-    .select({ amountMinor: expense.amountMinor })
+    .select({ total: sql<string>`COALESCE(SUM(${expense.amountMinor}), 0)` })
     .from(expense)
     .where(
       and(
@@ -559,7 +599,7 @@ export async function sumOverheadsForPeriod(
         isNull(expense.voidedAt),
       ),
     );
-  return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+  return singleAggregateTotal(rows);
 }
 
 /** GAP-18/UC-73: `sumOverheadsForPeriod`'s own filter set, keyed by a date window (`expense.spent_on`) instead of `postedPeriodId` — a year has no single accounting period to key an overheads figure to. */
@@ -569,8 +609,9 @@ export async function sumOverheadsForDateRange(
   from: string,
   to: string,
 ): Promise<bigint> {
+  // GAP-179/B26, same `COALESCE` reasoning as `sumOverheadsForPeriod` above.
   const rows = await db
-    .select({ amountMinor: expense.amountMinor })
+    .select({ total: sql<string>`COALESCE(SUM(${expense.amountMinor}), 0)` })
     .from(expense)
     .where(
       and(
@@ -582,7 +623,7 @@ export async function sumOverheadsForDateRange(
         isNull(expense.voidedAt),
       ),
     );
-  return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+  return singleAggregateTotal(rows);
 }
 
 export interface OwnershipShareRow {
@@ -865,60 +906,63 @@ export async function listAgeingBuckets(
   businessId: string,
   asOfDate: string,
 ): Promise<AgeingRow[]> {
-  const rows = await db
-    .select({
-      partyType: obligation.partyType,
-      partyCustomerId: obligation.partyCustomerId,
-      partyDriverId: obligation.partyDriverId,
-      partyUserId: obligation.partyUserId,
-      outstandingMinor: obligation.amountMinor,
-      settledMinor: obligation.settledMinor,
-      waivedMinor: obligation.waivedMinor,
-      effectiveDueOn: obligation.effectiveDueOn,
-    })
-    .from(obligation)
-    .where(
-      and(
-        eq(obligation.businessId, businessId),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.status} IN ('pending', 'part_paid')`,
-        isNull(obligation.voidedAt),
-      ),
-    );
+  // GAP-179/B27: bucketed and summed in Postgres rather than fetching every
+  // outstanding obligation into the Worker and folding it in JS (TS §7's
+  // bounded-CPU rule) — this read grows with the receivables ledger, not with
+  // the fleet, so it is the one on this report that gets slower over time.
+  //
+  // `asOfDate` stays a bound parameter and is cast `::date` here — **never
+  // `CURRENT_DATE`**, which Postgres evaluates in the server's timezone
+  // (CLAUDE.md → Time). `date - date` in Postgres yields whole days as an
+  // integer, which is exactly what the JS `Date.parse` subtraction this
+  // replaces was computing, without the millisecond arithmetic.
+  //
+  // The `> 0` filter sits in the inner query, before grouping, because that
+  // is where it was: an obligation already settled or waived to nothing is
+  // dropped as a row, not netted against its party's other rows.
+  const result = await db.execute<{
+    party_type: string;
+    party_id: string;
+    bucket: string;
+    outstanding_minor: string;
+  }>(sql`
+    SELECT party_type, party_id, bucket, SUM(outstanding) AS outstanding_minor
+      FROM (
+        SELECT
+          party_type,
+          COALESCE(party_customer_id, party_driver_id, party_user_id) AS party_id,
+          CASE
+            WHEN ${asOfDate}::date - effective_due_on <= 0  THEN 'current'
+            WHEN ${asOfDate}::date - effective_due_on <= 30 THEN '1-30'
+            WHEN ${asOfDate}::date - effective_due_on <= 60 THEN '31-60'
+            WHEN ${asOfDate}::date - effective_due_on <= 90 THEN '61-90'
+            ELSE 'over-90'
+          END AS bucket,
+          CASE
+            WHEN ${asOfDate}::date - effective_due_on <= 0  THEN 0
+            WHEN ${asOfDate}::date - effective_due_on <= 30 THEN 1
+            WHEN ${asOfDate}::date - effective_due_on <= 60 THEN 2
+            WHEN ${asOfDate}::date - effective_due_on <= 90 THEN 3
+            ELSE 4
+          END AS bucket_rank,
+          amount_minor - settled_minor - waived_minor AS outstanding
+        FROM obligation
+        WHERE business_id = ${businessId}
+          AND direction = 'owed_to_us'
+          AND status IN ('pending', 'part_paid')
+          AND voided_at IS NULL
+          AND amount_minor - settled_minor - waived_minor > 0
+      ) aged
+     GROUP BY party_type, party_id, bucket, bucket_rank
+     ORDER BY party_type, party_id, bucket_rank
+  `);
 
-  const buckets = new Map<string, AgeingRow>();
-  for (const row of rows) {
-    const outstanding = row.outstandingMinor - row.settledMinor - row.waivedMinor;
-    if (outstanding <= 0n) continue;
-
-    const daysLate =
-      (Date.parse(asOfDate) - Date.parse(row.effectiveDueOn)) / (1000 * 60 * 60 * 24);
-    const bucket: AgeingRow["bucket"] =
-      daysLate <= 0
-        ? "current"
-        : daysLate <= 30
-          ? "1-30"
-          : daysLate <= 60
-            ? "31-60"
-            : daysLate <= 90
-              ? "61-90"
-              : "over-90";
-
-    const partyId = (row.partyCustomerId ?? row.partyDriverId ?? row.partyUserId) as string;
-    const key = `${row.partyType}:${partyId}:${bucket}`;
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.outstandingMinor += outstanding;
-    } else {
-      buckets.set(key, {
-        partyType: row.partyType as "customer" | "driver" | "partner",
-        partyId,
-        bucket,
-        outstandingMinor: outstanding,
-      });
-    }
-  }
-  return [...buckets.values()];
+  return result.rows.map((r) => ({
+    partyType: r.party_type as AgeingRow["partyType"],
+    partyId: r.party_id,
+    bucket: r.bucket as AgeingRow["bucket"],
+    outstandingMinor: BigInt(r.outstanding_minor),
+  }));
 }
 
 /** UC-75/DM §15, reproduced verbatim (with the DM §15's own found-and-fixed correction: `payment` has no `voided_at` — it is corrected through `status` instead, §10.2). Deposits are deliberately not part of this figure — they are a liability shown beside it, never netted in (§6.13). */
@@ -1334,7 +1378,19 @@ export async function countEarningDaysForVehicle(
   return rows[0] ?? { ranDays: 0, lostDays: 0 };
 }
 
-/** UC-79: lease days (arrangement 'A') and trip days (arrangement 'C') both count as "earning" — read from `vehicle_day_allocation`'s own arrangement column rather than re-derived, since that table is already the single source for occupancy (P6). */
+/**
+ * UC-79: lease days (arrangement 'A') and trip days (arrangement 'C') both
+ * count as "earning" — read from `vehicle_day_allocation`'s own arrangement
+ * column rather than re-derived, since that table is already the single
+ * source for occupancy (P6).
+ *
+ * **GAP-180/B2: `voided_at IS NULL` was missing here**, so a voided
+ * allocation still counted as an earning day and overstated UC-79
+ * utilisation. D-11/W-58 — a voided day is a freed day; the ran/lost read
+ * directly above this one already filtered voided rows for exactly that
+ * reason under GAP-118, and this query was missed. A day count, not money:
+ * it moves no figure the golden fixtures pin.
+ */
 export async function countAllocatedDaysForVehicle(
   db: ReadDb,
   businessId: string,
@@ -1348,6 +1404,7 @@ export async function countAllocatedDaysForVehicle(
      WHERE business_id = ${businessId} AND vehicle_id = ${vehicleId}
        AND business_date BETWEEN ${from} AND ${to}
        AND arrangement = ${arrangement} AND is_hold = false
+       AND voided_at IS NULL
   `);
   // eslint-disable-next-line no-restricted-syntax -- a day count, not money
   return Number(rows.rows[0]?.count ?? "0");

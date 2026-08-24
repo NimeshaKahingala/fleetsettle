@@ -24,6 +24,9 @@ export const listExpensesRoute = createRoute({
       content: { "application/json": { schema: listExpensesResponseSchema } },
       description: "Every expense matching the given filters, newest first, voided ones included",
     },
+    // GAP-180/B24: the query string is schema-validated, so a bad filter is a
+    // 400 from `defaultHook`, not an empty list.
+    400: { description: "A query filter failed validation" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read costs" },
   },
