@@ -384,6 +384,19 @@ export class PartyArchivedError extends AppError {
   }
 }
 
+// GAP-178/B19: a second live recovery against the same (incident, source).
+// Migration 0031's unique index is the enforcement; before it, a re-submitted
+// form or a manager re-entering a revised figure without voiding the first
+// silently left the incident carrying two claims against one source.
+export class RecoveryAlreadyRecordedError extends AppError {
+  constructor(
+    message = "A recovery from this source is already recorded against this incident — " +
+      "void it first, then enter the corrected figure",
+  ) {
+    super(409, "RECOVERY_ALREADY_RECORDED", message);
+  }
+}
+
 // F-1.11: a driver or customer already carrying `voided_at` — a second
 // archive would silently overwrite the first one's own reason and actor,
 // the same shape as ExpenseAlreadyVoidedError/AttachmentAlreadyVoidedError.

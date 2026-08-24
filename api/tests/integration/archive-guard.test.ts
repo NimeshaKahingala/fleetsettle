@@ -1,3 +1,4 @@
+import { newId } from "@fleetsettle/shared";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { eq, sql } from "drizzle-orm";
@@ -187,6 +188,85 @@ describe("migration 0031 — the archived-party guard", () => {
    * SQL (CLAUDE.md → Process) and cannot read a file that may change after
    * it has run.
    */
+  /**
+   * Claude's review of PR #117 found the INSERT-only rationale was half an
+   * argument. W-50 is void-*and-replace*: voiding an archived party's
+   * historical row is an UPDATE and passed, but entering its replacement is
+   * an INSERT and was refused — so a correction left the original struck out
+   * with nothing standing in its place, which is worse than not correcting
+   * it. U-5 was preserved in exactly the half that loses information.
+   */
+  it("allows a W-50 replacement naming the same archived party — the other half of U-5", async () => {
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const { userId } = await mintUser(db, ctx, businessId, "owner");
+    const originalId = await ctx.createObligation(businessId, periodId, {
+      partyType: "driver",
+      driverId,
+    });
+
+    await archive(driver, driverId, userId);
+
+    // The void half — an UPDATE, always allowed.
+    await db
+      .update(obligation)
+      .set({ voidedAt: sql`now()`, voidedReason: "wrong figure" })
+      .where(eq(obligation.id, originalId));
+
+    // The replace half — an INSERT, and the one this test exists for.
+    // `replaces_id` has to be present *in the INSERT*: setting it afterwards
+    // is a bare insert as far as a BEFORE INSERT trigger is concerned, which
+    // is how the first version of this test failed.
+    const replacementId = newId();
+    ctx.track(async () => {
+      await db.execute(sql`DELETE FROM obligation WHERE id = ${replacementId}`);
+    });
+    await db.execute(sql`
+      INSERT INTO obligation (id, business_id, direction, party_type, party_driver_id, kind,
+                              source_type, amount_minor, due_on, effective_due_on, status,
+                              posted_period_id, replaces_id)
+      VALUES (${replacementId}, ${businessId}, 'owed_to_us', 'driver', ${driverId},
+              'other', 'correction', 2000, '2026-07-15', '2026-07-15', 'pending',
+              ${periodId}, ${originalId})`);
+
+    const [row] = await db
+      .select({ id: obligation.id })
+      .from(obligation)
+      .where(eq(obligation.id, replacementId));
+    expect(row?.id).toBe(replacementId);
+  });
+
+  it("still refuses a replacement that moves money to a different archived party", async () => {
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const keptDriverId = await ctx.createDriver(businessId);
+    const otherDriverId = await ctx.createDriver(businessId, { name: "Other" });
+    const { userId } = await mintUser(db, ctx, businessId, "owner");
+    const originalId = await ctx.createObligation(businessId, periodId, {
+      partyType: "driver",
+      driverId: keptDriverId,
+    });
+
+    await archive(driver, otherDriverId, userId);
+
+    // `replaces_id` is an exemption for restating *this* party's own fact,
+    // never a way to post new money against a different archived one.
+    let caught: unknown;
+    try {
+      await db.execute(sql`
+        INSERT INTO obligation (id, business_id, direction, party_type, party_driver_id, kind,
+                                source_type, amount_minor, due_on, effective_due_on, status,
+                                posted_period_id, replaces_id)
+        VALUES (gen_random_uuid(), ${businessId}, 'owed_to_us', 'driver', ${otherDriverId},
+                'other', 'test_fixture', 1000, '2026-07-15', '2026-07-15', 'pending',
+                ${periodId}, ${originalId})`);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPartyArchivedViolation(caught)).toBe(true);
+  });
+
   it("covers every party column of every money table — the CI drift query, run here", async () => {
     const assertion = readFileSync(
       resolve(import.meta.dirname, "../../scripts/assert-no-archive-guard-drift.sql"),

@@ -77,21 +77,38 @@ CREATE UNIQUE INDEX incident_recovery_one_live_per_source
 -- by asking the catalogue, which is what assert-no-archive-guard-drift.sql
 -- then does in CI.
 --
--- INSERT only, deliberately.
+-- INSERT only, and a replacement is not a new fact.
 --
 -- W-60 refuses archiving while money is still *open*, so what remains after
--- archival is settled history. U-5 promises every figure stays correctable,
--- and W-50 makes that correction a void — which is an UPDATE. A trigger
--- firing on UPDATE would refuse a documented correction to an archived
--- party's own history, breaking U-5 to enforce a rule W-60 never asked for.
--- INSERT-only also states the rule the way the business states it: no *new*
--- money against this party, not this party's past is frozen.
+-- archival is settled history. U-5 promises every figure stays correctable.
+-- An UPDATE-firing trigger would refuse the void half of that correction, so
+-- this one fires on INSERT.
 --
--- A late fact for an archived party (§6.14/W-35 — a fine arriving after the
--- deposit went back) is an INSERT and is refused here. That is the intended
--- answer, not a gap: the path is unarchive, record it, re-archive, and both
--- unarchive functions already exist. A party still receiving charges is not
--- gone, and being made to say so is the point.
+-- That alone is not enough, and the first draft of this comment got it
+-- wrong. Claude's review of PR #117 caught it: **W-50 is void-*and-replace*,
+-- and the replace half is an INSERT.** Voiding an archived party's
+-- historical write-off and entering the corrected figure would have had the
+-- first half succeed and the second refused, leaving the record worse than
+-- before — the original struck out and no replacement standing. U-5 would
+-- have been preserved in exactly the half that loses information.
+--
+-- So a row carrying `replaces_id` is exempt, on the condition that it names
+-- the same party as the row it replaces. Every guarded table has the column
+-- (migration 0021), and the domain layer already refuses a replacement whose
+-- party differs from the original's — this re-checks it here rather than
+-- trusting that, because the whole reason for a trigger is not trusting the
+-- call sites to remember.
+--
+-- A replacement is a restatement of money already recorded against this
+-- party, not new money against them. The rule is "no *new* money", and it
+-- still is.
+--
+-- A genuinely new late fact for an archived party (§6.14/W-35 — a fine
+-- arriving after the deposit went back) carries no `replaces_id` and is
+-- refused. That is the intended answer, not a gap: the path is unarchive,
+-- record it, re-archive, and both unarchive functions already exist. A party
+-- still receiving charges is not gone, and being made to say so is the
+-- point.
 --
 -- Its own SQLSTATE rather than a fifth P0001.
 --
@@ -124,6 +141,7 @@ DECLARE
   party    text;
   col      text;
   ref      uuid;
+  prior    uuid;
   archived boolean;
 BEGIN
   -- TG_ARGV is 0-indexed and arrives as flat pairs: party table, then column.
@@ -133,6 +151,20 @@ BEGIN
     ref   := (row_json ->> col)::uuid;
 
     IF ref IS NOT NULL THEN
+      -- W-50's replace half. A row that replaces an earlier one, naming the
+      -- same party, restates a fact already recorded rather than adding a
+      -- new one — so it passes even for an archived party, or a correction
+      -- to settled history would void the original and then fail to enter
+      -- its replacement.
+      IF (row_json ->> 'replaces_id') IS NOT NULL THEN
+        EXECUTE format('SELECT %I FROM %I WHERE id = $1', col, TG_TABLE_NAME)
+           INTO prior USING (row_json ->> 'replaces_id')::uuid;
+        IF prior IS NOT DISTINCT FROM ref THEN
+          i := i + 2;
+          CONTINUE;
+        END IF;
+      END IF;
+
       archived := NULL;
       IF party = 'driver' THEN
         SELECT true INTO archived FROM driver d

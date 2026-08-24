@@ -54,6 +54,8 @@ export const ERROR_CODES = [
   // GAP-178/B13: money inserted against an already-archived party, refused by
   // migration 0031's trigger rather than an application check.
   "PARTY_ARCHIVED",
+  // GAP-178/B19: a second live recovery against the same (incident, source).
+  "RECOVERY_ALREADY_RECORDED",
   "CAPITAL_CONTRIBUTION_ALREADY_VOIDED",
   "BANKING_EVENT_ALREADY_VOIDED",
   "PARTNER_PAYOUT_ALREADY_VOIDED",
