@@ -49,7 +49,8 @@ function formatShortDate(date: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 function outstandingMinor(due: LeaseObligationRow): Minor {
