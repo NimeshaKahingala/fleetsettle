@@ -21,7 +21,8 @@ function formatTestHomeDate(date: string): string {
     weekday: "short",
     day: "numeric",
     month: "short",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /** Matches `HomeScreen.tsx`'s own private `formatShortDate` — no weekday, unlike `formatTestHomeDate` above. */
@@ -29,7 +30,8 @@ function formatTestShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /**

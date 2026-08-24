@@ -15,9 +15,11 @@ export interface ConfirmWeekGroupCardProps {
 }
 
 function formatShortDate(date: string): string {
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(
-    new Date(`${date}T00:00:00`),
-  );
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /**

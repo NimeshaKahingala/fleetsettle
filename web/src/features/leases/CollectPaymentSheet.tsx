@@ -24,9 +24,11 @@ export interface CollectPaymentSheetProps {
 }
 
 function formatShortDate(date: string): string {
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" }).format(
-    new Date(`${date}T00:00:00`),
-  );
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /** §6.5's allocation discipline, mirrored client-side only to build the preview `AllocationPreview` shows before anything writes — the server (`recordPayment`) re-derives the real allocation itself; this never sends per-obligation instructions. */

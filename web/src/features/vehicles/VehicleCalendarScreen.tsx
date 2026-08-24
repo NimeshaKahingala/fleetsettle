@@ -123,9 +123,11 @@ function cellStyle(day: VehicleCalendarDay): CellStyle {
 }
 
 function formatMonthLabel(date: BusinessDate): string {
-  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric" }).format(
-    new Date(`${date}T00:00:00`),
-  );
+  return new Intl.DateTimeFormat("en-GB", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 function formatShortDate(date: string): string {
@@ -133,7 +135,8 @@ function formatShortDate(date: string): string {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(`${date}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${date}T00:00:00Z`));
 }
 
 /**
