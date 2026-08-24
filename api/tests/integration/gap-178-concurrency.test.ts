@@ -107,6 +107,18 @@ describe("GAP-178/B12 — a void checks its blockers inside the transaction that
       amountMinor: 10_000n,
     });
 
+    // `createObligation`'s own teardown sweeps adjustments and offset
+    // allocations, but not payments — nothing had raced a real `recordPayment`
+    // against it before. Registered *after* the obligation so LIFO cleanup
+    // runs it *first*, or the obligation delete trips the allocation's
+    // foreign key. (CI caught this as a suite-level teardown failure while
+    // every test in the file passed.)
+    ctx.track(async () => {
+      await db.execute(sql`
+        DELETE FROM payment_allocation WHERE obligation_id = ${obligationId}`);
+      await db.execute(sql`DELETE FROM payment WHERE business_id = ${businessId}`);
+    });
+
     // The blocker is a real `payment_allocation` INSERT, not an UPDATE of the
     // obligation — and that distinction is the whole test.
     //
