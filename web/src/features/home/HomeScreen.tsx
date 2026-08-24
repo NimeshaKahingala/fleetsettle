@@ -252,9 +252,16 @@ function TodayCards({ leases, today }: { leases: ActiveDailyLeaseRow[]; today: B
  * a plain `<div>`, so nothing announces an action it cannot perform.
  *
  * `min-h-tap` is M-1's 44px floor — the old `py-3` row was under it and
- * would not have met it as a tap target. The rows sit flush against each
- * other by design (a divided list, not scattered controls), so M-1's ≥8px
- * separation rule does not apply between them; none is destructive.
+ * would not have met it as a tap target.
+ *
+ * **M-1's ≥8px separation is met by the container's `gap-2`, not waived
+ * here.** The first draft of this comment argued a divided list was exempt
+ * from that half of the rule; review pointed out that neither `CLAUDE.md`
+ * nor `web/CLAUDE.md` carries such a carve-out, and it was right — inventing
+ * one in a code comment is precisely the "route around it silently" the root
+ * document forbids. The border between rows is now decoration on top of real
+ * spacing rather than a substitute for it. None of these is destructive, so
+ * the ≥16px case does not arise.
  */
 function NeedsAttentionRow({
   icon: Icon,
@@ -283,8 +290,7 @@ function NeedsAttentionRow({
     </>
   );
 
-  const shared =
-    "flex w-full min-h-tap items-center justify-between gap-3 border-b border-line-hairline py-3 text-left last:border-b-0";
+  const shared = "flex w-full min-h-tap items-center justify-between gap-3 py-2 text-left";
 
   if (onGo === undefined) {
     return <div className={shared}>{body}</div>;
@@ -779,7 +785,9 @@ export function HomeScreen({
             : "A summary of what needs your attention. Close this and scroll for the full list."
         }
       >
-        <div className="flex flex-col">
+        {/* M-1: `gap-2` is the ≥8px between interactive rows — load-bearing
+            since GAP-183 made three of these real buttons. */}
+        <div className="flex flex-col gap-2">
           {paperworkWarnings.length > 0 ? (
             <NeedsAttentionRow
               icon={TriangleAlert}

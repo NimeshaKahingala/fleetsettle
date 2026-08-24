@@ -19,11 +19,11 @@ export interface DepositReleasesScreenProps {
   onSelectParty: (partyType: "customer" | "driver", partyId: string) => void;
 }
 
+/** Matches `HomeScreen.tsx`'s own `formatShortDate` exactly — no year. This screen deliberately shows the same fields as Home's section, so showing the same date two different ways would be the one thing it must not do. */
 function formatShortDate(date: string): string {
   return new Intl.DateTimeFormat("en-GB", {
     day: "numeric",
     month: "short",
-    year: "numeric",
     timeZone: "UTC",
   }).format(new Date(`${date}T00:00:00Z`));
 }
