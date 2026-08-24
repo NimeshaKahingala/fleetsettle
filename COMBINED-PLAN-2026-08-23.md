@@ -121,6 +121,29 @@ That is precisely the path B1 modifies. **Step 1 is the phase most likely to mov
 
 So the whole void-and-replace correction mechanism — W-50, a core money rule, and the reason B2/B19 exist as bugs — has **no golden coverage whatsoever**. This is broader than "one fixture for the filter"; it is a standing gap in the regression suite. Worth its own tracked gap regardless of which phase adds the first voided-row fixture.
 
+### C-11 · **B1 and B9 are both non-bugs — GAP-174 was filed in error and is withdrawn**
+
+Found 23 Aug 2026 while starting Step 1's code, by reading the schema the fix was supposed to write to. **This is the third layer of verification to miss it**, and the pattern is worth more than the finding.
+
+**B1 — `insurance_claim` has no `belongs_to_period_id` column, and never has.** Its `0001` DDL carries a deliberate two-period design with the reason in the comment:
+
+```sql
+-- Claimed in one month, settled in another. Two periods, or §7.2's
+-- month-by-month table cannot be produced.
+posted_period_id      uuid NOT NULL REFERENCES accounting_period(id),
+received_period_id    uuid REFERENCES accounting_period(id)
+```
+
+`incident_recovery`, by contrast, carries **all three** — `posted_period_id`, `received_period_id` and `belongs_to_period_id` (commented `-- W-35`). So `submitInsuranceClaim` setting `belongsToPeriodId` on the recovery and not on the claim is **correct code following the schema**, not an asymmetry. And `received_period_id` **is** written: `settleInsuranceClaim` resolves `findPeriodForDate(tx, businessId, input.receivedOn)` and sets it on both rows.
+
+The original report cited `0001_initial_schema.sql:463` as proof the column exists. It does not.
+
+**B9 — `saveOpeningBalance` already has the W-35 fallback, on both its paths.** `opening-balance.ts:104` and `:295` both call `resolvePeriodLinkage` and both spread `belongsToPeriodId`. That function returns the **currently open** period as `postedPeriodId` with `belongsToPeriodId` pointing back at the date's own period — exactly the "post to the open period" behaviour B9 asked for. Its `PeriodClosedError` fires only when `resolvePeriodLinkage` returns `undefined`, which its own doc comment reserves for a business with **no open period at all** — not for a closed prior period. FOLLOWUP's worked example ("the entire call throws a hard `409`… the number can never be corrected") describes behaviour the code does not have.
+
+**Why three passes missed it.** The external evaluation asserted the column exists. FOLLOWUP "verified" B1 by confirming `insertInsuranceClaim` omits the spread — true, and irrelevant. This plan then repeated it, and its own Part 2 C-1 states *"two rows describing one incident disagree at the moment of insert."* **They do not disagree; they use different, appropriate mechanisms.** Every check was real and every one confirmed the symptom without testing the premise — the identical failure this plan already recorded against GAP-173's first verdict, committed twice more on the way to fixing it.
+
+**Effect:** GAP-174 is withdrawn. **Step 1 is GAP-173 alone — the read side, which is real and unchanged**: `belongsToPeriodId` is written by `incident_recovery` and `deposit_movement` and read by nothing (0 hits in `reports.ts`, in `packages/shared/src/schemas/`, in `api/src/handlers/` and in `web/src`).
+
 ---
 
 ## Part 3 — The combined plan
@@ -150,17 +173,19 @@ Nothing in the remediation track depends on anything in the feature track, and v
 
 ## Track 1 — Remediation (Steps 1–9)
 
-### Step 1 · W-35 completion, write and read — **GAP-174**, closes **B1, B9, GAP-173**
+### Step 1 · W-35 late-fact flag, read side — **GAP-173**
 
-Four parts, in this order:
-1. `insertInsuranceClaim` gains `belongsToPeriodId` from the `linkage` its own transaction already computed (B1).
-2. `saveOpeningBalance` gains the W-35 fallback — post to the open period with `belongsToPeriodId` pointing back — instead of a hard `409` (B9). `docs/engineering/data-model.md:252` already prescribes this; the code is out of step with its own spec.
-3. `formatPeriodLabel.ts` — new, mirroring `formatShortDate.ts` (C-3).
-4. The read side, **three layers not one** (C-8): add `belongsToPeriodId` to the shared response schemas (it appears **nowhere** in `packages/shared/src/schemas/` today) → thread it through the incident/claim and driver-view handlers → render `Badge variant="neutral"` reading **"Belongs to \<Month Year\>"** on `IncidentScreen.tsx` (precedent: badges already at lines 92 and 227) and on the deposit movement row in `DriverActivitySections.tsx` (C-2). Plus a period-label column on the CSV export, blank except on late facts.
+**Rescoped 23 Aug 2026: B1 and B9 are non-bugs (C-11), GAP-174 withdrawn. There is no write-side work.** `belongsToPeriodId` is already written correctly by `incident_recovery` (`incident.ts:627-629`) and `deposit_movement` (`opening-balance.ts:295-310`). It is read by nothing.
 
-**Check `golden-g2-accident.yaml` before and after** (C-9) — it covers claim-then-settle across months, the exact path B1 changes, and is the fixture most likely to move in this whole plan.
+Four parts, bottom-up:
+1. **`formatPeriodLabel.ts`** — new, mirroring `formatShortDate.ts` exactly: a module-level `Intl.DateTimeFormat` pinned to `timeZone: "UTC"`, since a `BusinessDate` is a resolved calendar day and a fixed offset is what stops it shifting across a DST boundary.
+2. **Shared response schemas** gain `belongsToPeriodId` and its label — it appears **nowhere** in `packages/shared/src/schemas/` today.
+3. **Handlers thread it** — the incident/recovery response and the driver-view deposit movements.
+4. **Render**: `Badge variant="neutral"` reading **"Belongs to \<Month Year\>"** on the recovery row in `IncidentScreen.tsx` (precedent: badges already at lines 92 and 227) and on the deposit movement row in `DriverActivitySections.tsx:263-299` (C-2). Plus a period-label column on the CSV export, blank except on late facts.
 
-`Provisional` is **not** the right component and must not be used — a late-posted fact is settled, not estimated. Do not re-propose; FOLLOWUP Part E carries the full reasoning.
+**Check `golden-g2-accident.yaml` before and after** (C-9) — it covers claim-then-settle across months. With the write side untouched this is now unlikely to move, which makes an unexpected move a genuine signal.
+
+`Provisional` is **not** the right component and must not be used — a late-posted fact is settled, not estimated.
 
 ### Step 2 · CSV export — the three missing categories — **GAP-175**
 
@@ -420,7 +445,7 @@ Loans and distribution are one conversation about capital, cash and what a manag
 ## Quick reference
 
 - **Next migration:** `0031` (Step 5 — B13's archive trigger + the CHECK/unique work, together).
-- **Next gap id:** `GAP-187`. GAP-174…GAP-186 are this plan's thirteen steps, already filed.
+- **Next gap id:** `GAP-187`. GAP-175…GAP-186 are twelve of this plan's steps; **GAP-174 was withdrawn (C-11)** and Step 1 is GAP-173.
 - **Golden fixtures:** `134,000` / `15,000` / `7,500` must not move in any phase. **Step 8** adds voided-row fixture coverage, which does not currently exist anywhere.
 - **Neon:** org `FleetSettle` (`org-cold-rice-64493165`), project `fleetsettle` (`spring-sunset-96946055`), QA branch `qa` (`br-square-sound-afb68wft`), production `main` (`br-odd-cherry-afx5394i`, empty).
 - **Git:** feature branch → PR into `develop`. Never a direct push to `develop` or `main`; both auto-deploy.
