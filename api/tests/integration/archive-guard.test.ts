@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
@@ -170,35 +172,31 @@ describe("migration 0031 — the archived-party guard", () => {
     expect(isPartyArchivedViolation(caught)).toBe(true);
   });
 
-  it("covers every party column of every money table, and the set comes from the foreign keys", async () => {
-    const { rows } = await db.execute<{ table_name: string; party_column: string }>(sql`
-      WITH party_columns AS (
-        SELECT c.oid AS reloid, c.relname AS table_name, a.attname AS party_column
-          FROM pg_class c
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          JOIN pg_constraint fk ON fk.conrelid = c.oid AND fk.contype = 'f'
-                               AND fk.confrelid IN ('driver'::regclass, 'customer'::regclass)
-          JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = fk.conkey[1]
-                             AND NOT a.attisdropped
-         WHERE n.nspname = 'public' AND c.relkind = 'r'
-           AND EXISTS (SELECT 1 FROM pg_attribute p
-                        WHERE p.attrelid = c.oid AND NOT p.attisdropped
-                          AND p.attname = 'posted_period_id')
-      )
-      SELECT p.table_name, p.party_column
-        FROM party_columns p
-       WHERE NOT EXISTS (
-               SELECT 1 FROM pg_trigger g
-                WHERE g.tgrelid = p.reloid AND NOT g.tgisinternal
-                  AND g.tgname = p.table_name || '_archive_guard'
-                  AND pg_get_triggerdef(g.oid) LIKE '%' || quote_literal(p.party_column) || '%')
-       ORDER BY p.table_name, p.party_column`);
-
-    // The same query api/scripts/assert-no-archive-guard-drift.sql runs in
-    // CI. Asserted here too so a developer running the suite locally sees an
-    // uncovered column without needing the drift job — and it is per
-    // *column*, not per table, because a party column added to an
-    // already-guarded table is the quieter of the two ways to drift.
+  /**
+   * Reads the CI assertion rather than restating it.
+   *
+   * The first version of this test embedded its own copy of the catalogue
+   * query, which SonarCloud flagged as duplication on PR #117 — correctly,
+   * and the criticism lands harder than a style rule: the whole argument for
+   * a catalogue-derived set is that one definition cannot disagree with
+   * itself, and three transcriptions of one query are three chances for it
+   * to. Running the file means this test fails for the same reason
+   * `check:drift` does, never for a different one.
+   *
+   * The migration keeps its own copy, unavoidably: it is frozen forward-only
+   * SQL (CLAUDE.md → Process) and cannot read a file that may change after
+   * it has run.
+   */
+  it("covers every party column of every money table — the CI drift query, run here", async () => {
+    const assertion = readFileSync(
+      resolve(import.meta.dirname, "../../scripts/assert-no-archive-guard-drift.sql"),
+      "utf8",
+    );
+    // The file is read verbatim and carries no interpolation — IG §10.3 is
+    // about values reaching SQL as text, and running the CI assertion
+    // unaltered is the entire point of this test.
+    const query = sql.raw(assertion); // allow: a fixed script from this repo, no interpolation
+    const { rows } = await db.execute<{ table_name: string; party_column: string }>(query);
     expect(rows).toEqual([]);
   });
 });
