@@ -1638,7 +1638,9 @@ describe("reports (P11)", () => {
       const csv = await res.text();
       const lines = csv.trim().split("\r\n");
       // A leading quote reads as literal text in Excel/Sheets, never as a formula.
-      expect(lines[1]).toBe("2026-03-15,'=SUM(A1:A9),Rent,In,500.00");
+      // Trailing comma is GAP-173's empty "Belongs to" column — this obligation
+      // posted into the period its own date falls in, so it is not a late fact.
+      expect(lines[1]).toBe("2026-03-15,'=SUM(A1:A9),Rent,In,500.00,");
       expect(lines[1]).not.toMatch(/^2026-03-15,=/);
 
       await ctx.cleanup();
