@@ -17,6 +17,7 @@ import {
   ReplacesTargetNotVoidedError,
   ValidationError,
   VoidBlockedError,
+  RecoveryAlreadyRecordedError,
 } from "../errors/app-error.js";
 import { findPeriodForDate, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { findBillingPeriodCoveringDate } from "../queries/billing-period.js";
@@ -325,6 +326,13 @@ export async function recordCustomerContribution(
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    // GAP-178/B19: migration 0031's unique index. No pre-check exists on this
+    // path (unlike the insurer path's findIncidentRecoveryBySource), so a
+    // plain re-submit reaches the database — mapped rather than left to fall
+    // through as a 500.
+    if (isUniqueViolation(err, "incident_recovery_one_live_per_source")) {
+      throw new RecoveryAlreadyRecordedError();
+    }
     if (isUniqueViolation(err, "incident_recovery_replaces_id_key")) {
       throw new ReplacesTargetAlreadyReplacedError();
     }
@@ -632,6 +640,10 @@ export async function submitInsuranceClaim(
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      // GAP-178/B19, same as the customer-contribution path above.
+      if (isUniqueViolation(err, "incident_recovery_one_live_per_source")) {
+        throw new RecoveryAlreadyRecordedError();
+      }
       if (isUniqueViolation(err, "incident_recovery_replaces_id_key")) {
         throw new ReplacesTargetAlreadyReplacedError();
       }

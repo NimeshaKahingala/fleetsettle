@@ -11,6 +11,18 @@ const UNIQUE_VIOLATION = "23505";
 const EXCLUSION_VIOLATION = "23P01";
 const RAISE_EXCEPTION = "P0001";
 
+/**
+ * GAP-178/B13. Migration 0031's archive guard raises this instead of the
+ * default `P0001`, so the matcher below keys on the code alone.
+ *
+ * Every other raiser in this schema shares `P0001` and is told apart by
+ * substring-matching its message — four of them, filed as B18 in this same
+ * step because a migration rewording a message silently breaks the mapping.
+ * A fifth would have widened the defect while pinning it. `FS0` is not a
+ * class PostgreSQL defines, so nothing else can claim this code.
+ */
+const PARTY_ARCHIVED = "FS001";
+
 interface PostgresError {
   code?: string;
   constraint?: string;
@@ -31,6 +43,17 @@ function pgErrorOf(err: unknown): PostgresError | undefined {
   if (isPostgresError(err) && err.code !== undefined) return err;
   const cause = err instanceof Error ? err.cause : undefined;
   return isPostgresError(cause) ? cause : undefined;
+}
+
+/**
+ * True if `err` is migration 0031's archive guard — an INSERT of money
+ * against a driver or customer that has been archived (W-60).
+ *
+ * Unlike every other raiser here this reads no message text, because it was
+ * given its own SQLSTATE for exactly that reason.
+ */
+export function isPartyArchivedViolation(err: unknown): boolean {
+  return pgErrorOf(err)?.code === PARTY_ARCHIVED;
 }
 
 /** True if `err` (or the query error wrapping it) is a violation of the named unique index or constraint. */

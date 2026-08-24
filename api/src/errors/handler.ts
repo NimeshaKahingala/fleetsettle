@@ -1,7 +1,8 @@
 import type { ErrorHandler } from "hono";
 import type { ErrorBody } from "@fleetsettle/shared";
 import type { Env } from "../types.js";
-import { AppError } from "./app-error.js";
+import { isPartyArchivedViolation } from "../db/pg-error.js";
+import { AppError, PartyArchivedError } from "./app-error.js";
 
 /**
  * The one global `app.onError` (IG §3.3). Handlers throw; this is the only
@@ -13,7 +14,23 @@ import { AppError } from "./app-error.js";
  */
 export const errorHandler: ErrorHandler<Env> = (err, c) => {
   const requestId = c.get("requestId");
-  const appError = err instanceof AppError ? err : undefined;
+
+  // GAP-178/B13. Mapped here rather than at each domain call site, and
+  // deliberately against this codebase's own convention for DB-enforced
+  // invariants (the ~25 `isPeriodClosedViolation` catches).
+  //
+  // Claude's review of PR #117 found the mapping had no caller at all, so an
+  // ordinary write against an archived party surfaced as an unexplained 500.
+  // Adding it to every domain catch would be ~25 edits that a write path
+  // added next year would silently miss — which is the same drift argument
+  // that made migration 0031 a trigger rather than a lock on each write
+  // path. The guard covers every money write path by construction, so its
+  // mapping should too.
+  //
+  // `assert_period_open` stays per-site: a caller sometimes wants to handle
+  // PERIOD_CLOSED rather than return it, and several do.
+  const mapped = isPartyArchivedViolation(err) ? new PartyArchivedError() : err;
+  const appError = mapped instanceof AppError ? mapped : undefined;
   const status = appError?.status ?? 500;
   const level = status >= 500 ? "error" : "warn";
 
