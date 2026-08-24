@@ -459,12 +459,26 @@ export interface ObligationForVoid {
 }
 
 /** GAP-12/W-61/INV-36 §3.10: the direct-void endpoint's own read — needs `kind` on top of what `findObligationForBusiness` already returns, to gate which obligations may be voided directly. */
+/**
+ * GAP-178/B12: `forUpdate` locks the obligation row, and this PR needed the
+ * reminder — found by Gitar's review of #118.
+ *
+ * `voidAdvance` got the parent lock because an interleaved test proved that
+ * moving its check inside the transaction was not enough. `voidObligation` is
+ * the same shape and got only the first half of the same fix: a plain SELECT
+ * does not stop a `payment_allocation` or `adjustment` being inserted between
+ * "nothing is blocking" and the void, because READ COMMITTED has no predicate
+ * locking. The allocation paths already lock the obligation
+ * (`findOutstandingObligationsForParty(…, true)`, and `findObligationForBusiness`
+ * as of B14b), so locking here is what makes the two serialize.
+ */
 export async function findObligationForVoid(
   db: ReadDb,
   businessId: string,
   obligationId: string,
+  forUpdate = false,
 ): Promise<ObligationForVoid | undefined> {
-  const rows = await db
+  const query = db
     .select({
       id: obligation.id,
       kind: obligation.kind,
@@ -477,6 +491,7 @@ export async function findObligationForVoid(
     .from(obligation)
     .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as ObligationForVoid | undefined;
 }
 

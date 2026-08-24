@@ -5,7 +5,13 @@ import { writer } from "../../src/db/client.js";
 import { recordDepositMovementTx } from "../../src/domain/deposit.js";
 import { settleAdvance, voidAdvance } from "../../src/domain/advance.js";
 import { voidObligation } from "../../src/domain/obligation.js";
-import { advanceSettlement, depositMovement, obligation } from "../../src/db/schema.js";
+import { recordPayment } from "../../src/domain/payment.js";
+import {
+  advanceSettlement,
+  depositMovement,
+  obligation,
+  paymentAllocation,
+} from "../../src/db/schema.js";
 import { mintUser } from "../support/auth.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
@@ -101,21 +107,29 @@ describe("GAP-178/B12 — a void checks its blockers inside the transaction that
       amountMinor: 10_000n,
     });
 
-    // The void reads its blockers, then writes. Read outside the
-    // transaction, an allocation landing in between is invisible to it and
-    // the void succeeds anyway — leaving live money allocated against a
-    // voided obligation, which is the double count VoidBlockedError exists
-    // to prevent.
+    // The blocker is a real `payment_allocation` INSERT, not an UPDATE of the
+    // obligation — and that distinction is the whole test.
+    //
+    // The first version of this raced the void against a plain UPDATE, which
+    // conflicts at row level anyway, so it passed without proving anything.
+    // Gitar's review of #118 caught what that concealed: `voidObligation` had
+    // been given only half the fix `voidAdvance` got. Moving its check inside
+    // the transaction does not stop an allocation being *inserted* between
+    // "nothing is blocking" and the void, because READ COMMITTED has no
+    // predicate locking. Only the parent lock makes the two serialize.
     const [voidResult] = await Promise.all([
       outcome(() =>
         voidObligation(db, { businessId, obligationId, reason: "entered twice", userId }),
       ),
       outcome(() =>
-        other.transaction(async (tx) => {
-          await tx
-            .update(obligation)
-            .set({ settledMinor: 4_000n, status: "part_paid" })
-            .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)));
+        recordPayment(other, {
+          businessId,
+          partyType: "driver",
+          partyId: driverId,
+          direction: "received",
+          amountMinor: 4_000n as Minor,
+          occurredOn: "2026-07-20" as BusinessDate,
+          userId,
         }),
       ),
     ]);
@@ -125,9 +139,18 @@ describe("GAP-178/B12 — a void checks its blockers inside the transaction that
       .from(obligation)
       .where(eq(obligation.id, obligationId));
 
-    // Whichever order they land in, the two facts must agree: a voided
-    // obligation carries no settlement, and a settled one is not voided.
+    const allocations = await db
+      .select({ id: paymentAllocation.id })
+      .from(paymentAllocation)
+      .where(
+        and(eq(paymentAllocation.obligationId, obligationId), isNull(paymentAllocation.voidedAt)),
+      );
+
+    // Whichever order they land in, the two facts must agree: money allocated
+    // against an obligation means that obligation is not voided. The reverse
+    // — a void that succeeded — means nothing was allocated.
     if (voidResult.ok && row?.voidedAt !== null) {
+      expect(allocations).toHaveLength(0);
       expect(row?.settledMinor).toBe(0n);
     }
   });

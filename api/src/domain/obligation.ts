@@ -53,7 +53,9 @@ export async function voidObligation(
     // leaving an allocation pointing at a voided obligation. That is the
     // double-count VoidBlockedError exists to prevent.
     const voided = await writer.transaction(async (tx) => {
-      const ob = await findObligationForVoid(tx, input.businessId, input.obligationId);
+      // GAP-178/B12: locked, so an allocation cannot land against this
+      // obligation between the blocker check below and the void.
+      const ob = await findObligationForVoid(tx, input.businessId, input.obligationId, true);
       if (!ob) throw new NotFoundError("No such obligation in this business");
       if (ob.voidedAt !== null) throw new ObligationAlreadyVoidedError();
 
