@@ -38,6 +38,33 @@ async function expectRefused(run: () => Promise<unknown>): Promise<unknown> {
   return caught;
 }
 
+/**
+ * A business, an open period and an incident to hang claims and recoveries
+ * off — the same four rows every case below needs, extracted rather than
+ * repeated once SonarCloud flagged the duplication on PR #117. Teardown
+ * sweeps the children first: both `incident_recovery` and `insurance_claim`
+ * hold a foreign key to `incident`, and there is no cascade.
+ */
+async function withIncident(): Promise<{
+  businessId: string;
+  periodId: string;
+  incidentId: string;
+}> {
+  const businessId = await ctx.createBusiness();
+  const periodId = await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  const incidentId = newId();
+  await db
+    .insert(incident)
+    .values({ id: incidentId, businessId, vehicleId, occurredOn: "2026-07-05" });
+  ctx.track(async () => {
+    await db.execute(sql`DELETE FROM incident_recovery WHERE incident_id = ${incidentId}`);
+    await db.execute(sql`DELETE FROM insurance_claim  WHERE incident_id = ${incidentId}`);
+    await db.execute(sql`DELETE FROM incident WHERE id = ${incidentId}`);
+  });
+  return { businessId, periodId, incidentId };
+}
+
 describe("migration 0031 — B20, the four money columns with no CHECK", () => {
   /**
    * `>= 0`, not `> 0`. Three of the four are accumulators that start at zero
@@ -60,17 +87,7 @@ describe("migration 0031 — B20, the four money columns with no CHECK", () => {
   });
 
   it("refuses a negative received amount on an incident recovery", async () => {
-    const businessId = await ctx.createBusiness();
-    const periodId = await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const incidentId = newId();
-    await db
-      .insert(incident)
-      .values({ id: incidentId, businessId, vehicleId, occurredOn: "2026-07-05" });
-    ctx.track(async () => {
-      await db.execute(sql`DELETE FROM incident_recovery WHERE incident_id = ${incidentId}`);
-      await db.execute(sql`DELETE FROM incident WHERE id = ${incidentId}`);
-    });
+    const { businessId, periodId, incidentId } = await withIncident();
 
     const err = await expectRefused(() =>
       db.execute(sql`
@@ -82,17 +99,7 @@ describe("migration 0031 — B20, the four money columns with no CHECK", () => {
   });
 
   it("refuses negative excess and received amounts on an insurance claim", async () => {
-    const businessId = await ctx.createBusiness();
-    const periodId = await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const incidentId = newId();
-    await db
-      .insert(incident)
-      .values({ id: incidentId, businessId, vehicleId, occurredOn: "2026-07-05" });
-    ctx.track(async () => {
-      await db.execute(sql`DELETE FROM insurance_claim WHERE incident_id = ${incidentId}`);
-      await db.execute(sql`DELETE FROM incident WHERE id = ${incidentId}`);
-    });
+    const { businessId, periodId, incidentId } = await withIncident();
 
     const insertClaim = (excess: number, received: number) =>
       db.execute(sql`
@@ -119,17 +126,7 @@ describe("migration 0031 — B19, one live recovery per (incident, source)", () 
    * row is individually valid.
    */
   it("refuses a second live recovery for the same source", async () => {
-    const businessId = await ctx.createBusiness();
-    const periodId = await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const incidentId = newId();
-    await db
-      .insert(incident)
-      .values({ id: incidentId, businessId, vehicleId, occurredOn: "2026-07-05" });
-    ctx.track(async () => {
-      await db.execute(sql`DELETE FROM incident_recovery WHERE incident_id = ${incidentId}`);
-      await db.execute(sql`DELETE FROM incident WHERE id = ${incidentId}`);
-    });
+    const { businessId, periodId, incidentId } = await withIncident();
 
     const add = (id: string) =>
       db.insert(incidentRecovery).values({
