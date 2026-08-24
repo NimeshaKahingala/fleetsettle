@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  businessDateSchema,
-  positiveMoneyWireSchema,
-  uuidSchema,
-} from "./common.js";
+import { businessDateSchema, positiveMoneyWireSchema, uuidSchema } from "./common.js";
 import { odometerSourceSchema } from "./lease-billing.js";
 
 /** DM §9's `CHECK` on `expense.category` — the borne-by default matrix (UC §6.7) is keyed on this. */

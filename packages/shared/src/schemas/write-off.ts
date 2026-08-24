@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  businessDateSchema,
-  positiveMoneyWireSchema,
-  uuidSchema,
-} from "./common.js";
+import { businessDateSchema, positiveMoneyWireSchema, uuidSchema } from "./common.js";
 
 /**
  * F-8.3/UC-90/W-28: a loss you were handed, never pooled with a waiver
