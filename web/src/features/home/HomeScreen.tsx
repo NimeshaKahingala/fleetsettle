@@ -18,13 +18,14 @@ import {
   Banknote,
   Bell,
   CalendarCheck,
+  ChevronRight,
   Clock,
   HandCoins,
   Route,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AlertStrip } from "../../components/AlertStrip.js";
 import { EmptyState } from "../../components/EmptyState.js";
 import { Money } from "../../components/Money.js";
@@ -36,6 +37,8 @@ import { Screen } from "../../design/primitives/Screen.js";
 import { Section } from "../../design/primitives/Section.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
+import { cn } from "../../lib/cn.js";
+import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { PAPERWORK_DOC_TYPE_LABEL } from "../../lib/paperworkDocTypeLabel.js";
 import { ConfirmDayCard } from "../daily/ConfirmDayCard.js";
@@ -45,6 +48,20 @@ export interface HomeScreenProps {
   onSelectVehicle: (vehicleId: string) => void;
   /** Web-P7: item 7's own trips now have somewhere to go — `TripDetailScreen`. */
   onSelectTrip: (tripId: string) => void;
+  /**
+   * GAP-183: a rent-due or deposit-release row names the party it is owed by
+   * or owed to, and each opens that party's own detail.
+   *
+   * Three types, not two — the compiler caught this: a receivable's
+   * `partyType` can be `partner`, which lives at `/partners/$userId` rather
+   * than under `/people`. A deposit release can only ever be a customer or a
+   * driver, which is a narrower set and assignable to this one.
+   */
+  onSelectParty: (partyType: "customer" | "driver" | "partner", partyId: string) => void;
+  /** GAP-183: the bell's "Rent due" row — UC-78's receivables report, which already exists. */
+  onOpenReceivables: () => void;
+  /** GAP-183: the bell's "Deposits to release" row — the list screen this gap adds. */
+  onOpenDepositReleases: () => void;
 }
 
 function formatHomeDate(date: string): string {
@@ -224,24 +241,36 @@ function TodayCards({ leases, today }: { leases: ActiveDailyLeaseRow[]; today: B
 
 /**
  * M-36a: one row of the bell's summary sheet. A count, not a list — every
- * one of these can hold more than one item with no single navigation
- * target among them (which vehicle's paperwork? which trip?), so this
- * stays a glance, same as the sheet around it. The full, tappable list for
- * each is already the section directly below this screen's own hero card.
+ * one of these can hold more than one item, so the row is a glance and the
+ * full list lives elsewhere.
+ *
+ * **GAP-183: `onGo` makes that "elsewhere" reachable.** Three rows had a
+ * destination and no way to reach it, which is worse than having none: the
+ * sheet reads as a menu, and two of its entries did nothing. A row with a
+ * destination renders as a real `<button>`; a row without one (paperwork,
+ * trips in progress — each already tappable in its own Home section) stays
+ * a plain `<div>`, so nothing announces an action it cannot perform.
+ *
+ * `min-h-tap` is M-1's 44px floor — the old `py-3` row was under it and
+ * would not have met it as a tap target. The rows sit flush against each
+ * other by design (a divided list, not scattered controls), so M-1's ≥8px
+ * separation rule does not apply between them; none is destructive.
  */
 function NeedsAttentionRow({
   icon: Icon,
   label,
   count,
   total,
+  onGo,
 }: {
   icon: LucideIcon;
   label: string;
   count: number;
   total?: Minor;
+  onGo?: () => void;
 }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-line-hairline py-3 last:border-b-0">
+  const body = (
+    <>
       <div className="flex min-w-0 items-center gap-3">
         <Icon className="size-5 shrink-0 text-ink-secondary" aria-hidden />
         <span className="truncate text-body text-ink-primary">{label}</span>
@@ -249,15 +278,42 @@ function NeedsAttentionRow({
       <div className="flex shrink-0 items-center gap-2">
         <span className="text-body-sm text-ink-muted">{count}</span>
         {total !== undefined ? <Money value={total} /> : null}
+        {onGo !== undefined ? <ChevronRight className="size-4 text-ink-muted" aria-hidden /> : null}
       </div>
-    </div>
+    </>
+  );
+
+  const shared =
+    "flex w-full min-h-tap items-center justify-between gap-3 border-b border-line-hairline py-3 text-left last:border-b-0";
+
+  if (onGo === undefined) {
+    return <div className={shared}>{body}</div>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onGo}
+      className={cn(shared, "active:bg-brand-wash", rowButtonFocus)}
+    >
+      {body}
+    </button>
   );
 }
 
-export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
+export function HomeScreen({
+  onSelectVehicle,
+  onSelectTrip,
+  onSelectParty,
+  onOpenReceivables,
+  onOpenDepositReleases,
+}: HomeScreenProps) {
   const api = useApi();
   const today = businessToday();
   const [bellOpen, setBellOpen] = useState(false);
+  // GAP-183: "Earlier days" has no screen of its own — its full, already
+  // interactive list is the Home section below. The bell closes and brings
+  // that section into view rather than navigating away from it.
+  const earlierDaysRef = useRef<HTMLDivElement | null>(null);
 
   const paperworkQuery = useQuery({
     queryKey: ["home", "paperwork-warnings"],
@@ -537,36 +593,42 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
               />
             ) : null}
             {unconfirmedDays.length > 0 ? (
-              <Section
-                title="Earlier days"
-                count={unconfirmedDays.length}
-                items={groupUnconfirmedByLease(unconfirmedDays).flatMap((group) => {
-                  if (group.days.length >= 2) {
+              // GAP-183: the bell's "Earlier days" row scrolls here rather
+              // than navigating — this section is already the full,
+              // interactive list (each card confirms a day), so there is
+              // nowhere better to send someone.
+              <div ref={earlierDaysRef} className="scroll-mt-4">
+                <Section
+                  title="Earlier days"
+                  count={unconfirmedDays.length}
+                  items={groupUnconfirmedByLease(unconfirmedDays).flatMap((group) => {
+                    if (group.days.length >= 2) {
+                      return [
+                        <ConfirmWeekGroupCard
+                          key={group.dailyLeaseId}
+                          dailyLeaseId={group.dailyLeaseId}
+                          vehicleLabel={group.vehicleRegistration}
+                          driverLabel={group.driverName}
+                          days={group.days}
+                        />,
+                      ];
+                    }
+                    const [only] = group.days;
+                    if (only === undefined) return [];
                     return [
-                      <ConfirmWeekGroupCard
-                        key={group.dailyLeaseId}
+                      <ConfirmDayCard
+                        key={only.id}
                         dailyLeaseId={group.dailyLeaseId}
                         vehicleLabel={group.vehicleRegistration}
                         driverLabel={group.driverName}
-                        days={group.days}
+                        dateLabel={formatHomeDate(only.businessDate)}
+                        today={asBusinessDate(only.businessDate)}
+                        elevated={false}
                       />,
                     ];
-                  }
-                  const [only] = group.days;
-                  if (only === undefined) return [];
-                  return [
-                    <ConfirmDayCard
-                      key={only.id}
-                      dailyLeaseId={group.dailyLeaseId}
-                      vehicleLabel={group.vehicleRegistration}
-                      driverLabel={group.driverName}
-                      dateLabel={formatHomeDate(only.businessDate)}
-                      today={asBusinessDate(only.businessDate)}
-                      elevated={false}
-                    />,
-                  ];
-                })}
-              />
+                  })}
+                />
+              </div>
             ) : null}
           </div>
 
@@ -585,27 +647,35 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
                   count={rentDue.length}
                   total={<Money value={rentDueTotal} />}
                   items={rentDue.map((row) => (
-                    <Card
+                    <button
                       key={row.partyId}
-                      accent="critical"
-                      className="flex items-center justify-between gap-4"
+                      type="button"
+                      onClick={() => {
+                        onSelectParty(row.partyType, row.partyId);
+                      }}
+                      className={cn("min-h-tap w-full text-left", rowButtonFocus)}
                     >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
-                        <div className="min-w-0">
-                          <p className="truncate text-title text-ink-primary">
-                            {row.partyName ?? "—"}
-                          </p>
-                          <p className="text-body-sm text-ink-muted">
-                            {dueLabel(row.oldestDueOn, today)}
-                          </p>
+                      <Card accent="critical" className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Banknote className="size-5 shrink-0 text-critical-ink" aria-hidden />
+                          <div className="min-w-0">
+                            <p className="truncate text-title text-ink-primary">
+                              {row.partyName ?? "—"}
+                            </p>
+                            <p className="text-body-sm text-ink-muted">
+                              {dueLabel(row.oldestDueOn, today)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Badge variant="critical">Due</Badge>
-                        <Money value={parse(row.outstandingMinor)} />
-                      </div>
-                    </Card>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge variant="critical">Due</Badge>
+                            <Money value={parse(row.outstandingMinor)} />
+                          </div>
+                          <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                        </div>
+                      </Card>
+                    </button>
                   ))}
                 />
               ) : null}
@@ -623,27 +693,35 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
                   count={depositReleases.length}
                   total={<Money value={depositReleaseTotal} />}
                   items={depositReleases.map((row) => (
-                    <Card
+                    <button
                       key={row.depositId}
-                      accent="warning"
-                      className="flex items-center justify-between gap-4"
+                      type="button"
+                      onClick={() => {
+                        onSelectParty(row.partyType, row.partyId);
+                      }}
+                      className={cn("min-h-tap w-full text-left", rowButtonFocus)}
                     >
-                      <div className="flex min-w-0 items-center gap-3">
-                        <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
-                        <div className="min-w-0">
-                          <p className="truncate text-title text-ink-primary">
-                            {row.partyName ?? "—"}
-                          </p>
-                          <p className="text-body-sm text-ink-muted">
-                            Held since {formatShortDate(row.holdReleaseDate)}
-                          </p>
+                      <Card accent="warning" className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-3">
+                          <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
+                          <div className="min-w-0">
+                            <p className="truncate text-title text-ink-primary">
+                              {row.partyName ?? "—"}
+                            </p>
+                            <p className="text-body-sm text-ink-muted">
+                              Held since {formatShortDate(row.holdReleaseDate)}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <Badge variant="warning">Release</Badge>
-                        <Money value={parse(row.heldMinor)} />
-                      </div>
-                    </Card>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <div className="flex flex-col items-end gap-1">
+                            <Badge variant="warning">Release</Badge>
+                            <Money value={parse(row.heldMinor)} />
+                          </div>
+                          <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                        </div>
+                      </Card>
+                    </button>
                   ))}
                 />
               ) : null}
@@ -710,7 +788,15 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
             />
           ) : null}
           {unconfirmedDays.length > 0 ? (
-            <NeedsAttentionRow icon={Clock} label="Earlier days" count={unconfirmedDays.length} />
+            <NeedsAttentionRow
+              icon={Clock}
+              label="Earlier days"
+              count={unconfirmedDays.length}
+              onGo={() => {
+                setBellOpen(false);
+                earlierDaysRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            />
           ) : null}
           {rentDue.length > 0 ? (
             <NeedsAttentionRow
@@ -718,6 +804,10 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
               label="Rent due"
               count={rentDue.length}
               total={rentDueTotal}
+              onGo={() => {
+                setBellOpen(false);
+                onOpenReceivables();
+              }}
             />
           ) : null}
           {depositReleases.length > 0 ? (
@@ -726,6 +816,10 @@ export function HomeScreen({ onSelectVehicle, onSelectTrip }: HomeScreenProps) {
               label="Deposits to release"
               count={depositReleases.length}
               total={depositReleaseTotal}
+              onGo={() => {
+                setBellOpen(false);
+                onOpenDepositReleases();
+              }}
             />
           ) : null}
           {inProgressTrips.length > 0 ? (

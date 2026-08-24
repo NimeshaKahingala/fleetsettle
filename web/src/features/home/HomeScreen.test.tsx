@@ -14,6 +14,22 @@ import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { HomeScreen } from "./HomeScreen.js";
 
+/**
+ * GAP-183 gave `HomeScreen` three more navigation props. A factory, not a
+ * shared object — `vi.fn()` mocks accumulate calls, so one instance reused
+ * across tests would let an assertion pass on a *previous* test's click.
+ * Tests that care about a particular handler override it after the spread.
+ */
+function homeNavProps() {
+  return {
+    onSelectVehicle: vi.fn(),
+    onSelectTrip: vi.fn(),
+    onSelectParty: vi.fn(),
+    onOpenReceivables: vi.fn(),
+    onOpenDepositReleases: vi.fn(),
+  };
+}
+
 const today = businessToday();
 
 function formatTestHomeDate(date: string): string {
@@ -67,7 +83,7 @@ function baseGet(overrides: Record<string, unknown> = {}) {
 
 test("nothing outstanding renders the empty state, not a blank screen", async () => {
   const get = baseGet();
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Nothing needs you today")).toBeInTheDocument();
   expect(screen.getByText(formatTestHomeDate(today))).toBeInTheDocument();
@@ -86,7 +102,7 @@ test("GAP-126: the empty state waits for the Home reads to answer, never standin
     }
     return Promise.resolve([]);
   });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Loading…")).toBeInTheDocument();
   expect(screen.queryByText("Nothing needs you today")).not.toBeInTheDocument();
@@ -116,7 +132,7 @@ test("GAP-101: one failed read shows its own failure notice and never renders th
     }
     return Promise.resolve([]);
   });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Rent due · 1")).toBeInTheDocument();
   expect(screen.getByText("Something went wrong loading paperwork warnings.")).toBeInTheDocument();
@@ -125,7 +141,7 @@ test("GAP-101: one failed read shows its own failure notice and never renders th
 
 test("GAP-101: every read failing shows a failure notice per section, never 'Nothing needs you today' — the false-empty state this item exists to close", async () => {
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(
     await screen.findByText("Something went wrong loading paperwork warnings."),
@@ -158,7 +174,7 @@ test("GAP-138: a rent-due row not yet due reads 'Due on', never 'Due since'", as
     },
   ];
   const get = baseGet({ "/api/reports/receivables": receivables });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Future Customer")).toBeInTheDocument();
   expect(screen.getByText(`Due on ${formatTestShortDate(addDays(today, 3))}`)).toBeInTheDocument();
@@ -192,7 +208,7 @@ test("a paperwork warning renders as an alert strip, styled by isExpired, with a
   const onSelectVehicle = vi.fn();
   const user = userEvent.setup();
   const get = baseGet({ "/api/home/paperwork-warnings": warnings });
-  renderWithProviders(<HomeScreen onSelectVehicle={onSelectVehicle} onSelectTrip={vi.fn()} />, {
+  renderWithProviders(<HomeScreen {...homeNavProps()} onSelectVehicle={onSelectVehicle} />, {
     get,
   });
 
@@ -222,7 +238,7 @@ test("one vehicle running today renders its card directly, elevated, no summary 
     },
   ];
   const get = baseGet({ "/api/daily-lease": leases });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
   expect(screen.queryByText(/vehicles running today/)).not.toBeInTheDocument();
@@ -243,7 +259,7 @@ test("four or more vehicles collapse to a summary row, which expands to the full
     };
   });
   const get = baseGet({ "/api/daily-lease": leases });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Expected")).toBeInTheDocument();
   expect(screen.getByText("4 vehicles to confirm")).toBeInTheDocument();
@@ -271,7 +287,7 @@ test("earlier unconfirmed days render inside a collapsible section, each its own
     },
   ];
   const get = baseGet({ "/api/day-record": rows });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Earlier days · 1")).toBeInTheDocument();
   expect(await screen.findByText("Expected from Sunil")).toBeInTheDocument();
@@ -306,7 +322,7 @@ test("F-4.6/GAP-2: two or more waiting days on one lease collapse into a single 
     totalReceivedMinor: "1000000",
   });
   const get = baseGet({ "/api/day-record": rows });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, {
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, {
     get,
     post,
   });
@@ -340,7 +356,7 @@ test("rent due shows only customer obligations, never a driver's arrears (that's
     },
   ];
   const get = baseGet({ "/api/reports/receivables": receivables });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={vi.fn()} />, { get });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
 
   expect(await screen.findByText("Rent due · 1")).toBeInTheDocument();
   expect(screen.getByText("Perera Tours")).toBeInTheDocument();
@@ -378,7 +394,7 @@ test("deposits to release and trips in progress each render in their own section
     "/api/home/deposit-releases": deposits,
     "/api/trip": trips,
   });
-  renderWithProviders(<HomeScreen onSelectVehicle={vi.fn()} onSelectTrip={onSelectTrip} />, {
+  renderWithProviders(<HomeScreen {...homeNavProps()} onSelectTrip={onSelectTrip} />, {
     get,
   });
 
@@ -390,4 +406,119 @@ test("deposits to release and trips in progress each render in their own section
 
   await user.click(screen.getByText("CAB-9999"));
   expect(onSelectTrip).toHaveBeenCalledWith("t1");
+});
+
+/**
+ * GAP-183. The bell's summary sheet listed three rows that had a real
+ * destination and no way to reach it — the sheet read as a menu whose
+ * entries did nothing. Each row that has somewhere to go is now a real
+ * button, and the two rows that never had a destination stay inert rather
+ * than announcing an action they cannot perform.
+ */
+test("GAP-183: the bell's rent-due row opens the receivables report and closes the sheet", async () => {
+  const user = userEvent.setup();
+  const receivables: ReceivableRow[] = [
+    {
+      partyType: "customer",
+      partyId: "c1",
+      partyName: "Overdue Customer",
+      outstandingMinor: "150000",
+      oldestDueOn: addDays(today, -3),
+    },
+  ];
+  const get = baseGet({ "/api/reports/receivables": receivables });
+  const nav = homeNavProps();
+  renderWithProviders(<HomeScreen {...nav} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /What needs attention/ }));
+  const row = await screen.findByRole("button", { name: /Rent due/ });
+  await user.click(row);
+
+  expect(nav.onOpenReceivables).toHaveBeenCalledOnce();
+});
+
+test("GAP-183: the bell's deposits row opens the deposit-releases list", async () => {
+  const user = userEvent.setup();
+  const releases: DepositReleaseRow[] = [
+    {
+      depositId: "d1",
+      partyType: "driver",
+      partyId: "dr1",
+      partyName: "Ruwan",
+      holdReleaseDate: addDays(today, -2),
+      heldMinor: "2500000",
+    },
+  ];
+  const get = baseGet({ "/api/home/deposit-releases": releases });
+  const nav = homeNavProps();
+  renderWithProviders(<HomeScreen {...nav} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /What needs attention/ }));
+  await user.click(await screen.findByRole("button", { name: /Deposits to release/ }));
+
+  expect(nav.onOpenDepositReleases).toHaveBeenCalledOnce();
+});
+
+test("GAP-183: a rent-due card on Home opens that party's own detail", async () => {
+  const user = userEvent.setup();
+  const receivables: ReceivableRow[] = [
+    {
+      partyType: "customer",
+      partyId: "c1",
+      partyName: "Overdue Customer",
+      outstandingMinor: "150000",
+      oldestDueOn: addDays(today, -3),
+    },
+  ];
+  const get = baseGet({ "/api/reports/receivables": receivables });
+  const nav = homeNavProps();
+  renderWithProviders(<HomeScreen {...nav} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /Overdue Customer/ }));
+  expect(nav.onSelectParty).toHaveBeenCalledWith("customer", "c1");
+});
+
+test("GAP-183: a deposit-release card on Home opens the party the money is owed back to", async () => {
+  const user = userEvent.setup();
+  const releases: DepositReleaseRow[] = [
+    {
+      depositId: "d1",
+      partyType: "driver",
+      partyId: "dr1",
+      partyName: "Ruwan",
+      holdReleaseDate: addDays(today, -2),
+      heldMinor: "2500000",
+    },
+  ];
+  const get = baseGet({ "/api/home/deposit-releases": releases });
+  const nav = homeNavProps();
+  renderWithProviders(<HomeScreen {...nav} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /Ruwan/ }));
+  expect(nav.onSelectParty).toHaveBeenCalledWith("driver", "dr1");
+});
+
+test("GAP-183: a bell row with no destination stays inert rather than looking tappable", async () => {
+  const user = userEvent.setup();
+  const trips: InProgressTripRow[] = [
+    {
+      id: "t1",
+      vehicleId: "v1",
+      vehicleRegistration: "CAB-1234",
+      customerId: "c1",
+      customerName: "Someone",
+      driverId: null,
+      driverName: null,
+      destination: null,
+      startDate: addDays(today, -1),
+      endDate: addDays(today, 1),
+    },
+  ];
+  const get = baseGet({ "/api/trip": trips });
+  renderWithProviders(<HomeScreen {...homeNavProps()} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: /What needs attention/ }));
+  // The row renders — but as text, never as a control that does nothing.
+  expect(await screen.findByText("Trips in progress")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Trips in progress/ })).not.toBeInTheDocument();
 });
