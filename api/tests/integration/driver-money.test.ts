@@ -789,7 +789,7 @@ describe("offset and the two-balances query (P4, F-6.4/UC-56/W-2)", () => {
     expect(statuses).toEqual([201, 400]);
 
     const created = r1.status === 201 ? r1 : r2;
-    const { id: offsetId } = (await created.json()) as { id: string };
+    const { id: offsetId }: { id: string } = await created.json();
     ctx.trackCreatedOffset(offsetId);
 
     const [obRow] = await db.select().from(obligation).where(eq(obligation.id, owedToUsId));
