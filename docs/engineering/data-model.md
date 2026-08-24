@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.13 — **§4.4 added: `vehicle_loan`, `loan_payment`, `vehicle.purchase_cost_minor`, and the two CHECK migrations that come with them** (`expense.category` gains `'finance'`, `partner_payout.kind` gains `'loan_on_behalf'`). Schema for `use-cases.md` v1.2.15's **UC-106 to UC-109** and `user-flows.md` v1.1.17's **F-12**/**INV-43 to INV-45**. `amortisation_method` carries one permitted value so W-68's flat-only assumption is visible in the schema rather than buried in a formula. **§4.4 states both hand-maintained trigger lists explicitly** — `assert_period_open()`'s array and `write_audit_log()`'s attachment, each of which ran once and does not re-run — **and records that `check:drift` already catches both omissions in three workflows**, so neither needs a bespoke test. Decided 23 Aug 2026.
+**Status:** v1.1.14 — **four DDL blocks brought back into line with the migrations that had already moved past them (GAP-182).** `insurance_claim` and `incident_recovery` gain `business_id` (migration `0004`), `expense` gains `voided_by` (migration `0007`, whose own header already recorded that this document's DDL wrote only two of the void trio), and `offset_allocation` gains the void trio (migration `0024`). `business_creation_request.status` **loses** the `DEFAULT 'pending'` it never had in the database — migration `0030` states the omission is deliberate, so the doc was the wrong one of the three. All five verified against the live schema via `information_schema`, not against the migration files alone. **The matching code half shipped with it**: `api/src/db/schema.ts` declared `.default("pending")` on that same column, inert only while every writer hard-codes the value and a runtime failure on a `NOT NULL` column the first time one did not. Decided 24 Aug 2026.
+
+**v1.1.13** — **§4.4 added: `vehicle_loan`, `loan_payment`, `vehicle.purchase_cost_minor`, and the two CHECK migrations that come with them** (`expense.category` gains `'finance'`, `partner_payout.kind` gains `'loan_on_behalf'`). Schema for `use-cases.md` v1.2.15's **UC-106 to UC-109** and `user-flows.md` v1.1.17's **F-12**/**INV-43 to INV-45**. `amortisation_method` carries one permitted value so W-68's flat-only assumption is visible in the schema rather than buried in a formula. **§4.4 states both hand-maintained trigger lists explicitly** — `assert_period_open()`'s array and `write_audit_log()`'s attachment, each of which ran once and does not re-run — **and records that `check:drift` already catches both omissions in three workflows**, so neither needs a bespoke test. Decided 23 Aug 2026.
 
 **v1.1.12** — **§15's own lost-days denominator claim was wrong, and the code faithfully implemented the wrong claim.** *"The denominator is `ran + lost` and cannot be inflated by either exclusion"* enumerated two of `day_record.state`'s six values (`not_scheduled`, excluded by construction; `paused_for_trip`, excluded by the `WHERE` clause) and asserted completeness without checking the other three — `open` (a still-unconfirmed day) survives the same `WHERE` clause and was silently counted into `lease_eligible` too, for as long as the requested window contains one. Found by the 19 August 2026 backend review (REV-2026-08-19-03), filed as GAP-147: both `lease_eligible` computations in §15 now filter to exactly `did_not_run`/`ran_%`, and both queries drop a bucket that is entirely still-open (`HAVING … > 0`) rather than showing a bare `lease_eligible = 0` — a number, not the "not available" W-56 asks for.
 **v1.1.11** — **§13/§14's INV-18 account corrected to match what was actually built.** `lease.closure_summary_shown_at` was documented as a stored-flag gate ("set when the summary renders, and the deposit-settlement handler refuses while it is null") — grepped every write to `lease` (api/src) while fixing GAP-141/F-4 (19 Aug 2026 live QA pass) and found the column is never written by any code path. The real, deliberate mechanism was already recorded in `lease-closure.ts`'s own comment: call ordering (the closure-summary endpoint existing and being called before deposit settlement), not a stored flag. §13's paragraph and §14's INV-18 row now say so, flagged, with the practical consequence stated plainly: nothing server-side stops a direct API call from settling a deposit that skipped its own closure summary. Column kept, not dropped — a future session may still want the stronger version this document originally specified. Same pass separately found and fixed (application code, not this document): `lease.final_period_treatment`/`closed_at` were also never written despite being asked for/computable at exactly the steps that already exist — see the build log, not here, since neither is a schema or invariant change.
@@ -281,7 +283,12 @@ CREATE TABLE business_creation_request (
   name              text NOT NULL,
   currency_code     char(3) NOT NULL,
   timezone          text NOT NULL,
-  status            text NOT NULL DEFAULT 'pending'
+  -- No DEFAULT — insertBusinessCreationRequest sets 'pending' explicitly.
+  -- A DEFAULT here would be a third repetition of the same literal in this
+  -- one table definition (the CHECK below, and the partial index further
+  -- down, are the other two) for a value every caller already has to name
+  -- anyway to reach the CHECK constraint's IN list correctly.
+  status            text NOT NULL
                        CHECK (status IN ('pending','approved','rejected')),
   decided_by        uuid REFERENCES app_user(id),
   decided_at        timestamptz,
@@ -929,6 +936,7 @@ CREATE TABLE expense (
   belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   voided_at      timestamptz,                         -- W-50: voided, never deleted
   voided_reason  text,
+  voided_by      uuid REFERENCES app_user(id),        -- migration 0007
   created_by     uuid REFERENCES app_user(id),
   created_at     timestamptz NOT NULL DEFAULT now(),
 
@@ -993,6 +1001,7 @@ CREATE TABLE lease_extension (
 
 CREATE TABLE insurance_claim (                    -- W-11: optional, always visible (major damage only, manager's judgement)
   id                    uuid PRIMARY KEY,
+  business_id           uuid NOT NULL REFERENCES business(id),   -- migration 0004
   incident_id           uuid NOT NULL REFERENCES incident(id),
   claimed_amount_minor  bigint NOT NULL CHECK (claimed_amount_minor >= 0),
   excess_borne_minor    bigint NOT NULL DEFAULT 0,
@@ -1009,6 +1018,7 @@ CREATE TABLE insurance_claim (                    -- W-11: optional, always visi
 -- W-10 / W-11. Until it arrives it is money EXPECTED, never money earned.
 CREATE TABLE incident_recovery (
   id                    uuid PRIMARY KEY,
+  business_id           uuid NOT NULL REFERENCES business(id),   -- migration 0004
   incident_id           uuid NOT NULL REFERENCES incident(id),
   source                text NOT NULL CHECK (source IN ('customer','insurer')),
   agreed_amount_minor   bigint NOT NULL CHECK (agreed_amount_minor >= 0),
@@ -1257,7 +1267,14 @@ CREATE TABLE offset_allocation (
   id            uuid PRIMARY KEY,
   offset_id     uuid NOT NULL REFERENCES offset_record(id) ON DELETE CASCADE,
   obligation_id uuid NOT NULL REFERENCES obligation(id),
-  amount_minor  bigint NOT NULL CHECK (amount_minor > 0)
+  amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+  -- W-58, migration 0024. No posted_period_id here, same as
+  -- payment_allocation, so this table is not in assert_period_open()'s array
+  -- and this void is never period-gated; the offset_record it belongs to
+  -- carries its own posted_period_id and is gated there instead.
+  voided_at     timestamptz,
+  voided_reason text,
+  voided_by     uuid REFERENCES app_user(id)
 );
 ```
 
