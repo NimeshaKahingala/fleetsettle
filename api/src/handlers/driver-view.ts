@@ -48,6 +48,7 @@ export function toDriverViewResponse(view: DriverOwnView) {
             amountMinor: toWire(m.amountMinor as Minor),
             occurredOn: m.occurredOn,
             reason: m.reason,
+            belongsToPeriodStart: m.belongsToPeriodStart,
             voidedAt: m.voidedAt,
             voidedReason: m.voidedReason,
           })),

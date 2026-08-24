@@ -10,7 +10,9 @@ const FROM = asBusinessDate("2026-01-01");
 const TO = asBusinessDate("2026-12-31");
 
 test("GAP-18/UC-99: tapping Export CSV fetches the blob through the Worker (bearer token intact) and saves it", async () => {
-  const blob = new Blob(["Date,Vehicle,Type,Direction,Amount (Rs)\r\n"], { type: "text/csv" });
+  const blob = new Blob(["Date,Vehicle,Type,Direction,Amount (Rs),Belongs to\r\n"], {
+    type: "text/csv",
+  });
   const getBlob = vi.fn().mockResolvedValue({ blob, contentType: "text/csv" });
   renderWithProviders(
     <ExportTransactionsScreen

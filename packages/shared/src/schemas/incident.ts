@@ -67,6 +67,11 @@ export const incidentRecoveryResponseSchema = z.object({
   receivedAmountMinor: z.string(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
   replacesId: z.string().uuid().nullable(),
+  // GAP-173/W-35/F-8.1: the `period_start` of the period this fact actually
+  // belongs to, set only when that differs from the one it posted into — a
+  // late fact. The date, not a rendered label: formatting is the client's
+  // job here as it is for every other date on the wire.
+  belongsToPeriodStart: z.string().nullable(),
   voidedAt: z.string().nullable(),
   voidedReason: z.string().nullable(),
 });

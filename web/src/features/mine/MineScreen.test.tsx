@@ -50,6 +50,7 @@ const populatedView: DriverViewResponse = {
         amountMinor: "250000",
         occurredOn: "2026-08-01",
         reason: null,
+        belongsToPeriodStart: null,
         voidedAt: null,
         voidedReason: null,
       },
