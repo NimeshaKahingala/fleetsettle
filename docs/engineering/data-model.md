@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.12 — **§15's own lost-days denominator claim was wrong, and the code faithfully implemented the wrong claim.** *"The denominator is `ran + lost` and cannot be inflated by either exclusion"* enumerated two of `day_record.state`'s six values (`not_scheduled`, excluded by construction; `paused_for_trip`, excluded by the `WHERE` clause) and asserted completeness without checking the other three — `open` (a still-unconfirmed day) survives the same `WHERE` clause and was silently counted into `lease_eligible` too, for as long as the requested window contains one. Found by the 19 August 2026 backend review (REV-2026-08-19-03), filed as GAP-147: both `lease_eligible` computations in §15 now filter to exactly `did_not_run`/`ran_%`, and both queries drop a bucket that is entirely still-open (`HAVING … > 0`) rather than showing a bare `lease_eligible = 0` — a number, not the "not available" W-56 asks for.
+**Status:** v1.1.13 — **§4.4 added: `vehicle_loan`, `loan_payment`, `vehicle.purchase_cost_minor`, and the two CHECK migrations that come with them** (`expense.category` gains `'finance'`, `partner_payout.kind` gains `'loan_on_behalf'`). Schema for `use-cases.md` v1.2.15's **UC-106 to UC-109** and `user-flows.md` v1.1.17's **F-12**/**INV-43 to INV-45**. `amortisation_method` carries one permitted value so W-68's flat-only assumption is visible in the schema rather than buried in a formula. **§4.4 states both hand-maintained trigger lists explicitly** — `assert_period_open()`'s array and `write_audit_log()`'s attachment, each of which ran once and does not re-run — **and records that `check:drift` already catches both omissions in three workflows**, so neither needs a bespoke test. Decided 23 Aug 2026.
+
+**v1.1.12** — **§15's own lost-days denominator claim was wrong, and the code faithfully implemented the wrong claim.** *"The denominator is `ran + lost` and cannot be inflated by either exclusion"* enumerated two of `day_record.state`'s six values (`not_scheduled`, excluded by construction; `paused_for_trip`, excluded by the `WHERE` clause) and asserted completeness without checking the other three — `open` (a still-unconfirmed day) survives the same `WHERE` clause and was silently counted into `lease_eligible` too, for as long as the requested window contains one. Found by the 19 August 2026 backend review (REV-2026-08-19-03), filed as GAP-147: both `lease_eligible` computations in §15 now filter to exactly `did_not_run`/`ran_%`, and both queries drop a bucket that is entirely still-open (`HAVING … > 0`) rather than showing a bare `lease_eligible = 0` — a number, not the "not available" W-56 asks for.
 **v1.1.11** — **§13/§14's INV-18 account corrected to match what was actually built.** `lease.closure_summary_shown_at` was documented as a stored-flag gate ("set when the summary renders, and the deposit-settlement handler refuses while it is null") — grepped every write to `lease` (api/src) while fixing GAP-141/F-4 (19 Aug 2026 live QA pass) and found the column is never written by any code path. The real, deliberate mechanism was already recorded in `lease-closure.ts`'s own comment: call ordering (the closure-summary endpoint existing and being called before deposit settlement), not a stored flag. §13's paragraph and §14's INV-18 row now say so, flagged, with the practical consequence stated plainly: nothing server-side stops a direct API call from settling a deposit that skipped its own closure summary. Column kept, not dropped — a future session may still want the stronger version this document originally specified. Same pass separately found and fixed (application code, not this document): `lease.final_period_treatment`/`closed_at` were also never written despite being asked for/computable at exactly the steps that already exist — see the build log, not here, since neither is a schema or invariant change.
 **v1.1.10** — **a platform tier above `business`, and `business_member` no longer capped at one row per user.** §3's own comment calling multi-business membership undescribed anywhere (`one_active_business_per_user`'s header) is corrected — it is now described, in `use-cases.md` Group L and `user-flows.md` §2.4/F-0.3/F-0.4/F-11. That index is **dropped**; `business_member_active_pair` alone now enforces "not the same business twice." New: `app_user.business_allowance`, `platform_admin`, `business_creation_request`, `platform_audit_log`; `driver.linked_user_id` becomes business-scoped. New triggers `platform_admin_audit` and `assert_platform_has_admin()`, mirroring `business_member_audit`/`assert_business_has_owner()` one level up. **§13.1's trigger count was found stale while adding these** — it read "expect 18" against a live schema carrying 43 (measured against QA 18 Aug 2026, not assumed); corrected to the measured figure, now 45 with the two added here. Mechanises `use-cases.md` W-63 to W-67/UC-102 to UC-105 and `user-flows.md` INV-38 to INV-42. Decided 17-18 Aug 2026.
 **v1.1.9** — **D-5 guarded.** The unbuilt `effective_due_on` derivation is now unreachable rather than merely known: `confirmDay` refuses a non-`'daily'` driver (`SETTLEMENT_RHYTHM_UNSUPPORTED`, 409) instead of writing a due date it cannot derive, so FL F-4.5's "a weekly settler is not in arrears on Thursday" can no longer be violated silently — it fails loudly instead. Deliberately **not** a `CHECK` pinning `settlement_rhythm` to `'daily'`: UC-31/UC-37/F-4.5 describe weekly settlement as a real arrangement, and constraining it away would put the schema in contradiction with the product. GAP-135 stays open as the feature it always was. Decided 17 Aug 2026.
@@ -495,6 +497,87 @@ CREATE TABLE vehicle_unavailability (
 **Stays outside `assert_period_open()`'s array (§13).** No `posted_period_id` — an outage is an availability fact, not a money one, the same reasoning `attachment` (§12) and `lease_day_exception` (§7) already carry.
 
 ---
+
+---
+
+### 4.4 Vehicle loans *(added v1.1.13)*
+
+A financed vehicle. Scoped through `vehicle_id` exactly as `ownership_share` is — the loan belongs to a vehicle, and the vehicle belongs to a business.
+
+```sql
+ALTER TABLE vehicle ADD COLUMN purchase_cost_minor bigint;   -- nullable: U-2, never required to save a vehicle
+
+CREATE TABLE vehicle_loan (
+  id                     uuid PRIMARY KEY,
+  vehicle_id             uuid NOT NULL REFERENCES vehicle(id),
+  lender                 text NOT NULL,
+  liability_owner        uuid REFERENCES app_user(id),   -- NULL = the business carries it (UC-107)
+  principal_minor        bigint NOT NULL CHECK (principal_minor > 0),
+  total_repayable_minor  bigint NOT NULL,
+  term_months            integer NOT NULL CHECK (term_months > 0),
+  monthly_payment_minor  bigint CHECK (monthly_payment_minor > 0),
+  payment_day            integer CHECK (payment_day BETWEEN 1 AND 31),
+  -- W-68. One permitted value, so the assumption is visible in the schema
+  -- rather than buried in a formula. Admitting 'reducing' later is a CHECK
+  -- change, not a restructure. Immutable once a payment exists — enforced by
+  -- trigger (§13), not by application code.
+  amortisation_method    text NOT NULL DEFAULT 'flat' CHECK (amortisation_method IN ('flat')),
+  down_payment_minor     bigint CHECK (down_payment_minor > 0),
+  down_payment_by_user_id uuid REFERENCES app_user(id),
+  started_on             date NOT NULL,
+  closed_on              date,
+  CHECK (total_repayable_minor >= principal_minor),
+  -- A down payment names exactly one funder, or neither is set (W-52, UC-106).
+  CHECK ((down_payment_minor IS NULL) = (down_payment_by_user_id IS NULL))
+);
+CREATE INDEX vehicle_loan_vehicle ON vehicle_loan (vehicle_id) WHERE closed_on IS NULL;
+
+-- A money table. Everything in §10's conventions applies.
+CREATE TABLE loan_payment (
+  id            uuid PRIMARY KEY,
+  business_id   uuid NOT NULL REFERENCES business(id),
+  loan_id       uuid NOT NULL REFERENCES vehicle_loan(id),
+  amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+  paid_on       date NOT NULL,
+  is_settlement boolean NOT NULL DEFAULT false,   -- UC-108, F-12.3
+  -- W-69/INV-43: principal the lender forgave. A fact about the loan, never a
+  -- money record — no income, no expense, no adjustment row anywhere.
+  waived_minor  bigint NOT NULL DEFAULT 0 CHECK (waived_minor >= 0),
+  note          text,
+  posted_period_id uuid NOT NULL REFERENCES accounting_period(id),
+  belongs_to_period_id uuid REFERENCES accounting_period(id),  -- W-35
+  voided_at     timestamptz,                  -- W-50: voided, never deleted
+  voided_reason text,
+  voided_by     uuid REFERENCES app_user(id),
+  replaces_id   uuid REFERENCES loan_payment(id)
+);
+CREATE INDEX loan_payment_loan ON loan_payment (loan_id, paid_on) WHERE voided_at IS NULL;
+```
+
+**Two CHECK-constraint migrations come with these, and both are easy to forget because the tables above look self-contained:**
+
+```sql
+-- UC §6.7's own row: always 'us', in all three arrangements.
+ALTER TABLE expense DROP CONSTRAINT expense_category_check;
+ALTER TABLE expense ADD  CONSTRAINT expense_category_check CHECK (category IN (…, 'finance'));
+
+-- UC-107: an owner's own loan paid from business cash is a drawing, not a cost.
+ALTER TABLE partner_payout DROP CONSTRAINT partner_payout_kind_check;
+ALTER TABLE partner_payout ADD  CONSTRAINT partner_payout_kind_check
+  CHECK (kind IN ('payout','partner_settlement','loan_on_behalf'));
+```
+
+**`loan_payment` is a money table, and two hand-maintained lists decide whether it behaves like one.** Carrying `posted_period_id` is not enough on its own, and neither omission fails at write time:
+
+1. **`assert_period_open()`'s array** (migration `0001`, revised `0006`) is a literal `ARRAY[…]` of table names and **ran once**. A table created afterwards gets no trigger and silently accepts writes into a settled month. §13 states the rule; the list has already drifted four times.
+2. **`write_audit_log()`'s trigger must be created by hand.** Migration `0002` attaches it by a catalogue query over every table carrying `posted_period_id` — but **that `DO` block ran once, in `0002`, and does not re-run.** Precedent: `0010` wrote `CREATE TRIGGER business_member_audit` explicitly for exactly this reason, and `0030` reasons about it for the platform tier's three tables.
+
+So the loan migration must contain **both** `CREATE TRIGGER loan_payment_period_open` **and** `CREATE TRIGGER loan_payment_audit`, written out literally.
+
+**Both omissions do fail loudly, and that is worth knowing before budgeting tests for them.** `api/scripts/assert-no-trigger-drift.sql` checks *both* triggers for every table carrying `posted_period_id` and expects zero rows, and `check:drift` runs it in three workflows — `integration.yml`, `deploy-qa.yml` and `migrate-production.yml`. A missed table fails CI before it can reach QA. **No bespoke test is needed for either**; the standing assertion already covers them, and adding one would be a second copy of a rule (§18).
+
+**Derived, never stored** — `remaining to pay`, principal outstanding, the finance/principal split of any given payment, and `behind by`. All four fall out of the loan's own four numbers plus the sum of its live payments. Storing any of them creates a figure that can go stale against the rows it summarises, which is the same reasoning §10.4 already applies to a deposit's held balance.
+
 
 ## 5. Parties
 

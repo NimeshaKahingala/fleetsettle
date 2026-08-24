@@ -1,6 +1,8 @@
 # Implementation Guidelines
 
-**Status:** v1.7 — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
+**Status:** v1.8 — **§16.1's trigger-drift row sharpened to name both triggers and all three workflows, with a note on the half of it that is routinely under-read.** The two hand-maintained lists (`assert_period_open()`'s array, `write_audit_log()`'s attachment) do each run once and do not re-run — but **neither omission is silent**, because `check:drift` catches both in `integration.yml`, `deploy-qa.yml` and `migrate-production.yml`. Recorded because a design note budgeted two bespoke tests for exactly this before it was checked. Serves `data-model.md` v1.1.13 §4.4. Decided 23 Aug 2026.
+
+**v1.7** — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
 **v1.6.1** — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
 **Date:** 10 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
@@ -577,7 +579,7 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | Destructive or misnumbered migration | Guard script | `api/migrations/` |
 | Secret in `vars`, tracked `.env` | Guard script | `wrangler.jsonc`, the git index |
 | `workers_dev` left on | Guard script | positive assertion |
-| Trigger-array drift | SQL assertion | DM §13, integration job |
+| Trigger drift — **both** `_period_open` and `_audit`, on every table carrying `posted_period_id` | SQL assertion | DM §13 · `api/scripts/assert-no-trigger-drift.sql` via `check:drift`, in `integration.yml`, `deploy-qa.yml` **and** `migrate-production.yml` |
 | Golden fixtures move | Integration tests | FL §9.1 |
 | Level-2 field required to save | Component test | UI §4, every create form |
 | Linked driver reaches another driver's data | Integration tests | §8.3, its own test class |
@@ -587,6 +589,11 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | Platform query imports money-table schema (added 18 Aug 2026, §7.6) | Guard script | `api/src/queries/platform/` importing from `db/schema.ts`'s money-table exports |
 
 The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
+
+
+**One row above is routinely under-read, and it costs a test each time.** Two lists decide whether a new money table behaves like one — `assert_period_open()`'s literal `ARRAY[…]` in migration `0001`, and `write_audit_log()`'s attachment in `0002` — and **both ran once and do not re-run**, so a table created later gets neither trigger unless its own migration writes them out. That much is true and is stated in DM §4.4.
+
+What gets missed is the second half: **neither omission is silent.** `assert-no-trigger-drift.sql` checks *both* triggers for *every* table carrying `posted_period_id` and expects zero rows, and `check:drift` runs it in three workflows. A missed table fails CI before it can reach QA. **No feature adding a money table needs a bespoke test for either list** — a design note for vehicle loans budgeted two before this was checked (`PENDING-FEATURES-DESIGN-2026-08-23.md`, corrected in `COMBINED-PLAN-2026-08-23.md`). Writing one would be a second copy of a rule, which §1 already rules against.
 
 ### 16.2 The rules are disable-able, deliberately
 
