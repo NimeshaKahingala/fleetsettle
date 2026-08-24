@@ -100,32 +100,56 @@ CREATE UNIQUE INDEX incident_recovery_one_live_per_source
 -- as B18 in this same step. Adding a fifth would be widening the defect
 -- while pinning it. FS001 is in an unused class, so the matcher for this one
 -- keys on the code alone and no message text is load-bearing.
+--
+-- The columns to check are passed in, not hard-coded.
+--
+-- The first draft read four fixed names — `driver_id`, `customer_id`,
+-- `party_driver_id`, `party_customer_id` — and Gitar's review of this PR
+-- caught what that costs: `expense` carries `posted_period_id` and names its
+-- party as `borne_by_driver_id`/`borne_by_customer_id` (W-48 keeps
+-- `borne_by` and `paid_by` apart), so it was silently outside the set *and*
+-- the drift check called it clean. A hand-written list of column names is
+-- the same failure mode as a hand-written list of tables, one level down,
+-- and it had been written into the very migration whose argument is that
+-- such lists drift.
+--
+-- The set now comes from the foreign keys: any column in a money table that
+-- REFERENCES driver or customer, whatever it is called. Each trigger is
+-- created with its own table's party columns as arguments, in
+-- (party table, column) pairs, so the function needs no list of its own.
 CREATE OR REPLACE FUNCTION assert_party_not_archived() RETURNS trigger AS $$
 DECLARE
   row_json jsonb := to_jsonb(NEW);
-  driver_ref   uuid;
-  customer_ref uuid;
+  i        int := 0;
+  party    text;
+  col      text;
+  ref      uuid;
+  archived boolean;
 BEGIN
-  -- Read through jsonb rather than NEW.<column>: the guarded tables spell the
-  -- reference four different ways and no single table has all four, so a
-  -- direct reference would raise on every table missing that column. One
-  -- function serves all of them, the same way write_audit_log() does.
-  driver_ref := COALESCE(row_json ->> 'driver_id', row_json ->> 'party_driver_id')::uuid;
-  customer_ref := COALESCE(row_json ->> 'customer_id', row_json ->> 'party_customer_id')::uuid;
+  -- TG_ARGV is 0-indexed and arrives as flat pairs: party table, then column.
+  WHILE i < TG_NARGS LOOP
+    party := TG_ARGV[i];
+    col   := TG_ARGV[i + 1];
+    ref   := (row_json ->> col)::uuid;
 
-  IF driver_ref IS NOT NULL
-     AND EXISTS (SELECT 1 FROM driver d
-                  WHERE d.id = driver_ref AND d.voided_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'party is archived: driver %', driver_ref
-      USING ERRCODE = 'FS001';
-  END IF;
+    IF ref IS NOT NULL THEN
+      archived := NULL;
+      IF party = 'driver' THEN
+        SELECT true INTO archived FROM driver d
+          WHERE d.id = ref AND d.voided_at IS NOT NULL;
+      ELSE
+        SELECT true INTO archived FROM customer c
+          WHERE c.id = ref AND c.voided_at IS NOT NULL;
+      END IF;
 
-  IF customer_ref IS NOT NULL
-     AND EXISTS (SELECT 1 FROM customer c
-                  WHERE c.id = customer_ref AND c.voided_at IS NOT NULL) THEN
-    RAISE EXCEPTION 'party is archived: customer %', customer_ref
-      USING ERRCODE = 'FS001';
-  END IF;
+      IF archived THEN
+        RAISE EXCEPTION 'party is archived: % % (via %.%)', party, ref, TG_TABLE_NAME, col
+          USING ERRCODE = 'FS001';
+      END IF;
+    END IF;
+
+    i := i + 2;
+  END LOOP;
 
   RETURN NEW;
 END $$ LANGUAGE plpgsql;
@@ -136,11 +160,14 @@ END $$ LANGUAGE plpgsql;
 -- hand-maintained period-open array has already drifted, and a second
 -- hand-maintained list is a second chance to make the same mistake. The
 -- membership test here is "a money table that names a party" — carries
--- posted_period_id, and carries at least one of the four party columns.
+-- `posted_period_id`, and carries at least one foreign key to `driver` or
+-- `customer`. Both halves are catalogue questions, so neither can go stale
+-- against a table or a column someone adds later without saying so.
 --
 -- Like 0002's block this runs once, so a party-referencing money table
--- created later gets no trigger from it. That is what the drift assertion is
--- for: it fails CI rather than going quiet.
+-- created later gets no trigger from it — and neither does a party column
+-- added to a table already guarded. That is what the drift assertion is
+-- for: it checks both, and fails CI rather than going quiet.
 --
 -- What this test does *not* reach, said plainly rather than left to be
 -- discovered: `deposit` and `opening_balance_entry` both name a party and
@@ -149,30 +176,36 @@ END $$ LANGUAGE plpgsql;
 -- the money lives in `deposit_movement`, which names the deposit rather than
 -- the party — so taking a *new* deposit from an archived driver is still
 -- possible. W-60 makes it unlikely (a party cannot be archived while holding
--- one) but not impossible. Filed rather than widened: the alternative
--- membership test, "names a party" without the money qualifier, pulls in
--- `lease`, `daily_lease` and `driver_link_invite`, which are arrangements and
--- identity rather than money and want a different answer.
+-- one) but not impossible. Filed as GAP-187 rather than widened: dropping
+-- the `posted_period_id` half of the test pulls in `lease`, `daily_lease`,
+-- `driver_link_invite` and `message`, which are arrangements, identity and
+-- correspondence rather than money and want a different answer.
 DO $$
-DECLARE t text;
+DECLARE t record;
 BEGIN
   FOR t IN
-    SELECT c.relname
+    SELECT c.relname,
+           string_agg(format('%L, %L', fk.confrelid::regclass::text, a.attname),
+                      ', ' ORDER BY a.attname) AS args
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_constraint fk ON fk.conrelid = c.oid
+                           AND fk.contype = 'f'
+                           AND fk.confrelid IN ('driver'::regclass, 'customer'::regclass)
+      JOIN pg_attribute a ON a.attrelid = c.oid
+                         AND a.attnum = fk.conkey[1]
+                         AND NOT a.attisdropped
      WHERE n.nspname = 'public'
        AND c.relkind = 'r'
        AND EXISTS (SELECT 1 FROM pg_attribute p
                     WHERE p.attrelid = c.oid AND NOT p.attisdropped
                       AND p.attname = 'posted_period_id')
-       AND EXISTS (SELECT 1 FROM pg_attribute p
-                    WHERE p.attrelid = c.oid AND NOT p.attisdropped
-                      AND p.attname IN ('driver_id', 'customer_id',
-                                        'party_driver_id', 'party_customer_id'))
+     GROUP BY c.relname
      ORDER BY c.relname
   LOOP
     EXECUTE format(
       'CREATE TRIGGER %I_archive_guard BEFORE INSERT ON %I '
-      'FOR EACH ROW EXECUTE FUNCTION assert_party_not_archived()', t, t);
+      'FOR EACH ROW EXECUTE FUNCTION assert_party_not_archived(%s)',
+      t.relname, t.relname, t.args);
   END LOOP;
 END $$;

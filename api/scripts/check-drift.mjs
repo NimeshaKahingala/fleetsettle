@@ -60,19 +60,23 @@ if (periodOpenAndAudit.length > 0) {
 // GAP-178/B13. A separate list because it is a different set of tables:
 // "carries posted_period_id" above, "carries posted_period_id *and* names a
 // driver or customer" here. Migration 0031 attaches these from the catalogue,
-// but like 0002's block it runs once — a party-referencing money table added
-// afterwards accrues money against archived parties in silence.
+// but like 0002's block it runs once — so this reports per *column*, not per
+// table: a party column added to an already-guarded table is the quieter of
+// the two ways to drift, and the one a trigger-exists check cannot see.
 if (archiveGuard.length > 0) {
-  console.error(
-    `\n${archiveGuard.length} party-referencing money table(s) missing the archive guard:\n`,
-  );
+  console.error(`\n${archiveGuard.length} party column(s) not covered by an archive guard:\n`);
   for (const r of archiveGuard) {
-    console.error(`  ${r.table_name} — missing: assert_party_not_archived`);
+    const why = r.missing_trigger
+      ? "no <table>_archive_guard trigger at all"
+      : "trigger exists but does not name this column";
+    console.error(`  ${r.table_name}.${r.party_column} — ${why}`);
   }
   console.error(
     "\nWrite a migration attaching `<table>_archive_guard` (BEFORE INSERT, " +
-      "FOR EACH ROW, assert_party_not_archived) — migration 0031 is the shape " +
-      "to copy. Never patch this by hand against a live database.",
+      "FOR EACH ROW, assert_party_not_archived(<party table>, <column>, …)) — " +
+      "migration 0031 is the shape to copy, and it derives the columns from " +
+      "the foreign keys rather than naming them. Never patch this by hand " +
+      "against a live database.",
   );
 }
 

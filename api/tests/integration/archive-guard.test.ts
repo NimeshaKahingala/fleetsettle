@@ -142,27 +142,63 @@ describe("migration 0031 — the archived-party guard", () => {
     expect(id).toBeTruthy();
   });
 
-  it("covers every money table that names a party, and the set comes from the catalogue", async () => {
-    const { rows } = await db.execute<{ table_name: string }>(sql`
-      SELECT c.relname AS table_name
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-       WHERE n.nspname = 'public' AND c.relkind = 'r'
-         AND EXISTS (SELECT 1 FROM pg_attribute p
-                      WHERE p.attrelid = c.oid AND NOT p.attisdropped
-                        AND p.attname = 'posted_period_id')
-         AND EXISTS (SELECT 1 FROM pg_attribute p
-                      WHERE p.attrelid = c.oid AND NOT p.attisdropped
-                        AND p.attname IN ('driver_id', 'customer_id',
-                                          'party_driver_id', 'party_customer_id'))
-         AND NOT EXISTS (SELECT 1 FROM pg_trigger g
-                          WHERE g.tgrelid = c.oid AND NOT g.tgisinternal
-                            AND g.tgname = c.relname || '_archive_guard')
-       ORDER BY c.relname`);
+  /**
+   * Found by Gitar's review of PR #117. `expense` names its party
+   * `borne_by_driver_id` (W-48 keeps `borne_by` and `paid_by` apart), so the
+   * first draft's hard-coded four column names missed it entirely — and the
+   * drift check reported clean, which is worse than the gap. An expense
+   * borne by an archived driver is new money against an archived party, so
+   * it is exactly what B13 forbids.
+   */
+  it("refuses an expense borne by an archived driver — a party column not called driver_id", async () => {
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const { userId } = await mintUser(db, ctx, businessId, "owner");
+    await archive(driver, driverId, userId);
 
-    // Same query api/scripts/assert-no-archive-guard-drift.sql runs in CI.
-    // Asserted here as well so a developer running the suite locally sees a
-    // missing guard without needing the drift job.
+    let caught: unknown;
+    try {
+      await db.execute(sql`
+        INSERT INTO expense (id, business_id, category, amount_minor, spent_on,
+                             borne_by, borne_by_driver_id, posted_period_id)
+        VALUES (gen_random_uuid(), ${businessId}, 'fuel', 5000, '2026-07-10',
+                'driver', ${driverId}, ${periodId})`);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPartyArchivedViolation(caught)).toBe(true);
+  });
+
+  it("covers every party column of every money table, and the set comes from the foreign keys", async () => {
+    const { rows } = await db.execute<{ table_name: string; party_column: string }>(sql`
+      WITH party_columns AS (
+        SELECT c.oid AS reloid, c.relname AS table_name, a.attname AS party_column
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          JOIN pg_constraint fk ON fk.conrelid = c.oid AND fk.contype = 'f'
+                               AND fk.confrelid IN ('driver'::regclass, 'customer'::regclass)
+          JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = fk.conkey[1]
+                             AND NOT a.attisdropped
+         WHERE n.nspname = 'public' AND c.relkind = 'r'
+           AND EXISTS (SELECT 1 FROM pg_attribute p
+                        WHERE p.attrelid = c.oid AND NOT p.attisdropped
+                          AND p.attname = 'posted_period_id')
+      )
+      SELECT p.table_name, p.party_column
+        FROM party_columns p
+       WHERE NOT EXISTS (
+               SELECT 1 FROM pg_trigger g
+                WHERE g.tgrelid = p.reloid AND NOT g.tgisinternal
+                  AND g.tgname = p.table_name || '_archive_guard'
+                  AND pg_get_triggerdef(g.oid) LIKE '%' || quote_literal(p.party_column) || '%')
+       ORDER BY p.table_name, p.party_column`);
+
+    // The same query api/scripts/assert-no-archive-guard-drift.sql runs in
+    // CI. Asserted here too so a developer running the suite locally sees an
+    // uncovered column without needing the drift job — and it is per
+    // *column*, not per table, because a party column added to an
+    // already-guarded table is the quieter of the two ways to drift.
     expect(rows).toEqual([]);
   });
 });
