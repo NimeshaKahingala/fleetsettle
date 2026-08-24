@@ -59,24 +59,31 @@ export async function recordWriteOff(
 ): Promise<RecordedWriteOff> {
   try {
     return await writer.transaction(async (tx) => {
+      // GAP-178/B15: the period is resolved before anything is written, not
+      // after. Atomic either way — this is all one transaction — but written
+      // first, a PERIOD_CLOSED rolls back an obligation update that had
+      // already fired its audit trigger, so the audit trail records a change
+      // to a settled month that no row reflects. Fail before touching
+      // anything, the way deposit.ts already does.
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.writtenOffOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
       if (input.obligationId !== undefined) {
         const obligation = await findObligationForBusiness(
           tx,
           input.businessId,
           input.obligationId,
+          true,
         );
         if (!obligation || obligation.voidedAt !== null) {
           throw new NotFoundError("No such obligation in this business");
         }
-        await updateObligationSettled(tx, input.obligationId, {
+        await updateObligationSettled(tx, input.businessId, input.obligationId, {
           settledMinor: obligation.settledMinor,
           status: "written_off",
         });
       }
-
-      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.writtenOffOn);
-      if (!linkage)
-        throw new PeriodClosedError("No accounting period covers this business date yet");
 
       if (input.replacesId !== undefined) {
         const target = await findWriteOffForBusiness(tx, input.businessId, input.replacesId);
@@ -274,10 +281,10 @@ export async function voidWriteOff(
   try {
     return await writer.transaction(async (tx) => {
       if (wo.obligationId !== null) {
-        const ob = await findObligationForBusiness(tx, input.businessId, wo.obligationId);
+        const ob = await findObligationForBusiness(tx, input.businessId, wo.obligationId, true);
         if (ob && ob.voidedAt === null) {
           const status = computeObligationStatus(ob.amountMinor, ob.settledMinor, ob.waivedMinor);
-          await updateObligationSettled(tx, wo.obligationId, {
+          await updateObligationSettled(tx, input.businessId, wo.obligationId, {
             settledMinor: ob.settledMinor,
             status,
           });

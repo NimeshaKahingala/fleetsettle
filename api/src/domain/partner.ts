@@ -117,25 +117,29 @@ export async function recordCapitalContribution(
   writer: Writer,
   input: RecordCapitalContributionInput,
 ): Promise<RecordedCapitalContribution> {
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.contributedOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findCapitalContributionForBusiness(
-      writer,
-      input.businessId,
-      input.replacesId,
-    );
-    if (!target) throw new NotFoundError("No such capital contribution in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-  }
-
   const contributionId = newId();
   try {
     // See setOwnershipShares's own comment — withActor only attributes
     // writes inside a real transaction.
-    await writer.transaction((tx) =>
-      insertCapitalContribution(tx, {
+    // GAP-178/B5: read inside the transaction that acts on it. Resolved
+    // before it, the period can close between the check and the insert and
+    // the row lands stamped with a month that is now settled.
+    await writer.transaction(async (tx) => {
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.contributedOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findCapitalContributionForBusiness(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
+        if (!target) throw new NotFoundError("No such capital contribution in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
+      await insertCapitalContribution(tx, {
         id: contributionId,
         businessId: input.businessId,
         ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
@@ -148,8 +152,8 @@ export async function recordCapitalContribution(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      }),
-    );
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "capital_contribution_replaces_id_key")) {
@@ -282,20 +286,24 @@ export async function recordBankingEvent(
   writer: Writer,
   input: RecordBankingEventInput,
 ): Promise<RecordedBankingEvent> {
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.bankedOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findBankingEventForBusiness(writer, input.businessId, input.replacesId);
-    if (!target) throw new NotFoundError("No such banking event in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-  }
-
   const bankingEventId = newId();
   try {
     // See setOwnershipShares's own comment.
-    await writer.transaction((tx) =>
-      insertBankingEvent(tx, {
+    // GAP-178/B5: read inside the transaction that acts on it. Resolved
+    // before it, the period can close between the check and the insert and
+    // the row lands stamped with a month that is now settled.
+    await writer.transaction(async (tx) => {
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.bankedOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findBankingEventForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such banking event in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
+      await insertBankingEvent(tx, {
         id: bankingEventId,
         businessId: input.businessId,
         fromUserId: input.fromUserId,
@@ -313,8 +321,8 @@ export async function recordBankingEvent(
           : {}),
         createdBy: input.createdBy,
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      }),
-    );
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "banking_event_replaces_id_key")) {
@@ -390,20 +398,24 @@ export async function recordPartnerPayout(
   writer: Writer,
   input: RecordPartnerPayoutInput,
 ): Promise<RecordedPartnerPayout> {
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.occurredOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findPartnerPayoutForBusiness(writer, input.businessId, input.replacesId);
-    if (!target) throw new NotFoundError("No such payout in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-  }
-
   const payoutId = newId();
   try {
     // See setOwnershipShares's own comment.
-    await writer.transaction((tx) =>
-      insertPartnerPayout(tx, {
+    // GAP-178/B5: read inside the transaction that acts on it. Resolved
+    // before it, the period can close between the check and the insert and
+    // the row lands stamped with a month that is now settled.
+    await writer.transaction(async (tx) => {
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findPartnerPayoutForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such payout in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
+      await insertPartnerPayout(tx, {
         id: payoutId,
         businessId: input.businessId,
         userId: input.userId,
@@ -415,8 +427,8 @@ export async function recordPartnerPayout(
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      }),
-    );
+      });
+    });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     if (isUniqueViolation(err, "partner_payout_replaces_id_key")) {

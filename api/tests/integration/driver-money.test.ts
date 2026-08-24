@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { obligation, offsetAllocation } from "../../src/db/schema.js";
+import { obligation, offsetAllocation, offsetRecord } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -770,14 +770,27 @@ describe("offset and the two-balances query (P4, F-6.4/UC-56/W-2)", () => {
       post("/api/offset", token, body),
       post("/api/offset", token, body),
     ]);
-    expect(r1.status).toBe(201);
-    expect(r2.status).toBe(201);
-    const [b1, b2] = (await Promise.all([r1.json(), r2.json()])) as [
-      { id: string },
-      { id: string },
-    ];
-    ctx.trackCreatedOffset(b1.id);
-    ctx.trackCreatedOffset(b2.id);
+
+    // GAP-178/B11 changed what the loser does, and the change is the point.
+    //
+    // Before: both returned 201, and this test asserted `totalAllocated` was
+    // 10,000 — which is to say the second offset created an `offset_record`
+    // for 10,000 carrying **no allocations at all** on the owed_to_us side.
+    // The obligation was correctly protected from over-allocation, and the
+    // phantom offset was tolerated. But INV-3/W-2 is that an offset moves the
+    // *same amount on both* of a driver's balances, so a record claiming
+    // 10,000 with nothing behind it on one side breaks the one invariant the
+    // whole mechanism exists for, silently and permanently.
+    //
+    // Now: the winner allocates in full, the loser finds nothing outstanding
+    // once it holds the lock, and is refused rather than writing a record it
+    // cannot back. One 201, one 400.
+    const statuses = [r1.status, r2.status].sort((a, b) => a - b);
+    expect(statuses).toEqual([201, 400]);
+
+    const created = r1.status === 201 ? r1 : r2;
+    const { id: offsetId }: { id: string } = await created.json();
+    ctx.trackCreatedOffset(offsetId);
 
     const [obRow] = await db.select().from(obligation).where(eq(obligation.id, owedToUsId));
     const allocRows = await db
@@ -786,9 +799,18 @@ describe("offset and the two-balances query (P4, F-6.4/UC-56/W-2)", () => {
       .where(eq(offsetAllocation.obligationId, owedToUsId));
     const totalAllocated = allocRows.reduce((sum, a) => sum + a.amountMinor, 0n);
 
+    // Unchanged and still the heart of GAP-5a: the obligation is never
+    // allocated past its own amount.
     expect(totalAllocated).toBe(10_000n);
     expect(obRow?.settledMinor).toBe(10_000n);
     expect(obRow?.settledMinor).toBe(totalAllocated);
+
+    // GAP-178/B11: and no offset_record stands without allocations behind it.
+    const liveOffsets = await db
+      .select({ id: offsetRecord.id, amountMinor: offsetRecord.amountMinor })
+      .from(offsetRecord)
+      .where(and(eq(offsetRecord.driverId, driverId), isNull(offsetRecord.voidedAt)));
+    expect(liveOffsets).toHaveLength(1);
 
     await ctx.cleanup();
   });

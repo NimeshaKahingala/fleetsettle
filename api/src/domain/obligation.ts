@@ -42,37 +42,45 @@ export async function voidObligation(
   writer: Writer,
   input: VoidObligationInput,
 ): Promise<VoidedObligation> {
-  const ob = await findObligationForVoid(writer, input.businessId, input.obligationId);
-  if (!ob) throw new NotFoundError("No such obligation in this business");
-  if (ob.voidedAt !== null) throw new ObligationAlreadyVoidedError();
-
-  if (!DIRECTLY_VOIDABLE_KINDS.has(ob.kind)) {
-    throw new ValidationError(
-      `An obligation of kind '${ob.kind}' cannot be voided directly — correct it at its source ` +
-        "(close the lease, void the day, cancel the trip) instead",
-    );
-  }
-
-  const blockers = await findLiveBlockersForObligation(writer, input.obligationId);
-  if (blockers.length > 0) {
-    const items: VoidBlockingItem[] = blockers.map((b) => ({
-      kind: b.kind,
-      id: b.id,
-      amountMinor: b.amountMinor.toString(),
-    }));
-    throw new VoidBlockedError(
-      "Cannot void — money is already allocated or adjusted against this obligation. Void " +
-        "those first, each with its own reason",
-      items,
-    );
-  }
-
   try {
     // withActor (db/client.ts) only attributes writes inside a real
     // transaction — wrapped here for that reason, the same as every other
     // void in this codebase.
+    //
+    // GAP-178/B12: the blocker check reads inside that transaction too.
+    // Read before it, a payment can be allocated against this obligation
+    // between "nothing is blocking" and the void — and the void succeeds,
+    // leaving an allocation pointing at a voided obligation. That is the
+    // double-count VoidBlockedError exists to prevent.
     const voided = await writer.transaction(async (tx) => {
-      await voidObligationById(tx, input.obligationId, {
+      // GAP-178/B12: locked, so an allocation cannot land against this
+      // obligation between the blocker check below and the void.
+      const ob = await findObligationForVoid(tx, input.businessId, input.obligationId, true);
+      if (!ob) throw new NotFoundError("No such obligation in this business");
+      if (ob.voidedAt !== null) throw new ObligationAlreadyVoidedError();
+
+      if (!DIRECTLY_VOIDABLE_KINDS.has(ob.kind)) {
+        throw new ValidationError(
+          `An obligation of kind '${ob.kind}' cannot be voided directly — correct it at its ` +
+            "source (close the lease, void the day, cancel the trip) instead",
+        );
+      }
+
+      const blockers = await findLiveBlockersForObligation(tx, input.obligationId);
+      if (blockers.length > 0) {
+        const items: VoidBlockingItem[] = blockers.map((b) => ({
+          kind: b.kind,
+          id: b.id,
+          amountMinor: b.amountMinor.toString(),
+        }));
+        throw new VoidBlockedError(
+          "Cannot void — money is already allocated or adjusted against this obligation. Void " +
+            "those first, each with its own reason",
+          items,
+        );
+      }
+
+      await voidObligationById(tx, input.businessId, input.obligationId, {
         voidedReason: input.reason,
         voidedBy: input.userId,
       });
