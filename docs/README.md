@@ -4,7 +4,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 
 | # | Document | Owns | Never decides |
 |---|---|---|---|
-| 1 | [product/use-cases.md](product/use-cases.md) | **Intent.** What the business does, the 57 `W-n` decisions, the usability contract `U-1…U-9` | Screens, schema, technology |
+| 1 | [product/use-cases.md](product/use-cases.md) | **Intent.** What the business does, the 70 `W-n` decisions, the usability contract `U-1…U-9` | Screens, schema, technology |
 | 2 | [product/user-flows.md](product/user-flows.md) | **Mechanics.** State machines, the 30 invariants `INV-n`, the 62 flows `F-n`, acceptance criteria, the test plan | Intent — it executes §1, it does not revise it |
 | 3 | [engineering/data-model.md](engineering/data-model.md) | **The schema.** DDL, constraints, triggers, the report queries, the flow-to-table matrix | Behaviour |
 | 4 | [engineering/tech-stack.md](engineering/tech-stack.md) | **The stack.** Runtime, database, driver, auth, storage, and the four platform constraints that shaped the schema | How to build on it |
@@ -64,12 +64,12 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.14 | 18 Aug 2026 |
-| user-flows | v1.1.16 | 21 Aug 2026 |
-| data-model | v1.1.12 | 20 Aug 2026 |
+| use-cases | v1.2.15 | 23 Aug 2026 |
+| user-flows | v1.1.17 | 23 Aug 2026 |
+| data-model | v1.1.13 | 23 Aug 2026 |
 | tech-stack | v1.4 | 18 Aug 2026 |
-| implementation-guidelines | v1.7 | 18 Aug 2026 |
-| ui-ux-guidelines | v1.8 | 22 Aug 2026 |
+| implementation-guidelines | v1.8 | 23 Aug 2026 |
+| ui-ux-guidelines | v1.9 | 23 Aug 2026 |
 | brand-guidelines | v1.1.1 | 22 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
