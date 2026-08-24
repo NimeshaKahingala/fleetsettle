@@ -14,6 +14,33 @@ export const moneyWireSchema = z
   .regex(/^-?\d+$/, "Not a money value — whole minor units as a decimal string")
   .transform(parseMoney);
 
+/**
+ * GAP-177/B21. Money that must be a real amount, not merely a valid one.
+ *
+ * Zero passes `moneyWireSchema` — it is a well-formed money value — and that
+ * is correct for an accumulator column starting empty. It is wrong for an
+ * amount a person typed, because a charter given away free must be recorded
+ * at its full price with an explicit waiver, so it reaches UC-77's annual
+ * "goodwill given" total (FL §5.73: *"the month shows the 340 charged and the
+ * 340 waived"*). Entering `0` bypasses the very report the feature exists to
+ * produce, and does it silently.
+ *
+ * **This is an input rule, never a column constraint.** The DB `CHECK` on
+ * these columns stays `>= 0`: `insurance_claim.received_amount_minor` and
+ * `incident_recovery.received_amount_minor` legitimately start at zero before
+ * any money has arrived, and tightening the column would break claim
+ * creation. Two different questions, two different floors.
+ *
+ * Was four private copies before this (`adjustment`, `write-off`,
+ * `driver-money` and, with its own better-worded message, `opening-balance`).
+ * The first three are now this one; `opening-balance` keeps its own, because
+ * "An opening balance entry must be a positive amount" says more than a
+ * generic message would and losing it would be a silent regression.
+ */
+export const positiveMoneyWireSchema = moneyWireSchema.refine((v) => v > 0n, {
+  message: "amountMinor must be greater than zero",
+});
+
 export const businessDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Not a business date — expected YYYY-MM-DD")

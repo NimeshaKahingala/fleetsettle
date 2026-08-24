@@ -1,9 +1,11 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema, voidedResponseSchema } from "./common.js";
-
-const positiveMoneyWireSchema = moneyWireSchema.refine((v) => v > 0n, {
-  message: "amountMinor must be greater than zero",
-});
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+  voidedResponseSchema,
+} from "./common.js";
 
 /** F-6.3/UC-53: money handed to the driver up front — not a cost (§1.5) until it is settled. */
 export const issueAdvanceRequestSchema = z.object({

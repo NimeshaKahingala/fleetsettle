@@ -1,9 +1,10 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
-
-const positiveMoneyWireSchema = moneyWireSchema.refine((v) => v > 0n, {
-  message: "amountMinor must be greater than zero",
-});
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 
 /**
  * F-8.3/UC-90/W-28: a loss you were handed, never pooled with a waiver

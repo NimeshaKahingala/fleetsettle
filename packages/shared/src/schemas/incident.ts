@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 
 export const incidentStatusSchema = z.enum([
   "open",
@@ -79,7 +84,9 @@ export type IncidentRecoveryResponse = z.infer<typeof incidentRecoveryResponseSc
 
 /** F-3.4 step 4/W-10: negotiated after the repair cost is known — an agreed amount plus a note, entered whenever that agreement happens. */
 export const recordCustomerContributionRequestSchema = z.object({
-  agreedAmountMinor: moneyWireSchema,
+  // GAP-177: a customer contributing nothing is not a contribution — record no
+  // recovery at all, or record the real figure and waive it (UC-77).
+  agreedAmountMinor: positiveMoneyWireSchema,
   agreedOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
   // GAP-60/D-16/F-8.5: set when this contribution is the corrected
