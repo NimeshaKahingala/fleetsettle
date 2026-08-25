@@ -1,3 +1,4 @@
+import { newId } from "@fleetsettle/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
@@ -10,6 +11,7 @@ import {
   payment,
 } from "../../src/db/schema.js";
 import { recordIncidentRecoveryReceived } from "../../src/queries/incident.js";
+import { voidObligationBySource } from "../../src/queries/obligation.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -1887,6 +1889,85 @@ describe("replacesId across a different parent is refused (Gitar, PR #45)", () =
       replacesId: recoveredOnABody.id,
     });
     expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * The tenancy predicate on `voidObligationBySource`, tested at the query
+ * boundary rather than through an endpoint.
+ *
+ * **Why not through `cancelTrip` or `voidIncidentRecovery`:** both resolve
+ * their source business-scoped first (`findTripForBusiness`,
+ * `findIncidentRecoveryForBusiness`), so neither can present this function
+ * with a foreign `sourceId` — which means an endpoint test would pass
+ * whether or not the `business_id` predicate exists. Copilot made exactly
+ * that point on PR #127, and it was right: the fix had no test with teeth.
+ *
+ * So this constructs the state the API cannot produce — two live
+ * obligations sharing one `(source_type, source_id)` across two businesses
+ * — the same "bypass the domain to reach the state it forbids" shape
+ * GAP-178's own concurrency tests and GAP-109's recovery test already use.
+ */
+describe("voidObligationBySource is scoped by business (GAP-178/B14a's class)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  it("voids only the caller's obligation when two businesses share one source id", async () => {
+    const ctx = new TestContext(db);
+
+    const mineBusinessId = await ctx.createBusiness();
+    const minePeriodId = await ctx.createOpenPeriod(mineBusinessId);
+    const mineCustomerId = await ctx.createCustomer(mineBusinessId);
+
+    const theirsBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const theirsPeriodId = await ctx.createOpenPeriod(theirsBusinessId);
+    const theirsCustomerId = await ctx.createCustomer(theirsBusinessId);
+
+    // The same source pair in both businesses. A real trip id is unique, so
+    // this state cannot arise through the API — which is precisely why the
+    // predicate needs its own test rather than an endpoint one.
+    const sharedSourceId = newId();
+    const mineObligationId = await ctx.createObligation(mineBusinessId, minePeriodId, {
+      direction: "owed_to_us",
+      partyType: "customer",
+      customerId: mineCustomerId,
+      amountMinor: 50_000n,
+      sourceType: "trip",
+      sourceId: sharedSourceId,
+    });
+    const theirsObligationId = await ctx.createObligation(theirsBusinessId, theirsPeriodId, {
+      direction: "owed_to_us",
+      partyType: "customer",
+      customerId: theirsCustomerId,
+      amountMinor: 50_000n,
+      sourceType: "trip",
+      sourceId: sharedSourceId,
+    });
+
+    const actor = await mintUser(db, ctx, mineBusinessId, "manager");
+
+    await voidObligationBySource(db, mineBusinessId, "trip", sharedSourceId, {
+      voidedReason: "trip cancelled",
+      voidedBy: actor.userId,
+    });
+
+    const [mineRow] = await db
+      .select({ voidedAt: obligation.voidedAt })
+      .from(obligation)
+      .where(eq(obligation.id, mineObligationId));
+    const [theirsRow] = await db
+      .select({ voidedAt: obligation.voidedAt })
+      .from(obligation)
+      .where(eq(obligation.id, theirsObligationId));
+
+    expect(mineRow?.voidedAt).not.toBeNull();
+    // The whole point: drop the business_id predicate and this is the
+    // assertion that fails — the other tenant's books stay untouched.
+    expect(theirsRow?.voidedAt).toBeNull();
 
     await ctx.cleanup();
   });
