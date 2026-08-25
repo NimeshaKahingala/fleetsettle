@@ -609,6 +609,12 @@ const TRANSACTION_KIND_LABEL: Record<string, string> = {
   driver_fee: "Driver fee",
   management_fee: "Management fee",
   trip: "Trip income",
+  // GAP-175. "Customer contribution" matches the client's own
+  // `obligationStatusLabel.ts` label for the same obligation kind, so the
+  // export and the screen name one fact identically.
+  customer_contribution: "Customer contribution",
+  insurance_settlement: "Insurance settlement",
+  write_off: "Write-off",
 };
 
 function labelForTransactionKind(kind: string): string {
