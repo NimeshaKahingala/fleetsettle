@@ -9,7 +9,7 @@ import type {
 } from "@fleetsettle/shared/schemas";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { expect, test, vi } from "vitest";
+import { expect, onTestFinished, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { HomeScreen } from "./HomeScreen.js";
@@ -425,11 +425,28 @@ test("GAP-183: the bell's rent-due row closes the sheet and scrolls to the secti
   const user = userEvent.setup();
   // jsdom implements no scrollIntoView at all, so this both stubs it and is
   // the assertion — without the stub the click would throw rather than fail.
+  //
+  // Restored when the test finishes: this is a mutation of a global
+  // prototype, and four tests run after this one in this file. Leaving it in
+  // place would let a later test's click on the "Earlier days" row scroll
+  // silently instead of exercising the guard — a stub that makes a *later*
+  // test pass is worse than no stub.
+  const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+    Element.prototype,
+    "scrollIntoView",
+  );
   const scrollIntoView = vi.fn();
   Object.defineProperty(Element.prototype, "scrollIntoView", {
     configurable: true,
     writable: true,
     value: scrollIntoView,
+  });
+  onTestFinished(() => {
+    if (originalScrollIntoView) {
+      Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+    } else {
+      delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
   });
 
   const receivables: ReceivableRow[] = [
