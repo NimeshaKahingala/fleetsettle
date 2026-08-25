@@ -1274,7 +1274,16 @@ CREATE TABLE offset_allocation (
   -- carries its own posted_period_id and is gated there instead.
   voided_at     timestamptz,
   voided_reason text,
-  voided_by     uuid REFERENCES app_user(id)
+  voided_by     uuid REFERENCES app_user(id),
+
+  -- W-58's all-or-nothing rule, as `offset_allocation_void_check`. Every
+  -- other void-bearing block here carries its own copy; omitting it left
+  -- this one still out of step with `0024` while claiming to be in step.
+  CHECK (
+    (voided_at IS NULL AND voided_by IS NULL AND voided_reason IS NULL)
+    OR (voided_at IS NOT NULL AND voided_by IS NOT NULL
+        AND voided_reason IS NOT NULL AND voided_reason <> '')
+  )
 );
 ```
 
