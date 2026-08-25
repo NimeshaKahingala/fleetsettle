@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { uuidSchema } from "./common.js";
+import { businessDateSchema, uuidSchema } from "./common.js";
 import { leaseObligationRowSchema } from "./lease-billing.js";
 
 /** F-6.8/UC-59: every day in the window, including excused ones (§7.9) — the thing he would otherwise argue about. */
@@ -56,7 +56,9 @@ export const driverViewDepositSchema = z.object({
       occurredOn: z.string(),
       reason: z.string().nullable(),
       // GAP-173/W-35/F-8.1: see `incidentRecoveryResponseSchema`.
-      belongsToPeriodStart: z.string().nullable(),
+      // GAP-173: a `period_start` — same contract as `incident.ts`, and for
+      // the same reason: the client formats it and an arbitrary string throws.
+      belongsToPeriodStart: businessDateSchema.nullable(),
       voidedAt: z.string().nullable(),
       voidedReason: z.string().nullable(),
     }),

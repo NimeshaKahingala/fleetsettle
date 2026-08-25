@@ -396,7 +396,7 @@ test("GAP-173/F-8.1: a late-posted recovery is flagged with the month it belongs
         receivedAmountMinor: "0",
         replacesId: null,
         // Agreed in July, posted into the open month because July had closed.
-        belongsToPeriodStart: "2026-07-01",
+        belongsToPeriodStart: asBusinessDate("2026-07-01"),
         voidedAt: null,
         voidedReason: null,
       },

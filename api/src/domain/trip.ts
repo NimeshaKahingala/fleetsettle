@@ -1058,7 +1058,7 @@ export async function cancelTrip(writer: Writer, input: CancelTripInput): Promis
         }
       }
 
-      await voidObligationBySource(tx, "trip", trip.id, {
+      await voidObligationBySource(tx, input.businessId, "trip", trip.id, {
         voidedReason: input.cancelReason ?? "Trip cancelled",
         voidedBy: input.userId,
       });
