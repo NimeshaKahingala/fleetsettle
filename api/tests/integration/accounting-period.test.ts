@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { accountingPeriod, dayRecord, expense, obligation } from "../../src/db/schema.js";
@@ -27,6 +27,23 @@ async function postExpense(token: string, body: unknown) {
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
   });
+}
+
+/** GAP-181: W-50 — a mistake is voided and replaced, never edited away. */
+async function postVoidExpense(token: string, id: string, reason: string) {
+  return request(`/api/expense/${id}/void`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** GAP-181: UC-70's own per-vehicle month figures, read through the real report rather than re-derived — these are the queries that actually filter voided rows. */
+async function getVehicleMonthReport(token: string, periodId: string, vehicleId: string) {
+  return request(
+    `/api/reports/vehicle-month?periodId=${periodId}&vehicleId=${vehicleId}`,
+    bearer(token),
+  );
 }
 
 async function postDeposit(token: string, body: unknown) {
@@ -478,6 +495,29 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     const repairBody: { id: string } = await repairRes.json();
     ctx.trackCreatedExpense(repairBody.id);
 
+    // GAP-181: the golden fixture now contains a voided row, which none of
+    // the three did. W-50 is a core money rule — a mistake is voided and
+    // replaced, never edited away — and until now no fixture exercised it,
+    // so a query that forgot `voided_at IS NULL` could move a golden figure
+    // and nothing would say so. This is that mistake: the same 12,000 repair
+    // entered twice, the duplicate voided. G-1 must still be exactly 134,000.
+    const duplicateRepair = await postExpense(token, {
+      vehicleId,
+      category: "repairs",
+      amountMinor: "1200000",
+      spentOn: "2026-07-10",
+      borneBy: "us",
+    });
+    expect(duplicateRepair.status).toBe(201);
+    const duplicateRepairBody: { id: string } = await duplicateRepair.json();
+    ctx.trackCreatedExpense(duplicateRepairBody.id);
+    const voided = await postVoidExpense(
+      token,
+      duplicateRepairBody.id,
+      "entered twice — the same repair",
+    );
+    expect(voided.status).toBe(200);
+
     // 29–31 July — the charter, reproducing P6's own §7.1 figures exactly.
     const tripRes = await postTrip(token, {
       vehicleId,
@@ -574,10 +614,16 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     // under this same sourceType/sourceId — a cost, `direction = 'owed_by_us'`,
     // is the same scoping sumVehicleCostsForPeriod (queries/reports.ts) uses,
     // so a receivable can never be mistaken for one here either.
+    // GAP-181: `voided_at IS NULL` — this re-derivation now models what
+    // `sumVehicleCostsForPeriodBulk` actually does. Without it, the voided
+    // repair seeded above would count here and G-1 would fail for the
+    // *test's* arithmetic rather than for anything the product did.
     const vehicleExpenseRows = await db
       .select({ amountMinor: expense.amountMinor })
       .from(expense)
-      .where(and(eq(expense.vehicleId, vehicleId), eq(expense.borneBy, "us")));
+      .where(
+        and(eq(expense.vehicleId, vehicleId), eq(expense.borneBy, "us"), isNull(expense.voidedAt)),
+      );
     const expenseTotal = vehicleExpenseRows.reduce((sum, r) => sum + r.amountMinor, 0n);
     const driverFeeRows = await db
       .select({ amountMinor: obligation.amountMinor })
@@ -594,8 +640,47 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     expect(busCosts).toBe(4_600_000n); // Rs 46,000
 
     // The gate: G-1's own headline figure.
+    //
+    // **SonarCloud reports `typescript:S5845` on the `toBe` below — "the
+    // compared expressions have incompatible static types (number and
+    // bigint)". It is a false positive, verified rather than assumed**
+    // (24 Aug 2026): binding `const x: bigint = busProfit` compiles and
+    // `const x: number = busProfit` is a type error, so `busProfit` is
+    // genuinely `bigint` and this assertion is comparing like with like.
+    // The analyser mis-infers `bigint - bigint` as `number`, which is why
+    // only the two subtraction-fed assertions in this file are flagged and
+    // `expect(earnedTotal).toBe(12_000_000n)` above is not.
+    //
+    // Recorded here because the wrong correction is cheap and tempting: a
+    // future reader "fixing" it by loosening `toBe` to `toEqual`, or by
+    // casting either side, would quietly weaken the one assertion FL §9.1
+    // calls breaking to move.
     const busProfit = busEarned - busCosts;
     expect(busProfit).toBe(13_400_000n); // Rs 134,000
+
+    // GAP-181: the same gate, through the real report rather than
+    // re-derived. This is the half that has teeth against a voided-row bug —
+    // the arithmetic above is this test's own, but `/api/reports/vehicle-month`
+    // runs `sumVehicleEarnedForPeriodBulk`/`sumVehicleCostsForPeriodBulk`,
+    // the production queries. With the voided duplicate repair sitting in
+    // July, a missing `voided_at IS NULL` in either of them shows up here as
+    // 12,000 of phantom cost and fails the golden figure loudly, which is
+    // exactly what FL §9.1 asks of this number.
+    const reportRes = await getVehicleMonthReport(token, julyPeriodId, vehicleId);
+    expect(reportRes.status).toBe(200);
+    const reportBody: {
+      vehicles: {
+        vehicleId: string;
+        earnedMinor: string;
+        costsMinor: string;
+        profitMinor: string;
+      }[];
+    } = await reportRes.json();
+    const busRow = reportBody.vehicles.find((r) => r.vehicleId === vehicleId);
+    expect(busRow).toBeDefined();
+    expect(BigInt(busRow?.costsMinor ?? "-1")).toBe(busCosts);
+    expect(BigInt(busRow?.earnedMinor ?? "-1")).toBe(busEarned);
+    expect(BigInt(busRow?.profitMinor ?? "-1")).toBe(13_400_000n); // Rs 134,000
 
     // Close July — the real lifecycle, not simulated (UC-98 as a side effect).
     const closeRes = await postClose(token);
@@ -615,5 +700,11 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     expect(closedRow[0]).toMatchObject({ status: "closed" });
 
     await ctx.cleanup();
-  }, 90_000); // 28 confirm-day round trips plus deposit/expense/trip/close-period, each a real request against the live Neon branch — comfortably past the suite's default 20s
+    // GAP-181 raised this from 90s: the seed gained a voided duplicate repair
+    // (two more round trips) and the vehicle-month report read, and the test
+    // was already running ~78s against a live Neon branch, so it tipped over.
+    // Raised rather than trimmed — every round trip here is the point (§7.1 is
+    // reproduced through real endpoints, never simulated), and §5's own
+    // contention trap means the wall-clock figure is noisy in both directions.
+  }, 150_000); // 30+ real round trips against the live Neon branch — far past the suite's default 20s
 });
