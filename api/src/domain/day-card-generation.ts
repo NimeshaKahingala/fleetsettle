@@ -18,8 +18,23 @@ import {
 } from "../queries/scheduled.js";
 import type { NewAllocationDay } from "../queries/trip.js";
 
-/** GAP-179/B29: the "this vehicle has no allocated days in the window" case, shared rather than re-allocated per lease. Frozen so a caller cannot mistake it for its own set and write into it. */
-const EMPTY_DATES: ReadonlySet<string> = Object.freeze(new Set<string>());
+/**
+ * GAP-179/B29: the "this vehicle has no allocated days in the window" case,
+ * shared rather than re-allocated per lease.
+ *
+ * The first version wrapped this in `Object.freeze` and claimed that stopped
+ * a caller writing into it. **That claim was false** — `Object.freeze` seals
+ * an object's *properties*, and a `Set`'s contents live in internal slots, so
+ * `.add()` on a frozen `Set` succeeds silently (verified, not reasoned:
+ * `Object.freeze(new Set()).add("x")` returns a set of size 1). Caught by
+ * Copilot on PR #120.
+ *
+ * The `ReadonlySet<string>` type is what actually prevents it, at compile
+ * time, and it was already doing that work alone. The freeze is gone rather
+ * than kept as harmless decoration: a guard that does nothing is worse than
+ * no guard, because the next reader trusts it.
+ */
+const EMPTY_DATES: ReadonlySet<string> = new Set<string>();
 
 /** Exported for `restoreDailyLeaseOccupancy` (trip.ts), which must pass its own explicit `from` and therefore also `horizonDays` — JS has no way to skip a positional parameter. */
 export const HORIZON_DAYS = 90;
