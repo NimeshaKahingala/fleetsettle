@@ -1646,6 +1646,139 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    /**
+     * GAP-175: the export pulled four sources and showed an accountant
+     * neither an insurer settlement nor a write-off nor a customer's agreed
+     * contribution. The last assertion is the one that matters most:
+     * `fileInsuranceClaim` writes an `insurance_claim` **and** an
+     * `incident_recovery` with `source: 'insurer'` in the same transaction,
+     * and `settleInsuranceClaim` then writes the identical
+     * `received_amount_minor` to both — so exporting `incident_recovery` as
+     * its own source, which is the literal reading of this gap, would have
+     * reported every insurer settlement twice.
+     */
+    it("GAP-175 — settlements, contributions and write-offs all reach the export, and an insurer settlement appears exactly once", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "B-2222" });
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      // owner_manager is in both STAFF and OWNERS, so one token can record the
+      // facts and then run the owners-only export.
+      const staff = await mintUser(db, ctx, businessId, "owner_manager");
+      const token = await signAccessToken(staff.asgardeoSub);
+      const post = (path: string, body: unknown) =>
+        request(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...bearer(token).headers },
+          body: JSON.stringify(body),
+        });
+
+      // A lease on the incident is what makes a customer contribution billable.
+      const opened = await post("/api/incident", {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      expect(opened.status).toBe(201);
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      expect(agreed.status).toBe(201);
+
+      const filed = await post(`/api/incident/${incidentId}/insurance-claim`, {
+        claimedAmountMinor: "75000",
+        excessBorneMinor: "15000",
+        claimedOn: "2026-07-10",
+      });
+      expect(filed.status).toBe(201);
+      const { id: claimId }: { id: string } = await filed.json();
+      const settled = await post(`/api/incident/${incidentId}/insurance-claim/${claimId}/settle`, {
+        receivedAmountMinor: "60000",
+        receivedOn: "2026-09-15",
+      });
+      expect(settled.status).toBe(200);
+
+      const written = await post("/api/write-off", {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        vehicleId,
+        amountMinor: "40000",
+        reason: "customer unreachable after three attempts",
+        writtenOffOn: "2026-10-01",
+      });
+      expect(written.status).toBe(201);
+      const { id: writeOffId }: { id: string } = await written.json();
+      ctx.trackCreatedWriteOff(writeOffId);
+
+      const res = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect(res.status).toBe(200);
+      const lines = (await res.text()).trim().split("\r\n");
+
+      // The customer half of an incident recovery, read from the obligation it
+      // raises rather than from `incident_recovery` (which carries no date).
+      expect(lines).toContain("2026-07-20,B-2222,Customer contribution,In,200.00,");
+      // Recognised on `received_on`, not on the date the claim was filed —
+      // W-11: expected money is not earned money.
+      expect(lines).toContain("2026-09-15,B-2222,Insurance settlement,In,600.00,");
+      expect(lines).toContain("2026-10-01,B-2222,Write-off,Out,400.00,");
+
+      // The double-count guard. 600.00 arrived once, so it is reported once.
+      expect(lines.filter((l) => l.includes("Insurance settlement"))).toHaveLength(1);
+      expect(lines.filter((l) => l.includes("600.00"))).toHaveLength(1);
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-175 — a voided write-off leaves the export, the way a voided expense already does", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "C-3333" });
+      const customerId = await ctx.createCustomer(businessId);
+      const staff = await mintUser(db, ctx, businessId, "owner_manager");
+      const token = await signAccessToken(staff.asgardeoSub);
+      const post = (path: string, body: unknown) =>
+        request(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...bearer(token).headers },
+          body: JSON.stringify(body),
+        });
+
+      const written = await post("/api/write-off", {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        vehicleId,
+        amountMinor: "40000",
+        reason: "recorded against the wrong customer",
+        writtenOffOn: "2026-10-01",
+      });
+      expect(written.status).toBe(201);
+      const { id: writeOffId }: { id: string } = await written.json();
+      ctx.trackCreatedWriteOff(writeOffId);
+
+      const before = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      expect((await before.text()).trim().split("\r\n")).toContain(
+        "2026-10-01,C-3333,Write-off,Out,400.00,",
+      );
+
+      const voided = await post(`/api/write-off/${writeOffId}/void`, {
+        reason: "recorded against the wrong customer",
+      });
+      expect(voided.status).toBe(200);
+
+      const after = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
+      const afterLines = (await after.text()).trim().split("\r\n");
+      expect(afterLines.filter((l) => l.includes("Write-off"))).toHaveLength(0);
+
+      await ctx.cleanup();
+    });
+
     it("403 — a manager cannot export", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
