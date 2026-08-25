@@ -93,6 +93,15 @@ export async function correctPayment(
       // table's own equivalent of every other money table's `voided_at`);
       // the stored amount stays at whatever it last was, and the wire
       // response reports the true remaining figure (0) separately.
+      // GAP-178/B15: resolved before the payment is touched, not after. One
+      // transaction either way, so nothing half-writes — but written first, a
+      // PERIOD_CLOSED rolls back an update whose audit trigger has already
+      // fired, leaving the trail describing a change to a settled month that
+      // no row reflects.
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.correctedOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
       const remainingMinor = paymentRow.amountMinor - input.differenceMinor;
       const isFullReversal = remainingMinor === 0n;
       const newStatus = isFullReversal ? "reversed" : "corrected";
@@ -100,10 +109,6 @@ export async function correctPayment(
         amountMinor: isFullReversal ? paymentRow.amountMinor : remainingMinor,
         status: newStatus,
       });
-
-      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.correctedOn);
-      if (!linkage)
-        throw new PeriodClosedError("No accounting period covers this business date yet");
 
       const correctionId = newId();
       await insertPaymentCorrection(tx, {
@@ -149,7 +154,7 @@ async function unwindAllocations(
     if (remaining <= 0n) break;
     const take = remaining < alloc.amountMinor ? remaining : alloc.amountMinor;
 
-    const obligationRow = await findObligationForBusiness(tx, businessId, alloc.obligationId);
+    const obligationRow = await findObligationForBusiness(tx, businessId, alloc.obligationId, true);
     if (obligationRow) {
       const newSettled = obligationRow.settledMinor - take;
       const status = computeObligationStatus(
@@ -157,7 +162,10 @@ async function unwindAllocations(
         newSettled,
         obligationRow.waivedMinor,
       );
-      await updateObligationSettled(tx, obligationRow.id, { settledMinor: newSettled, status });
+      await updateObligationSettled(tx, businessId, obligationRow.id, {
+        settledMinor: newSettled,
+        status,
+      });
     }
 
     if (take === alloc.amountMinor) {

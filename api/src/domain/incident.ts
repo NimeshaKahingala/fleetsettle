@@ -238,43 +238,49 @@ export async function recordCustomerContribution(
   writer: Writer,
   input: RecordCustomerContributionInput,
 ): Promise<RecordedCustomerContribution> {
-  const existing = await findIncidentForBusiness(writer, input.businessId, input.incidentId);
-  if (!existing) throw new NotFoundError("No such incident in this business");
-  if (!existing.leaseId) {
-    throw new ValidationError(
-      "This incident has no lease, so there is no customer to bill a contribution to",
-    );
-  }
-
-  const lease = await findLeaseForBusiness(writer, input.businessId, existing.leaseId);
-  if (!lease) throw new NotFoundError("No such lease in this business");
-
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.agreedOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findIncidentRecoveryForBusiness(
-      writer,
-      input.businessId,
-      input.replacesId,
-    );
-    if (!target) throw new NotFoundError("No such recovery in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-    // Found by Gitar's review of PR #45: without this, replacesId could name
-    // a voided recovery against a *different* incident, leaving F-8.6's
-    // "what corrected this?" pointing at an unrelated fact.
-    if (target.incidentId !== input.incidentId) {
-      throw new ValidationError("replacesId names a recovery against a different incident");
-    }
-  }
-
   const recoveryId = newId();
   const obligationId = newId();
   try {
     // withActor (db/client.ts) only attributes writes inside a real
     // transaction — wrapped here for that reason (F-8.6): both rows carry
     // posted_period_id and are audited.
+    //
+    // GAP-178/B5: every read this write depends on now happens inside that
+    // transaction too. Resolved outside, the period could close, or the
+    // replaced recovery be replaced again, between the check and the two
+    // inserts that trust it.
     await writer.transaction(async (tx) => {
+      const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId);
+      if (!existing) throw new NotFoundError("No such incident in this business");
+      if (!existing.leaseId) {
+        throw new ValidationError(
+          "This incident has no lease, so there is no customer to bill a contribution to",
+        );
+      }
+
+      const lease = await findLeaseForBusiness(tx, input.businessId, existing.leaseId);
+      if (!lease) throw new NotFoundError("No such lease in this business");
+
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.agreedOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findIncidentRecoveryForBusiness(
+          tx,
+          input.businessId,
+          input.replacesId,
+        );
+        if (!target) throw new NotFoundError("No such recovery in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        // Found by Gitar's review of PR #45: without this, replacesId could name
+        // a voided recovery against a *different* incident, leaving F-8.6's
+        // "what corrected this?" pointing at an unrelated fact.
+        if (target.incidentId !== input.incidentId) {
+          throw new ValidationError("replacesId names a recovery against a different incident");
+        }
+      }
+
       await insertObligation(tx, {
         id: obligationId,
         businessId: input.businessId,
@@ -420,7 +426,7 @@ export async function recordRecoveryReceived(
           input.receivedAmountMinor,
           0n,
         );
-        await updateObligationSettled(tx, recovery.obligationId, {
+        await updateObligationSettled(tx, input.businessId, recovery.obligationId, {
           settledMinor: input.receivedAmountMinor,
           status,
         });

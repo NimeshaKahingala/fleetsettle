@@ -126,15 +126,6 @@ export async function createExpense(
   writer: Writer,
   input: CreateExpenseInput,
 ): Promise<CreatedExpense> {
-  const linkage = await resolvePeriodLinkage(writer, input.businessId, input.spentOn);
-  if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
-
-  if (input.replacesId !== undefined) {
-    const target = await findExpenseForBusiness(writer, input.businessId, input.replacesId);
-    if (!target) throw new NotFoundError("No such expense in this business");
-    if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
-  }
-
   const expenseId = newId();
   let odometerReadingId: string | undefined;
   try {
@@ -144,6 +135,19 @@ export async function createExpense(
     // proving F-8.6 against this exact write). Wrapped here even though
     // nothing else needs the atomicity.
     await writer.transaction(async (tx) => {
+      // GAP-178/B5: resolved inside the transaction that writes against it.
+      // Read outside, the period can close between the check and the insert
+      // and the row lands stamped with a month that is now settled.
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.spentOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      if (input.replacesId !== undefined) {
+        const target = await findExpenseForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such expense in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+      }
+
       if (
         input.odometerReadingKm !== undefined &&
         input.odometerSource !== undefined &&
