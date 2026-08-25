@@ -1681,6 +1681,7 @@ describe("reports (P11)", () => {
         leaseId,
         occurredOn: "2026-07-08",
       });
+      expect(opened.status).toBe(201);
       const { id: incidentId }: { id: string } = await opened.json();
       ctx.trackCreatedIncident(incidentId);
 

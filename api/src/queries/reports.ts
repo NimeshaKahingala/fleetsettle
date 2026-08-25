@@ -1657,7 +1657,12 @@ async function listInsuranceSettlementTransactionsForDateRange(
     })
     .from(insuranceClaim)
     .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
-    .leftJoin(vehicle, eq(vehicle.id, incident.vehicleId))
+    // `incident.vehicle_id` is `NOT NULL REFERENCES vehicle(id)`, so the
+    // vehicle always exists — an inner join says so, and matches
+    // `listClosedTripTransactionsForDateRange`'s own. A left join would let a
+    // non-overhead row carry a null `registration`, which `TransactionRow`
+    // documents as meaning "overhead" — a different fact.
+    .innerJoin(vehicle, eq(vehicle.id, incident.vehicleId))
     .where(
       and(
         eq(insuranceClaim.businessId, businessId),
@@ -1667,7 +1672,14 @@ async function listInsuranceSettlementTransactionsForDateRange(
       ),
     );
   return rows
-    .filter((r): r is typeof r & { date: string; amountMinor: bigint } => r.date !== null)
+    .filter(
+      // Both columns are nullable on the table (`received_amount_minor` has
+      // no `NOT NULL`), so both are checked. The SQL predicate above already
+      // excludes them, but a guard that asserts more than it tests is how a
+      // later edit puts a null into a `bigint` field downstream.
+      (r): r is typeof r & { date: string; amountMinor: bigint } =>
+        r.date !== null && r.amountMinor !== null,
+    )
     .map((r) => ({
       date: r.date,
       vehicleId: r.vehicleId,
