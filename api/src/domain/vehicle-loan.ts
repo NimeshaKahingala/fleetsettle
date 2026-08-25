@@ -27,6 +27,7 @@ import {
 import { setVehiclePurchaseCost } from "../queries/vehicle.js";
 import {
   findLoanPaymentForBusiness,
+  findVehicleLoanForBusiness,
   insertLoanPayment,
   insertVehicleLoan,
   listLivePaymentsForLoan,
@@ -219,14 +220,21 @@ export interface RecordedLoanPayment {
  */
 export async function recordLoanPayment(
   writer: Writer,
-  loan: VehicleLoanRow,
   input: RecordLoanPaymentInput,
 ): Promise<RecordedLoanPayment> {
-  if (loan.closedOn !== null) throw new LoanClosedError();
-
   const paymentId = newId();
   try {
     await writer.transaction(async (tx) => {
+      // Gitar review, PR #130: locked here, inside the transaction, not by
+      // the caller beforehand — two concurrent payments against the same
+      // loan must serialise on this row, the same "lock the parent" shape
+      // GAP-178's deposit double-draw fix already established. A lock taken
+      // before the transaction opens (or on a copy read outside it) still
+      // lets both readers see the same stale remaining-to-pay.
+      const loan = await findVehicleLoanForBusiness(tx, input.businessId, input.loanId, true);
+      if (!loan) throw new NotFoundError("No such loan in this business");
+      if (loan.closedOn !== null) throw new LoanClosedError();
+
       const linkage = await resolvePeriodLinkage(tx, input.businessId, input.paidOn);
       if (!linkage) {
         throw new PeriodClosedError("No accounting period covers this business date yet");
@@ -330,19 +338,35 @@ export interface SettledVehicleLoan {
  */
 export async function settleVehicleLoan(
   writer: Writer,
-  loan: VehicleLoanRow,
   input: SettleVehicleLoanInput,
 ): Promise<SettledVehicleLoan> {
-  if (loan.closedOn !== null) throw new LoanClosedError();
-
   const paymentId = newId();
   try {
     await writer.transaction(async (tx) => {
+      // Gitar review, PR #130: same reasoning as recordLoanPayment's own
+      // lock — a settlement and an ordinary payment racing the same loan
+      // must serialise on it too, not just two payments against each other.
+      const loan = await findVehicleLoanForBusiness(tx, input.businessId, input.loanId, true);
+      if (!loan) throw new NotFoundError("No such loan in this business");
+      if (loan.closedOn !== null) throw new LoanClosedError();
+
       const linkage = await resolvePeriodLinkage(tx, input.businessId, input.settledOn);
       if (!linkage) {
         throw new PeriodClosedError("No accounting period covers this business date yet");
       }
 
+      // Gitar review, PR #130, considered rather than assumed away: this
+      // split() reuse is deliberate, not a leftover from before the
+      // liability-owner fix. The principal:finance ratio is fixed by the
+      // loan agreement itself (W-68, set once at creation) — a property of
+      // what was borrowed, not of who is paying it down. A loan_on_behalf
+      // loan's principalOutstanding/waivedMinor stay meaningful precisely
+      // because the design calls the balance "tracked as a memo" rather
+      // than untracked: the lender's forgiveness is still a fact about the
+      // loan, even though no expense/payout ever records the split itself
+      // for this branch (recordLoanPayment/settleVehicleLoan's own "whole
+      // payment is a drawing" rule only decides which money record gets
+      // written, never what the loan's own numbers mean).
       const livePayments = await listLivePaymentsForLoan(tx, loan.id);
       const principalPaid = livePayments
         .filter((p) => !p.isSettlement)
@@ -427,6 +451,7 @@ export async function settleVehicleLoan(
 
 export interface VoidLoanPaymentInput {
   businessId: string;
+  loanId: string;
   paymentId: string;
   reason: string;
   userId: string;
@@ -453,7 +478,14 @@ export async function voidLoanPayment(
   input: VoidLoanPaymentInput,
 ): Promise<VoidedLoanPayment> {
   const payment = await findLoanPaymentForBusiness(writer, input.businessId, input.paymentId);
-  if (!payment) throw new NotFoundError("No such loan payment in this business");
+  // Gitar review, PR #130: the route names both a loan and a payment
+  // (`/{id}/payment/{paymentId}/void`) — a payment that exists but belongs
+  // to a different loan is indistinguishable from one that doesn't exist
+  // at all, the same "cross-tenant is 404" reasoning applied one level
+  // down from business_id to loan_id.
+  if (!payment || payment.loanId !== input.loanId) {
+    throw new NotFoundError("No such loan payment in this business");
+  }
   if (payment.voidedAt !== null) throw new LoanPaymentAlreadyVoidedError();
 
   try {

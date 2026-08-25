@@ -60,17 +60,34 @@ const VEHICLE_LOAN_COLUMNS = {
 };
 
 /** No `businessId` column on `vehicle_loan` — tenancy is proven by joining through `vehicle`, the same reason `managementFeeAgreement`'s own lookup needs the join (CLAUDE.md → Tenancy). */
+/**
+ * `forUpdate` (GAP-185/Gitar PR #130 review): `recordLoanPayment` and
+ * `settleVehicleLoan` both read every live payment and refuse an
+ * overpayment, but nothing serialised two concurrent calls against the
+ * *same* loan — the same "lock must be on the parent" shape GAP-178's
+ * deposit double-draw fix already established elsewhere in this schema.
+ * Locking `loan_payment` rows would miss a loan with no payments yet (a
+ * loan on its very first payment has nothing to lock); the loan row itself
+ * is the one thing guaranteed to exist and to be shared by every payment
+ * against it.
+ */
 export async function findVehicleLoanForBusiness(
   db: ReadDb,
   businessId: string,
   loanId: string,
+  forUpdate = false,
 ): Promise<VehicleLoanRow | undefined> {
-  const rows = await db
+  const query = db
     .select(VEHICLE_LOAN_COLUMNS)
     .from(vehicleLoan)
     .innerJoin(vehicle, eq(vehicle.id, vehicleLoan.vehicleId))
     .where(and(eq(vehicleLoan.id, loanId), eq(vehicle.businessId, businessId)))
     .limit(1);
+  // `of: vehicleLoan` — this query joins `vehicle` only to prove tenancy;
+  // locking it too would contend with unrelated vehicle writes (a service
+  // interval edit, an arrangement change) that have nothing to do with a
+  // loan payment.
+  const rows = await (forUpdate ? query.for("update", { of: vehicleLoan }) : query);
   return rows[0];
 }
 

@@ -159,12 +159,11 @@ export const recordLoanPaymentHandler: RouteHandler<typeof recordLoanPaymentRout
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
-  const reader = c.get("reader");
 
-  const loanRow = await findVehicleLoanForBusiness(reader, businessId, id);
-  if (!loanRow) throw new NotFoundError("No such loan in this business");
-
-  const { paymentId } = await recordLoanPayment(c.get("writer"), loanRow, {
+  // No pre-fetch here — recordLoanPayment locks and re-checks the loan
+  // itself, inside its own transaction (Gitar review, PR #130). A read
+  // here first would only add a second, unlocked, already-stale view.
+  const { paymentId } = await recordLoanPayment(c.get("writer"), {
     businessId,
     userId,
     loanId: id,
@@ -218,10 +217,10 @@ export const settleVehicleLoanHandler: RouteHandler<typeof settleVehicleLoanRout
   const body = c.req.valid("json");
   const reader = c.get("reader");
 
-  const loanRow = await findVehicleLoanForBusiness(reader, businessId, id);
-  if (!loanRow) throw new NotFoundError("No such loan in this business");
-
-  const { paymentId } = await settleVehicleLoan(c.get("writer"), loanRow, {
+  // No pre-fetch here, same reasoning as recordLoanPaymentHandler
+  // (Gitar review, PR #130) — settleVehicleLoan locks and re-checks the
+  // loan itself.
+  const { paymentId } = await settleVehicleLoan(c.get("writer"), {
     businessId,
     userId,
     loanId: id,
@@ -240,11 +239,12 @@ export const voidLoanPaymentHandler: RouteHandler<typeof voidLoanPaymentRoute, E
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { paymentId } = c.req.valid("param");
+  const { id, paymentId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidLoanPayment(c.get("writer"), {
     businessId,
+    loanId: id,
     paymentId,
     reason: body.reason,
     userId,

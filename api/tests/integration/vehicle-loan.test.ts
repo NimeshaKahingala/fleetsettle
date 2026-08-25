@@ -387,6 +387,53 @@ describe("vehicle loans (F-12)", () => {
     await ctxB.cleanup();
   });
 
+  it("404 — voiding a payment through a different loan's own URL, Gitar review PR #130 (a payment that exists but under the wrong loan is indistinguishable from one that doesn't)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const loanARes = await postLoan(token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "100000",
+      totalRepayableMinor: "150000",
+      termMonths: 12,
+      startedOn: "2026-07-05",
+    });
+    const loanA: LoanBody = await loanARes.json();
+    ctx.trackCreatedVehicleLoan(loanA.id);
+
+    const loanBRes = await postLoan(token, {
+      vehicleId,
+      lender: "Commercial Leasing",
+      principalMinor: "50000",
+      totalRepayableMinor: "75000",
+      termMonths: 12,
+      startedOn: "2026-07-05",
+    });
+    const loanB: LoanBody = await loanBRes.json();
+    ctx.trackCreatedVehicleLoan(loanB.id);
+
+    const paymentRes = await postPayment(token, loanA.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-10",
+    });
+    const payment: PaymentBody = await paymentRes.json();
+
+    // Real payment id, real loan id — just the wrong pairing.
+    const res = await postVoidPayment(token, loanB.id, payment.id, { reason: "wrong loan" });
+    expect(res.status).toBe(404);
+
+    const stillLive = await listPayments(token, loanA.id);
+    const stillLiveBody: PaymentBody[] = await stillLive.json();
+    expect(stillLiveBody.find((p) => p.id === payment.id)?.voidedAt).toBeNull();
+
+    await ctx.cleanup();
+  });
+
   it("403 — a manager cannot record a vehicle loan (manageVehicleLoans is owners only)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
