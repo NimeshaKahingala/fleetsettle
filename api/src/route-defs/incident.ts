@@ -33,6 +33,8 @@ export const openIncidentRoute = createRoute({
       content: { "application/json": { schema: incidentDetailResponseSchema } },
       description: "The incident",
     },
+    // GAP-180/B24, same `defaultHook` path as `createVehicleRoute`.
+    400: { description: "The request body failed validation" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot report an incident" },
     404: { description: "No such vehicle or lease in this business" },

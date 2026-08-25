@@ -104,7 +104,13 @@ export function SettleInsuranceClaimSheet({
             ))}
           </div>
         </div>
-        <MoneyField label="Amount received" valueMinor={amountMinor} onChange={setAmountMinor} />
+        {/* GAP-180: "Received so far", matching `RecoveryReceivedSheet`'s
+            identical field. `settleInsuranceClaim` **overwrites**
+            `received_amount_minor` rather than adding to it, so "Amount
+            received" invited a second part-settlement to be typed as the
+            new instalment — which would replace the running total with it
+            and under-report every earlier payment. */}
+        <MoneyField label="Received so far" valueMinor={amountMinor} onChange={setAmountMinor} />
         <DateField label="Received on" value={receivedOn} today={today} onChange={setReceivedOn} />
 
         {mutation.isError ? (

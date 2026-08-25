@@ -12,10 +12,29 @@ import {
   listActiveDailyLeasesForCalendar,
   listActiveLeasesForCalendar,
   listAllocatedDatesForVehicle,
+  listAllocatedDatesForVehicles,
   type ActiveDailyLeaseForCalendar,
   type NewDayRecordForCron,
 } from "../queries/scheduled.js";
 import type { NewAllocationDay } from "../queries/trip.js";
+
+/**
+ * GAP-179/B29: the "this vehicle has no allocated days in the window" case,
+ * shared rather than re-allocated per lease.
+ *
+ * The first version wrapped this in `Object.freeze` and claimed that stopped
+ * a caller writing into it. **That claim was false** — `Object.freeze` seals
+ * an object's *properties*, and a `Set`'s contents live in internal slots, so
+ * `.add()` on a frozen `Set` succeeds silently (verified, not reasoned:
+ * `Object.freeze(new Set()).add("x")` returns a set of size 1). Caught by
+ * Copilot on PR #120.
+ *
+ * The `ReadonlySet<string>` type is what actually prevents it, at compile
+ * time, and it was already doing that work alone. The freeze is gone rather
+ * than kept as harmless decoration: a guard that does nothing is worse than
+ * no guard, because the next reader trusts it.
+ */
+const EMPTY_DATES: ReadonlySet<string> = new Set<string>();
 
 /** Exported for `restoreDailyLeaseOccupancy` (trip.ts), which must pass its own explicit `from` and therefore also `horizonDays` — JS has no way to skip a positional parameter. */
 export const HORIZON_DAYS = 90;
@@ -231,12 +250,22 @@ export async function generateDayCards(
   }
 
   const activeLeases = await listActiveLeasesForCalendar(writer);
+  // GAP-179/B29: one read for every leased vehicle, not one per lease inside
+  // the loop below. `today → horizonEnd` is the widest window any lease can
+  // ask for (each `rangeEnd` is capped at `horizonEnd`), so this is a
+  // superset and each lease still reads only its own range out of it.
+  const allocatedByVehicle = await listAllocatedDatesForVehicles(
+    writer,
+    activeLeases.map((l) => l.vehicleId),
+    today,
+    horizonEnd,
+  );
   for (const l of activeLeases) {
     try {
       const rangeEnd = l.endDate !== null && l.endDate < horizonEnd ? l.endDate : horizonEnd;
       if (rangeEnd < today) continue;
 
-      const existing = await listAllocatedDatesForVehicle(writer, l.vehicleId, today, rangeEnd);
+      const existing = allocatedByVehicle.get(l.vehicleId) ?? EMPTY_DATES;
       const days: NewAllocationDay[] = [];
       for (let d = today; d <= rangeEnd; d = addDays(d, 1)) {
         if (existing.has(d)) continue;

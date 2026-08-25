@@ -315,9 +315,23 @@ export async function getTripRankingReport(
 
   const rows = trips.map((t) => {
     const profitMinor = t.agreedAmountMinor - t.costsMinor - t.driverFeeMinor;
+    // GAP-180/B6: the `Number(profitMinor)` below is the sanctioned
+    // display-ratio boundary, but it was unguarded — past
+    // `MAX_SAFE_INTEGER` it silently returns a rounded figure, and a
+    // confident wrong number is the one thing this report must not produce.
+    //
+    // Degraded to `null`, not thrown: `profitPerKm` is already `number |
+    // null` and already renders as "not available" when distance is
+    // unknown (W-56, and P11's own "degrade to null, never zero"), so the
+    // honest answer already has a home here. `chartAxis.ts` throws for the
+    // same overflow because a mis-scaled bar has no such state to fall back
+    // to — same hazard, different correct answer.
+    const profitOutOfSafeRange =
+      profitMinor > BigInt(Number.MAX_SAFE_INTEGER) ||
+      profitMinor < BigInt(Number.MIN_SAFE_INTEGER);
     const profitPerKm =
-      t.distanceKm !== null && t.distanceKm > 0
-        ? // eslint-disable-next-line no-restricted-syntax -- a display/ranking ratio (UC-71), not a stored or allocated amount — precision here never touches the ledger
+      t.distanceKm !== null && t.distanceKm > 0 && !profitOutOfSafeRange
+        ? // eslint-disable-next-line no-restricted-syntax -- a display/ranking ratio (UC-71), not a stored or allocated amount — precision here never touches the ledger, and the range guard above keeps it exact
           Number(profitMinor) / t.distanceKm
         : null;
     return {
