@@ -434,12 +434,17 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 | **Step 7** GAP-180 · hygiene | |
 | **Step 8** GAP-181 · voided-row fixture coverage | |
 | **Step 9** GAP-182 · docs-vs-SQL sync | |
+| **Step 14** GAP-171 · sticky-CTA overlap on `BookTripScreen` | |
+| **Step 15** GAP-172 · expense-to-trip/incident linking | |
+| **Step 16** GAP-188 · aggregate late-fact flag — **last, blocked on a design decision** | |
 
 **Step 11 is the critical path and requires no code.** Steps 12 and 13 are strictly serial behind it, and behind each other, so every day that document waits, the whole feature track waits. It collides with no remediation work and can start immediately.
 
 **Step 5 is the one that cannot be dropped**, and not for the reason a severity ranking would give. Its tenancy half is **not a race**: `updateObligationSettled`, `applyAdjustmentToObligation` and `reverseAdjustmentOnObligation` all `UPDATE … WHERE id = ?` with no `business_id` predicate, so a wrong id mutates another tenant's books silently, today, with no concurrency required. Everything else in this wave degrades gracefully; that one corrupts. **It gates Wave 9 — see the amended gate below.**
 
 **Ordering constraints, and there are only three.** Steps 1→2 stay adjacent (same `TransactionRow` shape); Steps 6→7 stay adjacent (both edit `reports.ts`); **Step 3 lands before Step 10** (both edit `HomeScreen.tsx`) and **Step 9 lands before Step 11** (both edit `data-model.md`'s `expense` block). Nothing else is ordered.
+
+**Added 25 August 2026 — three more items folded in, by user decision, and Step 16 ordered last on purpose.** GAP-171 and GAP-172 were filed 23 Aug alongside this batch but never got a step in this table; GAP-188 was filed 24 Aug the same way. All three are now Steps 14–16, in the same remediation track, since all three are live defects rather than new build work. **GAP-188 is deliberately last**, not because it is smallest but because it is the one item here that cannot start as code — TRACKER §4's own row says it "needs a design answer first: either a separate *of which, belongs elsewhere* figure stated beside the total, or the month report growing real lines," so a `doc-change` has to land before a diff can. **GAP-170 (the printed slip) is not in this table** — moved to phase 2 the same day, alongside GAP-65, since both are the same shape (an unauthenticated route carrying a full financial position) and neither should ship ahead of the other; see TRACKER §4 for the reasoning and the resulting doc-drift it leaves open.
 
 ### Wave 9 · Release (S)
 
