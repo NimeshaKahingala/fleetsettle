@@ -1,6 +1,13 @@
-import { addDays, inclusiveDays, splitInteger, type BusinessDate } from "@fleetsettle/shared";
+import {
+  addDays,
+  inclusiveDays,
+  splitInteger,
+  type BusinessDate,
+  type Minor,
+} from "@fleetsettle/shared";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js";
+import { sumInstalmentsDueForBusiness } from "./vehicle-loan.js";
 import {
   countAllocatedDaysForVehicle,
   countEarningDaysForVehicle,
@@ -457,6 +464,58 @@ export async function getCashPositionReport(
     listAdvancesOutstandingByDriver(db, businessId),
   ]);
   return { partners, depositsHeldMinor, banked, driverAdvances };
+}
+
+/**
+ * GAP-186/UC-109, W-70. `cash on hand and in bank` is the same total
+ * `getCashPositionReport` already renders in two pieces — every partner's
+ * `heldMinor` (not yet banked) plus every `banked` destination — summed
+ * here rather than re-derived, since banking only moves money between the
+ * two, never in or out of the business (the `banked` terms cancel in the
+ * arithmetic, leaving `sum(received) − sum(advanced)`, but the sum-of-parts
+ * form is kept so this can never silently drift from what the cash
+ * position screen itself shows). Deposits held are a liability shown
+ * beside cash, never money the business can distribute (§6.13). Loan
+ * instalments due is `sumInstalmentsDueForBusiness`'s own figure —
+ * overdue plus the next one falling due (Q-5).
+ *
+ * **Degrades to "not available", never zero (W-56)** — the single most
+ * expensive wrong number here, because someone acts on it by moving money
+ * out of the business. `distributableMinor` is `null` whenever any input
+ * is incomplete, today only reachable through an open loan with no monthly
+ * instalment figure to add a "next" one to.
+ */
+export async function getDistributableCashReport(
+  db: Reader,
+  businessId: string,
+  today: BusinessDate,
+): Promise<{
+  cashOnHandMinor: Minor;
+  depositsHeldMinor: Minor;
+  loanInstalmentsDueMinor: Minor | null;
+  distributableMinor: Minor | null;
+}> {
+  const [partners, banked, depositsHeldMinor, loanInstalmentsDueMinor] = await Promise.all([
+    listPartnerCashPositions(db, businessId),
+    listBankedByDestination(db, businessId),
+    sumDepositsHeld(db, businessId),
+    sumInstalmentsDueForBusiness(db, businessId, today),
+  ]);
+
+  const cashOnHandMinor = (partners.reduce((sum, p) => sum + p.heldMinor, 0n) +
+    banked.reduce((sum, b) => sum + b.heldMinor, 0n)) as Minor;
+
+  const distributableMinor =
+    loanInstalmentsDueMinor === null
+      ? null
+      : ((cashOnHandMinor - (depositsHeldMinor as Minor) - loanInstalmentsDueMinor) as Minor);
+
+  return {
+    cashOnHandMinor,
+    depositsHeldMinor: depositsHeldMinor as Minor,
+    loanInstalmentsDueMinor,
+    distributableMinor,
+  };
 }
 
 /**

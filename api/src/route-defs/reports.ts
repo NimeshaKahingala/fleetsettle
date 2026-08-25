@@ -3,6 +3,7 @@ import {
   ageingResponseSchema,
   businessDateSchema,
   cashPositionResponseSchema,
+  distributableCashResponseSchema,
   fuelEfficiencyResponseSchema,
   goodwillResponseSchema,
   lostDaysResponseSchema,
@@ -154,6 +155,20 @@ export const getCashPositionReportRoute = createRoute({
       content: { "application/json": { schema: cashPositionResponseSchema } },
       description:
         "Cash held per partner, banked by destination, out with drivers as advances, and deposits held as a liability",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot read reports" },
+  },
+});
+
+/** GAP-186/UC-109, W-70. Cash on hand and in bank, less deposits held, less loan instalments due — a cash report, not a capital one, so `viewReports` (a manager sees this too), never `viewOwnerOnlyReports`. */
+export const getDistributableCashReportRoute = createRoute({
+  method: "get",
+  path: "/distributable-cash",
+  responses: {
+    200: {
+      content: { "application/json": { schema: distributableCashResponseSchema } },
+      description: "Cash on hand and in bank, less deposits held, less loan instalments due",
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read reports" },

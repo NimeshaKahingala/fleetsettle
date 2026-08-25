@@ -1,4 +1,4 @@
-import { newId } from "@fleetsettle/shared";
+import { addCalendarMonths, businessToday, newId } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { advance, bankingEvent, expense, ownershipShare, payment } from "../../src/db/schema.js";
@@ -872,6 +872,149 @@ describe("reports (P11)", () => {
       const body: { driverAdvances: { driverId: string }[] } = await res.json();
 
       expect(body.driverAdvances.find((a) => a.driverId === driverId)).toBeUndefined();
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("distributable cash (GAP-186/UC-109, W-70)", () => {
+    async function postLoan(token: string, body: unknown) {
+      return request("/api/vehicle-loan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(token).headers },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it("with no loans, distributable = cash on hand minus deposits held alone, and a manager can read it too (W-70)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const manager = await mintUser(db, ctx, businessId, "manager");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 50_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const depositId = await ctx.createDeposit(businessId, { partyType: "customer", customerId });
+      await ctx.createDepositMovement(businessId, periodId, depositId, {
+        movementType: "taken",
+        amountMinor: 8_000n,
+        occurredOn: "2026-07-05",
+      });
+
+      const managerToken = await signAccessToken(manager.asgardeoSub);
+      const res = await getReport("/distributable-cash", managerToken);
+      expect(res.status).toBe(200);
+      const body: {
+        cashOnHandMinor: string;
+        depositsHeldMinor: string;
+        loanInstalmentsDueMinor: string | null;
+        distributableMinor: string | null;
+      } = await res.json();
+
+      expect(body).toMatchObject({
+        cashOnHandMinor: "50000",
+        depositsHeldMinor: "8000",
+        loanInstalmentsDueMinor: "0",
+        distributableMinor: "42000",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("an open loan with a monthly figure reduces distributable by overdue plus the next instalment (Q-5)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: await ctx.createCustomer(businessId),
+        amountMinor: 200_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const token = await signAccessToken(owner.asgardeoSub);
+      // Started 3 months back (relative to whenever this test actually
+      // runs, never a hardcoded date the server's own businessToday() would
+      // disagree with) with a 10,000 monthly instalment and nothing ever
+      // paid — 3 instalments already overdue (30,000) plus the next one
+      // falling due (10,000) = 40,000 due, per Q-5.
+      const startedOn = addCalendarMonths(businessToday(), -3);
+      const loanRes = await postLoan(token, {
+        vehicleId,
+        lender: "Peoples Leasing",
+        principalMinor: "1000000",
+        totalRepayableMinor: "1500000",
+        termMonths: 50,
+        monthlyPaymentMinor: "10000",
+        startedOn,
+      });
+      expect(loanRes.status).toBe(201);
+      const loan: { id: string } = await loanRes.json();
+      ctx.trackCreatedVehicleLoan(loan.id);
+
+      const res = await getReport("/distributable-cash", token);
+      expect(res.status).toBe(200);
+      const body: {
+        cashOnHandMinor: string;
+        loanInstalmentsDueMinor: string | null;
+        distributableMinor: string | null;
+      } = await res.json();
+      expect(body.cashOnHandMinor).toBe("200000");
+      expect(body.loanInstalmentsDueMinor).toBe("40000");
+      expect(body.distributableMinor).toBe("160000");
+
+      await ctx.cleanup();
+    });
+
+    it("W-56 — an open loan with no monthly figure degrades the whole report to not available, never a fabricated 0", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const loanRes = await postLoan(token, {
+        vehicleId,
+        lender: "Peoples Leasing",
+        principalMinor: "100000",
+        totalRepayableMinor: "150000",
+        termMonths: 12,
+        startedOn: "2026-07-05",
+      });
+      const loan: { id: string } = await loanRes.json();
+      ctx.trackCreatedVehicleLoan(loan.id);
+
+      const res = await getReport("/distributable-cash", token);
+      expect(res.status).toBe(200);
+      const body: { loanInstalmentsDueMinor: string | null; distributableMinor: string | null } =
+        await res.json();
+      expect(body.loanInstalmentsDueMinor).toBeNull();
+      expect(body.distributableMinor).toBeNull();
 
       await ctx.cleanup();
     });
@@ -1926,6 +2069,7 @@ describe("reports (P11)", () => {
       "/receivables",
       "/ageing?asOfDate=2026-07-31",
       "/cash-position",
+      "/distributable-cash",
       "/lost-days?from=2026-07-01&to=2026-07-31",
     ];
     const ownerOnlyGated = [
