@@ -23,6 +23,7 @@ import {
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { PostClosureChargeSheet } from "../leases/PostClosureChargeSheet.js";
 import { AdvanceSheet } from "../people/AdvanceSheet.js";
@@ -93,6 +94,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
   const [collectOpen, setCollectOpen] = useState(false);
   const [advanceOpen, setAdvanceOpen] = useState(false);
   const [postClosureChargeOpen, setPostClosureChargeOpen] = useState(false);
+  const [recordCostOpen, setRecordCostOpen] = useState(false);
 
   const tripQuery = useQuery({
     queryKey: ["trip", tripId],
@@ -255,9 +257,17 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
                 )}
               </div>
             ) : null}
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-body text-ink-primary">Costs so far</p>
-              <Money value={costsSoFar} />
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between gap-4">
+                <p className="text-body text-ink-primary">Costs so far</p>
+                <Money value={costsSoFar} />
+              </div>
+              {/* GAP-172: `expense.trip_id` was fully handled server-side with
+                  no client route to set it — this trip's own costs (F-5.4's
+                  P&L) stayed Rs 0 regardless of what was actually spent. */}
+              <Button variant="outline" onClick={() => setRecordCostOpen(true)}>
+                Record cost
+              </Button>
             </div>
             {trip.driverId !== null ? (
               <div className="flex items-center justify-between gap-4">
@@ -391,6 +401,14 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               today={today}
             />
           ) : null}
+          <RecordExpenseSheet
+            open={recordCostOpen}
+            onOpenChange={setRecordCostOpen}
+            today={today}
+            vehicleId={trip.vehicleId}
+            tripId={tripId}
+            onRecorded={() => setRecordCostOpen(false)}
+          />
         </div>
       )}
     </Screen>

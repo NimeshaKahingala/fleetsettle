@@ -153,6 +153,48 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getByText("wrong trip")).toBeInTheDocument();
 });
 
+test("GAP-172: Record cost opens with the trip's own vehicle and this trip pre-filled, and reaches the request", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "e3",
+    vehicleId: "v1",
+    tripId: "t1",
+    incidentId: null,
+    category: "repairs",
+    amountMinor: "800000",
+    spentOn: today,
+    borneBy: "us",
+    borneByDriverId: null,
+    borneByCustomerId: null,
+    paidByUserId: null,
+    litres: null,
+    note: null,
+    odometerReadingId: null,
+    replacesId: null,
+  });
+  renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Record cost" }));
+  // The vehicle is pre-filled from the trip, so no picker renders — level 1
+  // is amount, category and date alone (U-2).
+  expect(screen.queryByLabelText("Vehicle")).not.toBeInTheDocument();
+  await enterMoney(user, "Enter amount", "8000");
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Repairs" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ vehicleId: "v1", tripId: "t1", category: "repairs" }),
+    ),
+  );
+});
+
 test("GAP-45: the title omits the year when the range sits inside the business's current year", async () => {
   const get = baseGet();
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, { get });

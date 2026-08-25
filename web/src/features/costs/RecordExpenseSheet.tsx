@@ -36,6 +36,10 @@ export interface RecordExpenseSheetProps {
   today: BusinessDate;
   /** Pre-fills and locks the vehicle when opened from a vehicle's own "Vehicle actions" menu; omitted from `＋` quick-add, where F-3.2/INV-24's overhead case (no vehicle) is the point. */
   vehicleId?: string;
+  /** GAP-172: set when opened from a trip's own detail screen — folds this cost into that trip's P&L (F-5.4) alongside the vehicle's month. Always given together with `vehicleId` by its one caller, so `resolveBorneByDefault` still runs. */
+  tripId?: string;
+  /** GAP-172: set when opened from an incident's own action menu — folds this cost into UC-12's bottom line. Always given together with `vehicleId` by its one caller, for the same reason as `tripId`. */
+  incidentId?: string;
   onRecorded: (expense: ExpenseResponse) => void;
 }
 
@@ -60,6 +64,8 @@ export function RecordExpenseSheet({
   onOpenChange,
   today,
   vehicleId,
+  tripId,
+  incidentId,
   onRecorded,
 }: RecordExpenseSheetProps) {
   const api = useApi();
@@ -116,6 +122,8 @@ export function RecordExpenseSheet({
       }
       return api.post<ExpenseResponse>("/api/expense", {
         ...(effectiveVehicleId !== undefined ? { vehicleId: effectiveVehicleId } : {}),
+        ...(tripId !== undefined ? { tripId } : {}),
+        ...(incidentId !== undefined ? { incidentId } : {}),
         category,
         amountMinor: toWire(amountMinor),
         spentOn,
@@ -130,6 +138,12 @@ export function RecordExpenseSheet({
         void queryClient.invalidateQueries({
           queryKey: ["vehicle", effectiveVehicleId, "expense"],
         });
+      }
+      if (tripId !== undefined) {
+        void queryClient.invalidateQueries({ queryKey: ["trip", tripId, "expense"] });
+      }
+      if (incidentId !== undefined) {
+        void queryClient.invalidateQueries({ queryKey: ["incident", incidentId, "expense"] });
       }
       // The record saves first and the photos follow it (UI §6.3) — any
       // photo captured before Save was only ever held locally until now.
