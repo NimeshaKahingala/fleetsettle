@@ -144,6 +144,13 @@ export function RecordExpenseSheet({
       }
       if (incidentId !== undefined) {
         void queryClient.invalidateQueries({ queryKey: ["incident", incidentId, "expense"] });
+        // Gitar review, PR #128: "Total repairs"/"Net cost to you" live on
+        // the incident *detail* query (`bottomLine`), a separate key from
+        // its expense list — invalidating only the list left the bottom
+        // line stale after recording a cost, exactly the symptom GAP-172
+        // was filed to fix. The trip side needs no equivalent: "Costs so
+        // far" is computed client-side from the expense list alone.
+        void queryClient.invalidateQueries({ queryKey: ["incident", incidentId] });
       }
       // The record saves first and the photos follow it (UI §6.3) — any
       // photo captured before Save was only ever held locally until now.
