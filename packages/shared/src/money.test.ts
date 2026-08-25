@@ -13,6 +13,28 @@ describe("parse and the wire shape", () => {
       expect(() => parse(bad)).toThrow(TypeError);
     }
   });
+
+  /**
+   * GAP-180/B7. Negative zero is the one wire string that did not survive a
+   * round trip: it parsed to `0n`, which `toWire` renders `"0"`, so a client
+   * echoing a value back would send a different string than it received — on
+   * a money field.
+   */
+  it("rejects negative zero, the one value that could not round-trip", () => {
+    for (const bad of ["-0", "-00", "-000"]) {
+      expect(() => parse(bad)).toThrow(TypeError);
+    }
+  });
+
+  it("still accepts every negative and leading-zero form it accepted before", () => {
+    // `parse` reads the wire shape, not what a person typed — leading zeros
+    // are legal here and deliberately left legal; only `-0` was tightened.
+    expect(parse("-1")).toBe(-1n);
+    expect(parse("-134000")).toBe(-134_000n);
+    expect(parse("0")).toBe(0n);
+    expect(parse("007")).toBe(7n);
+    expect(parse("-01")).toBe(-1n);
+  });
 });
 
 describe("fromInput — what a person types", () => {

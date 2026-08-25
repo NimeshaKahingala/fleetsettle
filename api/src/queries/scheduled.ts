@@ -1,4 +1,4 @@
-import { and, eq, gte, isNull, lte, max, or } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, max, or } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
@@ -112,6 +112,61 @@ export async function listAllocatedDatesForVehicle(
       ),
     );
   return new Set(rows.map((r) => r.businessDate));
+}
+
+/**
+ * GAP-179/B29: `listAllocatedDatesForVehicle`'s own query, for every vehicle
+ * in one round trip instead of one per lease. `generateDayCards` ran the
+ * single-vehicle version inside its `for (const l of activeLeases)` loop, so
+ * a fleet of N leased vehicles cost N sequential reads on a Cron Trigger —
+ * `api/CLAUDE.md`'s bounded-CPU rule ("bulk work is `insert … select`, never
+ * a loop issuing one query per row"), on the one code path that scans every
+ * business at once and therefore grows fastest.
+ *
+ * Takes the **widest** window the caller will need rather than each lease's
+ * own `rangeEnd`, which differ. That is deliberate and safe: every range
+ * starts at `today` and ends at or before the horizon, so one query over
+ * `[today, horizonEnd]` is a superset of all of them, and each lease then
+ * reads only the dates inside its own range out of the returned set. A
+ * vehicle with no allocated days is absent from the map, not an empty entry —
+ * callers use `?? EMPTY`, the same "trust the seed" shape used elsewhere.
+ *
+ * The single-vehicle version above stays: `materializeDailyLeaseHorizon`
+ * calls it for one real vehicle on a user action, where a bulk read would be
+ * the wrong shape.
+ */
+export async function listAllocatedDatesForVehicles(
+  db: ReadDb,
+  vehicleIds: readonly string[],
+  from: string,
+  to: string,
+): Promise<Map<string, Set<string>>> {
+  const byVehicle = new Map<string, Set<string>>();
+  if (vehicleIds.length === 0) return byVehicle;
+
+  const rows = await db
+    .select({
+      vehicleId: vehicleDayAllocation.vehicleId,
+      businessDate: vehicleDayAllocation.businessDate,
+    })
+    .from(vehicleDayAllocation)
+    .where(
+      and(
+        inArray(vehicleDayAllocation.vehicleId, [...new Set(vehicleIds)]),
+        gte(vehicleDayAllocation.businessDate, from),
+        lte(vehicleDayAllocation.businessDate, to),
+        isNull(vehicleDayAllocation.voidedAt), // D-11/W-58 — a voided day is a freed day (GAP-118)
+      ),
+    );
+  for (const r of rows) {
+    let dates = byVehicle.get(r.vehicleId);
+    if (dates === undefined) {
+      dates = new Set<string>();
+      byVehicle.set(r.vehicleId, dates);
+    }
+    dates.add(r.businessDate);
+  }
+  return byVehicle;
 }
 
 export interface LeaseDueForBillingPeriod {
