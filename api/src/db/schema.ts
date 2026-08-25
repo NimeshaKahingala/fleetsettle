@@ -87,7 +87,13 @@ export const businessCreationRequest = pgTable("business_creation_request", {
   name: text("name").notNull(),
   currencyCode: char("currency_code", { length: 3 }).notNull(),
   timezone: text("timezone").notNull(),
-  status: text("status").notNull().default("pending"),
+  // GAP-182: no `.default()` — the column has no DB `DEFAULT` (migration
+  // `0030` states that deliberately). Drizzle declaring one it does not have
+  // is inert only while every writer hard-codes `status`, and would fail at
+  // runtime on this `NOT NULL` column the first time an insert path trusted
+  // it. `obligation.status` below keeps its `.default("pending")` because
+  // that column really does carry one (migration `0001`).
+  status: text("status").notNull(),
   decidedBy: uuid("decided_by"),
   decidedAt: timestamp("decided_at", { withTimezone: true, mode: "string" }),
   rejectionReason: text("rejection_reason"),
