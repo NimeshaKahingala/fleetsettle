@@ -3,6 +3,7 @@ import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation } from "../db/pg-error.js";
 import { findFirstPeriodStatus, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
+  findDepositForBusiness,
   findDepositMovementAmount,
   insertAdvances,
   insertDepositMovement,
@@ -281,7 +282,7 @@ async function reverseOpeningBalancePostings(
   for (const posting of postings) {
     switch (posting.targetTable) {
       case "obligation":
-        await voidObligationById(tx, posting.targetId, voidValues);
+        await voidObligationById(tx, businessId, posting.targetId, voidValues);
         break;
       case "advance":
         await voidAdvanceById(tx, posting.targetId, voidValues);
@@ -292,6 +293,12 @@ async function reverseOpeningBalancePostings(
       case "deposit_movement": {
         const amount = await findDepositMovementAmount(tx, posting.targetId);
         if (amount === undefined || posting.depositId === null) break;
+        // GAP-178/B10: unlike the two paths above, this one writes a movement
+        // against a deposit that already existed before this transaction — so
+        // it takes the parent lock, in the same order every other writer
+        // does. The correction reverses an opening balance while a draw
+        // against the same deposit may be in flight.
+        await findDepositForBusiness(tx, businessId, posting.depositId, true);
         depositLinkage ??= await resolvePeriodLinkage(tx, businessId, priorGoLiveDate);
         if (!depositLinkage) {
           throw new PeriodClosedError("No accounting period covers this business date yet");

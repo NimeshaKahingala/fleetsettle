@@ -69,7 +69,7 @@ export async function applyAdjustmentTx(
   tx: Tx,
   input: ApplyAdjustmentInput,
 ): Promise<AppliedAdjustment> {
-  const ob = await findObligationForBusiness(tx, input.businessId, input.obligationId);
+  const ob = await findObligationForBusiness(tx, input.businessId, input.obligationId, true);
   if (!ob || ob.voidedAt !== null) throw new NotFoundError("No such obligation in this business");
 
   if (input.replacesId !== undefined) {
@@ -122,7 +122,7 @@ export async function applyAdjustmentTx(
       createdBy: input.userId,
       ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
     });
-    await applyAdjustmentToObligation(tx, input.obligationId, {
+    await applyAdjustmentToObligation(tx, input.businessId, input.obligationId, {
       amountMinor: newAmountMinor,
       waivedMinor: newWaivedMinor,
       status,
@@ -193,7 +193,7 @@ export async function voidAdjustment(
       if (!adj) throw new NotFoundError("No such adjustment in this business");
       if (adj.voidedAt !== null) throw new AdjustmentAlreadyVoidedError();
 
-      const ob = await findObligationForBusiness(tx, input.businessId, adj.obligationId);
+      const ob = await findObligationForBusiness(tx, input.businessId, adj.obligationId, true);
       if (!ob) throw new NotFoundError("No such obligation in this business");
 
       const isWaiver = WAIVER_TYPES.includes(adj.adjustmentType as AdjustmentType);
@@ -224,7 +224,7 @@ export async function voidAdjustment(
       }
 
       const status = computeObligationStatus(newAmountMinor, newSettledMinor, newWaivedMinor);
-      await reverseAdjustmentOnObligation(tx, adj.obligationId, {
+      await reverseAdjustmentOnObligation(tx, input.businessId, adj.obligationId, {
         amountMinor: newAmountMinor,
         settledMinor: newSettledMinor,
         waivedMinor: newWaivedMinor,

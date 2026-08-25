@@ -133,7 +133,7 @@ async function allocateAgainstOldest(
     const newSettled = ob.settledMinor + take;
     const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
 
-    await updateObligationSettled(tx, ob.id, { settledMinor: newSettled, status });
+    await updateObligationSettled(tx, businessId, ob.id, { settledMinor: newSettled, status });
     await insertPaymentAllocation(tx, {
       id: newId(),
       paymentId,

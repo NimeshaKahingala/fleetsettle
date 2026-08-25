@@ -97,7 +97,7 @@ export async function createOffset(
       });
 
       for (const direction of ["owed_to_us", "owed_by_us"] as const) {
-        await allocateAgainstOldest(
+        const unallocated = await allocateAgainstOldest(
           tx,
           offsetId,
           input.businessId,
@@ -105,6 +105,15 @@ export async function createOffset(
           direction,
           input.amountMinor,
         );
+        // GAP-178/B11: the outstanding sums were read without a lock, so a
+        // concurrent payment can have settled them since. Roll back rather
+        // than move one of the driver's two balances by less than the other.
+        if (unallocated !== 0n) {
+          throw new ValidationError(
+            "This offset could not be fully allocated — the driver's balances changed while it " +
+              "was being recorded. Check the figures and try again",
+          );
+        }
       }
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -184,7 +193,7 @@ export async function deductFromDriverFeeTx(
     obligationSettledMinor,
     input.obligationWaivedMinor,
   );
-  await updateObligationSettled(tx, input.obligationId, {
+  await updateObligationSettled(tx, input.businessId, input.obligationId, {
     settledMinor: obligationSettledMinor,
     status: obligationStatus,
   });
@@ -195,7 +204,7 @@ export async function deductFromDriverFeeTx(
     amountMinor: input.amountMinor,
   });
 
-  await allocateAgainstOldest(
+  const unallocated = await allocateAgainstOldest(
     tx,
     offsetId,
     input.businessId,
@@ -203,10 +212,39 @@ export async function deductFromDriverFeeTx(
     "owed_by_us",
     input.amountMinor,
   );
+  // GAP-178/B11: same reason as `createOffset` — this deduction settles a
+  // specific charge on one side and sweeps oldest-first on the other, and
+  // both sides must move by the same amount or INV-3 is broken silently.
+  if (unallocated !== 0n) {
+    throw new ValidationError(
+      "This deduction could not be fully allocated — the driver's balances changed while it " +
+        "was being recorded. Check the figures and try again",
+    );
+  }
 
   return { offsetId, obligationSettledMinor, obligationStatus };
 }
 
+/**
+ * GAP-178/B11: returns what it could **not** allocate, and every caller
+ * asserts that is zero.
+ *
+ * The amount is validated against `sumOutstandingByDirectionForDriver`, which
+ * takes no lock, and only then does the read below take `FOR UPDATE` — so the
+ * check happens *before* the lock. A concurrent payment settling those same
+ * obligations in between leaves less outstanding than was validated, the loop
+ * allocates what it can, and the remainder was silently dropped on the floor.
+ *
+ * That is not cosmetic. INV-3/W-2: an offset is the one action allowed to
+ * move both of a driver's balances, and it moves the same amount on each
+ * side. A short allocation moves one side by less than the other,
+ * permanently, with nothing recording that it happened — the `offset_record`
+ * says 5,000 and the sum of its allocations says 3,000.
+ *
+ * `payment.ts`'s own copy of this function deliberately does **not** assert:
+ * its remainder is `unallocatedMinor`, a documented outcome of overpaying,
+ * surfaced through the handler and the wire schema.
+ */
 async function allocateAgainstOldest(
   tx: Tx,
   offsetId: string,
@@ -214,7 +252,7 @@ async function allocateAgainstOldest(
   driverId: string,
   direction: "owed_to_us" | "owed_by_us",
   amountMinor: Minor,
-): Promise<void> {
+): Promise<Minor> {
   // GAP-5a: same lock, same reason as payment.ts's own allocateAgainstOldest
   // — an offset settles obligations too, and races the identical way.
   const obligations = await findOutstandingObligationsForDriver(
@@ -235,7 +273,7 @@ async function allocateAgainstOldest(
     const newSettled = ob.settledMinor + take;
     const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
 
-    await updateObligationSettled(tx, ob.id, { settledMinor: newSettled, status });
+    await updateObligationSettled(tx, businessId, ob.id, { settledMinor: newSettled, status });
     await insertOffsetAllocation(tx, {
       id: newId(),
       offsetId,
@@ -245,6 +283,8 @@ async function allocateAgainstOldest(
 
     remaining -= take;
   }
+
+  return remaining as Minor;
 }
 
 export interface VoidOffsetInput {
@@ -276,11 +316,14 @@ export async function voidOffset(writer: Writer, input: VoidOffsetInput): Promis
 
       const allocations = await findLiveOffsetAllocations(tx, input.offsetId);
       for (const alloc of allocations) {
-        const ob = await findObligationForBusiness(tx, input.businessId, alloc.obligationId);
+        const ob = await findObligationForBusiness(tx, input.businessId, alloc.obligationId, true);
         if (ob && ob.voidedAt === null) {
           const newSettled = ob.settledMinor - alloc.amountMinor;
           const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
-          await updateObligationSettled(tx, ob.id, { settledMinor: newSettled, status });
+          await updateObligationSettled(tx, input.businessId, ob.id, {
+            settledMinor: newSettled,
+            status,
+          });
         }
         await voidOffsetAllocationRow(tx, alloc.id, {
           voidedReason: `Offset voided: ${input.reason}`,

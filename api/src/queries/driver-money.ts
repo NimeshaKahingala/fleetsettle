@@ -50,12 +50,27 @@ export interface AdvanceRow {
 }
 
 /** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * GAP-178/B12: `forUpdate` locks the advance row for the caller's own
+ * transaction.
+ *
+ * Moving `voidAdvance`'s settlement check inside its transaction is not on
+ * its own enough, and the interleaved test proved it: under READ COMMITTED a
+ * plain SELECT does not block a concurrent INSERT of a *new* settlement,
+ * because PostgreSQL has no predicate locking at this isolation level. The
+ * check sees nothing live, the insert lands, and the advance is voided with a
+ * settlement standing against it.
+ *
+ * The parent row is the thing both sides can agree on, so the void and the
+ * settle both take it — the same conclusion B10 reached for `deposit`.
+ */
 export async function findAdvanceForBusiness(
   db: ReadDb,
   businessId: string,
   advanceId: string,
+  forUpdate = false,
 ): Promise<AdvanceRow | undefined> {
-  const rows = await db
+  const query = db
     .select({
       id: advance.id,
       businessId: advance.businessId,
@@ -70,6 +85,7 @@ export async function findAdvanceForBusiness(
     .from(advance)
     .where(and(eq(advance.id, advanceId), eq(advance.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as AdvanceRow | undefined;
 }
 
@@ -389,16 +405,34 @@ export async function findOpenDepositsForParty(
   return rows as DepositRow[];
 }
 
+/**
+ * GAP-178/B10: `forUpdate` locks the parent `deposit` row for the caller's own
+ * transaction — the same shape `findObligationForDepositApply` already uses,
+ * and for a sharper reason.
+ *
+ * `recordDepositMovementTx` reads this row, sums its movements, checks the
+ * draw against what is held, and inserts. Two concurrent draws both read the
+ * same held figure and both pass, so a deposit of 20,000 pays out 30,000 and
+ * the sum of its movements exceeds it forever.
+ *
+ * Locking `deposit_movement` cannot fix that: under READ COMMITTED a row lock
+ * on the existing movements does not block a concurrent INSERT of a new one,
+ * because PostgreSQL has no predicate locking at this isolation level. The
+ * lock has to be on the parent, and every writer has to take it or the
+ * serialization has a hole.
+ */
 export async function findDepositForBusiness(
   db: ReadDb,
   businessId: string,
   depositId: string,
+  forUpdate = false,
 ): Promise<DepositRow | undefined> {
-  const rows = await db
+  const query = db
     .select(DEPOSIT_COLUMNS)
     .from(deposit)
     .where(and(eq(deposit.id, depositId), eq(deposit.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as DepositRow | undefined;
 }
 

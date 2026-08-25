@@ -134,7 +134,17 @@ export async function recordDepositMovementTx(
   tx: Tx,
   input: RecordDepositMovementInput,
 ): Promise<RecordedDepositMovement> {
-  const dep = await findDepositForBusiness(tx, input.businessId, input.depositId);
+  // GAP-178/B10: the parent row is locked before the held balance is summed.
+  // Without it, two concurrent draws both read the same `held`, both pass the
+  // check below, and both insert — a deposit of 20,000 pays out 30,000 and
+  // the sum of its movements exceeds it permanently, with every individual
+  // row valid.
+  //
+  // The lock must be on the parent, not on `deposit_movement`: under READ
+  // COMMITTED a row lock on the existing movements does not block a
+  // concurrent INSERT of a new one, so summing them proves nothing about what
+  // another transaction is about to add.
+  const dep = await findDepositForBusiness(tx, input.businessId, input.depositId, true);
   if (!dep) throw new NotFoundError("No such deposit in this business");
   if (dep.status !== "held") {
     throw new ValidationError(`This deposit is already ${dep.status}`);
@@ -219,7 +229,7 @@ export async function recordDepositMovementTx(
   }
 
   if (obligationSettlement !== undefined) {
-    await updateObligationSettled(tx, obligationSettlement.id, {
+    await updateObligationSettled(tx, input.businessId, obligationSettlement.id, {
       settledMinor: obligationSettlement.settledMinor,
       status: obligationSettlement.status,
     });
@@ -288,7 +298,10 @@ export async function voidDepositMovement(
       if (!movement) throw new NotFoundError("No such deposit movement in this business");
       if (movement.voidedAt !== null) throw new DepositMovementAlreadyVoidedError();
 
-      const dep = await findDepositForBusiness(tx, input.businessId, movement.depositId);
+      // GAP-178/B10: same parent lock, same order as `recordDepositMovementTx`
+      // — voiding a movement changes the held balance a concurrent draw is
+      // checking against, so the two must serialize on the same row.
+      const dep = await findDepositForBusiness(tx, input.businessId, movement.depositId, true);
       if (!dep) throw new NotFoundError("No such deposit in this business");
 
       if (movement.obligationId !== null) {
@@ -301,7 +314,7 @@ export async function voidDepositMovement(
         if (ob && ob.voidedAt === null) {
           const settledMinor = ob.settledMinor - movement.amountMinor;
           const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
-          await updateObligationSettled(tx, ob.id, { settledMinor, status });
+          await updateObligationSettled(tx, input.businessId, ob.id, { settledMinor, status });
         }
       }
 
