@@ -640,6 +640,21 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     expect(busCosts).toBe(4_600_000n); // Rs 46,000
 
     // The gate: G-1's own headline figure.
+    //
+    // **SonarCloud reports `typescript:S5845` on the `toBe` below — "the
+    // compared expressions have incompatible static types (number and
+    // bigint)". It is a false positive, verified rather than assumed**
+    // (24 Aug 2026): binding `const x: bigint = busProfit` compiles and
+    // `const x: number = busProfit` is a type error, so `busProfit` is
+    // genuinely `bigint` and this assertion is comparing like with like.
+    // The analyser mis-infers `bigint - bigint` as `number`, which is why
+    // only the two subtraction-fed assertions in this file are flagged and
+    // `expect(earnedTotal).toBe(12_000_000n)` above is not.
+    //
+    // Recorded here because the wrong correction is cheap and tempting: a
+    // future reader "fixing" it by loosening `toBe` to `toEqual`, or by
+    // casting either side, would quietly weaken the one assertion FL §9.1
+    // calls breaking to move.
     const busProfit = busEarned - busCosts;
     expect(busProfit).toBe(13_400_000n); // Rs 134,000
 
