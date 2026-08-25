@@ -1,3 +1,4 @@
+import { asBusinessDate } from "@fleetsettle/shared";
 import type {
   DriverBalancesResponse,
   DriverResponse,
@@ -1228,7 +1229,7 @@ test("GAP-173/F-8.1: a late-posted deposit movement is flagged with the month it
           // month carrying belongs_to back to June (W-35).
           occurredOn: "2026-06-30",
           reason: "Opening balance corrected",
-          belongsToPeriodStart: "2026-06-01",
+          belongsToPeriodStart: asBusinessDate("2026-06-01"),
           voidedAt: null,
           voidedReason: null,
         },
