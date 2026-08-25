@@ -44,7 +44,10 @@ function formatShortDate(date: string): string {
  * the deposit's full movement history is (W-50: a release is a movement, and
  * movements belong with their deposit).
  */
-export function DepositReleasesScreen({ onBack, onSelectParty }: DepositReleasesScreenProps) {
+export function DepositReleasesScreen({
+  onBack,
+  onSelectParty,
+}: Readonly<DepositReleasesScreenProps>) {
   const api = useApi();
   const query = useQuery({
     queryKey: ["home", "deposit-releases"],

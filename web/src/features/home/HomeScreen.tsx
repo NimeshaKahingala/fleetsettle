@@ -319,7 +319,7 @@ export function HomeScreen({
   onSelectTrip,
   onSelectParty,
   onOpenDepositReleases,
-}: HomeScreenProps) {
+}: Readonly<HomeScreenProps>) {
   const api = useApi();
   const today = businessToday();
   const [bellOpen, setBellOpen] = useState(false);
