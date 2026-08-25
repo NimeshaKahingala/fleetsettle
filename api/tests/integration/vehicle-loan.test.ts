@@ -259,6 +259,47 @@ describe("vehicle loans (F-12)", () => {
     await ctx.cleanup();
   });
 
+  it("F-12.3/W-69, Copilot review PR #130 — a full-forgiveness settlement (settlementAmountMinor: 0) closes the loan rather than a CHECK violation", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const loanRes = await postLoan(token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "1000000",
+      totalRepayableMinor: "1500000",
+      termMonths: 50,
+      startedOn: "2026-07-05",
+    });
+    const loan: LoanBody = await loanRes.json();
+    ctx.trackCreatedVehicleLoan(loan.id);
+
+    // The lender forgives the entire 1,000,000 outstanding — the closing
+    // loan_payment row itself carries amount_minor: 0, which the ordinary
+    // "amount_minor > 0" CHECK every other payment obeys would reject.
+    const settleRes = await postSettle(token, loan.id, {
+      settlementAmountMinor: "0",
+      settledOn: "2026-07-15",
+    });
+    expect(settleRes.status).toBe(201);
+    const settlement: PaymentBody = await settleRes.json();
+    expect(settlement).toMatchObject({
+      isSettlement: true,
+      amountMinor: "0",
+      waivedMinor: "1000000",
+    });
+
+    const closedRes = await getLoan(token, loan.id);
+    const closed: LoanBody = await closedRes.json();
+    expect(closed.closedOn).toBe("2026-07-15");
+
+    await ctx.cleanup();
+  });
+
   it("F-12.1/W-52 — a down payment writes exactly one capital_contribution, by the named owner", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

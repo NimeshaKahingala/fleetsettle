@@ -36,7 +36,15 @@ CREATE TABLE loan_payment (
   id            uuid PRIMARY KEY,
   business_id   uuid NOT NULL REFERENCES business(id),
   loan_id       uuid NOT NULL REFERENCES vehicle_loan(id),
-  amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+  -- Copilot review, PR #130: an ordinary payment of nothing is not a
+  -- payment (GAP-177's own reasoning — amount_minor > 0), but a
+  -- settlement can legitimately be 0: a lender forgiving the entire
+  -- remaining balance is F-12.3's own "settlement < principal
+  -- outstanding" case taken to its limit, and the design's Post clause
+  -- ("one closing loan_payment... closed_on set") is unconditional on the
+  -- amount. The row must still exist to close the loan and carry
+  -- waived_minor.
+  amount_minor  bigint NOT NULL CHECK (amount_minor > 0 OR is_settlement = true),
   paid_on       date NOT NULL,
   is_settlement boolean NOT NULL DEFAULT false,   -- UC-108, F-12.3
   -- W-69/INV-43: principal the lender forgave. A fact about the loan, never a
