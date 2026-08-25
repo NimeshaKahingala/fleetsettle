@@ -294,7 +294,7 @@ export interface NewPartnerPayout {
   businessId: string;
   userId: string;
   amountMinor: bigint;
-  kind: "payout" | "partner_settlement";
+  kind: "payout" | "partner_settlement" | "loan_on_behalf";
   occurredOn: string;
   postedPeriodId: string;
   belongsToPeriodId?: string;
@@ -311,7 +311,7 @@ export interface PartnerPayoutRow {
   businessId: string;
   userId: string;
   amountMinor: bigint;
-  kind: "payout" | "partner_settlement";
+  kind: "payout" | "partner_settlement" | "loan_on_behalf";
   occurredOn: string;
   voidedAt: string | null;
   voidedReason: string | null;
@@ -532,7 +532,7 @@ export async function listBankingEvents(
 
 export interface PartnerPayoutListFilters {
   userId?: string;
-  kind?: "payout" | "partner_settlement";
+  kind?: "payout" | "partner_settlement" | "loan_on_behalf";
 }
 
 /** A2: newest-occurred-first. Same voided-row note as `listBankingEvents` above. */
@@ -608,7 +608,12 @@ export async function sumPartnerPayoutsForUser(
   let payoutsMinor = 0n;
   let settlementsMinor = 0n;
   for (const row of rows) {
-    if (row.kind === "payout") payoutsMinor += row.amountMinor;
+    // GAP-185/UC-107: 'loan_on_behalf' is a drawing against this owner's
+    // own loan liability — the same "Taken out" direction as an ordinary
+    // payout, never a partner settlement. Explicit branches, not an
+    // else-catch-all, so a future third kind fails to compile here rather
+    // than silently landing in whichever bucket happened to be the default.
+    if (row.kind === "payout" || row.kind === "loan_on_behalf") payoutsMinor += row.amountMinor;
     else settlementsMinor += row.amountMinor;
   }
   return { payoutsMinor, settlementsMinor };

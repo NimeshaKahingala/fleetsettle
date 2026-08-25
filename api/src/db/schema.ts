@@ -143,6 +143,9 @@ export const vehicle = pgTable("vehicle", {
   // F-3.5/UC-13/GAP-68: optional, kilometres, never required to save the
   // vehicle (U-2) — with none set, the maintenance prompt never appears.
   serviceIntervalKm: integer("service_interval_km"),
+  // GAP-185/UC-106: optional, never required to save the vehicle (U-2) —
+  // entered alongside a loan, but lives on the vehicle itself.
+  purchaseCostMinor: bigint("purchase_cost_minor", { mode: "bigint" }),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
 });
 
@@ -720,6 +723,48 @@ export const partnerPayout = pgTable("partner_payout", {
   voidedReason: text("voided_reason"),
   voidedBy: uuid("voided_by"),
   replacesId: uuid("replaces_id"), // GAP-60/D-16, migration 0021
+});
+
+/** GAP-185/F-12/UC-106, W-68/W-70: a financed vehicle. Scoped through `vehicleId` exactly as `ownershipShare` is — no `businessId` of its own. `amortisationMethod` carries `'flat'` as its only permitted value (DB CHECK); "immutable once a payment exists" is met by that CHECK plus no writer ever updating the column, not a separate trigger (migration 0032's own header). */
+export const vehicleLoan = pgTable("vehicle_loan", {
+  id: uuid("id").primaryKey(),
+  vehicleId: uuid("vehicle_id").notNull(),
+  lender: text("lender").notNull(),
+  liabilityOwner: uuid("liability_owner"), // NULL = the business carries it (UC-107)
+  principalMinor: bigint("principal_minor", { mode: "bigint" }).notNull(),
+  totalRepayableMinor: bigint("total_repayable_minor", { mode: "bigint" }).notNull(),
+  termMonths: integer("term_months").notNull(),
+  monthlyPaymentMinor: bigint("monthly_payment_minor", { mode: "bigint" }),
+  paymentDay: integer("payment_day"),
+  amortisationMethod: text("amortisation_method").notNull().default("flat"),
+  downPaymentMinor: bigint("down_payment_minor", { mode: "bigint" }),
+  downPaymentByUserId: uuid("down_payment_by_user_id"),
+  startedOn: date("started_on", { mode: "string" }).notNull(),
+  closedOn: date("closed_on", { mode: "string" }),
+});
+
+/** GAP-185/F-12.2/INV-43..45: a money table (DM §10's conventions apply). `waivedMinor` is W-69's lender forgiveness — a fact about the loan, never a money record of its own. */
+export const loanPayment = pgTable("loan_payment", {
+  id: uuid("id").primaryKey(),
+  businessId: uuid("business_id").notNull(),
+  loanId: uuid("loan_id").notNull(),
+  amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
+  paidOn: date("paid_on", { mode: "string" }).notNull(),
+  isSettlement: boolean("is_settlement").notNull().default(false),
+  waivedMinor: bigint("waived_minor", { mode: "bigint" }).notNull().default(0n),
+  note: text("note"),
+  postedPeriodId: uuid("posted_period_id").notNull(),
+  belongsToPeriodId: uuid("belongs_to_period_id"),
+  voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
+  voidedReason: text("voided_reason"),
+  voidedBy: uuid("voided_by"),
+  replacesId: uuid("replaces_id"),
+  // Migration 0032's own correction to DM §4.4: void-cascade (INV-43) needs
+  // a stored link to the finance expense or loan-on-behalf payout this
+  // payment generated. Exactly one is set, matching the loan's own
+  // liability_owner; both stay null on a zero-finance settlement.
+  expenseId: uuid("expense_id"),
+  partnerPayoutId: uuid("partner_payout_id"),
 });
 
 /** F-3.4/UC-12/§6.6: the container. No `posted_period_id` of its own — it is not money, the `expense`/`incident_recovery` rows attached to it are. */

@@ -56,6 +56,13 @@ export const vehicleResponseSchema = z.object({
   // never appears in that case.
   // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
   serviceIntervalKm: z.number().int().positive().nullable(),
+  // GAP-185/UC-106: never required to save the vehicle (U-2), and `null`
+  // when unset. `.optional()` here — unlike `serviceIntervalKm`'s plain
+  // `.nullable()` — only spares the ~20 existing `VehicleResponse` fixtures
+  // across this codebase an unrelated one-line edit each; every real
+  // handler response always sets it explicitly, `null` or a real figure,
+  // the same as `serviceIntervalKm` does.
+  purchaseCostMinor: z.string().nullable().optional(),
   // Present only on the single-vehicle detail read; omitted from the list.
   maintenance: vehicleMaintenanceStatusSchema.nullable().optional(),
 });

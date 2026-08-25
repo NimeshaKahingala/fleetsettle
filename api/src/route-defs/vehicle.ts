@@ -7,6 +7,7 @@ import {
   listExpensesResponseSchema,
   listIncidentsResponseSchema,
   listVehicleDocumentsResponseSchema,
+  listVehicleLoansResponseSchema,
   listVehiclesResponseSchema,
   markVehicleUnavailableRequestSchema,
   upsertVehicleDocumentRequestSchema,
@@ -186,6 +187,22 @@ export const listVehicleIncidentsRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read incidents" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** GAP-185/F-12.4: every loan against this vehicle, newest-started-first, open and closed alike. `viewReports` — a manager sees this too (W-70). */
+export const listVehicleLoansRoute = createRoute({
+  method: "get",
+  path: "/{id}/loan",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listVehicleLoansResponseSchema } },
+      description: "Every loan this vehicle has had, newest-started-first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view vehicle loans" },
     404: { description: "No such vehicle in this business" },
   },
 });

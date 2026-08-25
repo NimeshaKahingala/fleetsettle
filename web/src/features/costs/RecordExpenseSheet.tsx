@@ -25,10 +25,11 @@ import { useQueryState } from "../../lib/useQueryState.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
 
-const CATEGORY_REASONS = Object.entries(EXPENSE_CATEGORY_LABEL).map(([key, label]) => ({
-  key,
-  label,
-}));
+// GAP-185/F-12.2: 'finance' is generated server-side by a loan payment's
+// own split (domain/vehicle-loan.ts) — never a category a person picks here.
+const CATEGORY_REASONS = Object.entries(EXPENSE_CATEGORY_LABEL)
+  .filter(([key]) => key !== "finance")
+  .map(([key, label]) => ({ key, label }));
 
 export interface RecordExpenseSheetProps {
   open: boolean;
