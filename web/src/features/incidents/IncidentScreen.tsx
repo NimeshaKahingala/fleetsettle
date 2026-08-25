@@ -6,7 +6,7 @@ import type {
   InsuranceClaimResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, MoreVertical, TriangleAlert, Wallet, XCircle } from "lucide-react";
+import { AlertCircle, MoreVertical, Receipt, TriangleAlert, Wallet, XCircle } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -21,6 +21,7 @@ import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { CustomerContributionSheet } from "./CustomerContributionSheet.js";
 import { InsuranceClaimSheet } from "./InsuranceClaimSheet.js";
 import { OffRoadSheet } from "./OffRoadSheet.js";
@@ -132,6 +133,7 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
     null,
   );
   const [settleOpen, setSettleOpen] = useState(false);
+  const [recordCostOpen, setRecordCostOpen] = useState(false);
 
   const incidentQuery = useQuery({
     queryKey: ["incident", incidentId],
@@ -162,6 +164,15 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
   const actions: ActionSheetAction[] =
     incident !== undefined
       ? [
+          // GAP-172: `expense.incident_id` was fully handled server-side
+          // with no client route to set it — "Total repairs" stayed Rs 0
+          // regardless of what was actually spent (UC-12's own bottom line).
+          {
+            key: "record-cost",
+            label: "Record repair cost",
+            icon: Receipt,
+            onSelect: () => setRecordCostOpen(true),
+          },
           ...(incident.offRoadFrom === null
             ? [
                 {
@@ -452,6 +463,14 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
             onOpenChange={setActionsOpen}
             title="Incident actions"
             actions={actions}
+          />
+          <RecordExpenseSheet
+            open={recordCostOpen}
+            onOpenChange={setRecordCostOpen}
+            today={today}
+            vehicleId={incident.vehicleId}
+            incidentId={incidentId}
+            onRecorded={() => setRecordCostOpen(false)}
           />
         </div>
       )}
