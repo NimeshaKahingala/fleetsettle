@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 
 export const incidentStatusSchema = z.enum([
   "open",
@@ -67,6 +72,11 @@ export const incidentRecoveryResponseSchema = z.object({
   receivedAmountMinor: z.string(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record.
   replacesId: z.string().uuid().nullable(),
+  // GAP-173/W-35/F-8.1: the `period_start` of the period this fact actually
+  // belongs to, set only when that differs from the one it posted into — a
+  // late fact. The date, not a rendered label: formatting is the client's
+  // job here as it is for every other date on the wire.
+  belongsToPeriodStart: z.string().nullable(),
   voidedAt: z.string().nullable(),
   voidedReason: z.string().nullable(),
 });
@@ -74,7 +84,9 @@ export type IncidentRecoveryResponse = z.infer<typeof incidentRecoveryResponseSc
 
 /** F-3.4 step 4/W-10: negotiated after the repair cost is known — an agreed amount plus a note, entered whenever that agreement happens. */
 export const recordCustomerContributionRequestSchema = z.object({
-  agreedAmountMinor: moneyWireSchema,
+  // GAP-177: a customer contributing nothing is not a contribution — record no
+  // recovery at all, or record the real figure and waive it (UC-77).
+  agreedAmountMinor: positiveMoneyWireSchema,
   agreedOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
   // GAP-60/D-16/F-8.5: set when this contribution is the corrected

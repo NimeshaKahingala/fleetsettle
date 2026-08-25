@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { moneyWireSchema, uuidSchema } from "./common.js";
+import { positiveMoneyWireSchema, uuidSchema } from "./common.js";
 
 /** DM §10.3's `CHECK` on `adjustment.adjustment_type`. `waiver`/`auto_waiver` never share a bucket with a write-off (W-28/INV-14, P10's own table). */
 export const adjustmentTypeSchema = z.enum([
@@ -12,10 +12,6 @@ export const adjustmentTypeSchema = z.enum([
   "auto_waiver",
 ]);
 export type AdjustmentType = z.infer<typeof adjustmentTypeSchema>;
-
-const positiveMoneyWireSchema = moneyWireSchema.refine((v) => v > 0n, {
-  message: "amountMinor must be greater than zero",
-});
 
 /**
  * F-2.4/UC-15, W-17: "adjustment ± with a reason", or waive in full or part.

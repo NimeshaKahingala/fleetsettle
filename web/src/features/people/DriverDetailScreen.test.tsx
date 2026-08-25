@@ -188,6 +188,7 @@ test("A5: staff driver detail shows recent days, trips, advances, offsets and de
           amountMinor: "250000",
           occurredOn: "2026-08-01",
           reason: null,
+          belongsToPeriodStart: null,
           voidedAt: null,
           voidedReason: null,
         },
@@ -955,6 +956,7 @@ test("GAP-146 — a held driver deposit movement can be voided from driver detai
           amountMinor: "250000",
           occurredOn: "2026-08-01",
           reason: null,
+          belongsToPeriodStart: null,
           voidedAt: null,
           voidedReason: null,
         },
@@ -1209,4 +1211,55 @@ test("GAP-147: View settlements opens the settlements sheet for the right advanc
 
   expect(await screen.findByText("No settlements recorded yet.")).toBeInTheDocument();
   expect(get.mock.calls.some((call) => call[0] === "/api/advance/a1/settlement")).toBe(true);
+});
+
+test("GAP-173/F-8.1: a late-posted deposit movement is flagged with the month it belongs to", async () => {
+  const history: DriverViewResponse = {
+    ...emptyHistory,
+    deposit: {
+      id: "dep1",
+      heldMinor: "250000",
+      movements: [
+        {
+          id: "dm1",
+          movementType: "refunded",
+          amountMinor: "250000",
+          // Dated 30 June, but June had closed — so it posted into the open
+          // month carrying belongs_to back to June (W-35).
+          occurredOn: "2026-06-30",
+          reason: "Opening balance corrected",
+          belongsToPeriodStart: "2026-06-01",
+          voidedAt: null,
+          voidedReason: null,
+        },
+      ],
+    },
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") {
+      return Promise.resolve({
+        id: "d1",
+        name: "Sunil Perera",
+        mobile: null,
+        driverDayFeeMinor: null,
+        driverTripFeeMinor: null,
+        licenceExpiry: null,
+      } satisfies DriverResponse);
+    }
+    if (path === "/api/driver/d1/balances") {
+      return Promise.resolve({
+        driverId: "d1",
+        owedToUsMinor: "0",
+        owedByUsMinor: "0",
+      } satisfies DriverBalancesResponse);
+    }
+    if (isDriverHistoryPath(path)) return Promise.resolve(history);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(<DriverDetailScreen driverId="d1" onBack={vi.fn()} />, { get });
+
+  expect(await screen.findByText("Belongs to June 2026")).toBeInTheDocument();
+  // The movement's own date is unchanged — only the period attribution moved.
+  expect(screen.getByText(/30 Jun 2026/)).toBeInTheDocument();
 });

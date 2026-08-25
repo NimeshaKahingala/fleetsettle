@@ -1,6 +1,8 @@
 # Key User Flows
 
-**Status:** v1.1.16 — **F-5.1 corrected: arrangement is a default, not a precondition.** GAP-87 had `bookTrip` refuse any vehicle not currently standing on arrangement B or C — a rule this flow never actually specified. F-5.1 carries no `Pre` line at all, unlike F-2.1/F-1.7, and its own INV-1 clause is dates-scoped ("a car on a monthly rental **for those dates** is refused"), the same date-arbitrated shape already established for the B/C mixed-use case below. Found during manual QA (21 Aug 2026) when the gate refused a charter on an arrangement-A vehicle sitting idle between rentals — a state `resolveBorneByDefault` (`data-model.md`, `api/src/domain/expense.ts`) already treats as ordinary. New Accept bullet states the corrected rule; the real conflict (a vehicle genuinely occupied on the requested dates) stays fully enforced via INV-1's own double-booked check, untouched. Closes GAP-158.
+**Status:** v1.1.17 — **vehicle loans mechanised: new Group F-12, new INV-43 to INV-45, and UC-109 added to F-9.2's report catalogue.** Mechanises `use-cases.md` v1.2.15's **W-68 to W-70** / **UC-106 to UC-109**. The three invariants are the ones that fail silently if missed: **principal repayment never writes an expense and a lender's forgiveness writes no money record at all** (INV-43); a payment and its finance cost are **one transaction** (INV-44); and the parts always add back, with per-payment rounding absorbed by the closing payment rather than carried (INV-45). F-12.2 records explicitly that a loan payment **does not inherit W-35's late-fact flag for free** and must set it. §8's traceability updated. Decided 23 Aug 2026.
+
+**v1.1.16** — **F-5.1 corrected: arrangement is a default, not a precondition.** GAP-87 had `bookTrip` refuse any vehicle not currently standing on arrangement B or C — a rule this flow never actually specified. F-5.1 carries no `Pre` line at all, unlike F-2.1/F-1.7, and its own INV-1 clause is dates-scoped ("a car on a monthly rental **for those dates** is refused"), the same date-arbitrated shape already established for the B/C mixed-use case below. Found during manual QA (21 Aug 2026) when the gate refused a charter on an arrangement-A vehicle sitting idle between rentals — a state `resolveBorneByDefault` (`data-model.md`, `api/src/domain/expense.ts`) already treats as ordinary. New Accept bullet states the corrected rule; the real conflict (a vehicle genuinely occupied on the requested dates) stays fully enforced via INV-1's own double-booked check, untouched. Closes GAP-158.
 **v1.1.15** — **a platform tier above the business, and one identity able to belong to more than one — mechanised.** New **INV-38 to INV-42**, new **F-0.3/F-0.4** and new **Group F-11**. **F-0.1 noted, F-1.4 amended**: F-0.1 is now the mechanism for every business under an identity's allowance, not only the first; F-1.4 states explicitly that redeeming an invite while already a member elsewhere is unremarkable — a second membership, never a merge, never a block. Mechanises `use-cases.md`'s **W-63 to W-67**/**UC-102 to UC-105**. §7's screen map and §8's traceability updated to match. Decided 17-18 Aug 2026.
 **v1.1.14** — **three flows given honest delivery status, none weakened.** **F-6.6** splits: the printed slip is phase 1, the no-login share link phase 2 — it would be the first route in the client outside the login, carrying a full financial position, so it earns W-49's isolation class and its own expiry and revocation tests rather than a corner of a release. "Not optional" stands; print satisfies it, and F-6.8/UC-59 already gives a linked driver the same figures. **F-9.3** splits the same way: CSV ships, PDF defers — no renderer has a home in this runtime (`TS §8`), and the alternatives are a dependency inside the money-write runtime or an outside service that would see every figure. **F-4.5's weekly-settler criterion is recorded as unmet**: nothing derives `effective_due_on` from `driver.settlement_rhythm`, so confirming a day for a non-`'daily'` driver now **refuses** (`SETTLEMENT_RHYTHM_UNSUPPORTED`) rather than writing a due date that reads as overdue — W-56's rule applied to a write. All three criteria stay as written; what changed is that the documents now say which are built. Mirrors `use-cases.md` v1.2.13; see `data-model.md` D-5. Decided 17 Aug 2026.
 **v1.1.13** — **F-4.8** added, arrangement B's own closure flow, with a new **INV-37**: ending a daily-lease assignment never refuses on an open driver balance, unlike F-1.11's archive — the debt stays exactly where it was, on the driver's own page. Mechanises `use-cases.md`'s **W-62**/**UC-101**, closing GAP-25 for Wave 5 Track 5A. **F-3.5** corrected the same sitting: the maintenance prompt's own mechanism is now specified — an optional per-vehicle service interval, prompting on the vehicle's own page only once one is set, never a guessed figure. Mechanises `use-cases.md`'s corrected **UC-13**, closing GAP-68 for Wave 5 Track 5B. §8's traceability updated to match. Both decided 15 Aug 2026, ahead of Wave 5's remaining build.
@@ -348,6 +350,9 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-40** | The platform always retains at least one active admin. Revoking or demoting the last one is refused, never merely warned — the identical shape INV-31 already takes for a business's last owner, one level up | W-65, UC-105 |
 | **INV-41** | At most one business-creation request is outstanding per identity at a time. A rejected request may be replaced by a new one; a pending one may not | W-64, UC-102 |
 | **INV-42** | A business is created exactly two ways: immediately, below the requester's allowance, or by an admin's explicit approval at or above it. No third path exists, and nothing but the allowance check and the admin's decision stands between a request and a business | W-63, W-64, UC-102, UC-103 |
+| **INV-43** | Repaying loan principal never writes an expense, never enters profit, and never appears in any report as a cost. Only the finance portion does. A lender forgiving principal writes **no money record at all** — the fact is stored on the loan, and nothing in income or expense moves | W-69, UC-107, UC-108 |
+| **INV-44** | A loan payment writes its `loan_payment` row **and** its finance cost — or its `partner_payout` when the liability is a named owner's — in one transaction. A partial write would reduce a balance with no cost recorded, or record a cost against a balance that never moved | W-68, W-69, UC-107 |
+| **INV-45** | The principal and finance parts of a payment always add back to the payment, and across the loan's whole life the principal parts sum exactly to the amount borrowed and the finance parts to the difference between total repayable and amount borrowed. Per-payment rounding is absorbed by the closing payment, never carried | W-68, UC-107, UC-108 |
 
 ---
 
@@ -1017,6 +1022,7 @@ Two partners share this ledger and one of them does all the entry. An edit histo
 | **UC-77** goodwill given | Waivers and adjustments including auto-waived ones, **never pooled with write-offs** (INV-14) | never | 1 |
 | **UC-78** ageing | Buckets from the **agreed settlement point**, not the calendar; opening balances from their real due dates | never | 1 |
 | **UC-79** utilisation | Days earning / idle / off-road, revenue per available day | distance-based figures without odometer readings | 1 |
+| **UC-109** distributable cash | Cash on hand and in bank, less deposits held (§6.13), less loan instalments **overdue plus the next falling due**. Seen by a manager too (W-70) — a cash report, not a capital one | **any** input read failing. Never zero: someone acts on this by moving money | 1 |
 
 **Accept**
 · **INV-19/W-56** — every report degrades to "not available", never to zero. A testable rule, not a sentiment: assert it per report with empty and partial fixtures
@@ -1094,6 +1100,63 @@ Not a business role (§2.4) — every flow here runs above the business, for an 
 
 ---
 
+### F-12 — Vehicle loans *(added v1.1.17)*
+
+Every vehicle here may be financed. The whole group exists to answer two questions the owner asks out loud — *what is left to pay* and *am I behind* — without ever asking the manager for a figure no document gives him.
+
+#### F-12.1 Record a vehicle loan
+*Actor:* Owner (`manageVehicleLoans`) · *Source:* UC-106, W-68, W-70 · *Phase:* 1
+**Pre** the vehicle exists.
+**Do** enter lender, amount borrowed, total repayable, term. Optionally the monthly instalment, payment day, down payment and who funded it, purchase price, and who carries the liability.
+**Post** the loan is open. Finance cost for its whole life is `total repayable − amount borrowed`, and the split ratio every payment will use is fixed from those two numbers.
+**Accept**
+· **Saves on lender + amount borrowed + total repayable + term alone** (U-2). Everything else is level 2 and cannot be required — this is an automated test, not an intention
+· `total repayable ≥ amount borrowed`, `term > 0`, and any stated instalment `> 0`
+· `amortisation_method` is `'flat'` and is the only permitted value (W-68). **Immutable once any payment exists** — the finance portion posts as a real cost and money is append-only
+· A down payment writes exactly one `capital_contribution`, by exactly one named owner, at registration (W-52). Never split across owners
+· One loan, one vehicle. A lease covering two vehicles is a **stated limitation**, refused rather than approximated
+
+#### F-12.2 Record a loan payment
+*Actor:* Manager (`dailyOperations`) · *Source:* UC-107, W-68, W-69 · *Phase:* 1
+**Pre** the loan is open.
+**Do** enter the amount paid and the date paid. Nothing else is asked.
+**Post** one transaction (INV-44) writes the `loan_payment` **and** the finance cost.
+**Accept**
+· The split uses the loan's fixed ratio, through the same largest-remainder `split()` every other division uses, so the two parts always add back to the payment (INV-45)
+· The principal part **writes no expense and never enters profit** (INV-43). The finance part is an ordinary `expense`, category `finance`, `borne_by = 'us'` in every arrangement (UC §6.7), attached to the vehicle — so it flows into vehicle profit, owner shares and every existing report **with no report changes at all**
+· The generated cost carries `spent_on = paid_on` and the **same** period linkage as its payment, including `belongs_to_period_id` when the payment is a late fact (W-35). It does not inherit that flag for free and must set it explicitly
+· **Refused, naming the figure:** a payment against a closed loan; a payment exceeding what is left to pay, pointing at F-12.3 instead
+· **Refused in this version:** a personally-funded instalment. Reimbursement runs through `expense.paid_by_user_id`, which would repay only the finance share of what he handed over — silent, and wrong against him. The correct treatment is two records (finance as an expense with `paid_by_user_id`; principal as his `capital_contribution`) and is deferred, not rejected
+· **When `liability_owner` is a named owner:** the whole payment is a `partner_payout` of kind `loan_on_behalf` against that owner, **no expense is written**, and the balance is a memo. It is his debt, not the business's cost
+
+#### F-12.3 Settle a loan early and close it
+*Actor:* Owner or manager · *Source:* UC-108, W-69 · *Phase:* 1
+**Pre** the loan is open.
+**Do** enter the figure the lender quoted, and the date.
+**Post** one closing `loan_payment` marked as a settlement; `closed_on` set.
+**Accept**
+· Settlement **≥** principal outstanding: the excess is this payment's finance cost. The normal case
+· Settlement **<** principal outstanding: finance is zero, the difference is stored as waived by the lender, and **no money record is written** (INV-43, W-69)
+· The closing payment assigns principal = whatever principal remains, so the loan's totals land exactly on the amount borrowed and its finance cost by construction, absorbing every earlier rounding (INV-45)
+· **Prior months stand as posted.** A closed period is never rewritten. Because the full finance cost is never booked in advance, settling early simply means total finance lands below the quoted figure — nothing to unwind
+· **Voiding a settlement clears `closed_on` and reopens the loan**, voiding its finance cost with it. Otherwise a mistaken settlement leaves a loan permanently closed with a live balance
+· Voiding a payment whose finance cost sits in a closed period is refused with `PERIOD_CLOSED`, the same answer every other money record gives
+
+#### F-12.4 What is left, and am I behind
+*Actor:* Owner or manager (`viewReports`) · *Source:* UC-106, UC-107, W-70 · *Phase:* 1
+**Do** open the loan.
+**Post** nothing — every figure here is derived on read.
+**Accept**
+· **"Remaining to pay"** starts at total repayable and falls by the full payment. It is the figure on the lender's letter. Principal outstanding is internal and is **never shown**
+· **"Behind by"** is `instalments due since the loan started − everything paid`. One subtraction. A part payment leaves a smaller gap and needs no extra field
+· **Not modelled:** which specific month was missed, and penalty interest. A late fee is an ordinary payment or an ordinary cost
+· Every date comparison uses the `Asia/Colombo` business date passed to SQL as a parameter, never `CURRENT_DATE`
+· Both figures **degrade to "not available", never to zero** (W-56)
+· Reminders are derived on read against the loan's own schedule, mirroring UC-92's paperwork warnings. **No cron and no notification table** — no scheduled job is ever a prerequisite for a user action. This becomes a sixth source for the home bell (UI §3.2)
+· A linked driver reaches none of this by any route — screen, export or crafted request (W-49). Cross-tenant access returns **404**; a capability the role lacks returns **403**
+
+---
+
 ## 7. Screen-to-flow map
 
 Because the source document's usability contract is about *where* things live, not just what they do.
@@ -1160,6 +1223,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-4.8 | UC-101 | W-62, INV-37 |
 | F-0.3, F-0.4 | UC-102, UC-104 | W-63, W-64, W-66, INV-41, INV-42 |
 | F-11.1, F-11.2 | UC-103, UC-105 | W-63, W-65, W-67, INV-38, INV-40 |
+| F-12.1–F-12.4 | UC-106, UC-107, UC-108, UC-109 | W-68, W-69, W-70, INV-43, INV-44, INV-45 |
 
 **Use cases with no flow:** none.
 **Flows with no use case:** none. In v1.0 there were nine; v1.2 of the use-case document wrote them all up, so both directions now close.

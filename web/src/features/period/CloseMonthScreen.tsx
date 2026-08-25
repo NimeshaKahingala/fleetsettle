@@ -30,8 +30,13 @@ export interface CloseMonthScreenProps {
 }
 
 function formatPeriod(start: string, end: string): string {
-  const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
-  return `${fmt.format(new Date(`${start}T00:00:00`))} – ${fmt.format(new Date(`${end}T00:00:00`))}`;
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${fmt.format(new Date(`${start}T00:00:00Z`))} – ${fmt.format(new Date(`${end}T00:00:00Z`))}`;
 }
 
 type ChecklistCountKey = Exclude<
@@ -231,7 +236,7 @@ export function CloseMonthScreen({ today, onBack }: CloseMonthScreenProps) {
           <DialogConfirmFooter
             confirmLabel={
               period !== null
-                ? `Close ${new Intl.DateTimeFormat("en-GB", { month: "long" }).format(new Date(`${period.periodStart}T00:00:00`))} permanently`
+                ? `Close ${new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: "UTC" }).format(new Date(`${period.periodStart}T00:00:00Z`))} permanently`
                 : "Close permanently"
             }
             variant="destructive"

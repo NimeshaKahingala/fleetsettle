@@ -13,6 +13,7 @@ import {
   driver,
   expense,
   incident,
+  insuranceClaim,
   obligation,
   odometerReading,
   ownershipShare,
@@ -20,6 +21,7 @@ import {
   trip,
   vehicle,
   vehicleUnavailability,
+  writeOff,
 } from "../db/schema.js";
 import { sumDepositMovements } from "./driver-money.js";
 
@@ -1492,6 +1494,16 @@ export interface TransactionRow {
   kind: string;
   direction: "in" | "out";
   amountMinor: bigint;
+  /**
+   * GAP-173/W-35/F-8.1: the `period_start` of the period this row actually
+   * belongs to, non-null only when that differs from the one it posted into.
+   *
+   * This is the surface where a late fact silently misattributing itself does
+   * external damage — the export is "a year of transactions for an accountant,
+   * a tax filing, or a bank", so a July recovery landing in a September column
+   * with nothing to say otherwise is a wrong number in someone else's filing.
+   */
+  belongsToPeriodStart: string | null;
 }
 
 /** The `sumVehicleEarnedForDateRange`/`sumVehicleCostsForDateRange` obligation halves, row-level and business-wide rather than summed per vehicle — one bulk query per direction (api/CLAUDE.md's bounded-CPU rule), never one per row. */
@@ -1510,9 +1522,11 @@ async function listObligationTransactionsForDateRange(
       registration: vehicle.registration,
       kind: obligation.kind,
       amountMinor: obligation.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(obligation)
     .leftJoin(vehicle, eq(vehicle.id, obligation.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
     .where(
       and(
         eq(obligation.businessId, businessId),
@@ -1530,6 +1544,7 @@ async function listObligationTransactionsForDateRange(
     kind: r.kind,
     direction: direction === "owed_to_us" ? ("in" as const) : ("out" as const),
     amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
   }));
 }
 
@@ -1546,9 +1561,11 @@ async function listClosedTripTransactionsForDateRange(
       vehicleId: trip.vehicleId,
       registration: vehicle.registration,
       amountMinor: trip.agreedAmountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(trip)
     .innerJoin(vehicle, eq(vehicle.id, trip.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, trip.belongsToPeriodId))
     .where(
       and(
         eq(trip.businessId, businessId),
@@ -1566,6 +1583,7 @@ async function listClosedTripTransactionsForDateRange(
       kind: "trip",
       direction: "in" as const,
       amountMinor: r.amountMinor,
+      belongsToPeriodStart: r.belongsToPeriodStart,
     }));
 }
 
@@ -1583,9 +1601,11 @@ async function listCostExpenseTransactionsForDateRange(
       registration: vehicle.registration,
       category: expense.category,
       amountMinor: expense.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
     })
     .from(expense)
     .leftJoin(vehicle, eq(vehicle.id, expense.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, expense.belongsToPeriodId))
     .where(
       and(
         eq(expense.businessId, businessId),
@@ -1602,10 +1622,123 @@ async function listCostExpenseTransactionsForDateRange(
     kind: r.category,
     direction: "out" as const,
     amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
   }));
 }
 
-/** GAP-18/UC-99: the whole year of transactions in one call — three bulk queries (never one per row), merged and left for the domain layer to sort and render. */
+/**
+ * GAP-175/W-11: the insurer half of an incident recovery, recognised when the
+ * money actually arrives (`received_on`), never when the claim was filed —
+ * a claim is money *expected* until it lands, and booking it earlier inflates
+ * the month it was submitted in.
+ *
+ * Filtered on the money itself (`received_on IS NOT NULL AND
+ * received_amount_minor > 0`) rather than on `status = 'settled'`: status is
+ * the workflow's word for it, the two columns above are the fact, and a
+ * partial settlement left `in_progress` has still moved real money.
+ *
+ * `insurance_claim` carries no `vehicle_id` (the incident owns it) and no
+ * `voided_at` — a settlement is corrected by re-recording it, which
+ * `settleInsuranceClaim` does by overwriting the same row, so there is no
+ * voided-row class here to filter out.
+ */
+async function listInsuranceSettlementTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: insuranceClaim.receivedOn,
+      vehicleId: incident.vehicleId,
+      registration: vehicle.registration,
+      amountMinor: insuranceClaim.receivedAmountMinor,
+    })
+    .from(insuranceClaim)
+    .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
+    // `incident.vehicle_id` is `NOT NULL REFERENCES vehicle(id)`, so the
+    // vehicle always exists — an inner join says so, and matches
+    // `listClosedTripTransactionsForDateRange`'s own. A left join would let a
+    // non-overhead row carry a null `registration`, which `TransactionRow`
+    // documents as meaning "overhead" — a different fact.
+    .innerJoin(vehicle, eq(vehicle.id, incident.vehicleId))
+    .where(
+      and(
+        eq(insuranceClaim.businessId, businessId),
+        gte(insuranceClaim.receivedOn, from),
+        lte(insuranceClaim.receivedOn, to),
+        sql`${insuranceClaim.receivedAmountMinor} > 0`,
+      ),
+    );
+  return rows
+    .filter(
+      // Both columns are nullable on the table (`received_amount_minor` has
+      // no `NOT NULL`), so both are checked. The SQL predicate above already
+      // excludes them, but a guard that asserts more than it tests is how a
+      // later edit puts a null into a `bigint` field downstream.
+      (r): r is typeof r & { date: string; amountMinor: bigint } =>
+        r.date !== null && r.amountMinor !== null,
+    )
+    .map((r) => ({
+      date: r.date,
+      vehicleId: r.vehicleId,
+      registration: r.registration,
+      kind: "insurance_settlement",
+      direction: "in" as const,
+      amountMinor: r.amountMinor,
+      // `insurance_claim` has no `belongs_to_period_id` column at all, so W-35's
+      // late-fact flag has nothing to read here. Its `posted`/`received` pair is
+      // a different distinction — claimed in one month, settled in another is
+      // the normal case, not a late-posted fact — and must not be rendered as one.
+      belongsToPeriodStart: null,
+    }));
+}
+
+/**
+ * GAP-175/UC-90/W-28: a loss you were handed, out of the business in the
+ * month it was accepted. It never shares a bucket with a waiver (INV-14),
+ * and it is deliberately *not* netted against the obligation that earned it:
+ * the export is a transaction list, so the rent shows as money in and the
+ * write-off as money out, which is what nets to the truth for the year.
+ */
+async function listWriteOffTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: writeOff.writtenOffOn,
+      vehicleId: writeOff.vehicleId,
+      registration: vehicle.registration,
+      amountMinor: writeOff.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
+    })
+    .from(writeOff)
+    .leftJoin(vehicle, eq(vehicle.id, writeOff.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, writeOff.belongsToPeriodId))
+    .where(
+      and(
+        eq(writeOff.businessId, businessId),
+        gte(writeOff.writtenOffOn, from),
+        lte(writeOff.writtenOffOn, to),
+        isNull(writeOff.voidedAt),
+      ),
+    );
+  return rows.map((r) => ({
+    date: r.date,
+    vehicleId: r.vehicleId,
+    registration: r.registration,
+    kind: "write_off",
+    direction: "out" as const,
+    amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
+  }));
+}
+
+/** GAP-18/UC-99: the whole year of transactions in one call — bulk queries (never one per row), merged and left for the domain layer to sort and render. */
 export async function listTransactionsForDateRange(
   db: ReadDb,
   businessId: string,
@@ -1617,6 +1750,12 @@ export async function listTransactionsForDateRange(
       "rent",
       "daily_amount",
       "mileage_excess",
+      // GAP-175: the customer half of an incident recovery. It is read here,
+      // from the `obligation` row `recordCustomerContribution` raises, rather
+      // than from `incident_recovery` itself — that table carries no date
+      // column of its own, and its row is the agreement while the obligation
+      // is the receivable. Reading both would bill the customer twice.
+      "customer_contribution",
     ]),
     listObligationTransactionsForDateRange(db, businessId, from, to, "owed_by_us", [
       "driver_fee",
@@ -1624,8 +1763,12 @@ export async function listTransactionsForDateRange(
     ]),
     listClosedTripTransactionsForDateRange(db, businessId, from, to),
   ]);
-  const expenses = await listCostExpenseTransactionsForDateRange(db, businessId, from, to);
-  return [...earned, ...costs, ...trips, ...expenses];
+  const [expenses, insuranceSettlements, writeOffs] = await Promise.all([
+    listCostExpenseTransactionsForDateRange(db, businessId, from, to),
+    listInsuranceSettlementTransactionsForDateRange(db, businessId, from, to),
+    listWriteOffTransactionsForDateRange(db, businessId, from, to),
+  ]);
+  return [...earned, ...costs, ...trips, ...expenses, ...insuranceSettlements, ...writeOffs];
 }
 
 export { desc };

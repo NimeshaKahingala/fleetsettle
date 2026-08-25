@@ -15,6 +15,7 @@ const created: IncidentRecoveryResponse = {
   agreedAmountMinor: "2000000",
   receivedAmountMinor: "0",
   replacesId: null,
+  belongsToPeriodStart: null,
   voidedAt: null,
   voidedReason: null,
 };

@@ -184,6 +184,21 @@ const RULES = [
       "Tailwind v4's @theme only generates colour utilities from --color-*. A colour token without that prefix fails silently (UI §5.1).",
   },
   {
+    // GAP-176. `new Date(`${d}T00:00:00`)` parses at the *device's* midnight, so
+    // in Asia/Colombo (UTC+5:30) every such date renders one day early for five
+    // and a half hours out of every day. Sixteen files carried it. The correct
+    // pattern is `web/src/lib/formatShortDate.ts` — a trailing `Z` when parsing
+    // *and* `timeZone: "UTC"` on the formatter; the `Z` alone still formats in
+    // local time and is the half-fix that looks right in London.
+    id: "web/local-midnight-parse",
+    when: (p) => /^web\/.*\.tsx?$/.test(p),
+    // Not just the backtick-terminated template-literal form — a quoted or
+    // concatenated `T00:00:00` is the same bug in different syntax.
+    pattern: /T00:00:00(?![\d.Z])/g,
+    message:
+      'A date parsed without a trailing `Z` lands at the device\'s midnight, not the business day (CLAUDE.md → Time). Use `T00:00:00Z` and give the formatter `timeZone: "UTC"` — see web/src/lib/formatShortDate.ts.',
+  },
+  {
     id: "css/viewport-unit",
     when: (p) => isCss(p) || /^web\/.*\.tsx?$/.test(p),
     pattern: /\b100vh\b/g,

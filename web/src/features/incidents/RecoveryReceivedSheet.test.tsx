@@ -15,6 +15,7 @@ const received: IncidentRecoveryResponse = {
   agreedAmountMinor: "2000000",
   receivedAmountMinor: "2000000",
   replacesId: null,
+  belongsToPeriodStart: null,
   voidedAt: null,
   voidedReason: null,
 };

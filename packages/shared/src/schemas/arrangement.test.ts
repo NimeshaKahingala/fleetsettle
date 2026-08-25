@@ -48,3 +48,26 @@ describe("startLeaseRequestSchema — F-2.1 step 4, odometer at handover (INV-19
     expect(result.success).toBe(false);
   });
 });
+
+describe("startLeaseRequestSchema — GAP-177, rent is a real amount", () => {
+  it("rejects a zero rent: a mileage-only lease is not a real arrangement (owner, 23 Aug 2026)", () => {
+    expect(startLeaseRequestSchema.safeParse({ ...base, rentAmountMinor: "0" }).success).toBe(
+      false,
+    );
+  });
+
+  it("still accepts a zero excess rate — a lease that simply does not bill excess is legitimate", () => {
+    // A mileage limit drags its two odometer fields in with it (INV-19, the
+    // refines above), so they are supplied here — this case is about the
+    // excess *rate* being allowed to be zero, not about the limit's own rules.
+    expect(
+      startLeaseRequestSchema.safeParse({
+        ...base,
+        mileageDailyLimitKm: 100,
+        mileageExcessRateMinor: "0",
+        odometerReadingKm: 45000,
+        odometerSource: "photo",
+      }).success,
+    ).toBe(true);
+  });
+});

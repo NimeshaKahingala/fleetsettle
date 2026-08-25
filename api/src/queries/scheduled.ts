@@ -3,8 +3,10 @@ import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
   billingPeriod,
+  customer,
   dailyLease,
   dayRecord,
+  driver,
   lease,
   vehicleDayAllocation,
 } from "../db/schema.js";
@@ -73,7 +75,21 @@ export async function listActiveDailyLeasesForCalendar(
       effectiveTo: dailyLease.effectiveTo,
     })
     .from(dailyLease)
-    .where(or(isNull(dailyLease.effectiveTo), gte(dailyLease.effectiveTo, today)));
+    // GAP-178/B13: an archived driver stops earning day cards. Archiving
+    // checks only for *open money* (W-60), so a driver whose dues are all
+    // settled can be archived with a daily lease still active — and this
+    // query, which reads the lease and never the driver, would go on minting
+    // a `day_record` for him every night. Migration 0031's trigger now
+    // refuses those inserts, which would turn a quiet wrong number into a
+    // nightly failure for that business; the fix belongs here, where the
+    // wrong number was.
+    .innerJoin(driver, eq(driver.id, dailyLease.driverId))
+    .where(
+      and(
+        or(isNull(dailyLease.effectiveTo), gte(dailyLease.effectiveTo, today)),
+        isNull(driver.voidedAt),
+      ),
+    );
   return rows as ActiveDailyLeaseForCalendar[];
 }
 
@@ -129,7 +145,12 @@ export async function listLeasesDueForNextBillingPeriod(
   const activeLeases = await db
     .select({ id: lease.id, businessId: lease.businessId })
     .from(lease)
-    .where(eq(lease.status, "active"));
+    // GAP-178/B13: same reason as `listActiveDailyLeasesForCalendar` above,
+    // one arrangement over — an archived customer must stop being raised a
+    // monthly rent due. Rolling the period for one would insert an
+    // `obligation` naming him, which migration 0031's trigger refuses.
+    .innerJoin(customer, eq(customer.id, lease.customerId))
+    .where(and(eq(lease.status, "active"), isNull(customer.voidedAt)));
   if (activeLeases.length === 0) return [];
 
   const latestPeriodEnds = await db

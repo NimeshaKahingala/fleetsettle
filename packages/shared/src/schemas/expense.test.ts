@@ -89,4 +89,22 @@ describe("createExpenseRequestSchema", () => {
     });
     expect(result.success).toBe(true);
   });
+  it("rejects a zero amount, so a free repair is recorded and waived rather than entered as nothing (GAP-177)", () => {
+    const zero = createExpenseRequestSchema.safeParse({
+      category: "repairs",
+      amountMinor: "0",
+      spentOn: "2026-08-24",
+    });
+    expect(zero.success).toBe(false);
+
+    // One rupee passes. The rule is "a real amount", not "a large one" — and
+    // the DB CHECK on this column stays `>= 0` for accumulators that start
+    // empty, which is a different question from what a person may type.
+    const one = createExpenseRequestSchema.safeParse({
+      category: "repairs",
+      amountMinor: "1",
+      spentOn: "2026-08-24",
+    });
+    expect(one.success).toBe(true);
+  });
 });
