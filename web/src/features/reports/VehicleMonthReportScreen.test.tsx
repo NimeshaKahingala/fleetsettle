@@ -113,6 +113,45 @@ describe("VehicleRow — GAP-188/F-8.1: a late fact is its own line, never silen
     expect(screen.getByText("Belongs to June 2026")).toBeInTheDocument();
   });
 
+  test("Gitar review of this PR — an earned late fact and a cost late fact carry different border markers, so direction is never inferred from the label alone", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "5000",
+          costsMinor: "3000",
+          profitMinor: "2000",
+          ownerShares: [],
+          lateFacts: [
+            {
+              id: "f1",
+              label: "Rent",
+              amountMinor: "5000",
+              sign: "earned",
+              belongsToPeriodStart: "2026-06-01",
+            },
+            {
+              id: "f2",
+              label: "Repairs",
+              amountMinor: "3000",
+              sign: "cost",
+              belongsToPeriodStart: "2026-06-01",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+
+    expect(screen.getByText("Rent").closest("div.border-l-\\[3px\\]")).toHaveClass("border-brand");
+    expect(screen.getByText("Repairs").closest("div.border-l-\\[3px\\]")).toHaveClass(
+      "border-direction-payable",
+    );
+  });
+
   test("no lateFacts at all (the year report's own row shape) renders nothing extra", async () => {
     const user = userEvent.setup();
     render(

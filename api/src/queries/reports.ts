@@ -591,7 +591,10 @@ export interface LateFactRow {
  * needs to be shown, not just counted. `belongsToPeriodId` is guaranteed
  * non-null by the same predicate, so the join to `accountingPeriod` is
  * inner rather than left: a dangling FK here would be a real data-integrity
- * bug, not a legitimate absence to tolerate.
+ * bug, not a legitimate absence to tolerate. The four sources are
+ * independent, so they run concurrently (Gitar review, PR #135) rather than
+ * as four sequential round trips — an ordinary month still pays for all
+ * four, since every one of them can legitimately return zero rows.
  */
 export async function listLateFactLinesForVehiclesBulk(
   db: ReadDb,
@@ -603,96 +606,97 @@ export async function listLateFactLinesForVehiclesBulk(
 
   const push = (row: LateFactRow) => out.get(row.vehicleId)?.push(row);
 
-  const earnedObligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      id: obligation.id,
-      kind: obligation.kind,
-      amountMinor: obligation.amountMinor,
-      belongsToPeriodStart: accountingPeriod.periodStart,
-    })
-    .from(obligation)
-    .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        eq(obligation.postedPeriodId, periodId),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
-        isNull(obligation.voidedAt),
-        isNotNull(obligation.belongsToPeriodId),
-      ),
-    );
+  const [earnedObligationRows, earnedTripRows, costExpenseRows, costObligationRows] =
+    await Promise.all([
+      db
+        .select({
+          vehicleId: obligation.vehicleId,
+          id: obligation.id,
+          kind: obligation.kind,
+          amountMinor: obligation.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(obligation)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
+        .where(
+          and(
+            inArray(obligation.vehicleId, vehicleIds),
+            eq(obligation.postedPeriodId, periodId),
+            eq(obligation.direction, "owed_to_us"),
+            sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+            isNull(obligation.voidedAt),
+            isNotNull(obligation.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: trip.vehicleId,
+          id: trip.id,
+          amountMinor: trip.agreedAmountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(trip)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, trip.belongsToPeriodId))
+        .where(
+          and(
+            inArray(trip.vehicleId, vehicleIds),
+            eq(trip.postedPeriodId, periodId),
+            eq(trip.status, "closed"),
+            isNotNull(trip.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: expense.vehicleId,
+          id: expense.id,
+          kind: expense.category,
+          amountMinor: expense.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(expense)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, expense.belongsToPeriodId))
+        .where(
+          and(
+            inArray(expense.vehicleId, vehicleIds),
+            eq(expense.postedPeriodId, periodId),
+            eq(expense.borneBy, "us"),
+            isNull(expense.voidedAt),
+            isNotNull(expense.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: obligation.vehicleId,
+          id: obligation.id,
+          kind: obligation.kind,
+          amountMinor: obligation.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(obligation)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
+        .where(
+          and(
+            inArray(obligation.vehicleId, vehicleIds),
+            eq(obligation.postedPeriodId, periodId),
+            eq(obligation.direction, "owed_by_us"),
+            sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+            isNull(obligation.voidedAt),
+            isNotNull(obligation.belongsToPeriodId),
+          ),
+        ),
+    ]);
+
   for (const r of earnedObligationRows) {
     if (r.vehicleId === null) continue;
     push({ ...r, vehicleId: r.vehicleId, sign: "earned" });
   }
-
-  const earnedTripRows = await db
-    .select({
-      vehicleId: trip.vehicleId,
-      id: trip.id,
-      amountMinor: trip.agreedAmountMinor,
-      belongsToPeriodStart: accountingPeriod.periodStart,
-    })
-    .from(trip)
-    .innerJoin(accountingPeriod, eq(accountingPeriod.id, trip.belongsToPeriodId))
-    .where(
-      and(
-        inArray(trip.vehicleId, vehicleIds),
-        eq(trip.postedPeriodId, periodId),
-        eq(trip.status, "closed"),
-        isNotNull(trip.belongsToPeriodId),
-      ),
-    );
   for (const r of earnedTripRows) {
     push({ ...r, kind: "trip", sign: "earned" });
   }
-
-  const costExpenseRows = await db
-    .select({
-      vehicleId: expense.vehicleId,
-      id: expense.id,
-      kind: expense.category,
-      amountMinor: expense.amountMinor,
-      belongsToPeriodStart: accountingPeriod.periodStart,
-    })
-    .from(expense)
-    .innerJoin(accountingPeriod, eq(accountingPeriod.id, expense.belongsToPeriodId))
-    .where(
-      and(
-        inArray(expense.vehicleId, vehicleIds),
-        eq(expense.postedPeriodId, periodId),
-        eq(expense.borneBy, "us"),
-        isNull(expense.voidedAt),
-        isNotNull(expense.belongsToPeriodId),
-      ),
-    );
   for (const r of costExpenseRows) {
     if (r.vehicleId === null) continue;
     push({ ...r, vehicleId: r.vehicleId, sign: "cost" });
   }
-
-  const costObligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      id: obligation.id,
-      kind: obligation.kind,
-      amountMinor: obligation.amountMinor,
-      belongsToPeriodStart: accountingPeriod.periodStart,
-    })
-    .from(obligation)
-    .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        eq(obligation.postedPeriodId, periodId),
-        eq(obligation.direction, "owed_by_us"),
-        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
-        isNull(obligation.voidedAt),
-        isNotNull(obligation.belongsToPeriodId),
-      ),
-    );
   for (const r of costObligationRows) {
     if (r.vehicleId === null) continue;
     push({ ...r, vehicleId: r.vehicleId, sign: "cost" });
