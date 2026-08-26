@@ -93,6 +93,10 @@ export const ERROR_CODES = [
   // the caller did nothing wrong, and the refusal exists so that a weekly
   // settler never silently reads as overdue (W-56 applied to a write).
   "SETTLEMENT_RHYTHM_UNSUPPORTED",
+  // GAP-185/F-12.
+  "LOAN_CLOSED",
+  "LOAN_PAYMENT_EXCEEDS_REMAINING",
+  "LOAN_PAYMENT_ALREADY_VOIDED",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

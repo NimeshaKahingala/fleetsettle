@@ -427,7 +427,7 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 |---|---|
 | **Step 1** GAP-173 · W-35 flag, **read side only** — GAP-174 withdrawn | **Step 10** GAP-183 · bell rows tappable |
 | **Step 2** GAP-175 · CSV missing categories | **Step 11** GAP-184 · the `docs/` change — **start this first** |
-| **Step 3** GAP-176 · timezone codemod | **Step 12** GAP-185 · vehicle loans — **phase 1, gates Wave 9** |
+| **Step 3** GAP-176 · timezone codemod | ~~**Step 12** GAP-185 · vehicle loans~~ — closed 25 Aug 2026, backend only |
 | **Step 4** GAP-177 · Zod positivity | **Step 13** GAP-186 · distributable cash |
 | **Step 5** GAP-178 · locking, scoping, migration `0031` — **gates Wave 9** | |
 | **Step 6** GAP-179 · performance | |

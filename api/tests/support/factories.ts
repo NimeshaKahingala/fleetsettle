@@ -30,6 +30,7 @@ import {
   lease,
   leaseDayException,
   leaseExtension,
+  loanPayment,
   managementFeeAgreement,
   mileageAssessment,
   mileageAssessmentSplit,
@@ -51,6 +52,7 @@ import {
   vehicleArrangement,
   vehicleDayAllocation,
   vehicleDocument,
+  vehicleLoan,
   vehicleUnavailability,
   writeOff,
   writeOffRecovery,
@@ -1277,6 +1279,31 @@ export class TestContext {
   trackCreatedPartnerPayout(payoutId: string): void {
     this.track(async () => {
       await this.#db.delete(partnerPayout).where(eq(partnerPayout.id, payoutId));
+    });
+  }
+
+  /**
+   * GAP-185/F-12.1: `POST /api/vehicle-loan` writes a single `vehicle_loan`
+   * row; any later `.../payment`/`.../settle` calls add `loan_payment` rows,
+   * each carrying at most one of `expense_id`/`partner_payout_id` (migration
+   * 0032's own correction to DM §4.4). Re-queries by `loanId` at cleanup
+   * time, the same `trackCreatedWriteOff` convention, so it catches whatever
+   * payments the test added along the way without needing their ids.
+   */
+  trackCreatedVehicleLoan(loanId: string): void {
+    this.track(async () => {
+      const payments = await this.#db
+        .select({ expenseId: loanPayment.expenseId, partnerPayoutId: loanPayment.partnerPayoutId })
+        .from(loanPayment)
+        .where(eq(loanPayment.loanId, loanId));
+      await this.#db.delete(loanPayment).where(eq(loanPayment.loanId, loanId));
+      for (const { expenseId, partnerPayoutId } of payments) {
+        if (expenseId !== null) await this.#db.delete(expense).where(eq(expense.id, expenseId));
+        if (partnerPayoutId !== null) {
+          await this.#db.delete(partnerPayout).where(eq(partnerPayout.id, partnerPayoutId));
+        }
+      }
+      await this.#db.delete(vehicleLoan).where(eq(vehicleLoan.id, loanId));
     });
   }
 

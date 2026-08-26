@@ -44,6 +44,7 @@ import { incident } from "./routes/incident.js";
 import { auditLogRoutes } from "./routes/audit-log.js";
 import { accountingPeriodRoutes } from "./routes/accounting-period.js";
 import { writeOff } from "./routes/write-off.js";
+import { vehicleLoan } from "./routes/vehicle-loan.js";
 import { postClosureCharge } from "./routes/post-closure-charge.js";
 import { reports } from "./routes/reports.js";
 import { driverView } from "./routes/driver-view.js";
@@ -182,6 +183,9 @@ app.route("/api/accounting-period", accountingPeriodRoutes);
 
 app.use("/api/write-off/*", dbMiddleware(), authMiddleware());
 app.route("/api/write-off", writeOff);
+
+app.use("/api/vehicle-loan/*", dbMiddleware(), authMiddleware());
+app.route("/api/vehicle-loan", vehicleLoan);
 
 app.use("/api/post-closure-charge/*", dbMiddleware(), authMiddleware());
 app.route("/api/post-closure-charge", postClosureCharge);

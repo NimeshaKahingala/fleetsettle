@@ -562,3 +562,27 @@ export class VehicleUnavailabilityAlreadyVoidedError extends AppError {
     super(409, "VEHICLE_UNAVAILABILITY_ALREADY_VOIDED", message);
   }
 }
+
+// GAP-185/F-12.2/F-12.3: "refused, naming the figure" — a payment or a
+// settlement against a loan whose closed_on is already set.
+export class LoanClosedError extends AppError {
+  constructor(message = "This loan is already closed") {
+    super(409, "LOAN_CLOSED", message);
+  }
+}
+
+// F-12.2's own Accept clause: "a payment exceeding what is left to pay,
+// pointing at F-12.3 instead" — an overpayment is either a settlement or a
+// mistake, and guessing which one silently is worse than refusing (the same
+// judgement COMBINED-PLAN-2026-08-23.md's Q-1 records for a different 500).
+export class LoanPaymentExceedsRemainingError extends AppError {
+  constructor(message: string) {
+    super(409, "LOAN_PAYMENT_EXCEEDS_REMAINING", message);
+  }
+}
+
+export class LoanPaymentAlreadyVoidedError extends AppError {
+  constructor(message = "This payment has already been undone") {
+    super(409, "LOAN_PAYMENT_ALREADY_VOIDED", message);
+  }
+}
