@@ -1,8 +1,9 @@
-import { toWire, type Minor } from "@fleetsettle/shared";
+import { businessToday, toWire, type Minor } from "@fleetsettle/shared";
 import type { LostReason } from "@fleetsettle/shared/schemas";
 import type { RouteHandler } from "@hono/zod-openapi";
 import {
   requireBusinessId,
+  requireBusinessTimezone,
   requireCapability,
   requireRole,
   requireUserId,
@@ -10,6 +11,7 @@ import {
 import {
   getAgeingReport,
   getCashPositionReport,
+  getDistributableCashReport,
   getFuelEfficiencyReport,
   getGoodwillReport,
   getLostDaysReport,
@@ -28,6 +30,7 @@ import type {
   exportTransactionsCsvRoute,
   getAgeingReportRoute,
   getCashPositionReportRoute,
+  getDistributableCashReportRoute,
   getFuelEfficiencyReportRoute,
   getGoodwillReportRoute,
   getLostDaysReportRoute,
@@ -235,6 +238,30 @@ export const getCashPositionReportHandler: RouteHandler<
         driverName: a.driverName,
         outstandingMinor: toWire(a.outstandingMinor as Minor),
       })),
+    },
+    200,
+  );
+};
+
+/** GAP-186/UC-109, W-70. `viewReports` — a manager sees this too, never `viewOwnerOnlyReports`. */
+export const getDistributableCashReportHandler: RouteHandler<
+  typeof getDistributableCashReportRoute,
+  Env
+> = async (c) => {
+  requireCapability(c, "viewReports");
+  const businessId = requireBusinessId(c);
+  const today = businessToday(requireBusinessTimezone(c));
+
+  const report = await getDistributableCashReport(c.get("reader"), businessId, today);
+
+  return c.json(
+    {
+      cashOnHandMinor: toWire(report.cashOnHandMinor),
+      depositsHeldMinor: toWire(report.depositsHeldMinor),
+      loanInstalmentsDueMinor:
+        report.loanInstalmentsDueMinor !== null ? toWire(report.loanInstalmentsDueMinor) : null,
+      distributableMinor:
+        report.distributableMinor !== null ? toWire(report.distributableMinor) : null,
     },
     200,
   );

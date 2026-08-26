@@ -106,6 +106,19 @@ export async function listVehicleLoansForVehicle(
   return rows;
 }
 
+/** GAP-186/UC-109: every open loan across the whole business — no vehicle scope — for summing instalments due into the distributable-cash report. */
+export async function listOpenVehicleLoansForBusiness(
+  db: ReadDb,
+  businessId: string,
+): Promise<VehicleLoanRow[]> {
+  const rows = await db
+    .select(VEHICLE_LOAN_COLUMNS)
+    .from(vehicleLoan)
+    .innerJoin(vehicle, eq(vehicle.id, vehicleLoan.vehicleId))
+    .where(and(isNull(vehicleLoan.closedOn), eq(vehicle.businessId, businessId)));
+  return rows;
+}
+
 /** F-12.3: settle-and-close sets it; voiding a settlement clears it again, reopening the loan (INV-43's own reversal). */
 export async function setVehicleLoanClosedOn(
   db: WriteDb,

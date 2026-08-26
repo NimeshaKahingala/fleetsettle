@@ -49,6 +49,7 @@ import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { AgeingReportScreen } from "../features/reports/AgeingReportScreen.js";
 import { CashPositionReportScreen } from "../features/reports/CashPositionReportScreen.js";
+import { DistributableCashReportScreen } from "../features/reports/DistributableCashReportScreen.js";
 import { ExportTransactionsScreen } from "../features/reports/ExportTransactionsScreen.js";
 import { FuelEfficiencyReportScreen } from "../features/reports/FuelEfficiencyReportScreen.js";
 import { GoodwillReportScreen } from "../features/reports/GoodwillReportScreen.js";
@@ -494,6 +495,7 @@ const REPORT_PATH: Record<ReportKey, string> = {
   "fuel-efficiency": "/reports/fuel-efficiency",
   receivables: "/reports/receivables",
   "cash-position": "/reports/cash-position",
+  "distributable-cash": "/reports/distributable-cash",
   "lost-days": "/reports/lost-days",
   ageing: "/reports/ageing",
   goodwill: "/reports/goodwill",
@@ -578,6 +580,17 @@ function CashPositionReportRoute() {
   const navigate = useNavigate();
   return (
     <CashPositionReportScreen
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+function DistributableCashReportRoute() {
+  const navigate = useNavigate();
+  return (
+    <DistributableCashReportScreen
       onBack={() => {
         void navigate({ to: "/reports" });
       }}
@@ -1381,6 +1394,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: CashPositionReportRoute,
   });
 
+  const distributableCashReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/distributable-cash",
+    component: DistributableCashReportRoute,
+  });
+
   const lostDaysReportRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/reports/lost-days",
@@ -1554,6 +1573,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     fuelEfficiencyReportRoute,
     receivablesReportRoute,
     cashPositionReportRoute,
+    distributableCashReportRoute,
     lostDaysReportRoute,
     ageingReportRoute,
     goodwillReportRoute,

@@ -1,6 +1,13 @@
-import { addDays, inclusiveDays, splitInteger, type BusinessDate } from "@fleetsettle/shared";
+import {
+  addDays,
+  inclusiveDays,
+  splitInteger,
+  type BusinessDate,
+  type Minor,
+} from "@fleetsettle/shared";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { ForbiddenCapabilityError, NotFoundError } from "../errors/app-error.js";
+import { sumInstalmentsDueForBusiness } from "./vehicle-loan.js";
 import {
   countAllocatedDaysForVehicle,
   countEarningDaysForVehicle,
@@ -457,6 +464,66 @@ export async function getCashPositionReport(
     listAdvancesOutstandingByDriver(db, businessId),
   ]);
   return { partners, depositsHeldMinor, banked, driverAdvances };
+}
+
+/**
+ * GAP-186/UC-109, W-70. `cash on hand and in bank` is *not* the same total
+ * `getCashPositionReport` renders — that total is `sum(received payments) −
+ * sum(advanced) − sum(banked)`'s complement (every partner's `heldMinor`
+ * plus every `banked` destination), and `takeDriverDeposit`/
+ * `takeCustomerDepositTx` (`domain/deposit.ts`) never write a `payment` row
+ * — only `deposit`/`deposit_movement` ones. So a deposit still physically
+ * sits in that same cash, but is invisible to the payment-based total until
+ * folded back in here. **`depositsHeldMinor` is added before it is
+ * subtracted** — a no-op for `distributableMinor`'s own arithmetic (deposit
+ * cash a business is only holding, never its own, cancels out exactly, per
+ * §6.13), but without it `cashOnHandMinor` — the figure UC-109 names "cash
+ * on hand and in bank" and the screen shows on its own — would silently
+ * exclude money the business is currently and literally holding. Caught by
+ * this PR's own test: a payment of 50,000 plus a deposit of 8,000 must read
+ * `cashOnHandMinor: 58,000`, not 50,000 — the business holds both amounts
+ * whether or not either was ever a `payment` row. Loan instalments due is
+ * `sumInstalmentsDueForBusiness`'s own figure — overdue plus the next one
+ * falling due (Q-5).
+ *
+ * **Degrades to "not available", never zero (W-56)** — the single most
+ * expensive wrong number here, because someone acts on it by moving money
+ * out of the business. `distributableMinor` is `null` whenever any input
+ * is incomplete, today only reachable through an open loan with no monthly
+ * instalment figure to add a "next" one to.
+ */
+export async function getDistributableCashReport(
+  db: Reader,
+  businessId: string,
+  today: BusinessDate,
+): Promise<{
+  cashOnHandMinor: Minor;
+  depositsHeldMinor: Minor;
+  loanInstalmentsDueMinor: Minor | null;
+  distributableMinor: Minor | null;
+}> {
+  const [partners, banked, depositsHeldMinor, loanInstalmentsDueMinor] = await Promise.all([
+    listPartnerCashPositions(db, businessId),
+    listBankedByDestination(db, businessId),
+    sumDepositsHeld(db, businessId),
+    sumInstalmentsDueForBusiness(db, businessId, today),
+  ]);
+
+  const cashOnHandMinor = (partners.reduce((sum, p) => sum + p.heldMinor, 0n) +
+    banked.reduce((sum, b) => sum + b.heldMinor, 0n) +
+    (depositsHeldMinor as Minor)) as Minor;
+
+  const distributableMinor =
+    loanInstalmentsDueMinor === null
+      ? null
+      : ((cashOnHandMinor - (depositsHeldMinor as Minor) - loanInstalmentsDueMinor) as Minor);
+
+  return {
+    cashOnHandMinor,
+    depositsHeldMinor: depositsHeldMinor as Minor,
+    loanInstalmentsDueMinor,
+    distributableMinor,
+  };
 }
 
 /**

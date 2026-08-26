@@ -9,6 +9,7 @@ import {
   Gift,
   History,
   Hourglass,
+  PiggyBank,
   ReceiptText,
   Route,
   TimerOff,
@@ -28,6 +29,7 @@ export type ReportKey =
   | "fuel-efficiency"
   | "receivables"
   | "cash-position"
+  | "distributable-cash"
   | "lost-days"
   | "ageing"
   | "goodwill"
@@ -71,6 +73,7 @@ const GROUPS: {
       { key: "receivables", label: "Who owes us", icon: ReceiptText },
       { key: "ageing", label: "Who is overdue, and by how long", icon: History },
       { key: "cash-position", label: "Where is our cash", icon: Banknote },
+      { key: "distributable-cash", label: "What can we safely take out", icon: PiggyBank },
       { key: "goodwill", label: "Goodwill given", icon: Gift, ownerOnly: true },
       {
         key: "export",
@@ -83,8 +86,9 @@ const GROUPS: {
 ];
 
 /**
- * `/reports` — UI §5.1's catalogue. **Eleven cards now, not six** (GAP-98,
- * then GAP-18 adding UC-73's yearly view and UC-99's CSV export):
+ * `/reports` — UI §5.1's catalogue. **Twelve cards now, not six** (GAP-98,
+ * GAP-18 adding UC-73's yearly view and UC-99's CSV export, GAP-186 adding
+ * UC-109's distributable cash):
  * UC-77 (goodwill) and UC-79 (utilisation) were the only two owner-only
  * reports and both were phase 2 — both moved to phase 1 with UC-78
  * (ageing) on 11 Aug 2026 (`use-cases.md` v1.2.5), and this catalogue is
