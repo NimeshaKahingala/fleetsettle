@@ -592,7 +592,11 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
       .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.businessId, businessId)));
     const receivedTotal = receivedRows.reduce((sum, r) => sum + r.amountMinor, 0n);
     expect(receivedTotal).toBe(11_800_000n); // Rs 118,000
-    expect(earnedTotal - receivedTotal).toBe(200_000n); // Rs 2,000 arrears
+    // NOSONAR(typescript:S5845) — verified false positive, see the identical
+    // `busProfit` assertion below for the full account: the analyser
+    // mis-infers `bigint - bigint` as `number`, and `earnedTotal`/
+    // `receivedTotal` are genuinely both `bigint`.
+    expect(earnedTotal - receivedTotal).toBe(200_000n); // Rs 2,000 arrears // NOSONAR
 
     // Lost-day value — 4 × 5,000 (the flat rate in force all July).
     expect(BigInt(lostRows.length) * 500_000n).toBe(2_000_000n); // Rs 20,000
@@ -656,7 +660,7 @@ describe("G-1 — one month of the bus (P9, §7.1/§9.1)", () => {
     // casting either side, would quietly weaken the one assertion FL §9.1
     // calls breaking to move.
     const busProfit = busEarned - busCosts;
-    expect(busProfit).toBe(13_400_000n); // Rs 134,000
+    expect(busProfit).toBe(13_400_000n); // Rs 134,000 // NOSONAR(typescript:S5845) — see comment above
 
     // GAP-181: the same gate, through the real report rather than
     // re-derived. This is the half that has teeth against a voided-row bug —

@@ -149,6 +149,18 @@ const RULES = [
     message:
       "`vars` are plaintext in the deployed bundle. Secrets go through `wrangler secret put` (IG §9.4).",
   },
+  {
+    // PR #129: the rule that would have caught golden.py/reports.py's
+    // hardcoded Neon password directly — `secret/connection-string` only
+    // matches a `postgres://user:pass@host` literal, and pg8000's own
+    // `connect(user=..., password=..., host=...)` call passes each as a
+    // separate keyword argument, never concatenated into that shape.
+    id: "secret/bare-password-literal",
+    when: (p) => !p.endsWith(".md") && !p.endsWith(".example"),
+    pattern: /\bpassword\s*=\s*["'][^"'\s]{4,}["']/gi,
+    message:
+      "A password literal must never be committed — read it from an environment variable instead, and rotate whatever this one held.",
+  },
 
   // ── Interface ──────────────────────────────────────────────────────────────
   {
@@ -224,11 +236,23 @@ function filesToScan() {
 
 function scan(path) {
   const findings = [];
-  if (NEVER_SCAN.some((skip) => path.startsWith(skip))) return findings;
+  const neverScanned = NEVER_SCAN.some((skip) => path.startsWith(skip));
   const abs = resolve(ROOT, path);
   if (!existsSync(abs)) return findings;
 
-  const applicable = RULES.filter((r) => r.when(path));
+  // PR #129, SonarCloud: a hardcoded, compromised Neon password sat in
+  // docs/engineering/fixtures/golden.py and reports.py since this repo's
+  // early history, undetected — NEVER_SCAN exempts all of docs/, written for
+  // the specification prose that legitimately quotes forbidden patterns as
+  // examples, but the fixture scripts under it are real executable Python,
+  // not prose. Secret rules run against docs/ regardless of that exemption;
+  // every other rule stays scoped, so the spec corpus's own example
+  // fragments (SQL, money literals, `no-restricted-syntax`-shaped snippets)
+  // don't become a flood of false positives.
+  const applicable = RULES.filter(
+    (r) =>
+      r.when(path) && (!neverScanned || (r.id.startsWith("secret/") && path.startsWith("docs/"))),
+  );
   if (!applicable.length) return findings;
 
   let lines;
