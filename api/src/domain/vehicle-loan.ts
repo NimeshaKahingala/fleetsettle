@@ -31,6 +31,7 @@ import {
   insertLoanPayment,
   insertVehicleLoan,
   listLivePaymentsForLoan,
+  listOpenVehicleLoansForBusiness,
   setVehicleLoanClosedOn,
   voidLoanPaymentRow,
   type LoanPaymentRow,
@@ -194,6 +195,51 @@ export async function withDerivedFigures(
     remainingToPayMinor: remainingToPay(loan, livePayments),
     behindByMinor: behindBy(loan, livePayments, today),
   };
+}
+
+/**
+ * GAP-186/UC-109. One loan's own contribution to "instalments due" —
+ * overdue plus the next one falling due (Q-5, COMBINED-PLAN-2026-08-23.md),
+ * capped so it never claims more is due than is actually left to pay.
+ * `null` when this loan has no monthly figure to add a "next" instalment
+ * to — the same absence `behindByMinor` itself already carries.
+ */
+function loanInstalmentsDue(withFigures: VehicleLoanWithFigures): Minor | null {
+  if (withFigures.behindByMinor === null || withFigures.monthlyPaymentMinor === null) return null;
+  const nextDue = add(withFigures.behindByMinor, withFigures.monthlyPaymentMinor as Minor);
+  return nextDue > withFigures.remainingToPayMinor ? withFigures.remainingToPayMinor : nextDue;
+}
+
+/**
+ * GAP-186/UC-109: the sum of every open loan's own instalments-due figure.
+ * `null` — degrading the whole distributable-cash report, never a
+ * fabricated 0 — the moment any open loan cannot contribute one (W-56: "a
+ * distributable figure computed from a partial read is the single most
+ * expensive wrong number... because someone acts on it by moving money").
+ * A loan with no monthly schedule is exactly that partial a read — checked
+ * against every loan's own row before any per-loan payment query runs, so
+ * the degrade case never touches the database at all. Otherwise every
+ * loan's payments are read in parallel — each is an independent query, and
+ * the null-degrade check runs after all of them settle, not as a
+ * short-circuit that would skip some.
+ */
+export async function sumInstalmentsDueForBusiness(
+  reader: Reader,
+  businessId: string,
+  today: BusinessDate,
+): Promise<Minor | null> {
+  const loans = await listOpenVehicleLoansForBusiness(reader, businessId);
+  if (loans.some((loan) => loan.monthlyPaymentMinor === null)) return null;
+
+  const dues = await Promise.all(
+    loans.map(async (loan) => loanInstalmentsDue(await withDerivedFigures(reader, loan, today))),
+  );
+  let total = 0n as Minor;
+  for (const due of dues) {
+    if (due === null) return null;
+    total = add(total, due);
+  }
+  return total;
 }
 
 export interface RecordLoanPaymentInput {
