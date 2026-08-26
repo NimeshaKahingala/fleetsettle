@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.14 — **four DDL blocks brought back into line with the migrations that had already moved past them (GAP-182).** `insurance_claim` and `incident_recovery` gain `business_id` (migration `0004`), `expense` gains `voided_by` (migration `0007`, whose own header already recorded that this document's DDL wrote only two of the void trio), and `offset_allocation` gains the void trio (migration `0024`). `business_creation_request.status` **loses** the `DEFAULT 'pending'` it never had in the database — migration `0030` states the omission is deliberate, so the doc was the wrong one of the three. All five verified against the live schema via `information_schema`, not against the migration files alone. **The matching code half shipped with it**: `api/src/db/schema.ts` declared `.default("pending")` on that same column, inert only while every writer hard-codes the value and a runtime failure on a `NOT NULL` column the first time one did not. Decided 24 Aug 2026.
+**Status:** v1.1.15 — **GAP-188: UC-70's own late-fact query, alongside its two sum queries.** `belongs_to_period_id IS NOT NULL` is the whole predicate — the same four sources §15's `costs_minor` query already unions, one extra column, one extra filter. Decided 26 Aug 2026.
+
+**v1.1.14** — **four DDL blocks brought back into line with the migrations that had already moved past them (GAP-182).** `insurance_claim` and `incident_recovery` gain `business_id` (migration `0004`), `expense` gains `voided_by` (migration `0007`, whose own header already recorded that this document's DDL wrote only two of the void trio), and `offset_allocation` gains the void trio (migration `0024`). `business_creation_request.status` **loses** the `DEFAULT 'pending'` it never had in the database — migration `0030` states the omission is deliberate, so the doc was the wrong one of the three. All five verified against the live schema via `information_schema`, not against the migration files alone. **The matching code half shipped with it**: `api/src/db/schema.ts` declared `.default("pending")` on that same column, inert only while every writer hard-codes the value and a runtime failure on a `NOT NULL` column the first time one did not. Decided 24 Aug 2026.
 
 **v1.1.13** — **§4.4 added: `vehicle_loan`, `loan_payment`, `vehicle.purchase_cost_minor`, and the two CHECK migrations that come with them** (`expense.category` gains `'finance'`, `partner_payout.kind` gains `'loan_on_behalf'`). Schema for `use-cases.md` v1.2.15's **UC-106 to UC-109** and `user-flows.md` v1.1.17's **F-12**/**INV-43 to INV-45**. `amortisation_method` carries one permitted value so W-68's flat-only assumption is visible in the schema rather than buried in a formula. **§4.4 states both hand-maintained trigger lists explicitly** — `assert_period_open()`'s array and `write_audit_log()`'s attachment, each of which ran once and does not re-run — **and records that `check:drift` already catches both omissions in three workflows**, so neither needs a bespoke test. Decided 23 Aug 2026.
 
@@ -2056,6 +2058,40 @@ SELECT COALESCE(SUM(amount_minor), 0) AS costs_minor
 ```
 
 Verified against G-1: `37,000` of expenses + `9,000` of driver fee = **`46,000`**, giving `180,000 − 46,000 = 134,000`.
+
+**UC-70's late-fact lines — GAP-188, F-8.1's aggregate half**
+
+Same four sources as the two queries above (`obligation` twice, `trip`, `expense`), one extra predicate. A row this finds is one already counted inside `earnedMinor`/`costsMinor` — this never re-derives the total, only lists which of its own inputs are late:
+
+```sql
+-- Earned: obligation half
+SELECT id, vehicle_id, kind, amount_minor, belongs_to_period_id
+  FROM obligation
+ WHERE vehicle_id = ANY($1) AND posted_period_id = $2
+   AND direction = 'owed_to_us' AND kind IN ('rent','daily_amount','mileage_excess')
+   AND voided_at IS NULL AND belongs_to_period_id IS NOT NULL;
+
+-- Earned: trip half
+SELECT id, vehicle_id, agreed_amount_minor, belongs_to_period_id
+  FROM trip
+ WHERE vehicle_id = ANY($1) AND posted_period_id = $2 AND status = 'closed'
+   AND belongs_to_period_id IS NOT NULL;
+
+-- Costs: expense half
+SELECT id, vehicle_id, category, amount_minor, belongs_to_period_id
+  FROM expense
+ WHERE vehicle_id = ANY($1) AND posted_period_id = $2
+   AND borne_by = 'us' AND voided_at IS NULL AND belongs_to_period_id IS NOT NULL;
+
+-- Costs: obligation half
+SELECT id, vehicle_id, kind, amount_minor, belongs_to_period_id
+  FROM obligation
+ WHERE vehicle_id = ANY($1) AND posted_period_id = $2
+   AND direction = 'owed_by_us' AND kind IN ('driver_fee','management_fee')
+   AND voided_at IS NULL AND belongs_to_period_id IS NOT NULL;
+```
+
+`belongs_to_period_id` resolves to its own `period_start` for display the same way `listTransactionsForDateRange`'s export query already does (a `LEFT JOIN accounting_period`) — never a second, independent lookup. On an ordinary month every one of these four returns zero rows; the cost is a query most requests pay for nothing, which is the trade this makes rather than growing the two sum queries above into row-fetch-and-reduce ones (GAP-179/B26 moved them to SQL-side `SUM()` on purpose).
 
 **UC-98 pre-close checklist — unconfirmed days**
 

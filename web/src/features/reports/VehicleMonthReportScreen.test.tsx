@@ -80,6 +80,58 @@ describe("VehicleRow — GAP-162: 'No activity' must track earned/costs, not pro
   });
 });
 
+describe("VehicleRow — GAP-188/F-8.1: a late fact is its own line, never silent", () => {
+  test("a late fact renders its label, amount and 'Belongs to' badge when the row is expanded", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "105000",
+          costsMinor: "0",
+          profitMinor: "105000",
+          ownerShares: [],
+          lateFacts: [
+            {
+              id: "f1",
+              label: "Rent",
+              amountMinor: "5000",
+              sign: "earned",
+              belongsToPeriodStart: "2026-06-01",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Belongs to June 2026")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+
+    expect(screen.getByText("Rent")).toBeInTheDocument();
+    expect(screen.getByText("Rs 50")).toBeInTheDocument();
+    expect(screen.getByText("Belongs to June 2026")).toBeInTheDocument();
+  });
+
+  test("no lateFacts at all (the year report's own row shape) renders nothing extra", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "100000",
+          costsMinor: "0",
+          profitMinor: "100000",
+          ownerShares: [],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+    expect(screen.queryByText(/Belongs to/)).not.toBeInTheDocument();
+  });
+});
+
 describe("toChartData (vehicle-month)", () => {
   test("one bar per vehicle, labelled by registration, a loss renders as a real negative value", () => {
     const data = toChartData(bareVehicles);

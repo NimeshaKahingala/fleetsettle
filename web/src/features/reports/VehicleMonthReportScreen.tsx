@@ -3,6 +3,7 @@ import type { AccountingPeriodListRow, VehicleMonthResponse } from "@fleetsettle
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { useState } from "react";
+import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
@@ -11,6 +12,7 @@ import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { toAxisValue } from "../../lib/chartAxis.js";
 import { cn } from "../../lib/cn.js";
+import { formatPeriodLabel } from "../../lib/formatPeriodLabel.js";
 import { formatShortDate } from "../../lib/formatShortDate.js";
 import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
@@ -123,6 +125,25 @@ export function VehicleRow({ vehicle }: { vehicle: VehicleMonthResponse["vehicle
               rowKey={(row) => row.userId}
               bare
             />
+          ) : null}
+          {/* GAP-188/F-8.1: each line is already inside earnedMinor/costsMinor
+              above — this never adds to the total, it only names which of
+              that total's own inputs is late, the same inline pattern
+              IncidentScreen/DriverActivitySections already use (INV-10). */}
+          {vehicle.lateFacts !== undefined && vehicle.lateFacts.length > 0 ? (
+            <div className="flex flex-col gap-2 border-t border-line-hairline pt-3">
+              {vehicle.lateFacts.map((fact) => (
+                <div key={fact.id} className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-body-sm text-ink-secondary">{fact.label}</p>
+                    <Badge variant="neutral" className="mt-1">
+                      Belongs to {formatPeriodLabel(fact.belongsToPeriodStart)}
+                    </Badge>
+                  </div>
+                  <Money value={parse(fact.amountMinor)} />
+                </div>
+              ))}
+            </div>
           ) : null}
         </div>
       ) : null}
