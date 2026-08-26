@@ -4,33 +4,16 @@ The seed walks the REAL period lifecycle - open July, write July, close July and
 open August, and so on - because assert_period_open() has no superuser bypass on
 Neon. That makes this a test of UC-98 as well as of the figures.
 """
-import os, ssl, sys, uuid
-import pg8000.dbapi
+import sys, uuid
+from _connect import connect
 
 # SonarCloud, PR #129: the Neon role password used to live here as a literal —
 # flagged BLOCKER as a compromised secret, and it matches DATABASE_URL's own
 # password (the `main` branch), so this was the production credential, not a
-# disposable one. Must be rotated in the Neon console — this script now takes
-# it from PGPASSWORD (the standard libpq env var) so nothing credential-shaped
-# is ever committed again, but the leaked value itself is still live until
-# someone rotates it there.
-password = os.environ.get("PGPASSWORD")
-if not password:
-    sys.exit("PGPASSWORD must be set — the Neon role's password, never committed here")
-
-# Built explicitly rather than via ssl.create_default_context() alone: same
-# verification behaviour, but a minimum_version SonarCloud's S4423/S4830 can
-# see statically rather than infer from the stdlib's own version-dependent
-# defaults (create_default_context()'s floor varies by Python version below
-# 3.10 — this script runs wherever python3 happens to be, not a pinned one).
-ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-ssl_context.verify_mode = ssl.CERT_REQUIRED
-ssl_context.check_hostname = True
-ssl_context.load_default_certs()
-
-conn = pg8000.dbapi.connect(user="neondb_owner", password=password,
-    host=sys.argv[1], database="neondb", ssl_context=ssl_context)
+# disposable one. Must be rotated in the Neon console — connect() (below,
+# shared with reports.py) now takes it from PGPASSWORD instead, but the
+# leaked value itself is still live until someone rotates it there.
+conn = connect(sys.argv[1])
 conn.autocommit = True
 cur = conn.cursor()
 cur.execute("SET statement_timeout='30s'")

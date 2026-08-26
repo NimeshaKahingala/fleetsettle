@@ -1,26 +1,13 @@
 """Execute the remaining section 15 report queries against the populated fixture branch."""
-import os, ssl, sys
-import pg8000.dbapi
+import sys
+from _connect import connect
 
 # SonarCloud, PR #129: the Neon role password used to live here as a literal —
 # see golden.py's own comment for the account (it matches DATABASE_URL's
 # `main`-branch password, so this was the production credential, and it must
-# still be rotated in the Neon console). This script now takes it from
-# PGPASSWORD (the standard libpq env var) instead.
-password = os.environ.get("PGPASSWORD")
-if not password:
-    sys.exit("PGPASSWORD must be set — the Neon role's password, never committed here")
-
-# See golden.py's own comment: built explicitly so SonarCloud's S4423/S4830
-# can see a pinned minimum_version statically, same behaviour either way.
-ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-ssl_context.verify_mode = ssl.CERT_REQUIRED
-ssl_context.check_hostname = True
-ssl_context.load_default_certs()
-
-conn = pg8000.dbapi.connect(user="neondb_owner", password=password,
-    host=sys.argv[1], database="neondb", ssl_context=ssl_context)
+# still be rotated in the Neon console). connect() (below, shared with
+# golden.py) now takes it from PGPASSWORD instead.
+conn = connect(sys.argv[1])
 conn.autocommit = True
 cur = conn.cursor()
 cur.execute("SET statement_timeout='20s'")
