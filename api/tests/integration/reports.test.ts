@@ -886,7 +886,7 @@ describe("reports (P11)", () => {
       });
     }
 
-    it("with no loans, distributable = cash on hand minus deposits held alone, and a manager can read it too (W-70)", async () => {
+    it("with no loans, cash on hand includes deposit cash physically held, and distributing it back out nets to just the payment total — a manager can read it too (W-70)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       const periodId = await ctx.createOpenPeriod(businessId);
@@ -925,11 +925,14 @@ describe("reports (P11)", () => {
         distributableMinor: string | null;
       } = await res.json();
 
+      // The business physically holds 58,000 (50,000 payment + 8,000 deposit
+      // cash) and owes 8,000 back to the customer, so 50,000 is distributable —
+      // cashOnHandMinor must include the deposit cash, not just the payment.
       expect(body).toMatchObject({
-        cashOnHandMinor: "50000",
+        cashOnHandMinor: "58000",
         depositsHeldMinor: "8000",
         loanInstalmentsDueMinor: "0",
-        distributableMinor: "42000",
+        distributableMinor: "50000",
       });
 
       await ctx.cleanup();
