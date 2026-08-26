@@ -110,7 +110,7 @@ test("GAP-172: a tripId prop reaches the request alongside the vehicle, and inva
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["trip", "t1", "expense"] });
 });
 
-test("GAP-172: an incidentId prop reaches the request alongside the vehicle, and invalidates the incident's own expense list", async () => {
+test("GAP-172/Gitar review, PR 128: an incidentId prop reaches the request alongside the vehicle, and invalidates both the incident's expense list and its own detail query (the bottom line's home)", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, incidentId: "i1" });
   const { queryClient } = renderWithProviders(
@@ -138,6 +138,7 @@ test("GAP-172: an incidentId prop reaches the request alongside the vehicle, and
     ),
   );
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["incident", "i1", "expense"] });
+  expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["incident", "i1"] });
 });
 
 test("no vehicleId prop shows a vehicle picker, and leaving it blank is a valid overhead cost (INV-24)", async () => {
