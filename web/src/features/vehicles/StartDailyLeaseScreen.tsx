@@ -149,7 +149,9 @@ export function StartDailyLeaseScreen({
         vehicleId,
         driverId: driver.id,
         patternType,
-        ...(patternType === "weekdays" ? { patternWeekdays: [...patternWeekdays].sort() } : {}),
+        ...(patternType === "weekdays"
+          ? { patternWeekdays: [...patternWeekdays].sort((a, b) => a - b) }
+          : {}),
         effectiveFrom,
         ...(hasEndDate ? { effectiveTo } : {}),
         dailyLeaseAmountMinor: toWire(dailyLeaseAmountMinor),

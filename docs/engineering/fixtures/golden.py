@@ -4,11 +4,16 @@ The seed walks the REAL period lifecycle - open July, write July, close July and
 open August, and so on - because assert_period_open() has no superuser bypass on
 Neon. That makes this a test of UC-98 as well as of the figures.
 """
-import ssl, sys, uuid
-import pg8000.dbapi
+import sys, uuid
+from _connect import connect
 
-conn = pg8000.dbapi.connect(user="neondb_owner", password="npg_SJwrIb6BQG1Y",
-    host=sys.argv[1], database="neondb", ssl_context=ssl.create_default_context())
+# SonarCloud, PR #129: the Neon role password used to live here as a literal —
+# flagged BLOCKER as a compromised secret, and it matches DATABASE_URL's own
+# password (the `main` branch), so this was the production credential, not a
+# disposable one. Must be rotated in the Neon console — connect() (below,
+# shared with reports.py) now takes it from PGPASSWORD instead, but the
+# leaked value itself is still live until someone rotates it there.
+conn = connect(sys.argv[1])
 conn.autocommit = True
 cur = conn.cursor()
 cur.execute("SET statement_timeout='30s'")
