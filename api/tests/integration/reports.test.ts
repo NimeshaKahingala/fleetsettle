@@ -1,4 +1,4 @@
-import { newId } from "@fleetsettle/shared";
+import { addCalendarMonths, businessToday, newId } from "@fleetsettle/shared";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { advance, bankingEvent, expense, ownershipShare, payment } from "../../src/db/schema.js";
@@ -652,6 +652,119 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    /**
+     * GAP-179/B27 pins the bucket edges, because moving this arithmetic from
+     * JS `Date.parse` into SQL `date - date` is exactly the change that can
+     * shift a boundary by one day without any existing test noticing — the
+     * happy path above only exercises the middle of one bucket. Every
+     * `<=` edge is asserted from both sides, plus the day after.
+     */
+    it("GAP-179 — every bucket boundary lands on the documented side of the edge", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const asOf = "2026-07-15";
+
+      // One customer per case, so each row is its own party and the buckets
+      // cannot merge — this asserts bucketing, not aggregation.
+      const cases: { dueOn: string; bucket: string; note: string }[] = [
+        { dueOn: "2026-08-01", bucket: "current", note: "not yet due" },
+        { dueOn: "2026-07-15", bucket: "current", note: "due today — 0 days late" },
+        { dueOn: "2026-07-14", bucket: "1-30", note: "1 day late" },
+        { dueOn: "2026-06-15", bucket: "1-30", note: "30 days late" },
+        { dueOn: "2026-06-14", bucket: "31-60", note: "31 days late" },
+        { dueOn: "2026-05-16", bucket: "31-60", note: "60 days late" },
+        { dueOn: "2026-05-15", bucket: "61-90", note: "61 days late" },
+        { dueOn: "2026-04-16", bucket: "61-90", note: "90 days late" },
+        { dueOn: "2026-04-15", bucket: "over-90", note: "91 days late" },
+      ];
+
+      const expected = new Map<string, string>();
+      for (const [i, c] of cases.entries()) {
+        const customerId = await ctx.createCustomer(businessId, { name: `Ageing ${String(i)}` });
+        await ctx.createObligation(businessId, periodId, {
+          direction: "owed_to_us",
+          partyType: "customer",
+          customerId,
+          amountMinor: BigInt(1000 * (i + 1)),
+          status: "pending",
+          dueOn: c.dueOn,
+        });
+        expected.set(customerId, c.bucket);
+      }
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/ageing?asOfDate=${asOf}`, token);
+      expect(res.status).toBe(200);
+      const rows: { partyId: string; bucket: string; outstandingMinor: string }[] =
+        await res.json();
+      expect(rows).toHaveLength(cases.length);
+
+      const actual = new Map(rows.map((r) => [r.partyId, r.bucket]));
+      for (const [i, c] of cases.entries()) {
+        const customerId = [...expected.keys()][i] as string;
+        expect(`${c.note}: ${actual.get(customerId) ?? "missing"}`).toBe(`${c.note}: ${c.bucket}`);
+      }
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-179 — a party's total is the sum of its buckets, and a fully settled due drops out entirely", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+
+      // Two dues in the same bucket for one party — must add, not appear twice.
+      for (const dueOn of ["2026-06-01", "2026-06-02"]) {
+        await ctx.createObligation(businessId, periodId, {
+          direction: "owed_to_us",
+          partyType: "customer",
+          customerId,
+          amountMinor: 30_000n,
+          status: "pending",
+          dueOn,
+        });
+      }
+      // A third due in a different bucket for the same party — its own row,
+      // never folded into one bucket for the party's whole balance (UC-78's
+      // own stated correctness question).
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        amountMinor: 5_000n,
+        status: "pending",
+        dueOn: "2026-07-14",
+      });
+      // Settled to nothing: dropped as a row, never netted against the rest.
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        amountMinor: 9_000n,
+        settledMinor: 9_000n,
+        status: "pending",
+        dueOn: "2026-06-01",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport("/ageing?asOfDate=2026-07-15", token);
+      expect(res.status).toBe(200);
+      const rows: { bucket: string; outstandingMinor: string }[] = await res.json();
+
+      const byBucket = new Map(rows.map((r) => [r.bucket, r.outstandingMinor]));
+      expect(byBucket.get("31-60")).toBe("60000");
+      expect(byBucket.get("1-30")).toBe("5000");
+      expect(rows).toHaveLength(2);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("cash position (UC-75)", () => {
@@ -759,6 +872,152 @@ describe("reports (P11)", () => {
       const body: { driverAdvances: { driverId: string }[] } = await res.json();
 
       expect(body.driverAdvances.find((a) => a.driverId === driverId)).toBeUndefined();
+
+      await ctx.cleanup();
+    });
+  });
+
+  describe("distributable cash (GAP-186/UC-109, W-70)", () => {
+    async function postLoan(token: string, body: unknown) {
+      return request("/api/vehicle-loan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(token).headers },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it("with no loans, cash on hand includes deposit cash physically held, and distributing it back out nets to just the payment total — a manager can read it too (W-70)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const manager = await mintUser(db, ctx, businessId, "manager");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 50_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const depositId = await ctx.createDeposit(businessId, { partyType: "customer", customerId });
+      await ctx.createDepositMovement(businessId, periodId, depositId, {
+        movementType: "taken",
+        amountMinor: 8_000n,
+        occurredOn: "2026-07-05",
+      });
+
+      const managerToken = await signAccessToken(manager.asgardeoSub);
+      const res = await getReport("/distributable-cash", managerToken);
+      expect(res.status).toBe(200);
+      const body: {
+        cashOnHandMinor: string;
+        depositsHeldMinor: string;
+        loanInstalmentsDueMinor: string | null;
+        distributableMinor: string | null;
+      } = await res.json();
+
+      // The business physically holds 58,000 (50,000 payment + 8,000 deposit
+      // cash) and owes 8,000 back to the customer, so 50,000 is distributable —
+      // cashOnHandMinor must include the deposit cash, not just the payment.
+      expect(body).toMatchObject({
+        cashOnHandMinor: "58000",
+        depositsHeldMinor: "8000",
+        loanInstalmentsDueMinor: "0",
+        distributableMinor: "50000",
+      });
+
+      await ctx.cleanup();
+    });
+
+    it("an open loan with a monthly figure reduces distributable by overdue plus the next instalment (Q-5)", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: await ctx.createCustomer(businessId),
+        amountMinor: 200_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const token = await signAccessToken(owner.asgardeoSub);
+      // Started 3 months back (relative to whenever this test actually
+      // runs, never a hardcoded date the server's own businessToday() would
+      // disagree with) with a 10,000 monthly instalment and nothing ever
+      // paid — 3 instalments already overdue (30,000) plus the next one
+      // falling due (10,000) = 40,000 due, per Q-5.
+      const startedOn = addCalendarMonths(businessToday(), -3);
+      const loanRes = await postLoan(token, {
+        vehicleId,
+        lender: "Peoples Leasing",
+        principalMinor: "1000000",
+        totalRepayableMinor: "1500000",
+        termMonths: 50,
+        monthlyPaymentMinor: "10000",
+        startedOn,
+      });
+      expect(loanRes.status).toBe(201);
+      const loan: { id: string } = await loanRes.json();
+      ctx.trackCreatedVehicleLoan(loan.id);
+
+      const res = await getReport("/distributable-cash", token);
+      expect(res.status).toBe(200);
+      const body: {
+        cashOnHandMinor: string;
+        loanInstalmentsDueMinor: string | null;
+        distributableMinor: string | null;
+      } = await res.json();
+      expect(body.cashOnHandMinor).toBe("200000");
+      expect(body.loanInstalmentsDueMinor).toBe("40000");
+      expect(body.distributableMinor).toBe("160000");
+
+      await ctx.cleanup();
+    });
+
+    it("W-56 — an open loan with no monthly figure degrades the whole report to not available, never a fabricated 0", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const loanRes = await postLoan(token, {
+        vehicleId,
+        lender: "Peoples Leasing",
+        principalMinor: "100000",
+        totalRepayableMinor: "150000",
+        termMonths: 12,
+        startedOn: "2026-07-05",
+      });
+      const loan: { id: string } = await loanRes.json();
+      ctx.trackCreatedVehicleLoan(loan.id);
+
+      const res = await getReport("/distributable-cash", token);
+      expect(res.status).toBe(200);
+      const body: { loanInstalmentsDueMinor: string | null; distributableMinor: string | null } =
+        await res.json();
+      expect(body.loanInstalmentsDueMinor).toBeNull();
+      expect(body.distributableMinor).toBeNull();
 
       await ctx.cleanup();
     });
@@ -1813,6 +2072,7 @@ describe("reports (P11)", () => {
       "/receivables",
       "/ageing?asOfDate=2026-07-31",
       "/cash-position",
+      "/distributable-cash",
       "/lost-days?from=2026-07-01&to=2026-07-31",
     ];
     const ownerOnlyGated = [

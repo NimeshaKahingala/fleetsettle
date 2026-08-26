@@ -27,5 +27,6 @@ export * from "./post-closure-charge.js";
 export * from "./reports.js";
 export * from "./session.js";
 export * from "./trip-lifecycle.js";
+export * from "./vehicle-loan.js";
 export * from "./vehicle.js";
 export * from "./write-off.js";

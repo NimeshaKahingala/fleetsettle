@@ -76,7 +76,10 @@ export const incidentRecoveryResponseSchema = z.object({
   // belongs to, set only when that differs from the one it posted into — a
   // late fact. The date, not a rendered label: formatting is the client's
   // job here as it is for every other date on the wire.
-  belongsToPeriodStart: z.string().nullable(),
+  // GAP-173: a `period_start`, so it carries the same contract as every
+  // other date on this schema rather than "any string" — the client formats
+  // it with `Intl.DateTimeFormat`, which throws on a value that is not one.
+  belongsToPeriodStart: businessDateSchema.nullable(),
   voidedAt: z.string().nullable(),
   voidedReason: z.string().nullable(),
 });

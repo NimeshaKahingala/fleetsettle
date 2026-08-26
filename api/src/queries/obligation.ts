@@ -565,6 +565,7 @@ export async function findLiveBlockersForObligation(
  */
 export async function voidObligationBySource(
   db: WriteDb,
+  businessId: string,
   sourceType: string,
   sourceId: string,
   values: { voidedReason: string; voidedBy: string },
@@ -574,6 +575,15 @@ export async function voidObligationBySource(
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
     .where(
       and(
+        // GAP-178/B14a's rule, applied to the one void path it did not
+        // reach. Both callers already resolve their source business-scoped
+        // (`findTripForBusiness`, `findIncidentRecoveryForBusiness`), so this
+        // is not a live cross-tenant hole today — it is the predicate that
+        // keeps it from becoming one when a third caller arrives that does
+        // not. `businessId` is required rather than optional for the reason
+        // GAP-178 gave: the compiler then enumerates every call site, so
+        // there is no staged rollout and nothing to miss.
+        eq(obligation.businessId, businessId),
         eq(obligation.sourceType, sourceType),
         eq(obligation.sourceId, sourceId),
         isNull(obligation.voidedAt),

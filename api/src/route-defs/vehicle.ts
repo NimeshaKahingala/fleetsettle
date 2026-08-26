@@ -7,6 +7,7 @@ import {
   listExpensesResponseSchema,
   listIncidentsResponseSchema,
   listVehicleDocumentsResponseSchema,
+  listVehicleLoansResponseSchema,
   listVehiclesResponseSchema,
   markVehicleUnavailableRequestSchema,
   upsertVehicleDocumentRequestSchema,
@@ -43,6 +44,9 @@ export const createVehicleRoute = createRoute({
       content: { "application/json": { schema: vehicleResponseSchema } },
       description: "The vehicle and its opening arrangement",
     },
+    // GAP-180/B24: the runtime already returns this via `defaultHook` when the
+    // body fails `createVehicleRequestSchema`; only the spec was silent.
+    400: { description: "The request body failed validation" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot add a vehicle" },
     // DM §4's UNIQUE(business_id, registration) — the same registration twice.
@@ -60,6 +64,9 @@ export const getVehicleRoute = createRoute({
       content: { "application/json": { schema: vehicleResponseSchema } },
       description: "The vehicle",
     },
+    // GAP-180/B24: `{id}` is a uuid, so a malformed one is a 400 from
+    // `defaultHook` before the handler runs — not a 404.
+    400: { description: "The path parameter failed validation" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read vehicles" },
     // Cross-tenant is 404, never 403 (CLAUDE.md → Tenancy).
@@ -180,6 +187,22 @@ export const listVehicleIncidentsRoute = createRoute({
     },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot read incidents" },
+    404: { description: "No such vehicle in this business" },
+  },
+});
+
+/** GAP-185/F-12.4: every loan against this vehicle, newest-started-first, open and closed alike. `viewReports` — a manager sees this too (W-70). */
+export const listVehicleLoansRoute = createRoute({
+  method: "get",
+  path: "/{id}/loan",
+  request: { params: vehicleIdParams },
+  responses: {
+    200: {
+      content: { "application/json": { schema: listVehicleLoansResponseSchema } },
+      description: "Every loan this vehicle has had, newest-started-first",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot view vehicle loans" },
     404: { description: "No such vehicle in this business" },
   },
 });

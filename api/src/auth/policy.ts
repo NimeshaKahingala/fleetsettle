@@ -42,6 +42,7 @@ export type Capability =
   | "manageEntities" // F-1.1/F-1.6/F-1.8/F-2.1: add and read vehicles, drivers, customers, link/unlink a driver's account — setup, not money
   | "manageOpeningBalances" // F-0.2/UC-09: the go-live starting position — owners only, like closePeriod below
   | "managePartnerCapital" // F-1.3/F-7.2: ownership shares, capital contributions, management agreements, partner payouts
+  | "manageVehicleLoans" // GAP-185/F-12.1/UC-106: create/edit a loan, set the down payment — a capital commitment, owners only. Recording a payment/settling stays dailyOperations (F-12.2/F-12.3): the manager pays it
   | "manageMembers" // A11/W-57/F-1.4: invite, revoke, or change a business_member's role — access to the business itself, owners only. Driver-linking (F-1.8) is manageEntities instead: it never touches business_member, and F-1.8's own actor is "Manager"
   | "writeOffOrWaiveAboveThreshold"
   | "reverseReceipt" // F-8.2
@@ -58,6 +59,7 @@ const MATRIX: Record<Capability, readonly Role[]> = {
   manageEntities: STAFF,
   manageOpeningBalances: OWNERS,
   managePartnerCapital: OWNERS,
+  manageVehicleLoans: OWNERS,
   manageMembers: OWNERS,
   writeOffOrWaiveAboveThreshold: OWNERS,
   reverseReceipt: OWNERS,

@@ -40,6 +40,28 @@ test("no primary action means no sticky CTA and a smaller reserved padding", () 
   expect(container.querySelector(".overflow-y-auto")).toHaveClass("scroll-pb-4");
 });
 
+test("GAP-171: the sticky primary action also reserves real padding-bottom around the content, not only scroll-padding-bottom", () => {
+  render(
+    <Screen title="Book a trip" primaryAction={{ label: "Book trip", onClick: vi.fn() }}>
+      <p data-testid="last-field">Agreed amount</p>
+    </Screen>,
+  );
+
+  const contentWrapper = screen.getByTestId("last-field").parentElement;
+  expect(contentWrapper).toHaveClass("pb-[88px]", "max-md:landscape:pb-[76px]");
+});
+
+test("GAP-171: with no primary action, the content wrapper carries no reserved padding", () => {
+  render(
+    <Screen title="Vehicles">
+      <p data-testid="last-field">List</p>
+    </Screen>,
+  );
+
+  const contentWrapper = screen.getByTestId("last-field").parentElement;
+  expect(contentWrapper).not.toHaveClass("pb-[88px]");
+});
+
 test("renders the offline banner slot between the app bar and the scroll region (§6.4)", () => {
   render(
     <Screen title="Vehicles" offlineBanner={<div data-testid="offline">Working offline</div>}>

@@ -33,6 +33,7 @@ import { PartnerSetupScreen } from "../features/cash/PartnerSetupScreen.js";
 import { BusinessSwitcherSheet } from "../features/setup/BusinessSwitcherSheet.js";
 import { isBlockedOperatePathname } from "../lib/blockedOperatePathname.js";
 import { FirstRunGate } from "../features/setup/FirstRunGate.js";
+import { DepositReleasesScreen } from "../features/home/DepositReleasesScreen.js";
 import { HomeScreen } from "../features/home/HomeScreen.js";
 import { IncidentScreen } from "../features/incidents/IncidentScreen.js";
 import { CloseLeaseScreen } from "../features/leases/CloseLeaseScreen.js";
@@ -48,6 +49,7 @@ import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
 import { AgeingReportScreen } from "../features/reports/AgeingReportScreen.js";
 import { CashPositionReportScreen } from "../features/reports/CashPositionReportScreen.js";
+import { DistributableCashReportScreen } from "../features/reports/DistributableCashReportScreen.js";
 import { ExportTransactionsScreen } from "../features/reports/ExportTransactionsScreen.js";
 import { FuelEfficiencyReportScreen } from "../features/reports/FuelEfficiencyReportScreen.js";
 import { GoodwillReportScreen } from "../features/reports/GoodwillReportScreen.js";
@@ -77,8 +79,30 @@ import { useSelectedBusiness } from "../lib/useSelectedBusiness.js";
 import { useApi } from "../lib/ApiContext.js";
 import { NotBuiltYetScreen } from "./NotBuiltYetScreen.js";
 
+/**
+ * GAP-183: one place that turns a party row into its own detail route. Three
+ * types, three destinations — a partner is not under `/people` at all, which
+ * is exactly the case the compiler caught when `onSelectParty` was first
+ * typed as customer-or-driver.
+ */
+function useSelectParty() {
+  const navigate = useNavigate();
+  return (partyType: "customer" | "driver" | "partner", partyId: string) => {
+    if (partyType === "driver") {
+      void navigate({ to: "/people/drivers/$driverId", params: { driverId: partyId } });
+      return;
+    }
+    if (partyType === "customer") {
+      void navigate({ to: "/people/customers/$customerId", params: { customerId: partyId } });
+      return;
+    }
+    void navigate({ to: "/partners/$userId", params: { userId: partyId } });
+  };
+}
+
 function HomeRoute() {
   const navigate = useNavigate();
+  const selectParty = useSelectParty();
   return (
     <HomeScreen
       onSelectVehicle={(vehicleId: string) => {
@@ -87,7 +111,20 @@ function HomeRoute() {
       onSelectTrip={(tripId: string) => {
         void navigate({ to: "/trips/$tripId", params: { tripId } });
       }}
+      onSelectParty={selectParty}
+      onOpenDepositReleases={() => {
+        void navigate({ to: "/deposits-to-release" });
+      }}
     />
+  );
+}
+
+/** GAP-183: the bell's "Deposits to release" row needed a destination; Home's own section is the same list, so this screen is the linkable form of it. */
+function DepositReleasesRoute() {
+  const navigate = useNavigate();
+  const selectParty = useSelectParty();
+  return (
+    <DepositReleasesScreen onBack={() => void navigate({ to: "/" })} onSelectParty={selectParty} />
   );
 }
 
@@ -458,6 +495,7 @@ const REPORT_PATH: Record<ReportKey, string> = {
   "fuel-efficiency": "/reports/fuel-efficiency",
   receivables: "/reports/receivables",
   "cash-position": "/reports/cash-position",
+  "distributable-cash": "/reports/distributable-cash",
   "lost-days": "/reports/lost-days",
   ageing: "/reports/ageing",
   goodwill: "/reports/goodwill",
@@ -542,6 +580,17 @@ function CashPositionReportRoute() {
   const navigate = useNavigate();
   return (
     <CashPositionReportScreen
+      onBack={() => {
+        void navigate({ to: "/reports" });
+      }}
+    />
+  );
+}
+
+function DistributableCashReportRoute() {
+  const navigate = useNavigate();
+  return (
+    <DistributableCashReportScreen
       onBack={() => {
         void navigate({ to: "/reports" });
       }}
@@ -1243,6 +1292,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: MileagePackagesRoute,
   });
 
+  const depositReleasesRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/deposits-to-release",
+    component: DepositReleasesRoute,
+  });
+
   // B0b: the Review shell's four tabs and the Mine shell's one screen —
   // siblings of every Operate route above, exactly as `/more` is, since
   // `ReviewLayout`/`MineLayout` (not a nested route) supply the AppShell
@@ -1337,6 +1392,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     getParentRoute: () => rootRoute,
     path: "/reports/cash-position",
     component: CashPositionReportRoute,
+  });
+
+  const distributableCashReportRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reports/distributable-cash",
+    component: DistributableCashReportRoute,
   });
 
   const lostDaysReportRoute = createRoute({
@@ -1501,6 +1562,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     partnerDetailRoute,
     partnerSetupRoute,
     mileagePackagesRoute,
+    depositReleasesRoute,
     reviewThisMonthRoute,
     reviewVehiclesRoute,
     reviewVehicleDetailRoute,
@@ -1511,6 +1573,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     fuelEfficiencyReportRoute,
     receivablesReportRoute,
     cashPositionReportRoute,
+    distributableCashReportRoute,
     lostDaysReportRoute,
     ageingReportRoute,
     goodwillReportRoute,

@@ -15,4 +15,9 @@ export const EXPENSE_CATEGORY_LABEL: Record<string, string> = {
   legal: "Legal",
   messaging: "Messaging",
   other: "Other",
+  // GAP-185/UC-106: a loan payment's finance portion, generated server-side
+  // by domain/vehicle-loan.ts — never entered through RecordExpenseSheet's
+  // own category picker. GAP-158/159's own shape: a raw enum reaching the
+  // interface unmapped, so this row is required, not a nicety.
+  finance: "Interest and charges",
 };

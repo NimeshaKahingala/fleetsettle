@@ -1,8 +1,13 @@
 """Execute the remaining section 15 report queries against the populated fixture branch."""
-import ssl, sys
-import pg8000.dbapi
-conn = pg8000.dbapi.connect(user="neondb_owner", password="npg_SJwrIb6BQG1Y",
-    host=sys.argv[1], database="neondb", ssl_context=ssl.create_default_context())
+import sys
+from _connect import connect
+
+# SonarCloud, PR #129: the Neon role password used to live here as a literal —
+# see golden.py's own comment for the account (it matches DATABASE_URL's
+# `main`-branch password, so this was the production credential, and it must
+# still be rotated in the Neon console). connect() (below, shared with
+# golden.py) now takes it from PGPASSWORD instead.
+conn = connect(sys.argv[1])
 conn.autocommit = True
 cur = conn.cursor()
 cur.execute("SET statement_timeout='20s'")

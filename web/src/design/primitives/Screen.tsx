@@ -33,7 +33,20 @@ export interface ScreenProps {
   onBack?: () => void;
   /** One contextual action in the app bar (§4.2) — never more than one. */
   action?: ScreenAction;
-  /** The 56px sticky CTA (M-24). Rendered as the last child inside the scroll region itself, `position: sticky`, so `scroll-padding-bottom` (below) keeps a focused field from landing behind it. */
+  /**
+   * The 56px sticky CTA (M-24). Rendered as the last child inside the
+   * scroll region itself, `position: sticky`, with `scroll-padding-bottom`
+   * (below) keeping a *focused* field from landing behind it once
+   * scrolled-to. GAP-171: that alone doesn't stop a *plain tap* from
+   * hitting the CTA instead of the field it covers, because `position:
+   * sticky` paints over content that hasn't been scrolled clear of it yet
+   * — a form whose real content is only a little taller than the viewport
+   * renders its last field directly under the sticky bar's landing zone
+   * before any scroll event fires. The fix is real, unscrolled
+   * `padding-bottom` on `{children}` (below), sized to the CTA's own
+   * footprint, so the last field is never laid out inside that zone in
+   * the first place.
+   */
   primaryAction?: ScreenPrimaryAction;
   /** Slot for `OfflineBanner`, rendered below the app bar and above the scroll region (§6.4) — Screen doesn't know what "offline" means, only where the banner goes. */
   offlineBanner?: React.ReactNode;
@@ -128,7 +141,13 @@ export function Screen({
             : "scroll-pb-4 max-md:landscape:scroll-pb-3",
         )}
       >
-        {children}
+        <div
+          className={
+            primaryAction !== undefined ? "pb-[88px] max-md:landscape:pb-[76px]" : undefined
+          }
+        >
+          {children}
+        </div>
         {primaryAction !== undefined ? (
           <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 bg-page px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
             <Button

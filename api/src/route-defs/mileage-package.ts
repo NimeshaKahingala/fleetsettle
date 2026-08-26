@@ -20,6 +20,9 @@ export const createMileagePackageRoute = createRoute({
       content: { "application/json": { schema: mileagePackageResponseSchema } },
       description: "The saved package",
     },
+    // GAP-180/B24b: a negative `dailyLimitKm` is refused by the schema, so
+    // the runtime 400s here too.
+    400: { description: "The request body failed validation" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot manage mileage packages" },
   },

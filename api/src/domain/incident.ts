@@ -553,7 +553,7 @@ export async function voidIncidentRecovery(
       if (!voided) throw new IncidentRecoveryAlreadyVoidedError();
 
       if (recovery.source === "customer" && recovery.obligationId !== null) {
-        await voidObligationBySource(tx, "incident_recovery", input.recoveryId, {
+        await voidObligationBySource(tx, input.businessId, "incident_recovery", input.recoveryId, {
           voidedReason: `Recovery voided: ${input.reason}`,
           voidedBy: input.userId,
         });

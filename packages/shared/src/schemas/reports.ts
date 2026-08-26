@@ -165,6 +165,22 @@ export const cashPositionResponseSchema = z.object({
 });
 export type CashPositionResponse = z.infer<typeof cashPositionResponseSchema>;
 
+/**
+ * GAP-186/UC-109, W-70. `cash − deposits held − loan instalments due =
+ * distributable`. `loanInstalmentsDueMinor`/`distributableMinor` are both
+ * `null` together — not the whole response failing — whenever an open loan
+ * has no monthly instalment figure to compute "due" from (W-56: degrades
+ * to not available, never a fabricated 0, because someone acts on this by
+ * moving money out of the business).
+ */
+export const distributableCashResponseSchema = z.object({
+  cashOnHandMinor: z.string(),
+  depositsHeldMinor: z.string(),
+  loanInstalmentsDueMinor: z.string().nullable(),
+  distributableMinor: z.string().nullable(),
+});
+export type DistributableCashResponse = z.infer<typeof distributableCashResponseSchema>;
+
 /** UC-76/DM §15: per driver, per weekday — "four days lost" and "four Fridays lost" are different conversations. The denominator is `ran + lost` (`leaseEligible`); off-pattern and charter days never enter it (§1.2). */
 export const lostDaysRowSchema = z.object({
   driverId: uuidSchema,

@@ -4,6 +4,7 @@ import {
   exportTransactionsCsvHandler,
   getAgeingReportHandler,
   getCashPositionReportHandler,
+  getDistributableCashReportHandler,
   getFuelEfficiencyReportHandler,
   getGoodwillReportHandler,
   getLostDaysReportHandler,
@@ -18,6 +19,7 @@ import {
   exportTransactionsCsvRoute,
   getAgeingReportRoute,
   getCashPositionReportRoute,
+  getDistributableCashReportRoute,
   getFuelEfficiencyReportRoute,
   getGoodwillReportRoute,
   getLostDaysReportRoute,
@@ -39,6 +41,7 @@ export const reports = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(getReceivablesReportRoute, getReceivablesReportHandler)
   .openapi(getAgeingReportRoute, getAgeingReportHandler)
   .openapi(getCashPositionReportRoute, getCashPositionReportHandler)
+  .openapi(getDistributableCashReportRoute, getDistributableCashReportHandler)
   .openapi(getLostDaysReportRoute, getLostDaysReportHandler)
   .openapi(getGoodwillReportRoute, getGoodwillReportHandler)
   .openapi(getUtilisationReportRoute, getUtilisationReportHandler)

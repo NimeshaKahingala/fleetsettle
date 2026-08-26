@@ -704,6 +704,28 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     // (expense.incident_id, vehicle_id) now means these must unwind before
     // the incident they reference, not before it's even tracked.
 
+    // GAP-181: G-2 gains a voided row, which it did not have. The body-work
+    // quote was first entered against this incident at the wrong figure and
+    // voided (W-50 — voided and replaced, never edited away). It must not
+    // reach `sumIncidentCostMinor`, so the bottom line below stays exactly
+    // 95,000 / 80,000 / 15,000. Until now no golden fixture contained a
+    // voided row at all, so that filter had no regression guard on a figure
+    // FL §9.1 calls breaking to move.
+    const mistypedQuote = await post("/api/expense", token, {
+      vehicleId,
+      incidentId,
+      category: "repairs",
+      amountMinor: "700000",
+      spentOn: "2026-07-28",
+      borneBy: "us",
+    });
+    expect(mistypedQuote.status).toBe(201);
+    const mistypedQuoteBody: { id: string } = await mistypedQuote.json();
+    const voidedQuote = await post(`/api/expense/${mistypedQuoteBody.id}/void`, token, {
+      reason: "typed 700,000 instead of 70,000",
+    });
+    expect(voidedQuote.status).toBe(200);
+
     const claim = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
       claimedAmountMinor: "75000",
       excessBorneMinor: "15000",
@@ -822,8 +844,14 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     ctx.trackCreatedIncident(incidentId);
     ctx.trackCreatedExpense(bodyWorkBody.id);
     ctx.trackCreatedExpense(partsBody.id);
+    ctx.trackCreatedExpense(mistypedQuoteBody.id); // GAP-181's voided row
     await ctx.cleanup();
-  });
+    // GAP-181: G-2 walks the real period lifecycle (open July, write, close,
+    // open August, …) across ~20 round trips against a live Neon branch, and
+    // the voided-row seed added two more, tipping it past the suite's 20s
+    // default. Raised rather than trimmed — writing into a closed period has
+    // no shortcut, which is exactly what makes this fixture worth having.
+  }, 60_000);
 
   describe("an incident's costs so far (Web-P8a, GET /{id}/expense)", () => {
     it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {

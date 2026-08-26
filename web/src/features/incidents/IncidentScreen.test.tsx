@@ -98,6 +98,51 @@ test("Record off-road days is offered until it's set; once recorded, the window 
   expect(screen.getByRole("button", { name: "Record off-road days" })).toBeInTheDocument();
 });
 
+test("GAP-172: Record repair cost is always offered, opens with the incident's own vehicle and this incident pre-filled, and reaches the request", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "e1",
+    vehicleId: "v1",
+    tripId: null,
+    incidentId: "inc1",
+    category: "repairs",
+    amountMinor: "800000",
+    spentOn: today,
+    borneBy: "us",
+    borneByDriverId: null,
+    borneByCustomerId: null,
+    paidByUserId: null,
+    litres: null,
+    note: null,
+    odometerReadingId: null,
+    replacesId: null,
+  });
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  await user.click(await screen.findByRole("button", { name: "Incident actions" }));
+  await user.click(screen.getByRole("button", { name: "Record repair cost" }));
+  // The vehicle is pre-filled from the incident, so no picker renders.
+  expect(screen.queryByLabelText("Vehicle")).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  await user.click(screen.getByRole("button", { name: "8" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Repairs" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ vehicleId: "v1", incidentId: "inc1", category: "repairs" }),
+    ),
+  );
+});
+
 test("once off-road is recorded, the window and treatment show and the action disappears", async () => {
   const user = userEvent.setup();
   const withOffRoad: IncidentDetailResponse = {
@@ -396,7 +441,7 @@ test("GAP-173/F-8.1: a late-posted recovery is flagged with the month it belongs
         receivedAmountMinor: "0",
         replacesId: null,
         // Agreed in July, posted into the open month because July had closed.
-        belongsToPeriodStart: "2026-07-01",
+        belongsToPeriodStart: asBusinessDate("2026-07-01"),
         voidedAt: null,
         voidedReason: null,
       },

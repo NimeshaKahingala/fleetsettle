@@ -18,11 +18,13 @@ import {
   voidVehicleUnavailability,
 } from "../domain/vehicles.js";
 import { NotFoundError } from "../errors/app-error.js";
+import { withDerivedFigures } from "../domain/vehicle-loan.js";
 import { listDailyLeasesForVehicle } from "../queries/dailyLease.js";
 import { listExpensesForVehicle } from "../queries/expense.js";
 import { listIncidentsForVehicle } from "../queries/incident.js";
 import { listLeasesForVehicle } from "../queries/lease.js";
 import { listTripsForVehicle } from "../queries/trip.js";
+import { listVehicleLoansForVehicle } from "../queries/vehicle-loan.js";
 import {
   findVehicleCalendar,
   findVehicleForBusiness,
@@ -44,6 +46,7 @@ import type {
   listVehicleExpensesRoute,
   listVehicleIncidentsRoute,
   listVehicleLeaseHistoryRoute,
+  listVehicleLoansRoute,
   listVehicleTripsRoute,
   listVehicleUnavailabilityRoute,
   listVehiclesRoute,
@@ -53,6 +56,7 @@ import type {
   voidVehicleUnavailabilityRoute,
 } from "../route-defs/vehicle.js";
 import { incidentToResponse } from "./incident.js";
+import { loanToResponse } from "./vehicle-loan.js";
 import type { Env } from "../types.js";
 
 function toResponse(row: VehicleRow) {
@@ -63,6 +67,8 @@ function toResponse(row: VehicleRow) {
     lifecycle: row.lifecycle,
     ...(row.arrangement ? { arrangement: row.arrangement } : {}),
     serviceIntervalKm: row.serviceIntervalKm,
+    purchaseCostMinor:
+      row.purchaseCostMinor !== null ? toWire(row.purchaseCostMinor as Minor) : null,
   };
 }
 
@@ -94,6 +100,7 @@ export const createVehicleHandler: RouteHandler<typeof createVehicleRoute, Env> 
       lifecycle: "active" as const,
       arrangement: body.defaultArrangement,
       serviceIntervalKm: null,
+      purchaseCostMinor: null,
     },
     201,
   );
@@ -448,6 +455,27 @@ export const listVehicleIncidentsHandler: RouteHandler<
 
   const rows = await listIncidentsForVehicle(c.get("reader"), businessId, id);
   return c.json(rows.map(incidentToResponse), 200);
+};
+
+/** GAP-185/F-12.4. `viewReports` — a manager sees this too (W-70), unlike `listVehicleIncidentsHandler`'s `dailyOperations`. */
+export const listVehicleLoansHandler: RouteHandler<typeof listVehicleLoansRoute, Env> = async (
+  c,
+) => {
+  requireCapability(c, "viewReports");
+
+  const businessId = requireBusinessId(c);
+  const { id } = c.req.valid("param");
+  const reader = c.get("reader");
+
+  const vehicleRow = await findVehicleForBusiness(reader, businessId, id);
+  if (!vehicleRow) throw new NotFoundError();
+
+  const today = businessToday(requireBusinessTimezone(c));
+  const loans = await listVehicleLoansForVehicle(reader, businessId, id);
+  const withFigures = await Promise.all(
+    loans.map((loan) => withDerivedFigures(reader, loan, today)),
+  );
+  return c.json(withFigures.map(loanToResponse), 200);
 };
 
 /** Vehicle overview's history tab (Web-P5): arrangement-B periods. */

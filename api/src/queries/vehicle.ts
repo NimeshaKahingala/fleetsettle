@@ -72,6 +72,7 @@ export interface VehicleRow {
   lifecycle: "active" | "archived" | "disposed";
   arrangement: "A" | "B" | "C" | null;
   serviceIntervalKm: number | null;
+  purchaseCostMinor: bigint | null;
 }
 
 const CURRENT_ARRANGEMENT = and(
@@ -93,6 +94,7 @@ export async function findVehicleForBusiness(
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
       serviceIntervalKm: vehicle.serviceIntervalKm,
+      purchaseCostMinor: vehicle.purchaseCostMinor,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
@@ -113,6 +115,15 @@ export async function setVehicleServiceInterval(
   serviceIntervalKm: number | null,
 ): Promise<void> {
   await db.update(vehicle).set({ serviceIntervalKm }).where(eq(vehicle.id, vehicleId));
+}
+
+/** GAP-185/UC-106: "purchase price" is entered alongside a loan (F-12.1) but lives on the vehicle itself, never required (U-2). */
+export async function setVehiclePurchaseCost(
+  db: WriteDb,
+  vehicleId: string,
+  purchaseCostMinor: bigint | null,
+): Promise<void> {
+  await db.update(vehicle).set({ purchaseCostMinor }).where(eq(vehicle.id, vehicleId));
 }
 
 /**
@@ -299,6 +310,7 @@ export async function listVehiclesForBusiness(
       lifecycle: vehicle.lifecycle,
       arrangement: vehicleArrangement.arrangement,
       serviceIntervalKm: vehicle.serviceIntervalKm,
+      purchaseCostMinor: vehicle.purchaseCostMinor,
     })
     .from(vehicle)
     .leftJoin(vehicleArrangement, CURRENT_ARRANGEMENT)
