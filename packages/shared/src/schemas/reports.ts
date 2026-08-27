@@ -21,6 +21,24 @@ export const vehicleMonthOwnerShareSchema = z.object({
 });
 export type VehicleMonthOwnerShare = z.infer<typeof vehicleMonthOwnerShareSchema>;
 
+/**
+ * GAP-188/F-8.1: one late-posted fact still counted inside `earnedMinor`/
+ * `costsMinor` — never a second way of computing the total, only a listing
+ * of which of that total's own inputs belongs to an earlier, already-closed
+ * period. `belongsToPeriodStart` is always non-null here (unlike the CSV
+ * export's `TransactionRow`, which carries the field for every row and
+ * leaves it `null` on the ordinary ones) — this array exists only to hold
+ * the late ones.
+ */
+export const lateFactLineSchema = z.object({
+  id: uuidSchema,
+  label: z.string(),
+  amountMinor: z.string(),
+  sign: z.enum(["earned", "cost"]),
+  belongsToPeriodStart: z.string(),
+});
+export type LateFactLine = z.infer<typeof lateFactLineSchema>;
+
 export const vehicleMonthRowSchema = z.object({
   vehicleId: uuidSchema,
   registration: z.string(),
@@ -28,6 +46,10 @@ export const vehicleMonthRowSchema = z.object({
   costsMinor: z.string(),
   profitMinor: z.string(),
   ownerShares: z.array(vehicleMonthOwnerShareSchema),
+  // Optional (not `vehicleYearRowSchema`'s shape) so VehicleYearReportScreen
+  // can keep reusing VehicleMonthReportScreen's VehicleRow structurally —
+  // GAP-188 is UC-70-scoped alone (data-model.md §15's own reasoning).
+  lateFacts: z.array(lateFactLineSchema).optional(),
 });
 export type VehicleMonthRow = z.infer<typeof vehicleMonthRowSchema>;
 

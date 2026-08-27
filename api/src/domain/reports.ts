@@ -18,6 +18,7 @@ import {
   listAgeingBuckets,
   listBankedByDestination,
   listClosedTripsForReport,
+  listLateFactLinesForVehiclesBulk,
   listLostDays,
   listLostDaysByMonth,
   listLostDaysByReason,
@@ -38,6 +39,7 @@ import {
   sumVehicleEarnedForPeriodBulk,
   type AgeingRow,
   type GoodwillByTypeRow,
+  type LateFactRow,
   type OffRoadRangeRow,
   type OwnershipShareRow,
   type ReceivableRow,
@@ -79,6 +81,15 @@ export interface VehicleMonthOwnerShare {
   profitShareMinor: bigint;
 }
 
+/** GAP-188/F-8.1: one late-posted fact still counted inside `earnedMinor`/`costsMinor` — never a second way of computing them, only a listing of which of those totals' own inputs belongs to an earlier, already-closed period. */
+export interface VehicleMonthLateFact {
+  id: string;
+  label: string;
+  amountMinor: bigint;
+  sign: "earned" | "cost";
+  belongsToPeriodStart: string;
+}
+
 export interface VehicleMonthRow {
   vehicleId: string;
   registration: string;
@@ -86,6 +97,7 @@ export interface VehicleMonthRow {
   costsMinor: bigint;
   profitMinor: bigint;
   ownerShares: VehicleMonthOwnerShare[];
+  lateFacts: VehicleMonthLateFact[];
 }
 
 export interface VehicleMonthReport {
@@ -177,10 +189,11 @@ export async function getVehicleMonthReport(
   }
 
   const vehicleIds = vehicles.map((v) => v.id);
-  const [earnedByVehicle, costsByVehicle, sharesByVehicle] = await Promise.all([
+  const [earnedByVehicle, costsByVehicle, sharesByVehicle, lateFactsByVehicle] = await Promise.all([
     sumVehicleEarnedForPeriodBulk(db, vehicleIds, periodId),
     sumVehicleCostsForPeriodBulk(db, vehicleIds, periodId),
     findOwnershipSharesAsOfBulk(db, vehicleIds, period.periodEnd),
+    listLateFactLinesForVehiclesBulk(db, vehicleIds, periodId),
   ]);
 
   const allOwnerUserIds = [...new Set([...sharesByVehicle.values()].flat().map((s) => s.userId))];
@@ -191,6 +204,15 @@ export async function getVehicleMonthReport(
     const costsMinor = readBulkMinor(costsByVehicle, v.id);
     const profitMinor = earnedMinor - costsMinor;
     const ownerShares = buildOwnerShares(sharesByVehicle.get(v.id) ?? [], names, profitMinor);
+    const lateFacts: VehicleMonthLateFact[] = (lateFactsByVehicle.get(v.id) ?? []).map(
+      (line: LateFactRow) => ({
+        id: line.id,
+        label: labelForTransactionKind(line.kind),
+        amountMinor: line.amountMinor,
+        sign: line.sign,
+        belongsToPeriodStart: line.belongsToPeriodStart,
+      }),
+    );
     return {
       vehicleId: v.id,
       registration: v.registration,
@@ -198,6 +220,7 @@ export async function getVehicleMonthReport(
       costsMinor,
       profitMinor,
       ownerShares,
+      lateFacts,
     };
   });
 

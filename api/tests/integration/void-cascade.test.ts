@@ -1,4 +1,4 @@
-import { newId } from "@fleetsettle/shared";
+import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
@@ -10,12 +10,23 @@ import {
   offsetAllocation,
   payment,
 } from "../../src/db/schema.js";
+import { recordWriteOffRecovery, voidWriteOff } from "../../src/domain/write-off.js";
 import { recordIncidentRecoveryReceived } from "../../src/queries/incident.js";
 import { voidObligationBySource } from "../../src/queries/obligation.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
+
+async function outcome<T>(
+  run: () => Promise<T>,
+): Promise<{ ok: true; value: T } | { ok: false; err: unknown }> {
+  try {
+    return { ok: true, value: await run() };
+  } catch (err) {
+    return { ok: false, err };
+  }
+}
 
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
@@ -568,6 +579,67 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
       const res = await post(`/api/write-off/${createdBody.id}/void`, token, { reason: "x" });
       expect(res.status).toBe(409);
       expect(await res.json()).toMatchObject({ code: "VOID_BLOCKED" });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-190/B12 — a void racing a recovery serialises on the write-off row, so the void never wins against a recovery it never saw", async () => {
+      const other = writer(TEST_DATABASE_URL);
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const created = await post("/api/write-off", token, {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: "40000",
+        reason: "written off last quarter",
+        writtenOffOn: "2026-07-01",
+      });
+      const createdBody: { id: string } = await created.json();
+      ctx.trackCreatedWriteOff(createdBody.id);
+
+      // Before GAP-190/B12: voidWriteOff read "no live recoveries" on a
+      // Reader before its own transaction opened, so a recovery landing in
+      // that gap was invisible to it — the write-off voided anyway, with a
+      // live recovery still against it. Now both writes lock the same
+      // write-off row first, so exactly one of the two below can win.
+      const recover = () =>
+        recordWriteOffRecovery(other, {
+          businessId,
+          writeOffId: createdBody.id,
+          amountMinor: 40_000n as Minor,
+          occurredOn: "2026-07-25" as BusinessDate,
+          userId: owner.userId,
+        });
+      const voidIt = () =>
+        voidWriteOff(db, {
+          businessId,
+          writeOffId: createdBody.id,
+          reason: "entered in error",
+          userId: owner.userId,
+        });
+
+      const [a, b] = await Promise.all([outcome(recover), outcome(voidIt)]);
+
+      const writeOffRes = await request(`/api/write-off?partyCustomerId=${customerId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const writeOffList: Array<{ id: string; voidedAt: string | null }> = await writeOffRes.json();
+      const row = writeOffList.find((r) => r.id === createdBody.id);
+      expect(row).toBeDefined();
+
+      if (row?.voidedAt !== null) {
+        // The void won — it must have run after seeing zero live recoveries,
+        // so the recovery attempt lost the race.
+        expect(a.ok).toBe(false);
+      } else {
+        // The recovery won — the void must have seen it and refused.
+        expect(b.ok).toBe(false);
+      }
 
       await ctx.cleanup();
     });

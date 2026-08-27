@@ -653,6 +653,35 @@ describe("void an attachment (A7/GAP-16)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-190/N2 — two concurrent voids of the same attachment: exactly one wins, the loser is refused rather than overwriting the winner's reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    const expenseId = await createExpenseSubject(ctx, token);
+    const id = newId();
+    await postAttachment(token, {
+      id,
+      kind: "expense_receipt",
+      subjectType: "expense",
+      subjectId: expenseId,
+    });
+
+    // Before GAP-190/N2: voidAttachmentRow's WHERE matched on id alone, so
+    // both requests below would pass the domain layer's pre-check and both
+    // updates would land — the second silently overwriting the first's
+    // voided_reason/voided_by (W-50's append-only rule, broken quietly).
+    const [a, b] = await Promise.all([
+      postVoidAttachment(token, id, { reason: "first void" }),
+      postVoidAttachment(token, id, { reason: "second void" }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    await ctx.cleanup();
+  });
+
   it("404 — the attachment belongs to another business", async () => {
     const ctx = new TestContext(db);
     const other = new TestContext(db);

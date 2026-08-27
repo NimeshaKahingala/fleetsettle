@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
@@ -571,6 +571,137 @@ export async function sumVehicleCostsForPeriodBulk(
 
   foldIntoBigIntMap(out, expenseRows);
   foldIntoBigIntMap(out, obligationRows);
+  return out;
+}
+
+/** GAP-188/DM §15: one late fact — a row `sumVehicleEarnedForPeriodBulk`/`sumVehicleCostsForPeriodBulk` already counted inside their sums, listed here separately rather than re-summed. `kind` is an obligation kind, `expense.category`, or the literal `"trip"` — labelled by the domain layer the same way `labelForTransactionKind` already labels the CSV export's identical vocabulary. */
+export interface LateFactRow {
+  vehicleId: string;
+  id: string;
+  kind: string;
+  amountMinor: bigint;
+  sign: "earned" | "cost";
+  belongsToPeriodStart: string;
+}
+
+/**
+ * GAP-188/DM §15: `sumVehicleEarnedForPeriodBulk`/`sumVehicleCostsForPeriodBulk`'s
+ * own four sources, `belongs_to_period_id IS NOT NULL` added to each WHERE
+ * and no `SUM()` — the individual rows, not their total, since a late fact
+ * needs to be shown, not just counted. `belongsToPeriodId` is guaranteed
+ * non-null by the same predicate, so the join to `accountingPeriod` is
+ * inner rather than left: a dangling FK here would be a real data-integrity
+ * bug, not a legitimate absence to tolerate. The four sources are
+ * independent, so they run concurrently (Gitar review, PR #135) rather than
+ * as four sequential round trips — an ordinary month still pays for all
+ * four, since every one of them can legitimately return zero rows.
+ */
+export async function listLateFactLinesForVehiclesBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodId: string,
+): Promise<Map<string, LateFactRow[]>> {
+  const out = new Map<string, LateFactRow[]>(vehicleIds.map((id) => [id, []]));
+  if (vehicleIds.length === 0) return out;
+
+  const push = (row: LateFactRow) => out.get(row.vehicleId)?.push(row);
+
+  const [earnedObligationRows, earnedTripRows, costExpenseRows, costObligationRows] =
+    await Promise.all([
+      db
+        .select({
+          vehicleId: obligation.vehicleId,
+          id: obligation.id,
+          kind: obligation.kind,
+          amountMinor: obligation.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(obligation)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
+        .where(
+          and(
+            inArray(obligation.vehicleId, vehicleIds),
+            eq(obligation.postedPeriodId, periodId),
+            eq(obligation.direction, "owed_to_us"),
+            sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
+            isNull(obligation.voidedAt),
+            isNotNull(obligation.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: trip.vehicleId,
+          id: trip.id,
+          amountMinor: trip.agreedAmountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(trip)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, trip.belongsToPeriodId))
+        .where(
+          and(
+            inArray(trip.vehicleId, vehicleIds),
+            eq(trip.postedPeriodId, periodId),
+            eq(trip.status, "closed"),
+            isNotNull(trip.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: expense.vehicleId,
+          id: expense.id,
+          kind: expense.category,
+          amountMinor: expense.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(expense)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, expense.belongsToPeriodId))
+        .where(
+          and(
+            inArray(expense.vehicleId, vehicleIds),
+            eq(expense.postedPeriodId, periodId),
+            eq(expense.borneBy, "us"),
+            isNull(expense.voidedAt),
+            isNotNull(expense.belongsToPeriodId),
+          ),
+        ),
+      db
+        .select({
+          vehicleId: obligation.vehicleId,
+          id: obligation.id,
+          kind: obligation.kind,
+          amountMinor: obligation.amountMinor,
+          belongsToPeriodStart: accountingPeriod.periodStart,
+        })
+        .from(obligation)
+        .innerJoin(accountingPeriod, eq(accountingPeriod.id, obligation.belongsToPeriodId))
+        .where(
+          and(
+            inArray(obligation.vehicleId, vehicleIds),
+            eq(obligation.postedPeriodId, periodId),
+            eq(obligation.direction, "owed_by_us"),
+            sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
+            isNull(obligation.voidedAt),
+            isNotNull(obligation.belongsToPeriodId),
+          ),
+        ),
+    ]);
+
+  for (const r of earnedObligationRows) {
+    if (r.vehicleId === null) continue;
+    push({ ...r, vehicleId: r.vehicleId, sign: "earned" });
+  }
+  for (const r of earnedTripRows) {
+    push({ ...r, kind: "trip", sign: "earned" });
+  }
+  for (const r of costExpenseRows) {
+    if (r.vehicleId === null) continue;
+    push({ ...r, vehicleId: r.vehicleId, sign: "cost" });
+  }
+  for (const r of costObligationRows) {
+    if (r.vehicleId === null) continue;
+    push({ ...r, vehicleId: r.vehicleId, sign: "cost" });
+  }
+
   return out;
 }
 

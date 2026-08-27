@@ -73,14 +73,19 @@ export async function voidExpenseRow(
   db: WriteDb,
   expenseId: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
+  // GAP-190/N2: `isNull(voidedAt)` added to the WHERE — without it, two
+  // concurrent voids (or a double-tap) both pass the caller's pre-check and
+  // both writes land, the second silently overwriting voided_reason/
+  // voided_by on a row already voided by the first. Same guard every other
+  // void*Row function in this codebase carries (voidPartnerPayoutRow is the
+  // reference).
   const rows = await db
     .update(expense)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(expense.id, expenseId))
+    .where(and(eq(expense.id, expenseId), isNull(expense.voidedAt)))
     .returning({ voidedAt: expense.voidedAt });
-  // `voidedAt` is written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }
 
 export interface VehicleExpenseRow {

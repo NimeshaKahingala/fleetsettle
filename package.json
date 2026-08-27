@@ -15,6 +15,7 @@
     "guard": "node scripts/check-forbidden.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "lint:scoped": "eslint api scripts eslint.config.js stylelint.config.js && eslint packages && eslint web",
     "lint:css": "stylelint \"web/**/*.css\" --allow-empty-input",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

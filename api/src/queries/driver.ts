@@ -39,17 +39,30 @@ const COLUMNS = {
   voidedAt: driver.voidedAt,
 };
 
-/** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy).
+ *
+ * GAP-190/B13 (Gitar review): `forUpdate` locks this row for the caller's
+ * own transaction — `archiveDriver` takes it before checking open money, so
+ * it conflicts with migration 0034's `assert_party_not_archived()`, which
+ * now takes `FOR SHARE` on the same row before checking `voided_at`. Without
+ * both sides locking, a concurrent archive and a concurrent money insert can
+ * each read the other's pre-commit state and both succeed, leaving an
+ * archived driver with open money (INV-35) — the same reasoning
+ * `deposit.ts`'s own `FOR UPDATE` comment gives for a deposit's parent row.
+ */
 export async function findDriverForBusiness(
   db: ReadDb,
   businessId: string,
   driverId: string,
+  forUpdate = false,
 ): Promise<DriverRow | undefined> {
-  const rows = await db
+  const query = db
     .select(COLUMNS)
     .from(driver)
     .where(and(eq(driver.id, driverId), eq(driver.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0];
 }
 

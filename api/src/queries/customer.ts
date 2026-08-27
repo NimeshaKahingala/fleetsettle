@@ -45,17 +45,25 @@ const COLUMNS = {
   voidedAt: customer.voidedAt,
 };
 
-/** Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy). */
+/**
+ * Scoped by `businessId` — the same shape every P2+ read gets (CLAUDE.md → Tenancy).
+ *
+ * GAP-190/B13 (Gitar review): `forUpdate` locks this row for the caller's
+ * own transaction — see `findDriverForBusiness`'s own comment, the same
+ * reasoning applied to `customer`.
+ */
 export async function findCustomerForBusiness(
   db: ReadDb,
   businessId: string,
   customerId: string,
+  forUpdate = false,
 ): Promise<CustomerRow | undefined> {
-  const rows = await db
+  const query = db
     .select(COLUMNS)
     .from(customer)
     .where(and(eq(customer.id, customerId), eq(customer.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as CustomerRow | undefined;
 }
 
