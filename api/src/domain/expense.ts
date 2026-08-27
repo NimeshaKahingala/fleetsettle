@@ -238,6 +238,11 @@ export async function voidExpense(writer: Writer, input: VoidExpenseInput): Prom
         voidedBy: input.userId,
       }),
     );
+    // GAP-190/N2: the pre-check above ran on a Reader before this
+    // transaction opened — a concurrent void can still win the race, in
+    // which case voidExpenseRow's own WHERE now returns nothing rather than
+    // clobbering the first void's voided_reason/voided_by.
+    if (!voided) throw new ExpenseAlreadyVoidedError();
     return { id: input.expenseId, voidedAt: voided.voidedAt };
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();

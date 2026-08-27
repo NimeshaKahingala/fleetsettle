@@ -65,12 +65,13 @@ export const recordLoanPaymentRoute = createRoute({
       content: { "application/json": { schema: loanPaymentResponseSchema } },
       description: "The payment",
     },
+    400: { description: "replacesId names a payment against a different loan" },
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot record a loan payment" },
     404: { description: "No such loan or replacesId payment in this business" },
     409: {
       description:
-        "That accounting period is closed, this loan is already closed, or the payment exceeds what is left to pay",
+        "That accounting period is closed, this loan is already closed, the payment exceeds what is left to pay, or replacesId names a payment that isn't voided yet or has already been replaced (GAP-60)",
     },
   },
 });

@@ -164,7 +164,17 @@ export async function recordWriteOffRecovery(
 ): Promise<RecordedWriteOffRecovery> {
   try {
     return await writer.transaction(async (tx) => {
-      const writeOffRow = await findWriteOffForBusiness(tx, input.businessId, input.writeOffId);
+      // GAP-190/B12: locked here, inside the transaction — a recovery and a
+      // void racing the same write-off must serialise on this row, the same
+      // "lock the parent" shape GAP-178's deposit double-draw fix already
+      // established. A plain read proves nothing about what the other side
+      // of the race is about to insert or void.
+      const writeOffRow = await findWriteOffForBusiness(
+        tx,
+        input.businessId,
+        input.writeOffId,
+        true,
+      );
       if (!writeOffRow || writeOffRow.voidedAt !== null) {
         throw new NotFoundError("No such write-off in this business");
       }
@@ -259,27 +269,33 @@ export async function voidWriteOff(
   writer: Writer,
   input: VoidWriteOffInput,
 ): Promise<VoidedWriteOff> {
-  const wo = await findWriteOffForBusiness(writer, input.businessId, input.writeOffId);
-  if (!wo) throw new NotFoundError("No such write-off in this business");
-  if (wo.voidedAt !== null) throw new WriteOffAlreadyVoidedError();
-
-  const live = await findLiveRecoveriesForWriteOff(writer, input.writeOffId);
-  if (live.length > 0) {
-    const items: VoidBlockingItem[] = live.map((r) => ({
-      kind: "recovery",
-      id: r.id,
-      amountMinor: r.amountMinor.toString(),
-    }));
-    const totalMinor = live.reduce((sum, r) => sum + r.amountMinor, 0n);
-    throw new VoidBlockedError(
-      `Cannot void — ${live.length.toString()} recovery/recoveries totalling ` +
-        `${totalMinor.toString()} are still against it. Void those first, each with its own reason`,
-      items,
-    );
-  }
-
   try {
     return await writer.transaction(async (tx) => {
+      // GAP-190/B12: every read this write depends on now happens inside
+      // the transaction, against a locked row. Read outside it (the shape
+      // this used to have), a recovery recorded in the gap between the
+      // check and the void is invisible to the check, and the write-off is
+      // voided anyway with a live recovery still against it — exactly what
+      // this guard exists to refuse.
+      const wo = await findWriteOffForBusiness(tx, input.businessId, input.writeOffId, true);
+      if (!wo) throw new NotFoundError("No such write-off in this business");
+      if (wo.voidedAt !== null) throw new WriteOffAlreadyVoidedError();
+
+      const live = await findLiveRecoveriesForWriteOff(tx, input.writeOffId);
+      if (live.length > 0) {
+        const items: VoidBlockingItem[] = live.map((r) => ({
+          kind: "recovery",
+          id: r.id,
+          amountMinor: r.amountMinor.toString(),
+        }));
+        const totalMinor = live.reduce((sum, r) => sum + r.amountMinor, 0n);
+        throw new VoidBlockedError(
+          `Cannot void — ${live.length.toString()} recovery/recoveries totalling ` +
+            `${totalMinor.toString()} are still against it. Void those first, each with its own reason`,
+          items,
+        );
+      }
+
       if (wo.obligationId !== null) {
         const ob = await findObligationForBusiness(tx, input.businessId, wo.obligationId, true);
         if (ob && ob.voidedAt === null) {

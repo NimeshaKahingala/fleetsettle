@@ -8,13 +8,16 @@ import {
   type Minor,
 } from "@fleetsettle/shared";
 import type { Reader, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   LoanClosedError,
   LoanPaymentAlreadyVoidedError,
   LoanPaymentExceedsRemainingError,
   NotFoundError,
   PeriodClosedError,
+  ReplacesTargetAlreadyReplacedError,
+  ReplacesTargetNotVoidedError,
+  ValidationError,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import { insertCapitalContribution } from "../queries/partner.js";
@@ -294,6 +297,17 @@ export async function recordLoanPayment(
         );
       }
 
+      // GAP-190/N4: every other W-50 table validates its own replacesId
+      // (see recordWriteOffRecovery's own comment); loan_payment never did.
+      if (input.replacesId !== undefined) {
+        const target = await findLoanPaymentForBusiness(tx, input.businessId, input.replacesId);
+        if (!target) throw new NotFoundError("No such loan payment in this business");
+        if (target.voidedAt === null) throw new ReplacesTargetNotVoidedError();
+        if (target.loanId !== input.loanId) {
+          throw new ValidationError("replacesId names a payment against a different loan");
+        }
+      }
+
       let expenseId: string | undefined;
       let partnerPayoutId: string | undefined;
       if (loan.liabilityOwner !== null) {
@@ -354,6 +368,9 @@ export async function recordLoanPayment(
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "loan_payment_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
     throw err;
   }
   return { paymentId };
@@ -414,6 +431,21 @@ export async function settleVehicleLoan(
       // payment is a drawing" rule only decides which money record gets
       // written, never what the loan's own numbers mean).
       const livePayments = await listLivePaymentsForLoan(tx, loan.id);
+
+      // GAP-190/N1: the same ceiling recordLoanPayment already enforces —
+      // without it, a settlement larger than what is actually left to pay
+      // flows straight into financeMinor below, which can then exceed the
+      // loan's own finance total. `0032`'s `CHECK (total_repayable_minor >=
+      // principal_minor)` never sees this write, so nothing in the schema
+      // catches it.
+      const remaining = remainingToPay(loan, livePayments);
+      if (input.settlementAmountMinor > remaining) {
+        throw new LoanPaymentExceedsRemainingError(
+          `This settlement (${input.settlementAmountMinor.toString()}) exceeds the ` +
+            `${remaining.toString()} left to pay`,
+        );
+      }
+
       const principalPaid = livePayments
         .filter((p) => !p.isSettlement)
         .reduce(
@@ -523,19 +555,28 @@ export async function voidLoanPayment(
   writer: Writer,
   input: VoidLoanPaymentInput,
 ): Promise<VoidedLoanPayment> {
-  const payment = await findLoanPaymentForBusiness(writer, input.businessId, input.paymentId);
-  // Gitar review, PR #130: the route names both a loan and a payment
-  // (`/{id}/payment/{paymentId}/void`) — a payment that exists but belongs
-  // to a different loan is indistinguishable from one that doesn't exist
-  // at all, the same "cross-tenant is 404" reasoning applied one level
-  // down from business_id to loan_id.
-  if (!payment || payment.loanId !== input.loanId) {
-    throw new NotFoundError("No such loan payment in this business");
-  }
-  if (payment.voidedAt !== null) throw new LoanPaymentAlreadyVoidedError();
-
   try {
     return await writer.transaction(async (tx) => {
+      // GAP-190/N3: the parent loan is locked here first, the same shape
+      // recordLoanPayment/settleVehicleLoan already use — a void racing a
+      // payment or another void against the same loan must serialise on
+      // this row too, not just payments against each other. Read outside
+      // the transaction (the shape this used to have), both sides could
+      // work from the same stale remaining-to-pay.
+      const loan = await findVehicleLoanForBusiness(tx, input.businessId, input.loanId, true);
+      if (!loan) throw new NotFoundError("No such loan in this business");
+
+      const payment = await findLoanPaymentForBusiness(tx, input.businessId, input.paymentId);
+      // Gitar review, PR #130: the route names both a loan and a payment
+      // (`/{id}/payment/{paymentId}/void`) — a payment that exists but belongs
+      // to a different loan is indistinguishable from one that doesn't exist
+      // at all, the same "cross-tenant is 404" reasoning applied one level
+      // down from business_id to loan_id.
+      if (!payment || payment.loanId !== input.loanId) {
+        throw new NotFoundError("No such loan payment in this business");
+      }
+      if (payment.voidedAt !== null) throw new LoanPaymentAlreadyVoidedError();
+
       if (payment.expenseId !== null) {
         await voidExpenseRow(tx, payment.expenseId, {
           voidedReason: input.reason,
