@@ -143,12 +143,15 @@ export async function archiveDriver(
   if (!existing) throw new NotFoundError("No such driver in this business");
   if (existing.voidedAt !== null) throw new PartyAlreadyArchivedError();
 
-  // GAP-190/B13: run on `tx`, inside the same transaction that archives —
-  // migration 0031's trigger already refuses new money against an archived
-  // party, but nothing stopped the reverse: a due recorded in the gap
-  // between this check (on `reader`, pre-transaction) and the archive
-  // commit was invisible to it. Same "check on tx, not reader" shape as
-  // GAP-190/B12's write-off fix.
+  // GAP-190/B13, corrected after Gitar's review of the first cut: running
+  // the check on `tx` instead of `reader` narrows the window but does not
+  // by itself serialize anything under READ COMMITTED — a plain SELECT
+  // here and a plain SELECT in migration 0031's trigger can each read the
+  // other's pre-commit state, so an archive and a concurrent money insert
+  // could still both succeed. Locking the driver row FOR UPDATE here, and
+  // migration 0034 giving the trigger's own check FOR SHARE on the same
+  // row, is what actually closes it: the two conflict, so whichever
+  // transaction gets there first is seen by the other.
   //
   // Transaction-wrapped also for consistency with every void endpoint in
   // this codebase, though `driver`/`customer` carry no `posted_period_id`
@@ -159,6 +162,7 @@ export async function archiveDriver(
   // race against a concurrent archive returns undefined rather than a
   // clobbered row, treated the same as the already-archived check above.
   const voided = await writer.transaction(async (tx) => {
+    await findDriverForBusiness(tx, input.businessId, input.partyId, true);
     await assertArchivable(tx, input.businessId, "driver", input.partyId);
     return archiveDriverRow(tx, input.partyId, {
       voidedReason: input.reason,
@@ -192,11 +196,12 @@ export async function archiveCustomer(
   if (!existing) throw new NotFoundError("No such customer in this business");
   if (existing.voidedAt !== null) throw new PartyAlreadyArchivedError();
 
-  // See archiveDriver's own comment (GAP-190/B13): the transaction here is
-  // also for assertArchivable's own race behaviour now, not only the WHERE
-  // guard's — `customer` has no `posted_period_id` either, so migration
-  // 0002's trigger doesn't cover it.
+  // See archiveDriver's own comment (GAP-190/B13): the FOR UPDATE lock, not
+  // only running the check on `tx`, is what actually serializes this
+  // against migration 0034's trigger — `customer` has no `posted_period_id`
+  // either, so migration 0002's audit trigger doesn't cover it.
   const voided = await writer.transaction(async (tx) => {
+    await findCustomerForBusiness(tx, input.businessId, input.partyId, true);
     await assertArchivable(tx, input.businessId, "customer", input.partyId);
     return archiveCustomerRow(tx, input.partyId, {
       voidedReason: input.reason,

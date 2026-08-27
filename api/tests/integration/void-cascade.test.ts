@@ -630,6 +630,7 @@ describe("void cascades (GAP-12/W-61/INV-36)", () => {
       });
       const writeOffList: Array<{ id: string; voidedAt: string | null }> = await writeOffRes.json();
       const row = writeOffList.find((r) => r.id === createdBody.id);
+      expect(row).toBeDefined();
 
       if (row?.voidedAt !== null) {
         // The void won — it must have run after seeing zero live recoveries,
