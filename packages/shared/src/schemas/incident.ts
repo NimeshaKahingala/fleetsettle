@@ -118,7 +118,11 @@ export type InsuranceClaimStatus = z.infer<typeof insuranceClaimStatusSchema>;
 
 /** F-3.4 step 5/W-11: hidden unless enabled — major damage only. */
 export const submitInsuranceClaimRequestSchema = z.object({
-  claimedAmountMinor: moneyWireSchema,
+  // B21 (evaluation, GAP-190): a zero claim is nothing to submit — mirrors
+  // agreedAmountMinor above, already positiveMoneyWireSchema. excessBorneMinor
+  // stays permissive: zero borne is a real case (none of the excess falls
+  // on this party), not a no-op record.
+  claimedAmountMinor: positiveMoneyWireSchema,
   excessBorneMinor: moneyWireSchema.optional(),
   claimedOn: businessDateSchema,
   // GAP-60/D-16/F-8.5: set when the paired incident_recovery row (source

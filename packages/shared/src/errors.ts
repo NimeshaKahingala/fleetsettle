@@ -97,6 +97,9 @@ export const ERROR_CODES = [
   "LOAN_CLOSED",
   "LOAN_PAYMENT_EXCEEDS_REMAINING",
   "LOAN_PAYMENT_ALREADY_VOIDED",
+  // N5 (evaluation, GAP-190): archiving a vehicle refuses while an open loan
+  // still finances it.
+  "VEHICLE_HAS_OPEN_LOAN",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

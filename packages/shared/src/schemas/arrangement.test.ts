@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { startLeaseRequestSchema } from "./arrangement.js";
+import {
+  changeDailyLeaseRateRequestSchema,
+  startDailyLeaseRequestSchema,
+  startLeaseRequestSchema,
+} from "./arrangement.js";
 
 const vehicleId = "11111111-1111-4111-8111-111111111111";
 const customerId = "22222222-2222-4222-8222-222222222222";
@@ -69,5 +73,46 @@ describe("startLeaseRequestSchema — GAP-177, rent is a real amount", () => {
         odometerSource: "photo",
       }).success,
     ).toBe(true);
+  });
+});
+
+describe("startDailyLeaseRequestSchema / changeDailyLeaseRateRequestSchema — B21, a daily rate is a real amount", () => {
+  const dailyBase = {
+    vehicleId,
+    driverId: "33333333-3333-4333-8333-333333333333",
+    patternType: "every_day" as const,
+    effectiveFrom: "2026-01-12",
+  };
+
+  it("rejects a zero starting daily-lease rate: a free lease is not a real arrangement", () => {
+    const result = startDailyLeaseRequestSchema.safeParse({
+      ...dailyBase,
+      dailyLeaseAmountMinor: "0",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a positive starting daily-lease rate", () => {
+    const result = startDailyLeaseRequestSchema.safeParse({
+      ...dailyBase,
+      dailyLeaseAmountMinor: "45000",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects changing the daily-lease rate to zero", () => {
+    const result = changeDailyLeaseRateRequestSchema.safeParse({
+      dailyLeaseAmountMinor: "0",
+      effectiveFrom: "2026-01-12",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a positive changed daily-lease rate", () => {
+    const result = changeDailyLeaseRateRequestSchema.safeParse({
+      dailyLeaseAmountMinor: "50000",
+      effectiveFrom: "2026-01-12",
+    });
+    expect(result.success).toBe(true);
   });
 });

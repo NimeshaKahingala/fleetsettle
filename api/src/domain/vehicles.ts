@@ -6,6 +6,7 @@ import {
   ValidationError,
   VehicleAlreadyExistsError,
   VehicleArrangementChangeBlockedError,
+  VehicleHasOpenLoanError,
   VehicleUnavailabilityAlreadyVoidedError,
   VehicleUnavailabilityOverlapsError,
 } from "../errors/app-error.js";
@@ -32,6 +33,7 @@ import {
   upsertVehicleDocument,
   voidVehicleUnavailabilityRow,
 } from "../queries/vehicle.js";
+import { listVehicleLoansForVehicle } from "../queries/vehicle-loan.js";
 
 export interface CreateVehicleInput {
   businessId: string;
@@ -231,8 +233,24 @@ export async function changeVehicleArrangement(
  * `lifecycle` at booking time, so there is no already-archived state to
  * race against.
  */
-export async function archiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
-  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "archived"));
+/**
+ * N5 (evaluation, GAP-190): refuses while an open loan (`closedOn === null`)
+ * finances this vehicle — the business liability doesn't stop existing
+ * because the vehicle it financed is archived, and an archived vehicle's
+ * own loan was previously invisible to anyone reading it. See
+ * `VehicleHasOpenLoanError`'s own comment for the race this does and does
+ * not close.
+ */
+export async function archiveVehicle(
+  writer: Writer,
+  businessId: string,
+  vehicleId: string,
+): Promise<void> {
+  await writer.transaction(async (tx) => {
+    const loans = await listVehicleLoansForVehicle(tx, businessId, vehicleId);
+    if (loans.some((loan) => loan.closedOn === null)) throw new VehicleHasOpenLoanError();
+    await setVehicleLifecycle(tx, vehicleId, "archived");
+  });
 }
 
 export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {

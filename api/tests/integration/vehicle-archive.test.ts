@@ -11,6 +11,14 @@ function postArchiveVehicle(token: string, id: string) {
   return request(`/api/vehicle/${id}/archive`, { method: "POST", ...bearer(token) });
 }
 
+function postJson(path: string, token: string, body: unknown) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
 function postUnarchiveVehicle(token: string, id: string) {
   return request(`/api/vehicle/${id}/unarchive`, { method: "POST", ...bearer(token) });
 }
@@ -112,6 +120,43 @@ describe("POST /api/vehicle/{id}/archive and /unarchive (GAP-36)", () => {
 
     const res = await postUnarchiveVehicle(token, otherVehicleId);
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("N5 (evaluation, GAP-190): 409 while an open loan finances this vehicle; 200 once it's closed", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const loanRes = await postJson("/api/vehicle-loan", token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "1000000",
+      totalRepayableMinor: "1500000",
+      termMonths: 50,
+      startedOn: "2026-07-05",
+    });
+    expect(loanRes.status).toBe(201);
+    const loan: { id: string } = await loanRes.json();
+    ctx.trackCreatedVehicleLoan(loan.id);
+
+    const blockedRes = await postArchiveVehicle(token, vehicleId);
+    expect(blockedRes.status).toBe(409);
+    const blockedBody: { code: string } = await blockedRes.json();
+    expect(blockedBody).toMatchObject({ code: "VEHICLE_HAS_OPEN_LOAN" });
+
+    const closeRes = await postJson(`/api/vehicle-loan/${loan.id}/settle`, token, {
+      settlementAmountMinor: "1500000",
+      settledOn: "2026-07-06",
+    });
+    expect(closeRes.status).toBe(201);
+
+    const openRes = await postArchiveVehicle(token, vehicleId);
+    expect(openRes.status).toBe(200);
 
     await ctx.cleanup();
   });

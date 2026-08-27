@@ -267,6 +267,8 @@ export const archiveVehicleRoute = createRoute({
     401: { description: "Missing or invalid access token" },
     403: { description: "This role cannot archive a vehicle" },
     404: { description: "No such vehicle in this business" },
+    // N5 (evaluation, GAP-190): an open loan finances this vehicle.
+    409: { description: "This vehicle has an open loan (VEHICLE_HAS_OPEN_LOAN)" },
   },
 });
 
