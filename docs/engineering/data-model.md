@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.15 — **GAP-188: UC-70's own late-fact query, alongside its two sum queries.** `belongs_to_period_id IS NOT NULL` is the whole predicate — the same four sources §15's `costs_minor` query already unions, one extra column, one extra filter. Decided 26 Aug 2026.
+**Status:** v1.1.16 — **§4.4's `loan_payment` DDL brought back into line with migrations `0032`/`0033` (GAP-190), found validating an external evaluation against current code.** Three drifts closed: the doc's `amount_minor` CHECK still read `> 0`, two migrations behind — `0032` had already widened it to admit a zero settlement, and `0033` (new) tightens it again to block a *negative* one, which the widened form let through unintentionally. `expense_id`/`partner_payout_id` — the link a void cascades through — were in `0032` from the start but never made it into this document's DDL. And `replaces_id` had no partial unique index; `0033` gives it the one `0025` gave every other W-50 table seven migrations earlier, `loan_payment` not existing yet to receive it at the time. Decided 26 Aug 2026.
+
+**v1.1.15** — **GAP-188: UC-70's own late-fact query, alongside its two sum queries.** `belongs_to_period_id IS NOT NULL` is the whole predicate — the same four sources §15's `costs_minor` query already unions, one extra column, one extra filter. Decided 26 Aug 2026.
 
 **v1.1.14** — **four DDL blocks brought back into line with the migrations that had already moved past them (GAP-182).** `insurance_claim` and `incident_recovery` gain `business_id` (migration `0004`), `expense` gains `voided_by` (migration `0007`, whose own header already recorded that this document's DDL wrote only two of the void trio), and `offset_allocation` gains the void trio (migration `0024`). `business_creation_request.status` **loses** the `DEFAULT 'pending'` it never had in the database — migration `0030` states the omission is deliberate, so the doc was the wrong one of the three. All five verified against the live schema via `information_schema`, not against the migration files alone. **The matching code half shipped with it**: `api/src/db/schema.ts` declared `.default("pending")` on that same column, inert only while every writer hard-codes the value and a runtime failure on a `NOT NULL` column the first time one did not. Decided 24 Aug 2026.
 
@@ -546,7 +548,12 @@ CREATE TABLE loan_payment (
   id            uuid PRIMARY KEY,
   business_id   uuid NOT NULL REFERENCES business(id),
   loan_id       uuid NOT NULL REFERENCES vehicle_loan(id),
-  amount_minor  bigint NOT NULL CHECK (amount_minor > 0),
+  -- A settlement can legitimately be 0 (a lender forgiving the whole
+  -- remaining balance, F-12.3's own limit case) — GAP-190/N6 widened this
+  -- further still: the first cut of this clause let a settlement go
+  -- *negative*, which the ordinary-payment half (amount_minor > 0) was
+  -- never meant to admit.
+  amount_minor  bigint NOT NULL CHECK (amount_minor > 0 OR (is_settlement = true AND amount_minor >= 0)),
   paid_on       date NOT NULL,
   is_settlement boolean NOT NULL DEFAULT false,   -- UC-108, F-12.3
   -- W-69/INV-43: principal the lender forgave. A fact about the loan, never a
@@ -558,9 +565,22 @@ CREATE TABLE loan_payment (
   voided_at     timestamptz,                  -- W-50: voided, never deleted
   voided_reason text,
   voided_by     uuid REFERENCES app_user(id),
-  replaces_id   uuid REFERENCES loan_payment(id)
+  replaces_id   uuid REFERENCES loan_payment(id),
+  -- Exactly one set per payment, matching the loan's own liability_owner:
+  -- expense_id when the business carries the debt, partner_payout_id when a
+  -- named owner does (never both). Voiding a payment cascades to whichever
+  -- one this points at, the same "record the fact as a field, never a
+  -- guess" convention write_off_recovery.payment_id already established.
+  expense_id        uuid REFERENCES expense(id),
+  partner_payout_id uuid REFERENCES partner_payout(id),
+  CHECK (expense_id IS NULL OR partner_payout_id IS NULL)
 );
 CREATE INDEX loan_payment_loan ON loan_payment (loan_id, paid_on) WHERE voided_at IS NULL;
+-- GAP-190/N4: every other W-50 table got this same partial unique index in
+-- migration 0025; loan_payment didn't exist yet and was missed. Without it,
+-- two concurrent "record the correct one" requests could both name the same
+-- voided payment as what they replace.
+CREATE UNIQUE INDEX loan_payment_replaces_id_key ON loan_payment (replaces_id) WHERE replaces_id IS NOT NULL;
 ```
 
 **Two CHECK-constraint migrations come with these, and both are easy to forget because the tables above look self-contained:**

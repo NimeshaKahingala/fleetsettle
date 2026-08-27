@@ -41,13 +41,22 @@ export interface WriteOffRow {
   replacesId: string | null;
 }
 
-/** Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+/**
+ * Scoped by `businessId` — the same tenancy shape every P2+ read gets.
+ *
+ * GAP-190/B12: `forUpdate` locks the row for the caller's own transaction —
+ * `recordWriteOffRecovery` and `voidWriteOff` both take it now, on the same
+ * "lock the parent" reasoning `deposit.ts`'s own `FOR UPDATE` comment
+ * explains: a plain read proves nothing about what a concurrent transaction
+ * is about to insert against this write-off.
+ */
 export async function findWriteOffForBusiness(
   db: ReadDb,
   businessId: string,
   writeOffId: string,
+  forUpdate = false,
 ): Promise<WriteOffRow | undefined> {
-  const rows = await db
+  const query = db
     .select({
       id: writeOff.id,
       obligationId: writeOff.obligationId,
@@ -64,6 +73,7 @@ export async function findWriteOffForBusiness(
     .from(writeOff)
     .where(and(eq(writeOff.id, writeOffId), eq(writeOff.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as WriteOffRow | undefined;
 }
 

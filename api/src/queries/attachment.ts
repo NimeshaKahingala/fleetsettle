@@ -104,17 +104,24 @@ export async function listAttachmentsForSubject(
   return rows;
 }
 
-/** W-50: void, never delete — the object stays in R2 (A7's plan, decision 3); this only marks the row. */
+/**
+ * W-50: void, never delete — the object stays in R2 (A7's plan, decision 3);
+ * this only marks the row.
+ *
+ * GAP-190/N2: `isNull(voidedAt)` added to the WHERE, the same fix
+ * voidExpenseRow got — without it, two concurrent voids both pass the
+ * caller's pre-check and both writes land, the second silently overwriting
+ * voided_reason/voided_by on a row already voided by the first.
+ */
 export async function voidAttachmentRow(
   db: WriteDb,
   attachmentId: string,
   values: { voidedReason: string; voidedBy: string },
-): Promise<{ voidedAt: string }> {
+): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(attachment)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(eq(attachment.id, attachmentId))
+    .where(and(eq(attachment.id, attachmentId), isNull(attachment.voidedAt)))
     .returning({ voidedAt: attachment.voidedAt });
-  // voidedAt is written by the SET above, in the same statement — never null on the row this WHERE just matched.
-  return rows[0] as { voidedAt: string };
+  return rows[0] as { voidedAt: string } | undefined;
 }

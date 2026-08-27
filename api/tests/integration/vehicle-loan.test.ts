@@ -300,6 +300,129 @@ describe("vehicle loans (F-12)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-190/N1 — a settlement exceeding what is left to pay is refused, the same guard recordLoanPayment already carries", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const loanRes = await postLoan(token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "100000",
+      totalRepayableMinor: "150000",
+      termMonths: 12,
+      startedOn: "2026-07-05",
+    });
+    const loan: LoanBody = await loanRes.json();
+    ctx.trackCreatedVehicleLoan(loan.id);
+
+    // 150,000 total repayable, nothing paid yet — a 200,000 settlement would
+    // leave financeMinor computed past the loan's own finance total, with
+    // nothing in the schema to catch it (0032's CHECK only compares
+    // total_repayable to principal, not to any one payment).
+    const res = await postSettle(token, loan.id, {
+      settlementAmountMinor: "200000",
+      settledOn: "2026-07-10",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "LOAN_PAYMENT_EXCEEDS_REMAINING" });
+
+    const stillOpenRes = await getLoan(token, loan.id);
+    const stillOpen: LoanBody = await stillOpenRes.json();
+    expect(stillOpen.closedOn).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-190/N4 — replacesId is validated against the loan it targets, the same three checks every other W-50 table's own replacesId gets", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    // Explicit registrations — createVehicle's own default derives from a
+    // UUIDv7 prefix, which two calls this close together can collide on.
+    const vehicleId = await ctx.createVehicle(businessId, { registration: "GAP190-N4-A" });
+    const otherVehicleId = await ctx.createVehicle(businessId, { registration: "GAP190-N4-B" });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const loanRes = await postLoan(token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "100000",
+      totalRepayableMinor: "150000",
+      termMonths: 12,
+      startedOn: "2026-07-05",
+    });
+    const loan: LoanBody = await loanRes.json();
+    ctx.trackCreatedVehicleLoan(loan.id);
+
+    const otherLoanRes = await postLoan(token, {
+      vehicleId: otherVehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "100000",
+      totalRepayableMinor: "150000",
+      termMonths: 12,
+      startedOn: "2026-07-05",
+    });
+    const otherLoan: LoanBody = await otherLoanRes.json();
+    ctx.trackCreatedVehicleLoan(otherLoan.id);
+
+    const liveRes = await postPayment(token, loan.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-10",
+    });
+    const live: PaymentBody = await liveRes.json();
+
+    const notVoidedRes = await postPayment(token, loan.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-11",
+      replacesId: live.id,
+    });
+    expect(notVoidedRes.status).toBe(409);
+    expect(await notVoidedRes.json()).toMatchObject({ code: "REPLACES_TARGET_NOT_VOIDED" });
+
+    await postVoidPayment(token, loan.id, live.id, { reason: "entered wrong amount" });
+
+    const otherLoanPaymentRes = await postPayment(token, otherLoan.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-10",
+    });
+    const otherLoanPayment: PaymentBody = await otherLoanPaymentRes.json();
+    await postVoidPayment(token, otherLoan.id, otherLoanPayment.id, { reason: "wrong loan" });
+
+    const wrongLoanRes = await postPayment(token, loan.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-12",
+      replacesId: otherLoanPayment.id,
+    });
+    expect(wrongLoanRes.status).toBe(400);
+
+    const correctedRes = await postPayment(token, loan.id, {
+      amountMinor: "10000",
+      paidOn: "2026-07-13",
+      replacesId: live.id,
+    });
+    expect(correctedRes.status).toBe(201);
+
+    // 0033's own partial unique index: a second replacement naming the same
+    // voided payment is refused, not silently accepted alongside the first.
+    const secondReplacementRes = await postPayment(token, loan.id, {
+      amountMinor: "5000",
+      paidOn: "2026-07-14",
+      replacesId: live.id,
+    });
+    expect(secondReplacementRes.status).toBe(409);
+    expect(await secondReplacementRes.json()).toMatchObject({
+      code: "REPLACES_TARGET_ALREADY_REPLACED",
+    });
+
+    await ctx.cleanup();
+  });
+
   it("F-12.1/W-52 — a down payment writes exactly one capital_contribution, by the named owner", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

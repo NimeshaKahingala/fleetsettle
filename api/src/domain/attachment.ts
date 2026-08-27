@@ -135,5 +135,10 @@ export async function voidAttachment(
       voidedBy: input.userId,
     }),
   );
+  // GAP-190/N2: the pre-check above ran on a Reader before this transaction
+  // opened — a concurrent void can still win the race, in which case
+  // voidAttachmentRow's own WHERE now returns nothing rather than
+  // clobbering the first void's voided_reason/voided_by.
+  if (!voided) throw new AttachmentAlreadyVoidedError();
   return { id: input.attachmentId, voidedAt: voided.voidedAt };
 }

@@ -580,6 +580,39 @@ describe("void an expense (P9, F-8.5/UC-96)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-190/N2 — two concurrent voids of the same expense: exactly one wins, the loser is refused rather than overwriting the winner's reason", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+
+    // Before GAP-190/N2: voidExpenseRow's WHERE matched on id alone, so both
+    // requests below would pass the domain layer's pre-check and both
+    // updates would land — the second silently overwriting the first's
+    // voided_reason/voided_by (W-50's append-only rule, broken quietly).
+    const [a, b] = await Promise.all([
+      postVoidExpense(token, createdBody.id, { reason: "first void" }),
+      postVoidExpense(token, createdBody.id, { reason: "second void" }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    const winner = a.status === 200 ? a : b;
+    const winnerBody: { voidedAt: string } = await winner.json();
+    expect(winnerBody.voidedAt).toBeTruthy();
+
+    await ctx.cleanup();
+  });
+
   it("404 — the expense belongs to another business", async () => {
     const ctx = new TestContext(db);
     const other = new TestContext(db);
