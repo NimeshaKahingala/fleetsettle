@@ -436,7 +436,7 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 | **Step 9** GAP-182 · docs-vs-SQL sync | |
 | ~~**Step 14** GAP-171 · sticky-CTA overlap on `BookTripScreen`~~ — closed 25 Aug 2026 | |
 | ~~**Step 15** GAP-172 · expense-to-trip/incident linking~~ — closed 25 Aug 2026 | |
-| **Step 16** GAP-188 · aggregate late-fact flag — **last, blocked on a design decision** | |
+| **Step 16** GAP-188 · aggregate late-fact flag — **design settled 26 Aug 2026, unblocked for code** | |
 
 **Step 11 is the critical path and requires no code.** Steps 12 and 13 are strictly serial behind it, and behind each other, so every day that document waits, the whole feature track waits. It collides with no remediation work and can start immediately.
 

@@ -99,6 +99,13 @@ export const getVehicleMonthReportHandler: RouteHandler<
           shareBp: o.shareBp,
           profitShareMinor: toWire(o.profitShareMinor as Minor),
         })),
+        lateFacts: v.lateFacts.map((f) => ({
+          id: f.id,
+          label: f.label,
+          amountMinor: toWire(f.amountMinor as Minor),
+          sign: f.sign,
+          belongsToPeriodStart: f.belongsToPeriodStart,
+        })),
       })),
     },
     200,

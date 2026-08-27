@@ -1,7 +1,16 @@
 import { addCalendarMonths, businessToday, newId } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { advance, bankingEvent, expense, ownershipShare, payment } from "../../src/db/schema.js";
+import {
+  accountingPeriod,
+  advance,
+  bankingEvent,
+  expense,
+  obligation,
+  ownershipShare,
+  payment,
+} from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -128,6 +137,123 @@ describe("reports (P11)", () => {
       const rowB = body.vehicles.find((v) => v.vehicleId === vehicleB);
       expect(rowB).toMatchObject({ earnedMinor: "0", costsMinor: "0", profitMinor: "0" });
       expect(rowB?.ownerShares).toEqual([]);
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-188/F-8.1 — a late obligation and a late expense list as their own lines, dated and labelled, without changing earnedMinor/costsMinor", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      // `one_open_period` allows only one open row per business — the earlier
+      // period is inserted directly as `closed`, the way a real June actually
+      // is by the time July's own facts are being posted.
+      const earlierPeriodId = newId();
+      await db.insert(accountingPeriod).values({
+        id: earlierPeriodId,
+        businessId,
+        periodStart: "2026-06-01",
+        periodEnd: "2026-06-30",
+        status: "closed",
+      });
+      ctx.track(async () => {
+        // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown, not a money-write path
+        await db.delete(accountingPeriod).where(eq(accountingPeriod.id, earlierPeriodId));
+      });
+      const periodId = await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-07-01",
+        periodEnd: "2026-07-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+
+      // Ordinary, same-period rent — must NOT appear in lateFacts.
+      await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId,
+        kind: "rent",
+        amountMinor: 20_000n,
+        dueOn: "2026-07-05",
+      });
+
+      // A late rent obligation — posted to July, but June's own fact (belongs_to_period_id).
+      const lateObligationId = newId();
+      await db.insert(obligation).values({
+        id: lateObligationId,
+        businessId,
+        vehicleId,
+        direction: "owed_to_us",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        kind: "rent",
+        sourceType: "test_fixture",
+        amountMinor: 5_000n,
+        dueOn: "2026-06-20",
+        effectiveDueOn: "2026-06-20",
+        postedPeriodId: periodId,
+        belongsToPeriodId: earlierPeriodId,
+      });
+      ctx.track(async () => {
+        // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown for a row inserted directly, not a money-write path
+        await db.delete(obligation).where(eq(obligation.id, lateObligationId));
+      });
+
+      // A late expense — posted to July, but June's own fact.
+      const lateExpenseId = newId();
+      await db.insert(expense).values({
+        id: lateExpenseId,
+        businessId,
+        vehicleId,
+        category: "repairs",
+        amountMinor: 3_000n,
+        spentOn: "2026-06-25",
+        borneBy: "us",
+        postedPeriodId: periodId,
+        belongsToPeriodId: earlierPeriodId,
+      });
+      ctx.trackCreatedExpense(lateExpenseId);
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(res.status).toBe(200);
+      const body: {
+        vehicles: {
+          vehicleId: string;
+          earnedMinor: string;
+          costsMinor: string;
+          lateFacts: {
+            id: string;
+            label: string;
+            amountMinor: string;
+            sign: string;
+            belongsToPeriodStart: string;
+          }[];
+        }[];
+      } = await res.json();
+
+      const row = body.vehicles.find((v) => v.vehicleId === vehicleId);
+      // The late rows are already inside these sums — this never adds to them.
+      expect(row?.earnedMinor).toBe("25000"); // 20,000 ordinary + 5,000 late
+      expect(row?.costsMinor).toBe("3000"); // the late expense alone
+
+      expect(row?.lateFacts).toHaveLength(2);
+      const rent = row?.lateFacts.find((f) => f.id === lateObligationId);
+      expect(rent).toMatchObject({
+        label: "Rent",
+        amountMinor: "5000",
+        sign: "earned",
+        belongsToPeriodStart: "2026-06-01",
+      });
+      const repair = row?.lateFacts.find((f) => f.id === lateExpenseId);
+      expect(repair).toMatchObject({
+        label: "Repairs",
+        amountMinor: "3000",
+        sign: "cost",
+        belongsToPeriodStart: "2026-06-01",
+      });
 
       await ctx.cleanup();
     });

@@ -80,6 +80,97 @@ describe("VehicleRow — GAP-162: 'No activity' must track earned/costs, not pro
   });
 });
 
+describe("VehicleRow — GAP-188/F-8.1: a late fact is its own line, never silent", () => {
+  test("a late fact renders its label, amount and 'Belongs to' badge when the row is expanded", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "105000",
+          costsMinor: "0",
+          profitMinor: "105000",
+          ownerShares: [],
+          lateFacts: [
+            {
+              id: "f1",
+              label: "Rent",
+              amountMinor: "5000",
+              sign: "earned",
+              belongsToPeriodStart: "2026-06-01",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.queryByText("Belongs to June 2026")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+
+    expect(screen.getByText("Rent")).toBeInTheDocument();
+    expect(screen.getByText("Rs 50")).toBeInTheDocument();
+    expect(screen.getByText("Belongs to June 2026")).toBeInTheDocument();
+  });
+
+  test("Gitar review of this PR — an earned late fact and a cost late fact carry different border markers, so direction is never inferred from the label alone", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "5000",
+          costsMinor: "3000",
+          profitMinor: "2000",
+          ownerShares: [],
+          lateFacts: [
+            {
+              id: "f1",
+              label: "Rent",
+              amountMinor: "5000",
+              sign: "earned",
+              belongsToPeriodStart: "2026-06-01",
+            },
+            {
+              id: "f2",
+              label: "Repairs",
+              amountMinor: "3000",
+              sign: "cost",
+              belongsToPeriodStart: "2026-06-01",
+            },
+          ],
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+
+    expect(screen.getByText("Rent").closest("div.border-l-\\[3px\\]")).toHaveClass("border-brand");
+    expect(screen.getByText("Repairs").closest("div.border-l-\\[3px\\]")).toHaveClass(
+      "border-direction-payable",
+    );
+  });
+
+  test("no lateFacts at all (the year report's own row shape) renders nothing extra", async () => {
+    const user = userEvent.setup();
+    render(
+      <VehicleRow
+        vehicle={{
+          vehicleId: "v1",
+          registration: "NB-1234",
+          earnedMinor: "100000",
+          costsMinor: "0",
+          profitMinor: "100000",
+          ownerShares: [],
+        }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /NB-1234/ }));
+    expect(screen.queryByText(/Belongs to/)).not.toBeInTheDocument();
+  });
+});
+
 describe("toChartData (vehicle-month)", () => {
   test("one bar per vehicle, labelled by registration, a loss renders as a real negative value", () => {
     const data = toChartData(bareVehicles);
