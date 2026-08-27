@@ -46,8 +46,18 @@ jobs:
       - name: Guard
         run: npm run guard
 
+      # `npm run lint` (`eslint .`) loads every workspace's type-aware program
+      # graph into one process at once; that's what blew through the 4 GB
+      # ceiling above once the codebase grew past GAP-190. Splitting into one
+      # eslint invocation per workspace keeps each process's program graph to
+      # a single tsconfig, and the process exits (freeing its heap) before
+      # the next one starts — the same scoping the GAP-190 PR used locally to
+      # work around this (its own test plan flags full-repo lint as OOMing).
       - name: Lint
-        run: npm run lint
+        run: |
+          npx eslint api scripts eslint.config.js stylelint.config.js
+          npx eslint packages
+          npx eslint web
 
       - name: Lint CSS
         run: npm run lint:css
