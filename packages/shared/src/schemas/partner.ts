@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { accountingPeriodSummarySchema } from "./accounting-period.js";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 
 /**
  * F-1.3/UC-02/INV-16: shares must total exactly 100% on any date they are in
@@ -48,7 +53,9 @@ export type ListOwnershipSharesQuery = z.infer<typeof listOwnershipSharesQuerySc
 export const recordCapitalContributionRequestSchema = z.object({
   vehicleId: uuidSchema.optional(),
   userId: uuidSchema,
-  amountMinor: moneyWireSchema,
+  // B21 (evaluation, GAP-190): a zero contribution is a no-op record —
+  // nothing was actually paid in.
+  amountMinor: positiveMoneyWireSchema,
   contributedOn: businessDateSchema,
   note: z.string().trim().max(500).optional(),
   // GAP-60/D-16/F-8.5: set when this contribution is the corrected
@@ -195,7 +202,9 @@ export type BankingEventsResponse = z.infer<typeof bankingEventsResponseSchema>;
 /** F-7.2/UC-63: never a cost of the vehicle — a payout to a partner, or a settlement between partners. Settlement between partners moves the current account, not the P&L. */
 export const recordPartnerPayoutRequestSchema = z.object({
   userId: uuidSchema,
-  amountMinor: moneyWireSchema,
+  // B21: a zero payout or settlement moves nothing — the same "not a real
+  // record" reasoning as the capital contribution above.
+  amountMinor: positiveMoneyWireSchema,
   kind: z.enum(["payout", "partner_settlement"]),
   occurredOn: businessDateSchema,
   // GAP-60/D-16/F-8.5: see recordCapitalContributionRequestSchema's own comment.

@@ -137,12 +137,24 @@ export async function setVehiclePurchaseCost(
  * itself is not a claim that nothing is using this vehicle right now — only
  * that nothing new should start.
  */
+/**
+ * Copilot review, PR #144: this UPDATE carried no `business_id` predicate —
+ * the exact shape GAP-190/B14 fixed elsewhere in this schema (a wrong id
+ * silently mutating another tenant's row). Both callers already gate on
+ * `findVehicleForBusiness` first, so this was not reachable today, but the
+ * write itself asserting tenancy is the standing discipline this schema
+ * uses everywhere else — a caller's earlier check is not a substitute.
+ */
 export async function setVehicleLifecycle(
   db: WriteDb,
+  businessId: string,
   vehicleId: string,
   lifecycle: "active" | "archived",
 ): Promise<void> {
-  await db.update(vehicle).set({ lifecycle }).where(eq(vehicle.id, vehicleId));
+  await db
+    .update(vehicle)
+    .set({ lifecycle })
+    .where(and(eq(vehicle.id, vehicleId), eq(vehicle.businessId, businessId)));
 }
 
 export interface CurrentVehicleArrangementRow {

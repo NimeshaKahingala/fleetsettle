@@ -178,6 +178,21 @@ export class VehicleArrangementChangeBlockedError extends AppError {
   }
 }
 
+// N5 (evaluation, GAP-190): archiving a vehicle with an open loan hid the
+// loan's own instalments from anyone reading the archived vehicle — the
+// business liability doesn't stop existing because the vehicle it financed
+// is no longer active. This catches the ordinary case (a manager archiving
+// a vehicle from its own screen); it is not a full serialization against a
+// loan recorded concurrently — that would need a lock and a trigger, the
+// same shape migration 0034 gave party-archive vs. a concurrent money
+// insert (GAP-190/B13), left for its own migration rather than folded into
+// a cleanup batch.
+export class VehicleHasOpenLoanError extends AppError {
+  constructor(message = "This vehicle has an open loan") {
+    super(409, "VEHICLE_HAS_OPEN_LOAN", message);
+  }
+}
+
 // INV-17 (F-5.4: "will not close while a driver advance against it is
 // unreconciled — this is the one place friction is correct, because
 // unreconciled advances turn trip profit into fiction"). F-5.5 reuses the
