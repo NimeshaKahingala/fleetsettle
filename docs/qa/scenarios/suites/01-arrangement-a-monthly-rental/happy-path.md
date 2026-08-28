@@ -202,12 +202,12 @@
 **Source:** UC-19, F-2.8
 **Preconditions:** Lease with payment history.
 
-**Not built (as of 22 Aug 2026).** No "Statement" action exists on lease or customer detail, and no statement screen or export exists anywhere in `web/src` for a customer — the only "statement" text in the whole client is on the driver-facing `MineScreen.tsx`. Owner-only CSV export (`ExportTransactionsScreen.tsx`, "Export transactions (CSV)") is the closest thing that exists, and it isn't customer-scoped or shareable in the sense this case describes.
+**Still not built for customers (re-confirmed 28 Aug 2026).** GAP-170 (27 Aug 2026, PR #143) shipped a statement/print flow, but scoped deliberately to the driver only — `DriverStatementScreen.tsx`, reached from `DriverDetailScreen`'s "Driver actions" → "View statement" (see suite 05's HP-05-006). No equivalent action exists on lease or customer detail, and no statement screen or export exists anywhere in `web/src` for a customer. Owner-only CSV export (`ExportTransactionsScreen.tsx`, "Export transactions (CSV)") is the closest thing that exists, and it isn't customer-scoped or shareable in the sense this case describes.
 
 **Steps:** none — kept as a description of intended behaviour (F-2.8) rather than a runnable case until this ships.
 
 **Assertions (post-test):**
-- [ ] **Not built**: nothing to assert yet. Re-check this case once a statement flow exists.
+- [ ] **Not built for customers**: nothing to assert yet. Re-check this case once a customer-facing statement flow exists — it is not a side effect of GAP-170, which was driver-only by design.
 
 ---
 

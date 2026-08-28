@@ -122,8 +122,10 @@ When a test case says `ASSERT: INV-3`, the agent should run the corresponding ch
 **Check:**
 1. ACTION: Close an accounting period
 2. ACTION: Attempt to record an expense dated within the closed period
-3. VERIFY: The expense posts to the **currently open period** with a `belongs_to_period` back-reference
+3. VERIFY: The expense posts to the **currently open period** (`posted_period_id`) with a `belongs_to_period_id` back-reference
 4. VERIFY: No field in the closed period has changed
+5. VERIFY (GAP-173, closed 24 Aug 2026): the record itself shows the flag inline wherever it's displayed (CSV export's "Belongs to" column; inline on `IncidentScreen`/`DriverActivitySections`)
+6. VERIFY (GAP-188, closed 26 Aug 2026): the vehicle-month report also lists it as its own dated, labelled line under the affected vehicle — not silently blended into the open month's totals with no trace (see suite 08 HP-08-004)
 
 ---
 

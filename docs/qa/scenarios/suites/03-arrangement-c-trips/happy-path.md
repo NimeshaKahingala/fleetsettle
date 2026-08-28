@@ -40,20 +40,20 @@
 **Source:** UC-41, F-5.2, §6.7
 **Preconditions:** Trip in progress.
 
-**Steps (corrected 22 Aug 2026 — trip detail has no cost-entry button of its own):**
-1. ACTION: **There is no "Add Cost" action on trip detail as of 22 Aug 2026** — costs are recorded through the same vehicle-scoped Quick Add sheets used everywhere else ("Log a fuel fill", "Record expense"), choosing this trip's own vehicle (BUS-5678); there is no trip picker in either sheet, so trip attribution is inferred server-side from whatever container is open on that vehicle
-2. ACTION: Quick Add → Fuel → vehicle BUS-5678 → amount 22,000; open the "Litres, borne by and photo" disclosure → litres 120 (no odometer field exists — see suite 02's HP-02-008)
-   VERIFY: "Borne by" reads "Resolved automatically" (§6.7's arrangement-C default), not a literal "us" picker value
-3. ACTION: Quick Add → Expense → vehicle BUS-5678 → category, amount 2,000 (tolls)
-4. ACTION: Quick Add → Expense → vehicle BUS-5678 → category, amount 1,000 (crew food)
-5. ACTION: Return to trip detail
-   VERIFY: All three costs appear under trip detail's own "Costs" section (read from `GET /api/trip/:id/expense`); "Costs so far" total updates
+**Steps (corrected 28 Aug 2026 — GAP-172 (25 Aug 2026, Step 15) gave trip detail its own "Record cost" action; the vehicle-scoped Quick Add path from the 22 Aug pass still works too, unchanged):**
+1. ACTION: On trip detail, press "Record cost" (beside "Costs so far") — opens `RecordExpenseSheet` with `tripId` pre-filled and the vehicle pre-filled from the trip, so no vehicle/trip picker is shown.
+   VERIFY: Category, amount 2,000 (tolls) → save.
+2. ACTION: Repeat "Record cost" for amount 1,000 (crew food).
+3. ACTION: Separately, via the same vehicle-scoped Quick Add path this suite documented before GAP-172 (Quick Add → Fuel → vehicle BUS-5678), amount 22,000; open the "Litres, borne by and photo" disclosure → litres 120 (no odometer field exists — see suite 02's HP-02-008). **Fuel was never in GAP-172's scope** — only `RecordExpenseSheet` gained `tripId`/`incidentId`, so fuel costs on a trip still rely on the same vehicle-scoped inference as before; confirm this still attributes to the trip correctly now that an explicit path exists alongside it.
+   VERIFY: "Borne by" reads "Resolved automatically" (§6.7's arrangement-C default), not a literal "us" picker value.
+4. ACTION: Return to trip detail (or it's already live via query invalidation).
+   VERIFY: All three costs appear under trip detail's own "Costs" section (read from `GET /api/trip/:id/expense`); "Costs so far" total updates and is no longer stuck at Rs 0 (GAP-172's own before-state).
 
 **Assertions (post-test):**
-- [ ] All costs attached to the trip container (read-only on trip detail; no write entry point there)
-- [ ] Borne-by resolves per §6.7's arrangement-C default (no manual "us" selection exists as a distinct step)
-- [ ] Fuel litres recorded; **odometer is not built on the fuel sheet as of 22 Aug 2026** (see suite 02)
-- [ ] Trip running cost ("Costs so far") visible on trip detail page
+- [ ] "Record cost" pre-fills both vehicle and trip — no picker of either kind shown, matching `resolveBorneByDefault`'s existing entity-picker pattern elsewhere
+- [ ] Borne-by resolves per §6.7's arrangement-C default whether the cost came through "Record cost" or vehicle-scoped Quick Add
+- [ ] Fuel litres recorded; **odometer is not built on the fuel sheet** (see suite 02) — this is unrelated to GAP-172 and still open
+- [ ] Trip running cost ("Costs so far") reflects the real total, not Rs 0 — this is the exact figure GAP-172 found permanently stuck
 
 ---
 
