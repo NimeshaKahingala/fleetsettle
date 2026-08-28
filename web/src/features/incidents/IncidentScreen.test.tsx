@@ -1,6 +1,6 @@
 import { asBusinessDate } from "@fleetsettle/shared";
 import type { ExpenseListRow, IncidentDetailResponse } from "@fleetsettle/shared/schemas";
-import { screen } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { ApiError } from "../../lib/api.js";
@@ -383,6 +383,74 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
   expect(voidedRow).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong invoice")).toBeInTheDocument();
+});
+
+test("GAP-191: voiding a repair cost refreshes the incident's own bottom line, not just the expense list", async () => {
+  const user = userEvent.setup();
+  const expense: ExpenseListRow = {
+    id: "e1",
+    vehicleId: "v1",
+    tripId: null,
+    incidentId: "inc1",
+    category: "repairs",
+    amountMinor: "50000",
+    spentOn: "2026-07-28",
+    borneBy: "us",
+    borneByDriverId: null,
+    borneByCustomerId: null,
+    paidByUserId: null,
+    litres: null,
+    note: null,
+    voidedAt: null,
+    voidedReason: null,
+    odometerReadingId: null,
+    replacesId: null,
+  };
+  let incidentCallCount = 0;
+  const get = vi.fn().mockImplementation((path: string) => {
+    if (path === "/api/incident/inc1") {
+      incidentCallCount += 1;
+      // Before the void, the bottom line carries the real Rs 500 repair
+      // cost. After it, a fresh read (which only happens if the void
+      // action invalidates this exact query key) must reflect the void.
+      return Promise.resolve(
+        incidentCallCount === 1
+          ? {
+              ...openIncident,
+              bottomLine: {
+                ...openIncident.bottomLine,
+                totalRepairCostMinor: "50000",
+                netCostMinor: "50000",
+              },
+            }
+          : openIncident,
+      );
+    }
+    if (path === "/api/incident/inc1/expense") return Promise.resolve([expense]);
+    return Promise.reject(new Error(`unexpected GET ${path}`));
+  });
+  const post = vi
+    .fn()
+    .mockResolvedValue({ ...expense, voidedAt: "2026-08-28T00:00:00.000Z", voidedReason: "test" });
+
+  renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
+    get,
+    post,
+  });
+
+  const bottomLine = await screen.findByRole("region", { name: "Bottom line" });
+  await waitFor(() => expect(within(bottomLine).getAllByText("Rs 500")).toHaveLength(2));
+
+  await user.click(await screen.findByText("Repairs"));
+  await user.type(await screen.findByLabelText("Reason"), "test");
+  await user.click(await screen.findByRole("button", { name: "Void expense" }));
+
+  expect(post).toHaveBeenCalledWith("/api/expense/e1/void", { reason: "test" });
+  // The bottom line must go back to Rs 0 without a page reload — proving
+  // the void action invalidated `["incident", incidentId]` itself, not
+  // only `["incident", incidentId, "expense"]`.
+  await waitFor(() => expect(within(bottomLine).queryAllByText("Rs 500")).toHaveLength(0));
+  expect(incidentCallCount).toBeGreaterThan(1);
 });
 
 test("Close incident is offered on an open incident", async () => {

@@ -389,7 +389,10 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
                   key={expense.id}
                   expense={expense}
                   formattedDate={formatShortDate(expense.spentOn)}
-                  invalidateKeys={[["incident", incidentId, "expense"]]}
+                  invalidateKeys={[
+                    ["incident", incidentId, "expense"],
+                    ["incident", incidentId],
+                  ]}
                 />
               ))}
             />
