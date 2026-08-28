@@ -426,3 +426,45 @@
   font-family: "Noto Sans Tamil", system-ui, sans-serif;
   line-height: 1.72;
 }
+
+/* 5 — print (GAP-170/F-6.6). `AppShell` is `h-[100svh]` and `Screen`'s
+   content region is `overflow-y-auto` (both viewport-locked, internally
+   scrolling) — printing that as-is yields one clipped screenful. This
+   releases the height/overflow chain and hides everything that is not the
+   printable statement. Deliberately unlayered: Tailwind v4's own utilities
+   live in a cascade layer, so an unlayered rule beats them without
+   `!important`, which `stylelint.config.js` bans project-wide. */
+@media print {
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+
+    /* Gitar review, PR #143, considered rather than swapped in blind:
+       `--color-surface`/`--color-page` are themed and go near-black under
+       `prefers-color-scheme: dark` (`--d-surface`/`--d-page` above) — the
+       one thing print output must never do is follow the device's on-screen
+       theme, since paper has no dark mode. `white` here is deliberate, not
+       an oversight the token rule missed; `color-no-hex` (stylelint) has no
+       objection either, since this is a keyword, not a hex literal. */
+    background: white;
+  }
+
+  /* Ancestors of the printable area stay in the DOM but release the height
+     and overflow locks that would otherwise clip it, and flatten to block
+     layout so content flows across pages instead of scrolling. */
+  body:has(.print-area) :has(.print-area) {
+    display: block;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    position: static;
+  }
+
+  /* Everything else — tab bar, app bar, sticky CTA, on-screen controls — is
+     anything that is neither the print area, inside it, nor an ancestor of
+     it. `.print-area`'s own descendants are untouched. */
+  body:has(.print-area) *:not(:has(.print-area), .print-area, .print-area *) {
+    display: none;
+  }
+}

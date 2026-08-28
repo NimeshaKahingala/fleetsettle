@@ -16,6 +16,8 @@ export interface DriverActivitySectionsProps {
   onViewAdvanceSettlements?: (advance: DriverViewResponse["advances"][number]) => void;
   onVoidOffset?: (offset: DriverViewOffset) => void;
   onVoidDepositMovement?: (movement: DriverViewDepositMovement) => void;
+  /** Gitar review, PR #143 (GAP-170): forces every `Section` below to mount all of its rows rather than the collapsed 3, since a printed page cannot reveal what a click never rendered. */
+  forceExpanded?: boolean;
 }
 
 const DAY_STATE_LABEL: Record<DriverViewResponse["days"][number]["state"], string> = {
@@ -97,12 +99,14 @@ export function DriverActivitySections({
   onViewAdvanceSettlements,
   onVoidOffset,
   onVoidDepositMovement,
+  forceExpanded = false,
 }: DriverActivitySectionsProps) {
   return (
     <div className="flex flex-col gap-5">
       {view.days.length > 0 ? (
         <Section
           title="Recent days"
+          forceExpanded={forceExpanded}
           count={view.days.length}
           items={view.days.map((day) => {
             const reason = lostReasonLabel(day.lostReason);
@@ -128,6 +132,7 @@ export function DriverActivitySections({
       {view.trips.length > 0 ? (
         <Section
           title="Trips and fees"
+          forceExpanded={forceExpanded}
           count={view.trips.length}
           items={view.trips.map((trip) => (
             <Card key={trip.id} className="flex items-center justify-between gap-4">
@@ -151,6 +156,7 @@ export function DriverActivitySections({
       {view.advances.length > 0 ? (
         <Section
           title="Advances"
+          forceExpanded={forceExpanded}
           count={view.advances.length}
           items={view.advances.map((advance) => {
             const canSettle = onSettleAdvance !== undefined && advance.status !== "settled";
@@ -213,6 +219,7 @@ export function DriverActivitySections({
       {view.offsets.length > 0 ? (
         <Section
           title="Offsets"
+          forceExpanded={forceExpanded}
           count={view.offsets.length}
           items={view.offsets.map((offset) => {
             const voided = offset.voidedAt !== null;
