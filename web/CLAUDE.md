@@ -18,7 +18,7 @@ The inventory is complete for phase 1 — `DayCard`, `AmountPad`, `MoneyField`, 
 - **Never a signed net balance for a driver.** Two figures, the net muted and non-actionable, an explicit Offset action (W-2).
 - **Colour never carries meaning alone**, and never comes from a hex — `--color-*` tokens only. The prefix is required by Tailwind v4's `@theme`, not decoration.
 - **`100svh`, never `100vh`**; `dvh` does not account for the keyboard, which is an overlay by spec.
-- **Sticky bottom actions need `scroll-padding-bottom`**, or the focused field hides behind them.
+- **A screen's primary action is a flex sibling below the scroll region, never `position: sticky` inside it** (GAP-199, 28 Aug 2026) — a sticky element shares the scroll region's own coordinate system, so it paints over whatever normal-flow content occupies its band at the *current* scroll position, including scroll-top on a screen whose content starts there. `Screen`'s own `primaryAction` prop already does this; a bespoke bottom action bar should match it rather than reach for `sticky`.
 - **44 × 44 minimum**, ≥ 8px apart, ≥ 16px when one is destructive — and destructive is never adjacent to confirm.
 
 ## Vocabulary
