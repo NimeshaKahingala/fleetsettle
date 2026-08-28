@@ -123,3 +123,30 @@ export const add = (a: Minor, b: Minor): Minor => brand(raw(a) + raw(b));
 export const subtract = (a: Minor, b: Minor): Minor => brand(raw(a) - raw(b));
 export const negate = (a: Minor): Minor => brand(-raw(a));
 export const isZero = (a: Minor): boolean => a === 0n;
+
+/**
+ * GAP-198: a plain `dividend / BigInt(divisor)` truncates — Rs 33,000 / 90
+ * read Rs 366.66 instead of the required half-up Rs 366.67 (a per-day
+ * revenue figure, `reports.ts`'s own `revenuePerAvailableDayMinor`). This
+ * is a division, not a split — `split()` above answers "how do N weighted
+ * shares add back to a whole exactly," a different question with a
+ * different algorithm (largest-remainder) than "what is this one ratio,
+ * rounded." Symmetric (rounds a negative quotient's magnitude up too,
+ * same direction split() already takes for a negative total), so the sign
+ * of the result always matches the sign `dividend / divisor` would have
+ * produced.
+ *
+ * Plain `bigint` in and out, not `Minor` — the domain layer's own money
+ * arithmetic (this call's own `earnedMinor`, `reports.ts`) is already
+ * plain `bigint` end to end rather than threaded through the wire-facing
+ * brand, and a branded `Minor` is a `bigint` by construction, so it passes
+ * through unchanged wherever a caller already has one.
+ */
+export function divideHalfUp(dividend: bigint, divisor: bigint): bigint {
+  if (divisor === 0n) throw new RangeError("divideHalfUp: divisor must not be zero");
+  const negative = dividend < 0n !== divisor < 0n;
+  const n = dividend < 0n ? -dividend : dividend;
+  const d = divisor < 0n ? -divisor : divisor;
+  const rounded = (n * 2n + d) / (d * 2n);
+  return negative ? -rounded : rounded;
+}

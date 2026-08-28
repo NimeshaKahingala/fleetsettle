@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { dayRecord, driver, obligation, vehicle } from "../db/schema.js";
 
@@ -301,6 +301,15 @@ export interface DriverViewDayRow {
  * change moved it to someone else before it ran, is not this driver's day
  * any more — showing it here would tell a driver he earned a day he never
  * actually covered.
+ *
+ * GAP-197: newest-first, explicitly — without an `ORDER BY`, Postgres has
+ * no obligation to return rows in `business_date` order at all, and in
+ * practice didn't (a live pass saw 24-28 Aug, then 10-21 Aug, then 23
+ * before 22). `DriverActivitySections` renders this list unsorted on the
+ * client (matches the advances/deposits/offsets sections rendered beside
+ * it in the same component, all newest-first) and on the printed
+ * statement (`DriverStatementScreen`), so the order has to be guaranteed
+ * here, not assumed from insertion order or fixed twice in two places.
  */
 export async function listDayRecordsForDriver(
   db: ReadDb,
@@ -326,7 +335,8 @@ export async function listDayRecordsForDriver(
         lte(dayRecord.businessDate, to),
         isNull(dayRecord.voidedAt),
       ),
-    );
+    )
+    .orderBy(desc(dayRecord.businessDate));
   if (rows.length === 0) return [];
 
   const dayRecordIds = rows.map((r) => r.id);
