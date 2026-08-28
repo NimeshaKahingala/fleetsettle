@@ -439,6 +439,14 @@
   body {
     height: auto;
     overflow: visible;
+
+    /* Gitar review, PR #143, considered rather than swapped in blind:
+       `--color-surface`/`--color-page` are themed and go near-black under
+       `prefers-color-scheme: dark` (`--d-surface`/`--d-page` above) — the
+       one thing print output must never do is follow the device's on-screen
+       theme, since paper has no dark mode. `white` here is deliberate, not
+       an oversight the token rule missed; `color-no-hex` (stylelint) has no
+       objection either, since this is a keyword, not a hex literal. */
     background: white;
   }
 

@@ -119,6 +119,38 @@ test("renders the driver's name once, both balances, the covered period, and eve
   expect(screen.getByText("Held deposit")).toBeInTheDocument();
 });
 
+test("Gitar review of GAP-170 (PR 143): every row prints, not just the first 3 — Section's own collapse never mounts the rest, and a click on paper does nothing", async () => {
+  const manyDays: DriverViewResponse = {
+    ...populatedView,
+    days: Array.from({ length: 5 }, (_, i) => ({
+      businessDate: `2026-08-0${String(i + 1)}`,
+      state: "ran_paid_full" as const,
+      earnedMinor: "35000",
+      receivedMinor: "35000",
+      lostReason: null,
+    })),
+  };
+  const get = vi.fn();
+  get.mockImplementation((path: string) => {
+    if (path === "/api/driver/d1") return Promise.resolve(driver);
+    if (path === "/api/driver/d1/balances") return Promise.resolve(balances);
+    if (isDriverHistoryPath(path)) return Promise.resolve(manyDays);
+    throw new Error(`unexpected path ${path}`);
+  });
+  renderWithProviders(<DriverStatementScreen driverId="d1" today={today} onBack={vi.fn()} />, {
+    get,
+  });
+
+  await screen.findByText("Recent days · 5");
+  // One "Ran, paid full" badge per un-truncated day card — a much less
+  // ambiguous count than matching per-day date text, which collides with
+  // the print header's own "Generated ..."/range line above.
+  expect(screen.getAllByText("Ran, paid full")).toHaveLength(5);
+  // The toggle itself must not render — a dead button on a printed page is
+  // its own kind of misleading, and it would mean forceExpanded isn't wired.
+  expect(screen.queryByText(/Show all/)).not.toBeInTheDocument();
+});
+
 test("no write affordance renders — read-only, the same contract MineScreen/F-6.8 already holds", async () => {
   const get = mockGet();
   renderWithProviders(<DriverStatementScreen driverId="d1" today={today} onBack={vi.fn()} />, {

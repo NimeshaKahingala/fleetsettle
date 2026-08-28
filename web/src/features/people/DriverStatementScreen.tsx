@@ -37,6 +37,13 @@ export interface DriverStatementScreenProps {
  * which differs by driver). `.print-area` (`tokens.css`) is what the print
  * stylesheet isolates; everything outside it, including this screen's own
  * date-range controls and `Screen`'s own chrome, is hidden on print.
+ *
+ * `DriverActivitySections` gets `forceExpanded` (Gitar review, PR #143): its
+ * own `Section` collapses each list to 3 rows and only mounts the rest on a
+ * click that sets React state — a print stylesheet can only show or hide
+ * what already exists in the DOM, so without this a statement with more
+ * than 3 days/trips/advances/offsets would silently print an incomplete
+ * record, exactly the failure UC-57 exists to prevent.
  */
 export function DriverStatementScreen({ driverId, today, onBack }: DriverStatementScreenProps) {
   const api = useApi();
@@ -125,7 +132,7 @@ export function DriverStatementScreen({ driverId, today, onBack }: DriverStateme
               owedByYouMinor={parse(balancesQuery.data.owedByUsMinor)}
               owedByYouDetail="—"
             />
-            <DriverActivitySections view={historyQuery.data} />
+            <DriverActivitySections view={historyQuery.data} forceExpanded />
           </div>
         </div>
       )}
