@@ -145,6 +145,35 @@ export async function findObligationBySource(
   return rows[0];
 }
 
+/**
+ * `day_record` raises exactly one obligation, always `daily_amount`/
+ * `owed_to_us` (`confirmDay.ts`'s own `insertObligation` call). Named
+ * rather than four repeats of `findObligationBySource(db, "day_record",
+ * id, "daily_amount", "owed_to_us")` across `confirmDay.ts` (its own
+ * idempotent-replay paths) and the day-record handler's own read.
+ */
+export function findDayRecordObligation(
+  db: ReadDb,
+  dayRecordId: string,
+): Promise<ObligationRow | undefined> {
+  return findObligationBySource(db, "day_record", dayRecordId, "daily_amount", "owed_to_us");
+}
+
+/**
+ * `billing_period` raises exactly one obligation, always `rent`/
+ * `owed_to_us` (`billing-period.ts`'s own `insertObligation` call). Named
+ * rather than three repeats of `findObligationBySource(db,
+ * "billing_period", id, "rent", "owed_to_us")` across `billing-period.ts`
+ * (its own idempotent-replay path), `lease-closure.ts` (the final rent
+ * figure) and `incident.ts` (off-road rent-treatment).
+ */
+export function findBillingPeriodRentObligation(
+  db: ReadDb,
+  billingPeriodId: string,
+): Promise<ObligationRow | undefined> {
+  return findObligationBySource(db, "billing_period", billingPeriodId, "rent", "owed_to_us");
+}
+
 export interface ObligationForAdjustment {
   id: string;
   amountMinor: bigint;

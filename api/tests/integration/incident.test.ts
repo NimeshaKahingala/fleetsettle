@@ -195,6 +195,13 @@ describe("incident (P8, F-3.4/UC-12)", () => {
         direction: "owed_to_us",
         partyType: "customer",
         customerId,
+        // GAP-196: a real billing_period obligation is always kind "rent"
+        // (domain/billing-period.ts's own insertObligation call) — this
+        // fixture omitted it and fell through to the factory's generic
+        // "other" default, which findObligationBySource now correctly
+        // refuses to match once it requires kind/direction rather than
+        // source alone. The fixture was unrealistic, not the new check.
+        kind: "rent",
         amountMinor: 31_000n,
         dueOn: "2026-07-01",
         sourceType: "billing_period",

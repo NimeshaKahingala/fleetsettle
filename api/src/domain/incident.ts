@@ -43,7 +43,7 @@ import {
 } from "../queries/incident.js";
 import { findLeaseForBusiness, updateLeaseEndDate } from "../queries/lease.js";
 import {
-  findObligationBySource,
+  findBillingPeriodRentObligation,
   insertObligation,
   updateObligationSettled,
   voidObligationBySource,
@@ -187,13 +187,7 @@ export async function recordOffRoad(
         BigInt(remainingDays),
       ]);
 
-      const obligationRow = await findObligationBySource(
-        tx,
-        "billing_period",
-        period.id,
-        "rent",
-        "owed_to_us",
-      );
+      const obligationRow = await findBillingPeriodRentObligation(tx, period.id);
       if (!obligationRow)
         throw new NotFoundError("No rent obligation found for this billing period");
 
