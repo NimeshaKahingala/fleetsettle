@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import {
   isBusinessHasNoOwnerViolation,
@@ -17,15 +19,26 @@ import {
  * exercised. A migration rewording any one of these four messages would
  * silently turn its `PERIOD_CLOSED`/`403`-class mapping into an unhandled
  * `500` across every endpoint that write touches, and nothing here would
- * fail until it did. Each message below is copied verbatim from the
- * migration's own `RAISE EXCEPTION` (`%` placeholders replaced with
- * realistic values, matching what Postgres actually substitutes at
- * runtime) — a wording change in the migration without a matching change
- * here now fails this file, not a live request.
+ * fail until it did.
+ *
+ * Two layers, not one — Copilot review, PR #144, caught the first draft
+ * overclaiming what a hardcoded literal alone actually guarantees:
+ *  1. "the four raisers" below pin each classifier's *matching logic*
+ *     against realistic synthetic messages (`%` placeholders substituted,
+ *     matching what Postgres actually sends at runtime).
+ *  2. "the migration text itself" below reads each migration file fresh
+ *     and asserts it still contains the exact fragment the classifier
+ *     checks for — this is the layer that actually fails if a migration
+ *     is reworded, which a synthetic-message test alone cannot do since
+ *     it never looks at the migration at all.
  */
 
 function pgError(code: string, message?: string, constraint?: string) {
   return { code, message, constraint };
+}
+
+function readMigration(filename: string): string {
+  return readFileSync(resolve(import.meta.dirname, "..", "..", "migrations", filename), "utf8");
 }
 
 describe("B18: P0001 raisers disambiguated by message text", () => {
@@ -84,6 +97,32 @@ describe("B18: P0001 raisers disambiguated by message text", () => {
   test("the right message with the wrong SQLSTATE never matches", () => {
     const err = pgError("23505", "accounting period x is closed; post to the open period");
     expect(isPeriodClosedViolation(err)).toBe(false);
+  });
+});
+
+describe("B18: the migration text itself still contains what each classifier looks for", () => {
+  test("assert_period_open() in migrations/0001 still raises with 'is closed'", () => {
+    const sql = readMigration("0001_initial_schema.sql");
+    expect(sql).toContain("FUNCTION assert_period_open()");
+    expect(sql).toMatch(/RAISE EXCEPTION 'accounting period %[^']*is closed/);
+  });
+
+  test("assert_shares_total() in migrations/0001 still raises with 'must be 10000'", () => {
+    const sql = readMigration("0001_initial_schema.sql");
+    expect(sql).toContain("FUNCTION assert_shares_total()");
+    expect(sql).toMatch(/RAISE EXCEPTION 'ownership shares total[^']*must be 10000/);
+  });
+
+  test("assert_business_has_owner() in migrations/0010 still raises with 'would have no active owner'", () => {
+    const sql = readMigration("0010_business_member_invite.sql");
+    expect(sql).toContain("FUNCTION assert_business_has_owner()");
+    expect(sql).toMatch(/RAISE EXCEPTION 'business %[^']*would have no active owner/);
+  });
+
+  test("assert_platform_has_admin() in migrations/0030 still raises with 'would have no active admin'", () => {
+    const sql = readMigration("0030_platform_tier.sql");
+    expect(sql).toContain("FUNCTION assert_platform_has_admin()");
+    expect(sql).toMatch(/RAISE EXCEPTION 'the platform would have no active admin/);
   });
 });
 

@@ -180,7 +180,7 @@ export const unarchiveVehicleHandler: RouteHandler<typeof unarchiveVehicleRoute,
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await unarchiveVehicle(c.get("writer"), id);
+  await unarchiveVehicle(c.get("writer"), businessId, id);
   return c.json(toResponse({ ...row, lifecycle: "active" }), 200);
 };
 
