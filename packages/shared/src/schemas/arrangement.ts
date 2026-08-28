@@ -61,7 +61,10 @@ export const startDailyLeaseRequestSchema = z
     patternWeekdays: z.array(z.number().int().min(0).max(6)).min(1).max(7).optional(),
     effectiveFrom: businessDateSchema,
     effectiveTo: businessDateSchema.optional(),
-    dailyLeaseAmountMinor: moneyWireSchema,
+    // B21 (evaluation, GAP-190): a zero daily-lease rate is a free lease,
+    // the same "not a real arrangement" reasoning GAP-177 already applied
+    // to `startLeaseRequestSchema.rentAmountMinor` above.
+    dailyLeaseAmountMinor: positiveMoneyWireSchema,
   })
   .superRefine((value, ctx) => {
     if (value.patternType === "weekdays" && !value.patternWeekdays) {
@@ -83,7 +86,9 @@ export type ChangeDailyLeaseDriverRequest = z.infer<typeof changeDailyLeaseDrive
 
 /** F-4.3/UC-32/GAP-2: "make this the new daily amount from …" — `effectiveFrom` is a field, not defaulted to today, since a catch-up week's own rate change usually took effect days ago. */
 export const changeDailyLeaseRateRequestSchema = z.object({
-  dailyLeaseAmountMinor: moneyWireSchema,
+  // B21: same reasoning as startDailyLeaseRequestSchema above — changing
+  // the rate *to* zero is equally not a real arrangement.
+  dailyLeaseAmountMinor: positiveMoneyWireSchema,
   effectiveFrom: businessDateSchema,
 });
 export type ChangeDailyLeaseRateRequest = z.infer<typeof changeDailyLeaseRateRequestSchema>;

@@ -199,15 +199,33 @@ export async function findLoanPaymentForBusiness(
   return rows[0];
 }
 
-/** F-12.2/F-12.4: every live payment against this loan, oldest first — "remaining to pay" and "behind by" are both derived from this sum, never stored (DM §4.4). */
+/**
+ * F-12.2/F-12.4: every live payment against this loan, oldest first —
+ * "remaining to pay" and "behind by" are both derived from this sum, never
+ * stored (DM §4.4).
+ *
+ * N7 (evaluation, GAP-190): `businessId` filters here directly rather than
+ * relying only on the caller having already resolved `loanId` through
+ * `findVehicleLoanForBusiness` — `loan_payment` carries its own
+ * `business_id` (unlike `vehicle_loan`, which joins through `vehicle`), so
+ * there is no reason not to use it. Every existing call site already had
+ * `businessId` in scope.
+ */
 export async function listLivePaymentsForLoan(
   db: ReadDb,
+  businessId: string,
   loanId: string,
 ): Promise<LoanPaymentRow[]> {
   const rows = await db
     .select(LOAN_PAYMENT_COLUMNS)
     .from(loanPayment)
-    .where(and(eq(loanPayment.loanId, loanId), isNull(loanPayment.voidedAt)))
+    .where(
+      and(
+        eq(loanPayment.loanId, loanId),
+        eq(loanPayment.businessId, businessId),
+        isNull(loanPayment.voidedAt),
+      ),
+    )
     .orderBy(loanPayment.paidOn);
   return rows;
 }

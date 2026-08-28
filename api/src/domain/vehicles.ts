@@ -6,6 +6,7 @@ import {
   ValidationError,
   VehicleAlreadyExistsError,
   VehicleArrangementChangeBlockedError,
+  VehicleHasOpenLoanError,
   VehicleUnavailabilityAlreadyVoidedError,
   VehicleUnavailabilityOverlapsError,
 } from "../errors/app-error.js";
@@ -32,6 +33,7 @@ import {
   upsertVehicleDocument,
   voidVehicleUnavailabilityRow,
 } from "../queries/vehicle.js";
+import { listVehicleLoansForVehicle } from "../queries/vehicle-loan.js";
 
 export interface CreateVehicleInput {
   businessId: string;
@@ -226,17 +228,42 @@ export async function changeVehicleArrangement(
  * Transaction-wrapped for consistency with every other write in this
  * codebase (found by review) — `vehicle` carries no `posted_period_id`
  * (DM §13), so migration 0002's audit trigger never attaches to it and
- * there is no `audit_log` attribution at stake either way. Unconditional,
- * matching `mileage_package`'s own archive: no domain code reads
- * `lifecycle` at booking time, so there is no already-archived state to
- * race against.
+ * there is no `audit_log` attribution at stake either way. No domain code
+ * reads `lifecycle` at booking time, so there is no already-archived state
+ * to race against — matching `mileage_package`'s own archive.
+ *
+ * N5 (evaluation, GAP-190): refuses while an open loan (`closedOn === null`)
+ * finances this vehicle — the business liability doesn't stop existing
+ * because the vehicle it financed is archived, and an archived vehicle's
+ * own loan was previously invisible to anyone reading it. See
+ * `VehicleHasOpenLoanError`'s own comment for the race this does and does
+ * not close.
+ *
+ * `businessId` is threaded all the way to `setVehicleLifecycle`'s own
+ * `WHERE`, not only used for the loan check above — Copilot review, PR
+ * #144: a `businessId` parameter that scoped one query but not the write
+ * itself would be the exact GAP-190/B14 shape (a caller's earlier tenancy
+ * check standing in for the write's own), not a fix of it.
  */
-export async function archiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
-  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "archived"));
+export async function archiveVehicle(
+  writer: Writer,
+  businessId: string,
+  vehicleId: string,
+): Promise<void> {
+  await writer.transaction(async (tx) => {
+    const loans = await listVehicleLoansForVehicle(tx, businessId, vehicleId);
+    if (loans.some((loan) => loan.closedOn === null)) throw new VehicleHasOpenLoanError();
+    await setVehicleLifecycle(tx, businessId, vehicleId, "archived");
+  });
 }
 
-export async function unarchiveVehicle(writer: Writer, vehicleId: string): Promise<void> {
-  await writer.transaction((tx) => setVehicleLifecycle(tx, vehicleId, "active"));
+/** Same tenancy discipline as `archiveVehicle` above — `setVehicleLifecycle`'s own `WHERE` is what actually enforces it. */
+export async function unarchiveVehicle(
+  writer: Writer,
+  businessId: string,
+  vehicleId: string,
+): Promise<void> {
+  await writer.transaction((tx) => setVehicleLifecycle(tx, businessId, vehicleId, "active"));
 }
 
 /** F-3.5/UC-13/GAP-68. `null` clears the interval — the same "no interval, no prompt" reading the rest of this feature carries. */

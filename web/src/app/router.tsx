@@ -44,6 +44,7 @@ import { MoreScreen } from "../features/more/MoreScreen.js";
 import { OpeningBalanceScreen } from "../features/opening-balance/OpeningBalanceScreen.js";
 import { CustomerDetailScreen } from "../features/people/CustomerDetailScreen.js";
 import { DriverDetailScreen } from "../features/people/DriverDetailScreen.js";
+import { DriverStatementScreen } from "../features/people/DriverStatementScreen.js";
 import { PeopleListScreen } from "../features/people/PeopleListScreen.js";
 import { CloseMonthScreen } from "../features/period/CloseMonthScreen.js";
 import { QuickAddSheet } from "../features/quick-add/QuickAddSheet.js";
@@ -342,7 +343,27 @@ function PeopleListRoute() {
 function DriverDetailRoute() {
   const { driverId } = useParams({ from: "/people/drivers/$driverId" });
   const navigate = useNavigate();
-  return <DriverDetailScreen driverId={driverId} onBack={() => void navigate({ to: "/people" })} />;
+  return (
+    <DriverDetailScreen
+      driverId={driverId}
+      onBack={() => void navigate({ to: "/people" })}
+      onViewStatement={() =>
+        void navigate({ to: "/people/drivers/$driverId/statement", params: { driverId } })
+      }
+    />
+  );
+}
+
+function DriverStatementRoute({ today }: { today: BusinessDate }) {
+  const { driverId } = useParams({ from: "/people/drivers/$driverId/statement" });
+  const navigate = useNavigate();
+  return (
+    <DriverStatementScreen
+      driverId={driverId}
+      today={today}
+      onBack={() => void navigate({ to: "/people/drivers/$driverId", params: { driverId } })}
+    />
+  );
 }
 
 function CustomerDetailRoute() {
@@ -1238,6 +1259,12 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     component: DriverDetailRoute,
   });
 
+  const driverStatementRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/people/drivers/$driverId/statement",
+    component: () => <DriverStatementRoute today={today} />,
+  });
+
   const customerDetailRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/people/customers/$customerId",
@@ -1553,6 +1580,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
     closeLeaseRoute,
     peopleRoute,
     driverDetailRoute,
+    driverStatementRoute,
     customerDetailRoute,
     moreRoute,
     openingBalanceRoute,

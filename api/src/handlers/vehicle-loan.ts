@@ -131,7 +131,7 @@ export const recordVehicleLoanHandler: RouteHandler<typeof recordVehicleLoanRout
 
   const loanRow = await findVehicleLoanForBusiness(reader, businessId, loanId);
   if (!loanRow) throw new NotFoundError();
-  const withFigures = await withDerivedFigures(reader, loanRow, today);
+  const withFigures = await withDerivedFigures(reader, businessId, loanRow, today);
   return c.json(loanToResponse(withFigures), 201);
 };
 
@@ -146,7 +146,7 @@ export const getVehicleLoanHandler: RouteHandler<typeof getVehicleLoanRoute, Env
   const loanRow = await findVehicleLoanForBusiness(reader, businessId, id);
   if (!loanRow) throw new NotFoundError("No such loan in this business");
 
-  const withFigures = await withDerivedFigures(reader, loanRow, today);
+  const withFigures = await withDerivedFigures(reader, businessId, loanRow, today);
   return c.json(loanToResponse(withFigures), 200);
 };
 

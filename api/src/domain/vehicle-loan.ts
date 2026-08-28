@@ -186,13 +186,22 @@ export interface VehicleLoanWithFigures extends VehicleLoanRow {
   behindByMinor: Minor | null;
 }
 
-/** F-12.4: every figure here is derived on read, never stored (DM §4.4). */
+/**
+ * F-12.4: every figure here is derived on read, never stored (DM §4.4).
+ *
+ * `businessId` is a separate parameter, not read off `loan`: `vehicle_loan`
+ * carries no `business_id` of its own (it joins through `vehicle` for
+ * tenancy), but `loan_payment` does, and N7 (evaluation, GAP-190) wants
+ * `listLivePaymentsForLoan` to filter on it directly rather than trust only
+ * that `loan` itself was already tenant-scoped by its own caller.
+ */
 export async function withDerivedFigures(
   reader: Reader,
+  businessId: string,
   loan: VehicleLoanRow,
   today: BusinessDate,
 ): Promise<VehicleLoanWithFigures> {
-  const livePayments = await listLivePaymentsForLoan(reader, loan.id);
+  const livePayments = await listLivePaymentsForLoan(reader, businessId, loan.id);
   return {
     ...loan,
     remainingToPayMinor: remainingToPay(loan, livePayments),
@@ -235,7 +244,9 @@ export async function sumInstalmentsDueForBusiness(
   if (loans.some((loan) => loan.monthlyPaymentMinor === null)) return null;
 
   const dues = await Promise.all(
-    loans.map(async (loan) => loanInstalmentsDue(await withDerivedFigures(reader, loan, today))),
+    loans.map(async (loan) =>
+      loanInstalmentsDue(await withDerivedFigures(reader, businessId, loan, today)),
+    ),
   );
   let total = 0n as Minor;
   for (const due of dues) {
@@ -289,7 +300,7 @@ export async function recordLoanPayment(
         throw new PeriodClosedError("No accounting period covers this business date yet");
       }
 
-      const livePayments = await listLivePaymentsForLoan(tx, loan.id);
+      const livePayments = await listLivePaymentsForLoan(tx, input.businessId, loan.id);
       const remaining = remainingToPay(loan, livePayments);
       if (input.amountMinor > remaining) {
         throw new LoanPaymentExceedsRemainingError(
@@ -430,7 +441,7 @@ export async function settleVehicleLoan(
       // for this branch (recordLoanPayment/settleVehicleLoan's own "whole
       // payment is a drawing" rule only decides which money record gets
       // written, never what the loan's own numbers mean).
-      const livePayments = await listLivePaymentsForLoan(tx, loan.id);
+      const livePayments = await listLivePaymentsForLoan(tx, input.businessId, loan.id);
 
       // GAP-190/N1: the same ceiling recordLoanPayment already enforces —
       // without it, a settlement larger than what is actually left to pay

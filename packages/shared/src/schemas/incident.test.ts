@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { recordCustomerContributionRequestSchema } from "./incident.js";
+import {
+  recordCustomerContributionRequestSchema,
+  submitInsuranceClaimRequestSchema,
+} from "./incident.js";
 
 const base = {
   agreedAmountMinor: "2000000",
@@ -25,6 +28,23 @@ describe("recordCustomerContributionRequestSchema — GAP-177, a contribution is
     expect(
       recordCustomerContributionRequestSchema.safeParse({ ...base, agreedAmountMinor: "1" })
         .success,
+    ).toBe(true);
+  });
+});
+
+describe("submitInsuranceClaimRequestSchema — B21, a claim is a real amount", () => {
+  const claimBase = { claimedAmountMinor: "500000", claimedOn: "2026-08-24" };
+
+  it("rejects a zero claimed amount — nothing to submit", () => {
+    expect(
+      submitInsuranceClaimRequestSchema.safeParse({ ...claimBase, claimedAmountMinor: "0" })
+        .success,
+    ).toBe(false);
+  });
+
+  it("still accepts a zero excess borne — none of the excess falling on this party is a real case", () => {
+    expect(
+      submitInsuranceClaimRequestSchema.safeParse({ ...claimBase, excessBorneMinor: "0" }).success,
     ).toBe(true);
   });
 });

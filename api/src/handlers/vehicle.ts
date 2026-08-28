@@ -144,7 +144,7 @@ export const archiveVehicleHandler: RouteHandler<typeof archiveVehicleRoute, Env
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await archiveVehicle(c.get("writer"), id);
+  await archiveVehicle(c.get("writer"), businessId, id);
   return c.json(toResponse({ ...row, lifecycle: "archived" }), 200);
 };
 
@@ -180,7 +180,7 @@ export const unarchiveVehicleHandler: RouteHandler<typeof unarchiveVehicleRoute,
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await unarchiveVehicle(c.get("writer"), id);
+  await unarchiveVehicle(c.get("writer"), businessId, id);
   return c.json(toResponse({ ...row, lifecycle: "active" }), 200);
 };
 
@@ -473,7 +473,7 @@ export const listVehicleLoansHandler: RouteHandler<typeof listVehicleLoansRoute,
   const today = businessToday(requireBusinessTimezone(c));
   const loans = await listVehicleLoansForVehicle(reader, businessId, id);
   const withFigures = await Promise.all(
-    loans.map((loan) => withDerivedFigures(reader, loan, today)),
+    loans.map((loan) => withDerivedFigures(reader, businessId, loan, today)),
   );
   return c.json(withFigures.map(loanToResponse), 200);
 };

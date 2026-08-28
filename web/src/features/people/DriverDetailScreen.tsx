@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Archive,
   ArchiveRestore,
+  FileText,
   FileX2,
   HandCoins,
   Link2,
@@ -60,6 +61,8 @@ import { WriteOffRecoverySheet } from "./WriteOffRecoverySheet.js";
 export interface DriverDetailScreenProps {
   driverId: string;
   onBack: () => void;
+  /** GAP-170/F-6.6: absent in a test render that doesn't wire a router — "View statement" then simply doesn't appear, the same optional-prop shape `DriverActivitySections`' own write handlers already use. */
+  onViewStatement?: () => void;
 }
 
 /**
@@ -81,7 +84,7 @@ export interface DriverDetailScreenProps {
  * primary action instead, the same `ActionSheet` shape `QuickAddSheet`
  * already establishes for "pick one of several related actions."
  */
-export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps) {
+export function DriverDetailScreen({ driverId, onBack, onViewStatement }: DriverDetailScreenProps) {
   const api = useApi();
   const queryClient = useQueryClient();
   const today = businessToday();
@@ -224,6 +227,16 @@ export function DriverDetailScreen({ driverId, onBack }: DriverDetailScreenProps
   });
 
   const driverActions: ActionSheetAction[] = [
+    ...(onViewStatement !== undefined
+      ? [
+          {
+            key: "statement",
+            label: "View statement",
+            icon: FileText,
+            onSelect: onViewStatement,
+          },
+        ]
+      : []),
     {
       key: "link",
       label: "Create account link",
