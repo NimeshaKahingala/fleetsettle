@@ -147,7 +147,13 @@ export async function generateNextBillingPeriod(
       const seq = latest ? latest.seq + 1 : 1;
       const existing = await findBillingPeriodByLeaseAndSeq(writer, input.leaseId, seq);
       if (existing) {
-        const obligationRow = await findObligationBySource(writer, "billing_period", existing.id);
+        const obligationRow = await findObligationBySource(
+          writer,
+          "billing_period",
+          existing.id,
+          "rent",
+          "owed_to_us",
+        );
         return { billingPeriod: existing, obligationId: obligationRow?.id ?? null, created: false };
       }
     }

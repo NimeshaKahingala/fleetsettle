@@ -152,7 +152,13 @@ export const getDayRecordHandler: RouteHandler<typeof getDayRecordRoute, Env> = 
   const row = await findDayRecordByLeaseAndDate(reader, dailyLeaseId, businessDate);
   if (!row) throw new NotFoundError("This date is not yet confirmed");
 
-  const obligationRow = await findObligationBySource(reader, "day_record", row.id);
+  const obligationRow = await findObligationBySource(
+    reader,
+    "day_record",
+    row.id,
+    "daily_amount",
+    "owed_to_us",
+  );
   return c.json(toResponse(row, obligationRow?.settledMinor ?? 0n), 200);
 };
 

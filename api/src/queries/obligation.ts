@@ -14,25 +14,29 @@ import {
 type WriteDb = Writer | Tx;
 type ReadDb = Reader | Writer | Tx;
 
+export type ObligationDirection = "owed_to_us" | "owed_by_us";
+
+export type ObligationKind =
+  | "rent"
+  | "mileage_excess"
+  | "daily_amount"
+  | "driver_fee"
+  | "post_closure_charge"
+  | "customer_contribution"
+  | "management_fee"
+  | "trip_fare"
+  | "opening_balance"
+  | "other";
+
 export interface NewObligation {
   id: string;
   businessId: string;
-  direction: "owed_to_us" | "owed_by_us";
+  direction: ObligationDirection;
   partyType: "customer" | "driver" | "partner";
   partyDriverId?: string;
   partyCustomerId?: string;
   partyUserId?: string;
-  kind:
-    | "rent"
-    | "mileage_excess"
-    | "daily_amount"
-    | "driver_fee"
-    | "post_closure_charge"
-    | "customer_contribution"
-    | "management_fee"
-    | "trip_fare"
-    | "opening_balance"
-    | "other";
+  kind: ObligationKind;
   sourceType: string;
   sourceId?: string;
   vehicleId?: string;
@@ -97,15 +101,24 @@ export interface ObligationRow {
  * for GAP-57's receivable read. `voidedAt IS NULL`, the same convention
  * `findOutstandingObligationsForParty` already uses: a voided obligation
  * (A6's `cancelTrip`, GAP-23) reads as "none", not as its last live state.
- * Every existing caller only ever calls this immediately after creating the
- * row it's reading back, so the filter changes nothing for them — it only
- * matters for a caller reading one back later, once it might have been
- * voided since.
+ *
+ * GAP-196: a source can legitimately raise more than one obligation in
+ * opposite directions — a trip is both a customer receivable (`trip_fare`,
+ * `owed_to_us`) and a driver payable (`driver_fee`, `owed_by_us`) sharing
+ * the identical `(sourceType, sourceId)`. Without `kind`/`direction`
+ * narrowing this, `LIMIT 1` with no `ORDER BY` returns whichever row
+ * Postgres happens to produce first — not necessarily the one the caller
+ * meant — and a caller that assumed "one obligation per source" (every
+ * caller before GAP-196) could silently receive the other party's money in
+ * the wrong direction. Required, not optional, so every call site names
+ * what it actually wants and the compiler enumerates them all.
  */
 export async function findObligationBySource(
   db: ReadDb,
   sourceType: string,
   sourceId: string,
+  kind: ObligationKind,
+  direction: ObligationDirection,
 ): Promise<ObligationRow | undefined> {
   const rows = await db
     .select({
@@ -123,6 +136,8 @@ export async function findObligationBySource(
       and(
         eq(obligation.sourceType, sourceType),
         eq(obligation.sourceId, sourceId),
+        eq(obligation.kind, kind),
+        eq(obligation.direction, direction),
         isNull(obligation.voidedAt),
       ),
     )

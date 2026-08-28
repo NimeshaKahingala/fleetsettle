@@ -271,7 +271,13 @@ async function replayAssessment(
   if (!assessment) return undefined;
 
   const splits = await findSplitsForAssessment(db, assessment.id);
-  const obligationRow = await findObligationBySource(db, "mileage_assessment", assessment.id);
+  const obligationRow = await findObligationBySource(
+    db,
+    "mileage_assessment",
+    assessment.id,
+    "mileage_excess",
+    "owed_to_us",
+  );
   return {
     assessment,
     splits,

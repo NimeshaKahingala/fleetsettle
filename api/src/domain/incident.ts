@@ -187,7 +187,13 @@ export async function recordOffRoad(
         BigInt(remainingDays),
       ]);
 
-      const obligationRow = await findObligationBySource(tx, "billing_period", period.id);
+      const obligationRow = await findObligationBySource(
+        tx,
+        "billing_period",
+        period.id,
+        "rent",
+        "owed_to_us",
+      );
       if (!obligationRow)
         throw new NotFoundError("No rent obligation found for this billing period");
 

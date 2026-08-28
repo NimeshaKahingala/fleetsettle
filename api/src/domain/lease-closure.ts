@@ -126,7 +126,13 @@ export async function closeLease(writer: Writer, input: CloseLeaseInput): Promis
       await truncateBillingPeriodForClosure(tx, period.id, input.closingDate, newAllowanceKm);
     }
 
-    const obligationRow = await findObligationBySource(tx, "billing_period", period.id);
+    const obligationRow = await findObligationBySource(
+      tx,
+      "billing_period",
+      period.id,
+      "rent",
+      "owed_to_us",
+    );
     let finalAmountMinor = period.rentAmountMinor as Minor;
 
     if (obligationRow) {
