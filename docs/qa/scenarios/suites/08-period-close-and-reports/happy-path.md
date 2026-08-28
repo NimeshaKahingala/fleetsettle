@@ -60,9 +60,11 @@
    VERIFY: System posts it to the CURRENT open period (August)
 
 **Assertions (post-test):**
-- [ ] Expense record has `accounting_period_id` = August
-- [ ] Expense record has `belongs_to_period` = July (back-reference)
+- [ ] Expense record has `posted_period_id` = August
+- [ ] Expense record has `belongs_to_period_id` = July (back-reference)
 - [ ] INV-10: Closed July period is completely unchanged
+- [ ] **Record-level display (GAP-173, closed 24 Aug 2026):** the CSV export's "Belongs to" column, and the expense's own inline display wherever it's shown on an incident/trip screen, both read July — the record itself never looks like an ordinary August entry
+- [ ] **Aggregate display (GAP-188, closed 26 Aug 2026):** August's own vehicle-month report (HP-08-004) lists this expense as its own dated, labelled line under the vehicle's costs — not folded silently into August's `costsMinor` with no trace
 
 ---
 
@@ -72,15 +74,22 @@
 **Source:** UC-70, F-9.2
 **Preconditions:** Vehicle with rent, daily amounts, trips.
 
-**Steps (corrected 22 Aug 2026):**
+**Steps (corrected 28 Aug 2026 — GAP-188, closed 26 Aug 2026, added the late-fact list this case didn't cover before):**
 1. ACTION: Navigate to vehicle → "How was this month" (not "This Month")
    VERIFY: Shows rent by billing period
    VERIFY: Shows daily amounts by day
    VERIFY: Shows trips by closing date
    VERIFY: **No below-the-line costs section exists** — borne-by-driver costs are silently absent from "Spent", not shown as a visible separate line (see invariants/invariant-checks.md INV-5)
+2. ACTION: Expand a vehicle row that has at least one late-posted fact for this month (see HP-08-003 — a fact whose `belongs_to_period_id` differs from the report's own month).
+   VERIFY: Below "Earned"/"Spent", a separate list appears — each late fact shown as its own line with a "Belongs to {month}" badge and its amount, coloured brand (earned) or direction-payable (spent) matching the Earned/Spent markers above it.
+   VERIFY: The late fact's amount is **already counted inside** "Earned"/"Spent" above — the list is a label on an existing total's own input, not an addition to it (confirm the total does not double when the fact is present vs a control vehicle with none).
+3. ACTION: Expand a vehicle row with **no** late facts for the month.
+   VERIFY: No late-facts list renders at all — not an empty section, absent entirely.
 
 **Assertions (post-test):**
 - [ ] Matches requirements in F-9.2 matrix (UC-70 row)
+- [ ] A late fact never changes the vehicle's own `earnedMinor`/`costsMinor`/`profitMinor` totals — only labels one of their existing inputs (GAP-188's own scope: "not a second way of computing them")
+- [ ] The late-facts list is absent, not empty, for a vehicle with nothing late this month
 
 ---
 
@@ -162,3 +171,41 @@
 
 **Assertions (post-test):**
 - [ ] Respects permissions (driver cannot do this)
+
+---
+
+### HP-08-010: Distributable cash report — "What can we safely take out"
+
+**Priority:** P1
+**Source:** UC-109, UC-67, W-70
+**Preconditions:** Business with cash on hand, at least one held deposit, and at least one open vehicle loan with a set monthly instalment (GAP-185/GAP-186, both closed 25 Aug 2026).
+
+**Steps:**
+1. ACTION: Navigate to Reports catalogue.
+   VERIFY: "What can we safely take out" card is present — a `PiggyBank`-iconed catalogue card, not gated to owners: a manager account (`viewReports`) sees it too (W-70).
+2. ACTION: Open the report.
+   VERIFY: Four tiles — "Cash on hand and in bank", "Held as deposits", "Loan instalments due", and a hero-sized "Safe to take out".
+3. VERIFY (cross-check against Neon, read-only): "Cash on hand and in bank" already includes deposit cash folded in (not just ordinary `payment` rows — deposits write only `deposit`/`deposit_movement`, never `payment`), matching UC-109's own "true physical total" framing — this was a real bug (part of GAP-186's own PR review) before the fix.
+4. VERIFY: `distributableMinor` = cash on hand − held deposits − loan instalments due, arithmetically, when all three inputs are present.
+
+**Assertions (post-test):**
+- [ ] Manager role can reach and read this report, not just owner (W-70) — recording a `partner_payout` off the back of it stays owners-only, but reading the figure does not
+- [ ] "Cash on hand and in bank" is the true physical total including deposit cash, not payment-only
+- [ ] "Loan instalments due" and "Safe to take out" both degrade to `NotAvailable` **together** — never a fabricated 0 — whenever any open loan has no monthly instalment figure set (W-56: "the single most expensive wrong number... because someone acts on it by moving money")
+- [ ] With no loans at all, both figures should compute normally (an empty loan set is not the same as an unset instalment)
+
+---
+
+### HP-08-011: Vehicle loans — backend-only, no client screen (GAP-185)
+
+**Priority:** P3
+**Source:** UC §9.1, F-12
+**Preconditions:** None — this case documents an absence, kept so the catalogue doesn't silently assume coverage exists.
+
+**Not built as a browser flow (as of 28 Aug 2026), by design.** GAP-185 (closed 25 Aug 2026) shipped `vehicle_loan`/`loan_payment`, amortisation, proportional split, final-payment true-up, settle-and-close and cumulative arrears — but scoped explicitly "backend only — no client screen," proven only via 13 integration tests and the golden fixtures, not through the UI. A live browser pass cannot exercise loan creation, payment recording, or settlement — only its downstream effect is reachable in the browser, via HP-08-010's "Loan instalments due"/"Safe to take out" tiles on the distributable-cash report.
+
+**Steps:** none — kept as a description of what to expect (and not to search for) rather than a runnable case.
+
+**Assertions (post-test):**
+- [ ] No "Loan"/"Vehicle loan" action exists anywhere in the client — confirm this is still true rather than assumed, since a client build could add one without this catalogue being told
+- [ ] The only browser-reachable evidence a loan exists at all is its effect on the distributable-cash report's two loan-dependent tiles (HP-08-010)

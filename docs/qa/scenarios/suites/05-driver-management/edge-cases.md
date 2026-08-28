@@ -101,7 +101,7 @@
 **Assertions (post-test):**
 - [ ] Access revoked — driver can no longer log in to see his data
 - [ ] Record and history completely untouched
-- [ ] **Not built (as of 22 Aug 2026)**: "he gets the printed slip instead" — no printed-slip feature exists anywhere in the client; see HP-05-006's own note on this, including the discrepancy with `docs/README.md`'s status table
+- [ ] **Built 27 Aug 2026 (GAP-170)**: an unlinked/unlinked-again driver still has a route to his figures — the *manager's* side, via "View statement" on `DriverDetailScreen` (see HP-05-006) — since the driver himself has no login to reach `MineScreen` once unlinked. Confirm live that "View statement" still renders correctly for a driver with no linked account at all, not only a previously-linked one
 
 ---
 

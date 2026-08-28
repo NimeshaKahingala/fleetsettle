@@ -34,17 +34,16 @@
 **Source:** UC-12, F-3.4 step 3
 **Preconditions:** Open incident on CAR-1234.
 
-**Steps (corrected 22 Aug 2026 — same pattern as trip costs, suite 03 HP-03-002: incident detail's "Repair costs" section is read-only, no add button of its own):**
-1. ACTION: **There is no "Add Repair Cost" action on incident detail** — costs are recorded through the vehicle-scoped Quick Add sheets ("Record expense"), choosing this incident's own vehicle; there is no incident picker in that sheet, so attribution is inferred server-side from the open incident
-2. ACTION: Quick Add → Expense → this vehicle → category (bodywork-appropriate), amount 70,000, date "2026-07-28"
-3. ACTION: Repeat: category (parts), amount 25,000, date "2026-08-05"
-4. ACTION: Return to incident detail
-   VERIFY: Both costs appear under the "Repair costs" section (read-only list)
+**Steps (corrected 28 Aug 2026 — GAP-172 (25 Aug 2026, Step 15) gave incident detail its own "Record repair cost" action; before that fix, no client screen could set `expense.incident_id` at all and "Total repairs" stayed Rs 0 regardless of what was recorded, confirmed live 23 Aug 2026):**
+1. ACTION: In incident detail's "Incident actions" menu, select "Record repair cost" — opens `RecordExpenseSheet` with `incidentId` pre-filled and the vehicle pre-filled from the incident, so no vehicle/incident picker is shown.
+   VERIFY: category (bodywork-appropriate), amount 70,000, date "2026-07-28" → save.
+2. ACTION: Repeat "Record repair cost": category (parts), amount 25,000, date "2026-08-05".
+3. VERIFY: Both costs appear under the "Repair costs" section (read-only list) and "Total repairs" updates — no longer stuck at Rs 0 (GAP-172's own before-state).
 
 **Assertions (post-test):**
-- [ ] `IncidentCost[]` records linked to the incident
+- [ ] `IncidentCost[]` records linked to the incident via `expense.incident_id`, set through "Record repair cost" — no incident picker shown, the vehicle and incident are both pre-filled
 - [ ] Total repairs shown: 95,000
-- [ ] Costs in different months correctly attributed
+- [ ] Costs in different months correctly attributed (`posted_period_id` vs `belongs_to_period_id` — see suite 08 for the aggregate-report half, GAP-188)
 
 ---
 
