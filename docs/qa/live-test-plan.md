@@ -172,6 +172,8 @@ A confirmed failure becomes a dated `QA-FINDINGS-YYYY-MM-DD.md` entry first, the
 
 Read-only first, on both colour schemes and at 360×640, console checked after every step — the same discipline every other LT row uses.
 
+**28 Aug 2026 — run, and closed for five of six; one real defect found.** Full account: `findings/2026-08-28.md`. GAP-170, GAP-172 (the write itself), GAP-173, GAP-186 and GAP-188 all confirmed working live, GAP-185 confirmed correctly absent from the client. **GAP-172's own repair-cost void action surfaced a new defect, filed as GAP-191**: voiding an incident's repair cost leaves "Total repairs"/"Net cost to you" stale until the page reloads — a client query-invalidation gap (`IncidentScreen.tsx`'s void action never invalidates the incident detail query), not a server miscalculation. **Two items deliberately left open rather than claimed**: GAP-186's manager-role access (W-70) wasn't checked live — only an owner/platform-admin account was available this session — and GAP-173's CSV export was confirmed to trigger correctly but its row-level "Belongs to" column wasn't independently read back (the export authenticates via a bearer token a page-console `fetch()` doesn't carry, so pulling the body needs the app's own client, not a workaround). 360×640 and dark mode were only run against GAP-170's new screen, not the other five — a deliberate scope trim for a six-item pass, not an oversight, since the other five are a report screen, two sheets and a passive display rather than new phase-1 forms.
+
 ---
 
 ## What this file deliberately does not cover
