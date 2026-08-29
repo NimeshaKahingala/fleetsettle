@@ -34,18 +34,26 @@ export interface ScreenProps {
   /** One contextual action in the app bar (§4.2) — never more than one. */
   action?: ScreenAction;
   /**
-   * The 56px sticky CTA (M-24). Rendered as the last child inside the
-   * scroll region itself, `position: sticky`, with `scroll-padding-bottom`
-   * (below) keeping a *focused* field from landing behind it once
-   * scrolled-to. GAP-171: that alone doesn't stop a *plain tap* from
-   * hitting the CTA instead of the field it covers, because `position:
-   * sticky` paints over content that hasn't been scrolled clear of it yet
-   * — a form whose real content is only a little taller than the viewport
-   * renders its last field directly under the sticky bar's landing zone
-   * before any scroll event fires. The fix is real, unscrolled
-   * `padding-bottom` on `{children}` (below), sized to the CTA's own
-   * footprint, so the last field is never laid out inside that zone in
-   * the first place.
+   * The 56px CTA (M-24). GAP-199 (28 Aug 2026): this used to be the last
+   * child *inside* the scroll region, `position: sticky`, with GAP-171's
+   * `padding-bottom` reserving room for it. That reservation only ever
+   * protected the *end* of the content — a sticky element pinned to the
+   * bottom of a scrolling container paints over whatever normal-flow
+   * content occupies that same screen band at the *current* scroll
+   * position, including scroll-top, on any screen whose above-the-fold
+   * content reaches that band before the user has scrolled at all. A live
+   * pass found this independently of the form case GAP-171 fixed — a
+   * short list (`Show all (5)`) sitting under the CTA at rest, with
+   * `elementFromPoint` confirming the tap actually lands on the CTA, not
+   * the list.
+   *
+   * Fixed by removing the shared coordinate system rather than reserving
+   * more of it: the CTA is now a flex sibling *below* the scroll region,
+   * not a child inside it. The scroll region's own height simply becomes
+   * shorter (`flex-1` fills whatever the CTA's `shrink-0` row doesn't
+   * take), so scrolled content can never reach the CTA's band at all —
+   * nothing to overlap. No `position: sticky`, no `scroll-padding-bottom`,
+   * no reserved `padding-bottom` on `{children}`.
    */
   primaryAction?: ScreenPrimaryAction;
   /** Slot for `OfflineBanner`, rendered below the app bar and above the scroll region (§6.4) — Screen doesn't know what "offline" means, only where the banner goes. */
@@ -57,11 +65,12 @@ export interface ScreenProps {
 
 /**
  * §6.1 `Screen`: app bar + scroll region (the only scrolling element on the
- * screen) + optional sticky action. The tab bar is `AppShell`'s, a true
- * flex sibling below this whole block rather than a fixed overlay — that
- * trades a little of §4.2's under-bar parallax polish for a layout with no
- * way to miscalculate an overlap, which matters more here since every
- * later screen builds on this one.
+ * screen) + optional primary-action row. GAP-199: the action row is a flex
+ * sibling *below* the scroll region, not a sticky overlay inside it, the
+ * same "true flex sibling, not a fixed/sticky overlay" reasoning `AppShell`'s
+ * own tab bar already uses one level up — trading a little scroll-through
+ * polish for a layout with no way to miscalculate an overlap, which matters
+ * more here since every later screen builds on this one.
  *
  * §14/M-31 (GAP-124a, Wave 5 Step 0): the scroll region caps at a readable
  * measure and centres itself at `lg`, the baseline §14 asks for ("constrain
@@ -136,31 +145,27 @@ export function Screen({
         className={cn(
           "min-h-0 flex-1 overflow-y-auto p-4 max-md:landscape:p-3 lg:mx-auto lg:w-full",
           contentWidth === "wide" ? "lg:max-w-6xl" : "lg:max-w-2xl",
-          primaryAction !== undefined
-            ? "scroll-pb-[88px] max-md:landscape:scroll-pb-[76px]"
-            : "scroll-pb-4 max-md:landscape:scroll-pb-3",
         )}
       >
-        <div
-          className={
-            primaryAction !== undefined ? "pb-[88px] max-md:landscape:pb-[76px]" : undefined
-          }
-        >
-          {children}
-        </div>
-        {primaryAction !== undefined ? (
-          <div className="sticky bottom-0 -mx-4 -mb-4 mt-4 bg-page px-4 pb-[max(16px,env(safe-area-inset-bottom))] pt-3">
-            <Button
-              size="cta"
-              variant={primaryAction.variant ?? "primary"}
-              disabled={primaryAction.disabled ?? false}
-              onClick={primaryAction.onClick}
-            >
-              {primaryAction.label}
-            </Button>
-          </div>
-        ) : null}
+        {children}
       </div>
+      {primaryAction !== undefined ? (
+        <div
+          className={cn(
+            "shrink-0 bg-page px-4 pt-3 pb-[max(16px,env(safe-area-inset-bottom))] lg:mx-auto lg:w-full",
+            contentWidth === "wide" ? "lg:max-w-6xl" : "lg:max-w-2xl",
+          )}
+        >
+          <Button
+            size="cta"
+            variant={primaryAction.variant ?? "primary"}
+            disabled={primaryAction.disabled ?? false}
+            onClick={primaryAction.onClick}
+          >
+            {primaryAction.label}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

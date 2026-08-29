@@ -18,7 +18,7 @@ test("renders the title and one contextual action in the app bar", async () => {
   expect(onAction).toHaveBeenCalledOnce();
 });
 
-test("the sticky primary action reserves scroll-padding-bottom so a focused field never hides behind it", () => {
+test("GAP-199: the primary action is a flex sibling below the scroll region, not a child inside it", () => {
   const { container } = render(
     <Screen title="Log a fuel fill" primaryAction={{ label: "Save", onClick: vi.fn() }}>
       <p>Amount</p>
@@ -26,40 +26,40 @@ test("the sticky primary action reserves scroll-padding-bottom so a focused fiel
   );
 
   const scrollRegion = container.querySelector(".overflow-y-auto");
-  expect(scrollRegion).toHaveClass("scroll-pb-[88px]");
-  expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  const saveButton = screen.getByRole("button", { name: "Save" });
+  // Scrolled content can only ever overlap the CTA if they share a
+  // coordinate system — asserting the button's nearest scrolling ancestor
+  // is not the scroll region at all is what rules that out structurally,
+  // rather than just checking a specific class name that happened to fix
+  // the last, differently-shaped instance of this bug (GAP-171).
+  expect(scrollRegion?.contains(saveButton)).toBe(false);
+  expect(container.querySelector(".sticky")).toBeNull();
 });
 
-test("no primary action means no sticky CTA and a smaller reserved padding", () => {
-  const { container } = render(
+test("no primary action means no CTA row at all", () => {
+  render(
     <Screen title="Vehicles">
       <p>List</p>
     </Screen>,
   );
   expect(screen.queryByRole("button")).not.toBeInTheDocument();
-  expect(container.querySelector(".overflow-y-auto")).toHaveClass("scroll-pb-4");
 });
 
-test("GAP-171: the sticky primary action also reserves real padding-bottom around the content, not only scroll-padding-bottom", () => {
+test("GAP-199: children render directly in the scroll region, with no reserved-padding wrapper of any kind", () => {
   render(
     <Screen title="Book a trip" primaryAction={{ label: "Book trip", onClick: vi.fn() }}>
       <p data-testid="last-field">Agreed amount</p>
     </Screen>,
   );
 
-  const contentWrapper = screen.getByTestId("last-field").parentElement;
-  expect(contentWrapper).toHaveClass("pb-[88px]", "max-md:landscape:pb-[76px]");
-});
-
-test("GAP-171: with no primary action, the content wrapper carries no reserved padding", () => {
-  render(
-    <Screen title="Vehicles">
-      <p data-testid="last-field">List</p>
-    </Screen>,
-  );
-
-  const contentWrapper = screen.getByTestId("last-field").parentElement;
-  expect(contentWrapper).not.toHaveClass("pb-[88px]");
+  // GAP-171's `pb-[88px]` reservation existed only because the CTA shared
+  // the scroll region's own coordinate system. Once it doesn't (GAP-199),
+  // there is nothing left to reserve — the scroll region's own flex-1
+  // height is already exactly "whatever the CTA row doesn't take", so the
+  // last field's own parent is the scroll region itself, not an
+  // intermediate padded wrapper div.
+  const scrollRegion = document.querySelector(".overflow-y-auto");
+  expect(screen.getByTestId("last-field").parentElement).toBe(scrollRegion);
 });
 
 test("renders the offline banner slot between the app bar and the scroll region (§6.4)", () => {
@@ -107,9 +107,6 @@ test("GAP-47: below-md landscape compacts the app bar and scroll padding", () =>
     "max-md:landscape:text-title",
   );
   expect(container.querySelector(".overflow-y-auto")).toHaveClass("max-md:landscape:p-3");
-  expect(container.querySelector(".overflow-y-auto")).toHaveClass(
-    "max-md:landscape:scroll-pb-[76px]",
-  );
 });
 
 test("GAP-124a/§14: at lg the scroll region caps at a readable measure and centres, the header stays full width", () => {

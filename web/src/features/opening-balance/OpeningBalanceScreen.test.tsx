@@ -72,7 +72,7 @@ async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: str
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
-test("GAP-110: Confirm and go live is the sticky primary action, Save as draft is not", async () => {
+test("GAP-110/GAP-199: Confirm and go live is Screen's own primary action (a sibling below the scroll region), Save as draft is ordinary in-content", async () => {
   const get = baseGet();
   const { container } = renderWithProviders(
     <OpeningBalanceScreen today={today} onBack={() => {}} />,
@@ -81,14 +81,16 @@ test("GAP-110: Confirm and go live is the sticky primary action, Save as draft i
 
   const confirmButton = await screen.findByRole("button", { name: "Confirm and go live" });
   const saveButton = screen.getByRole("button", { name: "Save as draft" });
+  const scrollRegion = container.querySelector(".overflow-y-auto");
 
-  // Screen's own sticky-CTA wrapper (Screen.test.tsx pins the class): only
-  // the terminal action (F-0.2 step 6) gets it. Two competing sticky/
-  // in-content actions is what put "Confirm and go live" below the
-  // viewport at 360x640 (GAP-110) — this pins there being exactly one.
-  expect(confirmButton.closest(".sticky")).not.toBeNull();
-  expect(saveButton.closest(".sticky")).toBeNull();
-  expect(container.querySelectorAll(".sticky.bottom-0")).toHaveLength(1);
+  // Screen's own primary-action row (Screen.test.tsx pins this structurally):
+  // only the terminal action (F-0.2 step 6) gets it. Two competing
+  // in-content/primary actions is what put "Confirm and go live" below the
+  // viewport at 360x640 (GAP-110) — this pins there being exactly one, and
+  // that it's genuinely outside the scroll region (GAP-199), not just
+  // carrying a class name that happened to fix the original shape of the bug.
+  expect(scrollRegion?.contains(confirmButton)).toBe(false);
+  expect(scrollRegion?.contains(saveButton)).toBe(true);
 });
 
 test("saves with just a go-live date and no entries at all (U-2)", async () => {

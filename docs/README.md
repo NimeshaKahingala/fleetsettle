@@ -9,7 +9,7 @@ Seven documents, each owning exactly one thing. **Where two disagree, the one fu
 | 3 | [engineering/data-model.md](engineering/data-model.md) | **The schema.** DDL, constraints, triggers, the report queries, the flow-to-table matrix | Behaviour |
 | 4 | [engineering/tech-stack.md](engineering/tech-stack.md) | **The stack.** Runtime, database, driver, auth, storage, and the four platform constraints that shaped the schema | How to build on it |
 | 5 | [engineering/implementation-guidelines.md](engineering/implementation-guidelines.md) | **How to build on it.** Layering, error shape, transactions, testing, CI | The stack itself |
-| 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-36`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
+| 6 | [design/ui-ux-guidelines.md](design/ui-ux-guidelines.md) | **Surface.** The mobile-first design system, `M-1…M-39`, components, per-flow screen specs, the React client | Behaviour — it renders §1 and §2 |
 | 7 | [design/brand-guidelines.md](design/brand-guidelines.md) | **Identity.** The mark, lockups, icon assets, voice | Colour and type — those are §6 |
 
 Supporting material: [engineering/fixtures/](engineering/fixtures/) holds the golden-fixture and report scripts that run §2's walkthroughs against live Postgres. [design/brand/](design/brand/) holds the SVG sources and generated icon set. [qa/](qa/) holds everything browser-level: `scenarios/` is the living happy-path/edge-case/error-case catalogue (GAP-58's `docs/testing/` suite, relocated and un-retired 22 Aug 2026 — the structure was always sound, only the manifest's fake progress-tracking wasn't), `live-test-plan.md` is the pending queue against the current build, and `findings/` is the dated record of what each session actually confirmed.
@@ -69,7 +69,7 @@ Three rules that have already earned their place:
 | data-model | v1.1.16 | 26 Aug 2026 |
 | tech-stack | v1.4 | 18 Aug 2026 |
 | implementation-guidelines | v1.8 | 23 Aug 2026 |
-| ui-ux-guidelines | v1.9 | 23 Aug 2026 |
+| ui-ux-guidelines | v1.10 | 28 Aug 2026 |
 | brand-guidelines | v1.1.1 | 22 Aug 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
