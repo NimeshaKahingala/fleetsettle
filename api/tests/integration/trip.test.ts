@@ -2570,6 +2570,68 @@ describe("GET /api/trip/{id} — the receivable (GAP-57)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-196 — a closed trip's own driver-fee payable is never returned as the customer receivable", async () => {
+    // A trip is the one source that legitimately raises two obligations
+    // sharing (sourceType: "trip", sourceId): trip_fare (owed_to_us) at
+    // booking, driver_fee (owed_by_us) at close. Paying the fare in full
+    // while the fee is still pending is exactly the state that made
+    // findObligationBySource's old, unconstrained "LIMIT 1, no ORDER BY"
+    // query capable of returning either row.
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const booked = await postTrip(token, {
+      vehicleId,
+      customerId,
+      driverId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+      agreedAmountMinor: "3000000",
+      driverFeeMinor: "250000",
+    });
+    expect(booked.status).toBe(201);
+    const bookedBody: { id: string } = await booked.json();
+    ctx.trackCreatedTrip(bookedBody.id);
+
+    const closed = await postCloseTrip(token, bookedBody.id, {
+      closingDate: "2026-03-03",
+    });
+    expect(closed.status).toBe(200);
+
+    const paymentRes = await postPayment(token, {
+      partyType: "customer",
+      partyId: customerId,
+      amountMinor: "3000000",
+      occurredOn: "2026-03-03",
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string } = await paymentRes.json();
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    const getRes = await getTrip(token, bookedBody.id);
+    const getBody: { receivable: Record<string, unknown> | null } = await getRes.json();
+    // The driver_fee obligation (owed_by_us, Rs 2,500) is still pending —
+    // if the fix regresses, this can come back instead of the fare, and
+    // its own amount/status would silently pass a naive assertion that
+    // only checks "is there a receivable". Asserting `kind` and the exact
+    // paid amount is what actually proves the right row came back.
+    expect(getBody.receivable).toMatchObject({
+      kind: "trip_fare",
+      amountMinor: "3000000",
+      settledMinor: "3000000",
+      status: "paid",
+    });
+
+    await ctx.cleanup();
+  });
+
   it("404 — a trip belonging to another business", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

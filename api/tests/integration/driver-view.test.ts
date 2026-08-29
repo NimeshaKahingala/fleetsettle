@@ -203,6 +203,68 @@ describe("the driver's own view (P12, F-6.8/UC-59)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-197 — days come back newest-first, not in whatever order Postgres happens to store them", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId);
+
+    // Inserted out of date order on purpose — a live pass on real data
+    // (24-28 Aug, then 10-21 Aug, then 23 before 22) showed this is
+    // exactly the shape an unordered query produces, not something insertion
+    // order happens to hide.
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-05",
+      {
+        state: "ran_paid_full",
+      },
+    );
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-01",
+      {
+        state: "ran_paid_full",
+      },
+    );
+    await ctx.createDayRecord(
+      businessId,
+      periodId,
+      dailyLeaseId,
+      vehicleId,
+      driverId,
+      "2026-07-10",
+      {
+        state: "ran_paid_full",
+      },
+    );
+
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await getDriverView(token, "2026-07-01", "2026-07-31");
+    expect(res.status).toBe(200);
+    const body: DriverViewBody = await res.json();
+
+    expect(body.days.map((d) => d.businessDate)).toEqual([
+      "2026-07-10",
+      "2026-07-05",
+      "2026-07-01",
+    ]);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request("/api/driver-view?from=2026-07-01&to=2026-07-31");
     expect(res.status).toBe(401);

@@ -20,7 +20,7 @@ import {
   updateLeaseStatus,
 } from "../queries/lease.js";
 import {
-  findObligationBySource,
+  findBillingPeriodRentObligation,
   findOutstandingObligationsForParty,
   type OutstandingObligation,
 } from "../queries/obligation.js";
@@ -126,7 +126,7 @@ export async function closeLease(writer: Writer, input: CloseLeaseInput): Promis
       await truncateBillingPeriodForClosure(tx, period.id, input.closingDate, newAllowanceKm);
     }
 
-    const obligationRow = await findObligationBySource(tx, "billing_period", period.id);
+    const obligationRow = await findBillingPeriodRentObligation(tx, period.id);
     let finalAmountMinor = period.rentAmountMinor as Minor;
 
     if (obligationRow) {

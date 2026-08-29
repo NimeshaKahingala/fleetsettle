@@ -114,14 +114,27 @@
 
 **Priority:** P2
 **Source:** UC-57, F-6.6
-**Preconditions:** Driver with transaction history.
+**Preconditions:** Driver with transaction history (a mix of confirmed days, at least one advance, at least one offset).
 
-**Not built (as of 22 Aug 2026) — and worth flagging as a discrepancy, not just a gap.** No "Statement"/"Print Slip"/"Share" action, screen, or route exists anywhere in `web/src`, and no "slip"-named endpoint exists in `api/src` either. The driver's own `MineScreen.tsx` shows his read-only figures directly (no separate printable document), and its own code comment uses "statement" only informally to describe that view, not as a distinct feature. **This conflicts with `docs/README.md`'s status table**, which currently reads "FL F-6.6 — shareable without a login: printed slip built; share link deferred" — that claim does not match what this pass found in source. Worth raising with whoever owns that document rather than silently trusting either side; this catalogue entry records what a browser would actually see today.
+**Built 27 Aug 2026 (GAP-170, PR #143).** `DriverDetailScreen`'s "Driver actions" sheet now carries a "View statement" entry (`DriverStatementScreen.tsx`), reusing the same `TwoBalances`/`DriverActivitySections` read-only components the driver's own `MineScreen` shell already uses, over the existing `driver-view`/`driver` reads — no new backend surface. Deliberately still behind the ordinary login boundary (the no-login share link is GAP-65, still phase 2) — this replaces the previous "not built" finding, not the share-link deferral.
 
-**Steps:** none — kept as a description of intended behaviour (F-6.6) rather than a runnable case.
+**Steps:**
+1. ACTION: Navigate to a driver's detail page as manager/owner.
+2. ACTION: Open "Driver actions" → "View statement".
+   VERIFY: `Screen` title reads "Statement"; the driver's name and "Driver statement" print heading render above `TwoBalances`.
+3. VERIFY: `ReportDateRangeFields` default to the last 30 days ending today (business timezone); the two balance figures and the activity sections (days, trips, advances, offsets) match the driver's own detail page for the same window.
+4. ACTION: Adjust the date range (e.g. widen to 60 days or a specific past month).
+   VERIFY: Figures and activity list refresh for the new range; the printed heading's date range text updates to match.
+5. ACTION: Press "Print" (the screen's primary action, only present once all three reads have resolved).
+   VERIFY: The browser print dialog opens; in the print preview, `Screen`'s own chrome (app bar, date-range controls, back button) is hidden — only the driver name/heading, the two balances and the full (non-collapsed) activity sections appear inside `.print-area`.
+6. VERIFY: If any activity section normally collapses after 3 rows (`Section`'s default), the statement/print view shows every row — `forceExpanded` on `DriverActivitySections` (a print stylesheet can only show/hide what's already in the DOM, so a statement with more than 3 days/trips/advances/offsets must not silently truncate).
 
 **Assertions (post-test):**
-- [ ] **Not built as this pass found it** — re-verify live before concluding either the source read or the status table is the stale one
+- [ ] "View statement" reaches the statement without requiring the driver to be linked to an app account — this is the manager-facing route, not `MineScreen`
+- [ ] Every figure on the statement is read-only — no write control anywhere on this screen
+- [ ] The date range is adjustable, not hardcoded to 30 days (UC-57: "at settlement," which differs by driver)
+- [ ] Nothing overflows or truncates in the print preview even with more than 3 rows in a section
+- [ ] The no-login share link (GAP-65) is still absent — this case is scoped to the logged-in "View statement" route only, not a substitute for checking GAP-65 stays phase-2-deferred
 
 ---
 

@@ -72,7 +72,7 @@ async function enterAmount(user: ReturnType<typeof userEvent.setup>, digits: str
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
-test("GAP-110: Confirm and go live is the sticky primary action, Save as draft is not", async () => {
+test("GAP-110/GAP-199: Confirm and go live is Screen's own primary action (a sibling below the scroll region), Save as draft is ordinary in-content", async () => {
   const get = baseGet();
   const { container } = renderWithProviders(
     <OpeningBalanceScreen today={today} onBack={() => {}} />,
@@ -81,14 +81,16 @@ test("GAP-110: Confirm and go live is the sticky primary action, Save as draft i
 
   const confirmButton = await screen.findByRole("button", { name: "Confirm and go live" });
   const saveButton = screen.getByRole("button", { name: "Save as draft" });
+  const scrollRegion = container.querySelector(".overflow-y-auto");
 
-  // Screen's own sticky-CTA wrapper (Screen.test.tsx pins the class): only
-  // the terminal action (F-0.2 step 6) gets it. Two competing sticky/
-  // in-content actions is what put "Confirm and go live" below the
-  // viewport at 360x640 (GAP-110) — this pins there being exactly one.
-  expect(confirmButton.closest(".sticky")).not.toBeNull();
-  expect(saveButton.closest(".sticky")).toBeNull();
-  expect(container.querySelectorAll(".sticky.bottom-0")).toHaveLength(1);
+  // Screen's own primary-action row (Screen.test.tsx pins this structurally):
+  // only the terminal action (F-0.2 step 6) gets it. Two competing
+  // in-content/primary actions is what put "Confirm and go live" below the
+  // viewport at 360x640 (GAP-110) — this pins there being exactly one, and
+  // that it's genuinely outside the scroll region (GAP-199), not just
+  // carrying a class name that happened to fix the original shape of the bug.
+  expect(scrollRegion?.contains(confirmButton)).toBe(false);
+  expect(scrollRegion?.contains(saveButton)).toBe(true);
 });
 
 test("saves with just a go-live date and no entries at all (U-2)", async () => {
@@ -161,6 +163,29 @@ test("removing an entry takes it back out of both the list and the next save", a
 
   expect(screen.queryByText("We owe a driver")).not.toBeInTheDocument();
   expect(screen.getByText("Nothing entered yet.")).toBeInTheDocument();
+});
+
+test("GAP-200: the Remove button never shrinks below its 44px target, even beside a long party label", async () => {
+  const user = userEvent.setup();
+  const longNamedDriver: DriverResponse = { ...driver, id: "d2", name: "QA2 Driver 0808155856" };
+  const get = baseGet({ "/api/driver": [longNamedDriver] });
+  renderWithProviders(<OpeningBalanceScreen today={today} onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: "Add a starting figure" }));
+  await user.click(await screen.findByText("We owe a driver"));
+  await user.click(screen.getByRole("button", { name: "Choose driver" }));
+  await user.click(await screen.findByText("QA2 Driver 0808155856"));
+  await enterAmount(user, "20000");
+  await user.click(screen.getByRole("button", { name: "Add to the list" }));
+
+  // JSDOM has no real layout, so this can't measure pixels the way the live
+  // finding did (35×44 at 360px) — it asserts the CSS mechanism responsible:
+  // `shrink-0` on the button itself, so no sibling's length can compress it
+  // below its intended size regardless of viewport width.
+  const removeButton = await screen.findByRole("button", {
+    name: "Remove QA2 Driver 0808155856",
+  });
+  expect(removeButton.className).toContain("shrink-0");
 });
 
 test("Confirm and go live saves then commits, in order", async () => {

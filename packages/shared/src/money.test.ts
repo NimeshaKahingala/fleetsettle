@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Minor, format, fromInput, parse, split, toWire } from "./money.js";
+import { type Minor, divideHalfUp, format, fromInput, parse, split, toWire } from "./money.js";
 
 const m = (v: bigint) => v as Minor;
 
@@ -123,5 +123,28 @@ describe("split — largest remainder", () => {
     expect(() => split(m(100n), [])).toThrow(RangeError);
     expect(() => split(m(100n), [0n, 0n])).toThrow(RangeError);
     expect(() => split(m(100n), [1n, -1n])).toThrow(RangeError);
+  });
+});
+
+describe("divideHalfUp (GAP-198)", () => {
+  it("rounds up at exactly half — the case a plain `/` truncates", () => {
+    // 3,300,000 / 90 = 36,666.66..., half-up = 36,667 (Rs 366.67, not .66)
+    expect(divideHalfUp(3_300_000n, 90n)).toBe(36_667n);
+  });
+
+  it("rounds down when the remainder is under half", () => {
+    expect(divideHalfUp(100n, 3n)).toBe(33n); // 33.33... -> 33
+  });
+
+  it("divides exactly when there is no remainder", () => {
+    expect(divideHalfUp(90n, 3n)).toBe(30n);
+  });
+
+  it("is symmetric for a negative dividend", () => {
+    expect(divideHalfUp(-3_300_000n, 90n)).toBe(-36_667n);
+  });
+
+  it("refuses a zero divisor", () => {
+    expect(() => divideHalfUp(100n, 0n)).toThrow(RangeError);
   });
 });

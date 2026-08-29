@@ -19,7 +19,7 @@ import {
   listUnconfirmedDayRecordsForBusiness,
   type DayRecordRow,
 } from "../queries/day-record.js";
-import { findObligationBySource } from "../queries/obligation.js";
+import { findDayRecordObligation } from "../queries/obligation.js";
 import type {
   confirmDaysBulkRoute,
   confirmDayRoute,
@@ -152,7 +152,7 @@ export const getDayRecordHandler: RouteHandler<typeof getDayRecordRoute, Env> = 
   const row = await findDayRecordByLeaseAndDate(reader, dailyLeaseId, businessDate);
   if (!row) throw new NotFoundError("This date is not yet confirmed");
 
-  const obligationRow = await findObligationBySource(reader, "day_record", row.id);
+  const obligationRow = await findDayRecordObligation(reader, row.id);
   return c.json(toResponse(row, obligationRow?.settledMinor ?? 0n), 200);
 };
 

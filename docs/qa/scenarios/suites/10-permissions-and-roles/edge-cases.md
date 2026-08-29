@@ -65,14 +65,19 @@
 **Source:** UC-99, W-49
 **Preconditions:** Logged in as Driver Ruwan.
 
-**Steps (corrected 22 Aug 2026 — "Export transactions (CSV)" is owner-only and there is no PDF/statement generator anywhere in the client, for any role):**
+**Steps (corrected 28 Aug 2026 — GAP-170 (27 Aug) shipped a print/statement flow, but scoped to the *manager* viewing a driver's statement, not the driver generating his own; "Export transactions (CSV)" stays owner-only):**
 1. ACTION: As driver, attempt to access "Export transactions (CSV)"
    VERIFY: Blocked / not available — this part of the case still holds
-2. ACTION: **"Generate own statement PDF" is not built** — no statement, slip or PDF feature exists anywhere in `web/src` or `api/src` for any role (same finding as suites 01 HP-01-008 and 05 HP-05-006, and the same `docs/README.md` status-table discrepancy noted there)
+2. ACTION: As driver (own `MineScreen` shell), look for a "Statement"/"Print" action.
+   VERIFY: None exists — `MineScreen.tsx` has no print/statement-generation control; the only place "View statement" appears is `DriverDetailScreen`'s manager-facing "Driver actions" sheet
+3. ACTION: As driver, attempt to reach another driver's `DriverStatementScreen` directly (craft the URL with a different `driverId` the signed-in driver is not linked to), the same INV-25/W-49 isolation check every other driver-scoped route takes.
+   VERIFY: 404, not the other driver's figures and not a 403 (CLAUDE.md: cross-tenant/cross-driver access reads as not-found, never as "forbidden")
 
 **Assertions (post-test):**
 - [ ] Driver cannot reach CSV export (owner-only)
-- [ ] **Not built**: no per-role statement/PDF export exists to test — don't assume "Manager can export vehicles they manage" either, since the CSV export found in source is a single owner-only, business-wide action with no role-scoped variant
+- [ ] Driver has no self-service print/statement action inside his own `MineScreen` — only a manager can view/print a driver's statement, via `DriverDetailScreen`
+- [ ] `DriverStatementScreen`'s underlying reads (`/api/driver/{id}/view`, `/api/driver/{id}/balances`) take the same linked-driver isolation the rest of the driver-scoped API surface does — a driver cannot pull another driver's statement data by id
+- [ ] No per-role CSV export variant exists — it stays a single owner-only, business-wide action
 
 ---
 

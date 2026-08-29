@@ -160,6 +160,22 @@ A confirmed failure becomes a dated `QA-FINDINGS-YYYY-MM-DD.md` entry first, the
 
 ---
 
+## LT-14 · Six features shipped 23–27 Aug, none yet watched live end to end
+
+**Opened 28 Aug 2026.** GAP-170, GAP-172, GAP-173, GAP-185, GAP-186 and GAP-188 all closed on `develop`/`main` in the days after the last live pass (23–27 Aug) and each has integration/component test coverage, but none has been exercised by a real browser session against `qa.fleetsettle.com` — the exact gap `run-qa-pass` exists to close (a confirmed-looking write can still connect to nothing, GAP-103/GAP-109's own precedent). The scenario catalogue (`docs/qa/scenarios/`) was refreshed the same day to describe these six as built, ahead of running this row.
+
+1. **GAP-170** (suite 05 HP-05-006): a driver with real transaction history, "Driver actions" → "View statement" → adjust the date range → "Print" → confirm the print preview hides chrome and shows every row uncollapsed.
+2. **GAP-172** (suite 03 HP-03-002, suite 04 HP-04-002): "Record cost" on a real trip and "Record repair cost" on a real incident, confirm "Costs so far"/"Total repairs" move off Rs 0.
+3. **GAP-173/GAP-188** (suite 08 HP-08-003/HP-08-004, `invariants/` INV-10): record a late fact into a closed period, confirm it shows inline on its own record (GAP-173) and as a labelled line on the vehicle-month report without double-counting (GAP-188).
+4. **GAP-186** (suite 08 HP-08-010): open "What can we safely take out", cross-check all four tiles against the real QA Neon branch, confirm a manager account can reach it too (W-70).
+5. **GAP-185**: confirm by its absence — no loan action anywhere in the client (suite 08 HP-08-011); its only browser-visible effect is via step 4.
+
+Read-only first, on both colour schemes and at 360×640, console checked after every step — the same discipline every other LT row uses.
+
+**28 Aug 2026 — run, and closed for five of six; one real defect found.** Full account: `findings/2026-08-28.md`. GAP-170, GAP-172 (the write itself), GAP-173, GAP-186 and GAP-188 all confirmed working live, GAP-185 confirmed correctly absent from the client. **GAP-172's own repair-cost void action surfaced a new defect, filed as GAP-191**: voiding an incident's repair cost leaves "Total repairs"/"Net cost to you" stale until the page reloads — a client query-invalidation gap (`IncidentScreen.tsx`'s void action never invalidates the incident detail query), not a server miscalculation. **Two items deliberately left open rather than claimed**: GAP-186's manager-role access (W-70) wasn't checked live — only an owner/platform-admin account was available this session — and GAP-173's CSV export was confirmed to trigger correctly but its row-level "Belongs to" column wasn't independently read back (the export authenticates via a bearer token a page-console `fetch()` doesn't carry, so pulling the body needs the app's own client, not a workaround). 360×640 and dark mode were only run against GAP-170's new screen, not the other five — a deliberate scope trim for a six-item pass, not an oversight, since the other five are a report screen, two sheets and a passive display rather than new phase-1 forms.
+
+---
+
 ## What this file deliberately does not cover
 
 - **The automated e2e suites** — `npm run test:e2e` (`e2e/smoke.spec.ts`, `e2e/sheet-a11y.spec.ts`, `e2e/mobile-sheet-history.touch.spec.ts`, `e2e/home-ordering.spec.ts`, `e2e/trip-lifecycle.spec.ts`, `e2e/reports.spec.ts`) run locally and in CI against a built client and need no session. They are a gate, not a queue.

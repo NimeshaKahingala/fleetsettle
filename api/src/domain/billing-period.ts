@@ -17,7 +17,7 @@ import {
   type BillingPeriodRow,
 } from "../queries/billing-period.js";
 import { findLeaseForBusiness } from "../queries/lease.js";
-import { findObligationBySource, insertObligation } from "../queries/obligation.js";
+import { findBillingPeriodRentObligation, insertObligation } from "../queries/obligation.js";
 import { listLeasesDueForNextBillingPeriod } from "../queries/scheduled.js";
 
 export interface GenerateNextBillingPeriodInput {
@@ -147,7 +147,7 @@ export async function generateNextBillingPeriod(
       const seq = latest ? latest.seq + 1 : 1;
       const existing = await findBillingPeriodByLeaseAndSeq(writer, input.leaseId, seq);
       if (existing) {
-        const obligationRow = await findObligationBySource(writer, "billing_period", existing.id);
+        const obligationRow = await findBillingPeriodRentObligation(writer, existing.id);
         return { billingPeriod: existing, obligationId: obligationRow?.id ?? null, created: false };
       }
     }
