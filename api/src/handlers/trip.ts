@@ -226,7 +226,8 @@ export const getTripHandler: RouteHandler<typeof getTripRoute, Env> = async (c) 
   const row = await findTripForBusiness(c.get("reader"), businessId, id);
   if (!row) throw new NotFoundError();
 
-  const receivable = (await findObligationBySource(c.get("reader"), "trip", id)) ?? null;
+  const receivable =
+    (await findObligationBySource(c.get("reader"), "trip", id, "trip_fare", "owed_to_us")) ?? null;
 
   return c.json(toResponse(row, receivable, businessToday(requireBusinessTimezone(c))), 200);
 };

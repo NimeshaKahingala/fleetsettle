@@ -15,7 +15,7 @@ import {
   type DayRecordRow,
 } from "../queries/day-record.js";
 import { findDriverSettlementRhythm } from "../queries/driver.js";
-import { findObligationBySource, insertObligation } from "../queries/obligation.js";
+import { findDayRecordObligation, insertObligation } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
 import { applyCreditForward } from "./credit-forward.js";
 import { computeObligationStatus } from "./obligation-status.js";
@@ -73,7 +73,7 @@ async function asNoOpResult(
   if (!row) {
     throw new Error("day_record missing immediately after losing its own confirm race");
   }
-  const obligationRow = await findObligationBySource(tx, "day_record", row.id);
+  const obligationRow = await findDayRecordObligation(tx, row.id);
   return {
     dayRecord: row,
     // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
@@ -129,7 +129,7 @@ async function confirmDayInTx(tx: Tx, input: ConfirmDayInput): Promise<ConfirmDa
   }
 
   if (existing && existing.state !== "open") {
-    const obligationRow = await findObligationBySource(tx, "day_record", existing.id);
+    const obligationRow = await findDayRecordObligation(tx, existing.id);
     return {
       dayRecord: existing,
       // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
@@ -342,7 +342,7 @@ export async function confirmDay(
     if (isUniqueViolation(err, "day_record_daily_lease_id_business_date_key")) {
       const row = await findDayRecordByLeaseAndDate(writer, input.dailyLeaseId, input.businessDate);
       if (row) {
-        const obligationRow = await findObligationBySource(writer, "day_record", row.id);
+        const obligationRow = await findDayRecordObligation(writer, row.id);
         return {
           dayRecord: row,
           // eslint-disable-next-line no-restricted-syntax -- a did_not_run day (INV-6) has no obligation at all; 0 is the fact for that day, not a stand-in for data we don't have (W-56)
