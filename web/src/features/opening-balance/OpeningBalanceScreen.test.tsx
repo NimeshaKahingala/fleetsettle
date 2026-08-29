@@ -163,6 +163,29 @@ test("removing an entry takes it back out of both the list and the next save", a
   expect(screen.getByText("Nothing entered yet.")).toBeInTheDocument();
 });
 
+test("GAP-200: the Remove button never shrinks below its 44px target, even beside a long party label", async () => {
+  const user = userEvent.setup();
+  const longNamedDriver: DriverResponse = { ...driver, id: "d2", name: "QA2 Driver 0808155856" };
+  const get = baseGet({ "/api/driver": [longNamedDriver] });
+  renderWithProviders(<OpeningBalanceScreen today={today} onBack={() => {}} />, { get });
+
+  await user.click(await screen.findByRole("button", { name: "Add a starting figure" }));
+  await user.click(await screen.findByText("We owe a driver"));
+  await user.click(screen.getByRole("button", { name: "Choose driver" }));
+  await user.click(await screen.findByText("QA2 Driver 0808155856"));
+  await enterAmount(user, "20000");
+  await user.click(screen.getByRole("button", { name: "Add to the list" }));
+
+  // JSDOM has no real layout, so this can't measure pixels the way the live
+  // finding did (35×44 at 360px) — it asserts the CSS mechanism responsible:
+  // `shrink-0` on the button itself, so no sibling's length can compress it
+  // below its intended size regardless of viewport width.
+  const removeButton = await screen.findByRole("button", {
+    name: "Remove QA2 Driver 0808155856",
+  });
+  expect(removeButton.className).toContain("shrink-0");
+});
+
 test("Confirm and go live saves then commits, in order", async () => {
   const user = userEvent.setup();
   const draft: OpeningBalanceBatchResponse = {

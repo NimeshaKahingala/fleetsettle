@@ -320,21 +320,26 @@ export function OpeningBalanceScreen({ today, onBack }: OpeningBalanceScreenProp
           {entries.length > 0 ? (
             entries.map((entry, index) => (
               <Card key={index} className="flex items-center justify-between gap-3">
-                <div className="flex flex-col">
+                <div className="flex min-w-0 flex-col">
                   <p className="text-body text-ink-primary">{KIND_LABEL[entry.kind]}</p>
-                  <p className="text-caption text-ink-muted">
+                  <p className="truncate text-caption text-ink-muted">
                     {entry.partyLabel}
                     {entry.vehicleLabel !== undefined && entry.vehicleLabel !== ""
                       ? ` · ${entry.vehicleLabel}`
                       : ""}
                   </p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex shrink-0 items-center gap-3">
                   <Money value={entry.amountMinor} />
+                  {/* GAP-200: `shrink-0` — without it, a long `partyLabel` on
+                      the sibling above squeezes this 44px icon target below
+                      the project's floor (measured 35×44 at 360px) instead
+                      of the label truncating first. */}
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
+                    className="shrink-0"
                     aria-label={`Remove ${entry.partyLabel}`}
                     onClick={() => setEntries((current) => current.filter((_, i) => i !== index))}
                   >
