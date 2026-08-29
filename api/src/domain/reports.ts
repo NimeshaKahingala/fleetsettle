@@ -1,5 +1,6 @@
 import {
   addDays,
+  divideHalfUp,
   inclusiveDays,
   splitInteger,
   type BusinessDate,
@@ -690,8 +691,10 @@ export async function getUtilisationReport(
   const earningDays = ranDays + leaseDays + tripDays;
   const idleDays = Math.max(0, totalDays - earningDays - offRoadDays);
   const availableDays = totalDays - offRoadDays;
+  // GAP-198: half-up, not a truncating `/` — Rs 33,000 / 90 must read
+  // Rs 366.67, not Rs 366.66.
   const revenuePerAvailableDayMinor =
-    availableDays > 0 ? earnedMinor / BigInt(availableDays) : null;
+    availableDays > 0 ? divideHalfUp(earnedMinor, BigInt(availableDays)) : null;
 
   return {
     vehicleId,

@@ -1707,6 +1707,47 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-198 — revenuePerAvailableDayMinor rounds half-up, not truncated", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId);
+
+      // 100,000 earned / 7 available days = 14,285.71... minor units.
+      // A plain bigint `/` truncates to 14,285 (Rs 142.85); half-up is
+      // 14,286 (Rs 142.86) — the .71 remainder is well over half, so the
+      // two answers are unambiguously different, unlike the sibling test
+      // above (35,000 / 14 = 2,500 exactly, which passes whether or not
+      // the rounding is even implemented).
+      await ctx.createObligation(businessId, periodId, {
+        vehicleId,
+        driverId,
+        kind: "daily_amount",
+        direction: "owed_to_us",
+        amountMinor: 100_000n,
+        dueOn: "2026-08-03",
+      });
+
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const res = await getReport(
+        `/utilisation?vehicleId=${vehicleId}&from=2026-08-01&to=2026-08-07`,
+        token,
+      );
+      expect(res.status).toBe(200);
+      const body: { totalDays: number; offRoadDays: number; revenuePerAvailableDayMinor: string } =
+        await res.json();
+      expect(body).toMatchObject({
+        totalDays: 7,
+        offRoadDays: 0,
+        revenuePerAvailableDayMinor: "14286",
+      });
+
+      await ctx.cleanup();
+    });
+
     it("GAP-19 — revenuePerAvailableDayMinor is null, never a guessed 0, when the whole window is off the road (W-56)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
