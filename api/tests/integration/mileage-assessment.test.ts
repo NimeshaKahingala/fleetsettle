@@ -60,8 +60,16 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     await db.$client.end();
   });
 
-  it("reproduces §7.3 exactly across four billing periods", async () => {
-    const ctx = new TestContext(db);
+  /**
+   * F-2.1: the same open-ended lease §7.3's own worked example starts from
+   * — 12 Jan, billed monthly, limit 100km/day, excess 25/km. One transaction
+   * writes the handover reading (0km) and generates billing period 1 — 12
+   * Jan to 11 Feb, 31 days, allowance 100 * 31 = 3,100, rent 70,000 (W-25:
+   * fixed regardless). GAP-205/H-3's own late-reading test needs the
+   * identical fixture, not a variant, so it is named once here rather than
+   * duplicated a second time (SonarCloud's own new-code check).
+   */
+  async function setupG3LeaseFixture(ctx: TestContext, db: ReturnType<typeof writer>) {
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
     const vehicleId = await ctx.createVehicle(businessId);
@@ -70,9 +78,6 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
-    // F-2.1: start the lease. One transaction writes the handover reading
-    // (0km) and generates billing period 1 — 12 Jan to 11 Feb, 31 days,
-    // allowance 100 * 31 = 3,100, rent 70,000 (W-25: fixed regardless).
     const leaseRes = await postLease(token, {
       vehicleId,
       customerId,
@@ -87,6 +92,13 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     expect(leaseRes.status).toBe(201);
     const { id: leaseId }: { id: string } = await leaseRes.json();
     ctx.trackCreatedLease(leaseId);
+
+    return { leaseId, token };
+  }
+
+  it("reproduces §7.3 exactly across four billing periods", async () => {
+    const ctx = new TestContext(db);
+    const { leaseId, token } = await setupG3LeaseFixture(ctx, db);
 
     const periodsAfterCreate: Array<{ seq: number; daysCount: number; allowanceKm: number }> =
       await (await listBillingPeriods(token, leaseId)).json();
@@ -183,28 +195,7 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
 
   it("GAP-205/H-3 — a late reading still closes exactly its own period, and the next reading is never charged for it twice", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
-    const vehicleId = await ctx.createVehicle(businessId);
-    await ctx.setVehicleArrangement(vehicleId, "A");
-    const customerId = await ctx.createCustomer(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const leaseRes = await postLease(token, {
-      vehicleId,
-      customerId,
-      startDate: "2026-01-12",
-      billingDay: 12,
-      rentAmountMinor: "70000",
-      mileageDailyLimitKm: 100,
-      mileageExcessRateMinor: "25",
-      odometerReadingKm: 0,
-      odometerSource: "in_person",
-    });
-    expect(leaseRes.status).toBe(201);
-    const { id: leaseId }: { id: string } = await leaseRes.json();
-    ctx.trackCreatedLease(leaseId);
+    const { leaseId, token } = await setupG3LeaseFixture(ctx, db);
 
     // Period 1: 12 Jan–11 Feb (31 days, allowance 3,100). Reading two days
     // late (14 Feb, not the period's own 11 Feb) still closes it alone —
