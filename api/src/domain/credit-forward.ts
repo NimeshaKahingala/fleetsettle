@@ -1,5 +1,5 @@
 import { newId, type BusinessDate } from "@fleetsettle/shared";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
 import type { Tx } from "../db/client.js";
 import { payment, paymentAllocation } from "../db/schema.js";
 import { insertPaymentAllocation } from "../queries/payment.js";
@@ -85,7 +85,10 @@ export async function applyCreditForward(
         eq(payment.partyType, partyType),
         eq(partyColumn, partyId),
         eq(payment.direction, paymentDirection),
-        eq(payment.status, "active"),
+        // M-7: 'corrected' still carries real, drawable surplus — amount_minor
+        // already holds the true remaining figure (DM §10.2/§14). Only
+        // 'reversed' means none of this payment counts any more.
+        ne(payment.status, "reversed"),
       ),
     )
     .orderBy(asc(payment.occurredOn), asc(payment.id))

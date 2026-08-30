@@ -1001,6 +1001,103 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("NH-2/GAP-201 — a direct payment to a driver reduces heldMinor the same way a received payment increases it", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const receivedId = newId();
+      await db.insert(payment).values({
+        id: receivedId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 50_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(receivedId);
+
+      // UC-50 "pay the driver" — cash the owner hands straight to a driver
+      // out of what he's currently holding, before it's read here.
+      const paidId = newId();
+      await db.insert(payment).values({
+        id: paidId,
+        businessId,
+        direction: "paid",
+        partyType: "driver",
+        partyDriverId: driverId,
+        amountMinor: 15_000n,
+        occurredOn: "2026-07-06",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paidId);
+
+      const token = await signAccessToken(owner.asgardeoSub);
+      const res = await getReport("/cash-position", token);
+      expect(res.status).toBe(200);
+      const body: { partners: { userId: string; heldMinor: string }[] } = await res.json();
+
+      const ownerRow = body.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("35000");
+
+      await ctx.cleanup();
+    });
+
+    it("M-7/GAP-201 — a corrected payment still counts at its remaining amount, not zero", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 10_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+      const correction = await request(`/api/payment/${paymentId}/correct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(ownerToken).headers },
+        body: JSON.stringify({
+          differenceMinor: "2000",
+          bearer: "absorbed_loss",
+          reason: "Miscounted at handover",
+          correctedOn: "2026-07-06",
+        }),
+      });
+      expect(correction.status).toBe(200);
+      const correctionBody: { correctionId: string } = await correction.json();
+      ctx.trackCreatedPaymentCorrection(correctionBody.correctionId);
+
+      const res = await getReport("/cash-position", ownerToken);
+      expect(res.status).toBe(200);
+      const body: { partners: { userId: string; heldMinor: string }[] } = await res.json();
+
+      // Before the fix, filtering on status = 'active' dropped this payment
+      // entirely — 0 held, not the 8,000 the business genuinely still has.
+      const ownerRow = body.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("8000");
+
+      await ctx.cleanup();
+    });
   });
 
   describe("distributable cash (GAP-186/UC-109, W-70)", () => {
@@ -1144,6 +1241,68 @@ describe("reports (P11)", () => {
         await res.json();
       expect(body.loanInstalmentsDueMinor).toBeNull();
       expect(body.distributableMinor).toBeNull();
+
+      await ctx.cleanup();
+    });
+
+    it("NH-1/GAP-201 — a partner payout reduces cash on hand and distributable, without moving the per-partner holding figure", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 100_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const before = await getReport("/distributable-cash", ownerToken);
+      const beforeBody: { cashOnHandMinor: string; distributableMinor: string | null } =
+        await before.json();
+      expect(beforeBody).toMatchObject({ cashOnHandMinor: "100000", distributableMinor: "100000" });
+
+      const payout = await request("/api/partner-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(ownerToken).headers },
+        body: JSON.stringify({
+          userId: owner.userId,
+          amountMinor: "40000",
+          kind: "payout",
+          occurredOn: "2026-07-12",
+        }),
+      });
+      expect(payout.status).toBe(201);
+      const payoutBody: { id: string } = await payout.json();
+      ctx.trackCreatedPartnerPayout(payoutBody.id);
+
+      // Before this fix, taking the payout changed nothing here — the exact
+      // figure UC-109 calls "the single most expensive wrong number… because
+      // someone acts on it by moving money out of the business" stayed
+      // unmoved by the action it exists to gate.
+      const after = await getReport("/distributable-cash", ownerToken);
+      const afterBody: { cashOnHandMinor: string; distributableMinor: string | null } =
+        await after.json();
+      expect(afterBody).toMatchObject({ cashOnHandMinor: "60000", distributableMinor: "60000" });
+
+      // UC-67 states "Holding" and "Taken out" as two separate lines — the
+      // payout is drawn against the business's broader position, never
+      // netted against this one partner's own field float.
+      const cashPosition = await getReport("/cash-position", ownerToken);
+      const cashPositionBody: { partners: { userId: string; heldMinor: string }[] } =
+        await cashPosition.json();
+      const ownerRow = cashPositionBody.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("100000");
 
       await ctx.cleanup();
     });

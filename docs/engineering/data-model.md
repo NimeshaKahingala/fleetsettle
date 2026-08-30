@@ -2012,12 +2012,17 @@ The join is across four tables and the arithmetic is not obvious, so it belongs 
 
 ```sql
 SELECT u.id, u.display_name,
-       COALESCE(r.total,0) - COALESCE(b.total,0) - COALESCE(a.total,0) AS held_minor
+       COALESCE(r.total,0) - COALESCE(p.total,0) - COALESCE(b.total,0) - COALESCE(a.total,0)
+         AS held_minor
   FROM app_user u
   LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
                FROM payment
-              WHERE direction='received' AND status='active'   -- payment has no voided_at
+              WHERE direction='received' AND status <> 'reversed'  -- payment has no voided_at
               GROUP BY 1) r ON r.uid = u.id
+  LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
+               FROM payment
+              WHERE direction='paid' AND status <> 'reversed'
+              GROUP BY 1) p ON p.uid = u.id
   LEFT JOIN (SELECT from_user_id uid, SUM(amount_counted_minor) total
                FROM banking_event WHERE voided_at IS NULL GROUP BY 1) b ON b.uid = u.id
   LEFT JOIN (SELECT issued_by_user_id uid, SUM(amount_minor) total
@@ -2028,13 +2033,16 @@ SELECT u.id, u.display_name,
                  WHERE business_id = $1 AND revoked_at IS NULL);
 ```
 
-Three things this query encodes that prose kept getting wrong:
+Four things this query encodes that prose kept getting wrong:
 
+- It subtracts `direction = 'paid'` payments too, not only `'received'` — UC-50 "pay the driver" is the same handled-cash event as collecting a customer payment, just outbound (GAP-201, 30 August 2026: this direction existed in `payment` since P4 and was never read here, so cash a partner handed straight to a driver read as though he still held it)
+- It reads `status <> 'reversed'`, not `status = 'active'` — a `'corrected'` payment's `amount_minor` already holds the true remaining figure (§10.2/§14); filtering on `'active'` alone understated held cash by the whole original amount rather than just the corrected-away difference (GAP-201)
 - It subtracts `amount_counted_minor`, not `amount_recorded_minor` — when the bank counted less, the partner is still holding the difference until `discrepancy_bearer` decides otherwise (INV-23)
 - It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
-- **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
 
-**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
+**Deposits held are not in this figure**, nor is a `partner_payout`. Deposits are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it. A `partner_payout` is real cash already paid to a partner, but UC-67 states "Holding" and "Taken out" as two separate lines, not one netted against the other — a payout is drawn against the business's broader cash position, not against this one partner's own field float, and is instead subtracted where `use-cases.md`'s UC-109 ("how much can we safely take out") composes its own total (`domain/reports.ts`'s `getDistributableCashReport`, which sums this query's own `held_minor` across every partner, adds `banked` back in, and now also subtracts `SUM(amount_minor) FROM partner_payout WHERE voided_at IS NULL`, business-wide, all three `kind`s — GAP-201). Subtracting a payout here instead would also contradict the shipped behaviour this section otherwise follows verbatim, which `api/tests/integration/partner-summary.test.ts` locks in directly: `holdingMinor` stays unmoved by a payout or settlement recorded against the same partner.
+
+**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − paid − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
 
 ```sql
 -- Banked, by destination — the same banking_event rows the held-per-
