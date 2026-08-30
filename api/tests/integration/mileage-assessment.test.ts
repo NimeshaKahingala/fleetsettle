@@ -181,6 +181,106 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     await ctx.cleanup();
   });
 
+  it("GAP-205/H-3 — a late reading still closes exactly its own period, and the next reading is never charged for it twice", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "70000",
+      mileageDailyLimitKm: 100,
+      mileageExcessRateMinor: "25",
+      odometerReadingKm: 0,
+      odometerSource: "in_person",
+    });
+    expect(leaseRes.status).toBe(201);
+    const { id: leaseId }: { id: string } = await leaseRes.json();
+    ctx.trackCreatedLease(leaseId);
+
+    // Period 1: 12 Jan–11 Feb (31 days, allowance 3,100). Reading two days
+    // late (14 Feb, not the period's own 11 Feb) still closes it alone —
+    // this much already worked under the old "fully contained" predicate.
+    const assess1 = await postOdometerReading(token, {
+      leaseId,
+      readingKm: 3000,
+      readOn: "2026-02-14",
+      source: "in_person",
+    });
+    expect(assess1.status).toBe(201);
+    const body1: MileageAssessmentResponseBody = await assess1.json();
+    expect(body1).toMatchObject({ combinedAllowanceKm: 3100, isEstimated: false });
+    expect(body1.splits).toEqual([]);
+
+    // Period 2 (12 Feb–11 Mar, 28 days, allowance 2,800) — no reading taken.
+    const period2Res = await postBillingPeriod(token, leaseId);
+    expect(period2Res.status).toBe(201);
+    expect(await period2Res.json()).toMatchObject({ seq: 2, daysCount: 28, allowanceKm: 2800 });
+
+    // GAP-205/H-3: the bug itself. Reading on time for period 2 (12 Mar),
+    // but `previous.readOn` (14 Feb) is two days *inside* period 1's own
+    // range, not exactly on period 2's 12 Feb start. The old predicate
+    // required `period.periodStart >= previous.readOn` — 12 Feb is not
+    // >= 14 Feb, so period 2 never matched anything and this reading was
+    // refused with "This reading does not close out any billing period
+    // yet," even though period 2 itself was never touched by the late
+    // reading before it. 2,900 driven against 2,800 allowed is 100 over,
+    // 2,500 charged — period 2 alone, not combined with period 1.
+    const assess2 = await postOdometerReading(token, {
+      leaseId,
+      readingKm: 3000 + 2900,
+      readOn: "2026-03-12",
+      source: "in_person",
+    });
+    expect(assess2.status).toBe(201);
+    const body2: MileageAssessmentResponseBody = await assess2.json();
+    expect(body2).toMatchObject({
+      drivenKm: 2900,
+      combinedAllowanceKm: 2800,
+      excessKm: 100,
+      excessAmountMinor: "2500",
+      isEstimated: false,
+    });
+    expect(body2.splits).toEqual([]);
+
+    // Period 3 (12 Mar–11 Apr, 31 days, allowance 3,100).
+    const period3Res = await postBillingPeriod(token, leaseId);
+    expect(period3Res.status).toBe(201);
+    expect(await period3Res.json()).toMatchObject({ seq: 3, daysCount: 31, allowanceKm: 3100 });
+
+    // Proof period 2 was not left re-selectable: if the overlap predicate's
+    // lower bound were inclusive (`>=` instead of the strict `>`), period 2
+    // — whose own end, 11 Mar, sits one day before this reading's 12 Mar —
+    // would still satisfy `periodEnd >= previous.readOn` here and get
+    // charged a second time. `combinedAllowanceKm` staying at period 3's own
+    // 3,100, not 2,800 + 3,100 = 5,900, is that proof.
+    const assess3 = await postOdometerReading(token, {
+      leaseId,
+      readingKm: 3000 + 2900 + 3050,
+      readOn: "2026-04-12",
+      source: "in_person",
+    });
+    expect(assess3.status).toBe(201);
+    const body3: MileageAssessmentResponseBody = await assess3.json();
+    expect(body3).toMatchObject({
+      drivenKm: 3050,
+      combinedAllowanceKm: 3100,
+      excessKm: 0,
+      isEstimated: false,
+    });
+    expect(body3.splits).toEqual([]);
+
+    await ctx.cleanup();
+  });
+
   it("auto-waives an excess at or below the business's threshold (F-2.4)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

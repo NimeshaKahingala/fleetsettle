@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { billingPeriod } from "../db/schema.js";
 
@@ -122,7 +122,30 @@ export async function truncateBillingPeriodForClosure(
     .where(eq(billingPeriod.id, billingPeriodId));
 }
 
-/** F-2.3: every period fully contained in `[fromDate, toDate]` — the ones a mileage assessment between two readings can possibly span. */
+/**
+ * F-2.3/GAP-205/H-3: every period this mileage reading closes out — an
+ * *overlap* with `[fromDate, toDate]`, not full containment. `fromDate` is
+ * the previous reading's own date, so a period is only genuinely still open
+ * if it ends *after* that date (`gt`, strict) — a period ending exactly on
+ * it was the one that previous reading itself already closed, and including
+ * it again here would double-count it against a second assessment. `toDate`
+ * stays inclusive on `periodStart` (`lte`): a period beginning exactly on
+ * today's reading is legitimately just starting to close.
+ *
+ * The old predicate (`periodStart >= fromDate AND periodEnd <= toDate`,
+ * full containment) refused a reading whenever the *previous* one had
+ * landed even a day late: a late reading's own date sits inside the period
+ * it closed, so the *next* period's `periodStart` — which precedes that
+ * late date — failed `periodStart >= fromDate` even though the next period
+ * itself was never touched. `periods.length === 0` then read as "no billing
+ * period covers this range yet" and refused a perfectly legitimate reading.
+ * No separate exclusion against `mileage_assessment`/`_split` is needed:
+ * billing periods are strictly adjacent with no gaps (`billing-period.ts`'s
+ * own generator sets `period_end` to the day before the next `period_start`),
+ * and `previous.readOn` is always either the handover reading or exactly the
+ * `toReadingId` date of the assessment that closed everything up to it — so
+ * the strict `gt` on `periodEnd` alone is what the exclusion needs.
+ */
 export async function findBillingPeriodsInRange(
   db: ReadDb,
   leaseId: string,
@@ -135,8 +158,8 @@ export async function findBillingPeriodsInRange(
     .where(
       and(
         eq(billingPeriod.leaseId, leaseId),
-        gte(billingPeriod.periodStart, fromDate),
-        lte(billingPeriod.periodEnd, toDate),
+        lte(billingPeriod.periodStart, toDate),
+        gt(billingPeriod.periodEnd, fromDate),
       ),
     )
     .orderBy(asc(billingPeriod.seq));
