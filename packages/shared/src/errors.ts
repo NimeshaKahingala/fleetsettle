@@ -56,6 +56,9 @@ export const ERROR_CODES = [
   "PARTY_ARCHIVED",
   // GAP-178/B19: a second live recovery against the same (incident, source).
   "RECOVERY_ALREADY_RECORDED",
+  // GAP-204/H-2/D3: a second recordOffRoad call against the same incident
+  // while a live credit_days/extend treatment already exists.
+  "OFF_ROAD_TREATMENT_ALREADY_RECORDED",
   "CAPITAL_CONTRIBUTION_ALREADY_VOIDED",
   "BANKING_EVENT_ALREADY_VOIDED",
   "PARTNER_PAYOUT_ALREADY_VOIDED",
