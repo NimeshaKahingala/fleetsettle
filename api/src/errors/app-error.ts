@@ -214,6 +214,20 @@ export class OwnershipSharesInvalidError extends AppError {
   }
 }
 
+// GAP-206/NM-1: setOwnershipShares now closes every currently-open share for
+// the vehicle before inserting the new set (the daily_lease_rate shape), so
+// this exclusion violation is a genuine race — two concurrent re-splits —
+// rather than the routine "someone bought in" case it used to reach the
+// generic 500 handler as. Same 409 precedent as DailyLeaseOverlapsError/
+// VehicleUnavailabilityOverlapsError, every other EXCLUDE-backed table here.
+export class OwnershipSharesOverlapError extends AppError {
+  constructor(
+    message = "This vehicle's ownership shares were just changed by someone else — reload and try again",
+  ) {
+    super(409, "OWNERSHIP_SHARES_OVERLAP", message);
+  }
+}
+
 // DM §6.1's `management_fee_agreement_vehicle_id_manager_user_id_datera_excl`
 // exclusion constraint — a second agreement for the same vehicle and manager
 // over an overlapping date range.
