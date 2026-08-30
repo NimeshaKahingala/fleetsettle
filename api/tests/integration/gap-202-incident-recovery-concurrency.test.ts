@@ -10,6 +10,7 @@ import {
   voidIncidentRecovery,
 } from "../../src/domain/incident.js";
 import { mintUser } from "../support/auth.js";
+import { outcome } from "../support/concurrency.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
 
@@ -33,16 +34,6 @@ const ctx = new TestContext(db);
 afterAll(async () => {
   await ctx.cleanup();
 });
-
-async function outcome<T>(
-  run: () => Promise<T>,
-): Promise<{ ok: true; value: T } | { ok: false; err: unknown }> {
-  try {
-    return { ok: true, value: await run() };
-  } catch (err) {
-    return { ok: false, err };
-  }
-}
 
 describe("GAP-202/NM-4 — voiding an incident recovery checks receivedAmountMinor inside the transaction that voids", () => {
   it("never leaves a recovery both voided and carrying a real receipt", async () => {
