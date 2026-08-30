@@ -259,17 +259,12 @@ describe("write off a balance (P10, F-8.3/UC-90)", () => {
 
   it("400 — obligationId names an obligation against a different party than this write-off (GAP-203/H-1)", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    const periodId = await ctx.createOpenPeriod(businessId);
-    const customerA = await ctx.createCustomer(businessId);
+    const { businessId, obligationId, token } = await setupWriteOffObligation(ctx, db);
+    // A second customer the obligation was never raised against — reusing
+    // the shared fixture's own customer (customerA, implicitly) rather than
+    // repeating the whole business/period/obligation/owner setup a second
+    // time, which is what SonarCloud flagged as new-code duplication here.
     const customerB = await ctx.createCustomer(businessId);
-    const obligationId = await ctx.createObligation(businessId, periodId, {
-      partyType: "customer",
-      customerId: customerA,
-      amountMinor: 70_000n,
-    });
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await postWriteOff(token, {
       obligationId,
