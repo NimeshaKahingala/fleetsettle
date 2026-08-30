@@ -39,26 +39,6 @@ interface WriteOffResponseBody {
   amountMinor: string;
 }
 
-/**
- * GAP-203: the fixture every partial-write-off test needs — a customer
- * carrying one 70,000 obligation, untouched otherwise, and an owner's own
- * token. Named once rather than repeated per test (SonarCloud flagged the
- * inline repeats as new-code duplication once a third test needed it).
- */
-async function setupWriteOffObligation(ctx: TestContext, db: ReturnType<typeof writer>) {
-  const businessId = await ctx.createBusiness();
-  const periodId = await ctx.createOpenPeriod(businessId);
-  const customerId = await ctx.createCustomer(businessId);
-  const obligationId = await ctx.createObligation(businessId, periodId, {
-    partyType: "customer",
-    customerId,
-    amountMinor: 70_000n,
-  });
-  const owner = await mintUser(db, ctx, businessId, "owner");
-  const token = await signAccessToken(owner.asgardeoSub);
-  return { businessId, customerId, obligationId, token };
-}
-
 interface WriteOffListRowBody {
   id: string;
   obligationId: string | null;
@@ -150,6 +130,28 @@ describe("write off a balance (P10, F-8.3/UC-90)", () => {
 
     await ctx.cleanup();
   });
+
+  /**
+   * GAP-203: the fixture every partial-write-off test below needs — a
+   * customer carrying one 70,000 obligation, untouched otherwise, and an
+   * owner's own token. Named once rather than repeated per test (SonarCloud
+   * flagged the inline repeats as new-code duplication once a third test
+   * needed it), and kept here rather than up with the top-level request
+   * helpers so this diff never touches the unrelated tests above it.
+   */
+  async function setupWriteOffObligation(ctx: TestContext, db: ReturnType<typeof writer>) {
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 70_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+    return { businessId, customerId, obligationId, token };
+  }
 
   it("GAP-203/H-1/D2 — a partial write-off leaves the remainder outstanding, collectible by a later payment, not silently discarded", async () => {
     const ctx = new TestContext(db);
