@@ -62,7 +62,12 @@ export function toDriverViewResponse(view: DriverOwnView) {
       amountMinor: toWire(o.amountMinor as Minor),
       settledMinor: toWire(o.settledMinor as Minor),
       waivedMinor: toWire(o.waivedMinor as Minor),
-      status: computeObligationStatus(o.amountMinor, o.settledMinor, o.waivedMinor),
+      status: computeObligationStatus(
+        o.amountMinor,
+        o.settledMinor,
+        o.waivedMinor,
+        o.writtenOffMinor,
+      ),
     })),
   };
 }

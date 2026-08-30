@@ -131,6 +131,208 @@ describe("write off a balance (P10, F-8.3/UC-90)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-203/H-1/D2 — a partial write-off leaves the remainder outstanding, collectible by a later payment, not silently discarded", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 70_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "30000",
+      reason: "he'll never pay this last bit, but the rest is still good",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(res.status).toBe(201);
+    const body: WriteOffResponseBody = await res.json();
+    ctx.trackCreatedWriteOff(body.id);
+
+    const afterWriteOff = await db
+      .select({
+        status: obligation.status,
+        settledMinor: obligation.settledMinor,
+        writtenOffMinor: obligation.writtenOffMinor,
+      })
+      .from(obligation)
+      .where(eq(obligation.id, obligationId));
+    // Not "written_off" — the old (unfixed) behaviour flipped status straight
+    // there regardless of the amount given, discarding the 40,000 remainder
+    // with no row recording it.
+    expect(afterWriteOff[0]).toMatchObject({
+      status: "part_paid",
+      settledMinor: 0n,
+      writtenOffMinor: 30_000n,
+    });
+
+    // Proof by consequence: a payment of 50,000 — more than the 40,000
+    // genuinely remaining — must settle this obligation at exactly 40,000
+    // and leave 10,000 unallocated credit. If the written-off 30,000 were
+    // still counted as collectible, the payment would try to take the full
+    // 70,000 - 0 = 70,000, fully absorbing all 50,000 with nothing left over.
+    const paymentRes = await request("/api/payment", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "50000",
+        occurredOn: "2026-07-21",
+      }),
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: { id: string; unallocatedMinor: string } = await paymentRes.json();
+    expect(paymentBody.unallocatedMinor).toBe("10000");
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    // Still "written_off", not "paid" — the same precedence a waiver already
+    // has (computeObligationStatus's own docstring): "paid" is reserved for
+    // when settled_minor alone reaches the full original amount, so a
+    // partial write-off can never fade back into looking like an ordinary
+    // fully-collected obligation just because the rest came in.
+    const afterPayment = await db
+      .select({ status: obligation.status, settledMinor: obligation.settledMinor })
+      .from(obligation)
+      .where(eq(obligation.id, obligationId));
+    expect(afterPayment[0]).toMatchObject({ status: "written_off", settledMinor: 40_000n });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-203/H-1/D2 — a second write-off accumulates against the same obligation and can complete it", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 70_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const first = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "30000",
+      reason: "first tranche, unrecoverable",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(first.status).toBe(201);
+    const firstBody: WriteOffResponseBody = await first.json();
+    ctx.trackCreatedWriteOff(firstBody.id);
+
+    const second = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "40000",
+      reason: "the rest is gone too, closing this out",
+      writtenOffOn: "2026-07-25",
+    });
+    expect(second.status).toBe(201);
+    const secondBody: WriteOffResponseBody = await second.json();
+    ctx.trackCreatedWriteOff(secondBody.id);
+
+    const rows = await db
+      .select({ status: obligation.status, writtenOffMinor: obligation.writtenOffMinor })
+      .from(obligation)
+      .where(eq(obligation.id, obligationId));
+    expect(rows[0]).toMatchObject({ status: "written_off", writtenOffMinor: 70_000n });
+
+    await ctx.cleanup();
+  });
+
+  it("400 — obligationId names an obligation against a different party than this write-off (GAP-203/H-1)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerA = await ctx.createCustomer(businessId);
+    const customerB = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId: customerA,
+      amountMinor: 70_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerB,
+      amountMinor: "30000",
+      reason: "entered against the wrong customer by id typo",
+      writtenOffOn: "2026-07-20",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-203/H-1/D2 — voiding a partial write-off restores exactly its own share, not the whole column", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const customerId = await ctx.createCustomer(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      partyType: "customer",
+      customerId,
+      amountMinor: 70_000n,
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const first = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "30000",
+      reason: "first tranche",
+      writtenOffOn: "2026-07-20",
+    });
+    const firstBody: WriteOffResponseBody = await first.json();
+    ctx.trackCreatedWriteOff(firstBody.id);
+
+    const second = await postWriteOff(token, {
+      obligationId,
+      partyType: "customer",
+      partyCustomerId: customerId,
+      amountMinor: "20000",
+      reason: "second tranche",
+      writtenOffOn: "2026-07-25",
+    });
+    const secondBody: WriteOffResponseBody = await second.json();
+    ctx.trackCreatedWriteOff(secondBody.id);
+
+    const voided = await request(`/api/write-off/${firstBody.id}/void`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({ reason: "entered in error" }),
+    });
+    expect(voided.status).toBe(200);
+
+    const rows = await db
+      .select({ status: obligation.status, writtenOffMinor: obligation.writtenOffMinor })
+      .from(obligation)
+      .where(eq(obligation.id, obligationId));
+    // 50,000 (both tranches) minus the 30,000 just voided — not reset to 0,
+    // and not left at 50,000 either.
+    expect(rows[0]).toMatchObject({ status: "part_paid", writtenOffMinor: 20_000n });
+
+    await ctx.cleanup();
+  });
+
   it("INV-15 — a later recovery nets against the write-off, recorded through an ordinary payment", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

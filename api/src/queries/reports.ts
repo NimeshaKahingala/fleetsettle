@@ -1001,7 +1001,9 @@ export async function listReceivables(db: ReadDb, businessId: string): Promise<R
       partyCustomerId: obligation.partyCustomerId,
       partyDriverId: obligation.partyDriverId,
       partyUserId: obligation.partyUserId,
-      outstandingMinor: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor})`,
+      // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+      // never "outstanding" here either.
+      outstandingMinor: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor} - ${obligation.writtenOffMinor})`,
       oldestDueOn: sql<string>`MIN(${obligation.effectiveDueOn})`,
     })
     .from(obligation)
@@ -1079,13 +1081,13 @@ export async function listAgeingBuckets(
             WHEN ${asOfDate}::date - effective_due_on <= 90 THEN 3
             ELSE 4
           END AS bucket_rank,
-          amount_minor - settled_minor - waived_minor AS outstanding
+          amount_minor - settled_minor - waived_minor - written_off_minor AS outstanding
         FROM obligation
         WHERE business_id = ${businessId}
           AND direction = 'owed_to_us'
           AND status IN ('pending', 'part_paid')
           AND voided_at IS NULL
-          AND amount_minor - settled_minor - waived_minor > 0
+          AND amount_minor - settled_minor - waived_minor - written_off_minor > 0
       ) aged
      GROUP BY party_type, party_id, bucket, bucket_rank
      ORDER BY party_type, party_id, bucket_rank

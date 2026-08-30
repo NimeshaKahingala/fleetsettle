@@ -126,12 +126,18 @@ async function allocateAgainstOldest(
   let remaining: bigint = amountMinor;
   for (const ob of obligations) {
     if (remaining <= 0n) break;
-    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+    // GAP-203/H-1/D2: a written-off portion is never collectible.
+    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
     if (outstanding <= 0n) continue;
 
     const take = remaining < outstanding ? remaining : outstanding;
     const newSettled = ob.settledMinor + take;
-    const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
+    const status = computeObligationStatus(
+      ob.amountMinor,
+      newSettled,
+      ob.waivedMinor,
+      ob.writtenOffMinor,
+    );
 
     await updateObligationSettled(tx, businessId, ob.id, { settledMinor: newSettled, status });
     await insertPaymentAllocation(tx, {

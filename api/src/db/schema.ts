@@ -466,6 +466,7 @@ export const obligation = pgTable("obligation", {
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   settledMinor: bigint("settled_minor", { mode: "bigint" }).notNull().default(0n),
   waivedMinor: bigint("waived_minor", { mode: "bigint" }).notNull().default(0n),
+  writtenOffMinor: bigint("written_off_minor", { mode: "bigint" }).notNull().default(0n), // GAP-203/H-1/D2, migration 0036
   dueOn: date("due_on", { mode: "string" }).notNull(),
   effectiveDueOn: date("effective_due_on", { mode: "string" }).notNull(),
   status: text("status").notNull().default("pending"),

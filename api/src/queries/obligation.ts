@@ -92,6 +92,7 @@ export interface ObligationRow {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036
   status: string;
 }
 
@@ -129,6 +130,7 @@ export async function findObligationBySource(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
       status: obligation.status,
     })
     .from(obligation)
@@ -179,6 +181,7 @@ export interface ObligationForAdjustment {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   voidedAt: string | null;
 }
@@ -205,6 +208,7 @@ export async function findObligationForBusiness(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
       status: obligation.status,
       voidedAt: obligation.voidedAt,
     })
@@ -224,6 +228,7 @@ export interface ObligationForDepositApply {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   voidedAt: string | null;
 }
@@ -256,6 +261,7 @@ export async function findObligationForDepositApply(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
       status: obligation.status,
       voidedAt: obligation.voidedAt,
     })
@@ -343,6 +349,27 @@ export async function applyAdjustmentToObligation(
   assertOneRow(rows, "applyAdjustmentToObligation", obligationId);
 }
 
+/**
+ * GAP-203/H-1/D2, migration 0036: `recordWriteOff`'s own write, mirroring
+ * `applyAdjustmentToObligation`'s shape exactly — `writtenOffMinor` is the
+ * obligation's new *total* written-off figure (this write-off's amount
+ * added to whatever was already there), never a delta, the same convention
+ * `waivedMinor` already uses.
+ */
+export async function applyWriteOffToObligation(
+  db: WriteDb,
+  businessId: string,
+  obligationId: string,
+  values: { writtenOffMinor: bigint; status: string },
+): Promise<void> {
+  const rows = await db
+    .update(obligation)
+    .set({ writtenOffMinor: values.writtenOffMinor, status: values.status })
+    .where(and(eq(obligation.id, obligationId), eq(obligation.businessId, businessId)))
+    .returning({ id: obligation.id });
+  assertOneRow(rows, "applyWriteOffToObligation", obligationId);
+}
+
 export interface OutstandingObligation {
   id: string;
   kind: string;
@@ -351,6 +378,7 @@ export interface OutstandingObligation {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036 — a partial write-off is still "outstanding" (status stays part_paid), but never collectible
 }
 
 /**
@@ -383,6 +411,7 @@ export async function findOutstandingObligationsForDriver(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
     })
     .from(obligation)
     .where(
@@ -434,6 +463,7 @@ export async function findOutstandingObligationsForParty(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
     })
     .from(obligation)
     .where(
@@ -498,6 +528,7 @@ export interface ObligationForVoid {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036
   status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   voidedAt: string | null;
 }
@@ -529,6 +560,7 @@ export async function findObligationForVoid(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
       status: obligation.status,
       voidedAt: obligation.voidedAt,
     })
@@ -673,7 +705,7 @@ export async function sumOutstandingByDirectionForDriver(
   const rows = await db
     .select({
       direction: obligation.direction,
-      outstanding: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor})`,
+      outstanding: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor} - ${obligation.writtenOffMinor})`,
     })
     .from(obligation)
     .where(
@@ -705,6 +737,7 @@ export interface LeaseObligationRow {
   amountMinor: bigint;
   settledMinor: bigint;
   waivedMinor: bigint;
+  writtenOffMinor: bigint; // GAP-203/H-1/D2, migration 0036
   status: string;
 }
 
@@ -782,6 +815,7 @@ export async function findObligationsForLease(
       amountMinor: obligation.amountMinor,
       settledMinor: obligation.settledMinor,
       waivedMinor: obligation.waivedMinor,
+      writtenOffMinor: obligation.writtenOffMinor,
       status: obligation.status,
     })
     .from(obligation)

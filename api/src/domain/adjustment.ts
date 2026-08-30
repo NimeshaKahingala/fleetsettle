@@ -93,13 +93,22 @@ export async function applyAdjustmentTx(
   if (newAmountMinor < 0n) {
     throw new ValidationError("This adjustment would take the amount owed below zero");
   }
-  if (ob.settledMinor + newWaivedMinor > newAmountMinor) {
+  // GAP-203/H-1/D2: written-off room counts against the same ceiling a
+  // waiver does — settled + waived + written-off can never exceed the
+  // amount, DM §10.1's own CHECK, checked here so a violation is a clean
+  // 400 rather than a raw constraint error reaching the generic handler.
+  if (ob.settledMinor + newWaivedMinor + ob.writtenOffMinor > newAmountMinor) {
     throw new ValidationError(
       "This adjustment would waive more than remains unsettled on this obligation",
     );
   }
 
-  const status = computeObligationStatus(newAmountMinor, ob.settledMinor, newWaivedMinor);
+  const status = computeObligationStatus(
+    newAmountMinor,
+    ob.settledMinor,
+    newWaivedMinor,
+    ob.writtenOffMinor,
+  );
 
   const linkage = await resolvePeriodLinkage(tx, input.businessId, input.occurredOn);
   if (!linkage) throw new PeriodClosedError("No accounting period covers this business date yet");
@@ -142,6 +151,7 @@ export async function applyAdjustmentTx(
       amountMinor: newAmountMinor,
       settledMinor: ob.settledMinor,
       waivedMinor: newWaivedMinor,
+      writtenOffMinor: ob.writtenOffMinor,
       status,
       voidedAt: null,
     },
@@ -203,7 +213,9 @@ export async function voidAdjustment(
       const newWaivedMinor = isWaiver ? ob.waivedMinor - adj.amountMinor : ob.waivedMinor;
 
       let newSettledMinor = ob.settledMinor;
-      const excess = newSettledMinor + newWaivedMinor - newAmountMinor;
+      // GAP-203/H-1/D2: written-off room counts against the same ceiling —
+      // see applyAdjustmentTx's identical comment.
+      const excess = newSettledMinor + newWaivedMinor + ob.writtenOffMinor - newAmountMinor;
       if (excess > 0n) {
         const unwound = await unwindObligationAllocations(
           tx,
@@ -223,7 +235,12 @@ export async function voidAdjustment(
         newSettledMinor -= unwound;
       }
 
-      const status = computeObligationStatus(newAmountMinor, newSettledMinor, newWaivedMinor);
+      const status = computeObligationStatus(
+        newAmountMinor,
+        newSettledMinor,
+        newWaivedMinor,
+        ob.writtenOffMinor,
+      );
       await reverseAdjustmentOnObligation(tx, input.businessId, adj.obligationId, {
         amountMinor: newAmountMinor,
         settledMinor: newSettledMinor,
@@ -245,6 +262,7 @@ export async function voidAdjustment(
           amountMinor: newAmountMinor,
           settledMinor: newSettledMinor,
           waivedMinor: newWaivedMinor,
+          writtenOffMinor: ob.writtenOffMinor,
           status,
           voidedAt: ob.voidedAt,
         },

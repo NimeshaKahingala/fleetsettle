@@ -57,7 +57,9 @@ export async function findOpenMoneyForParty(
     "owed_to_us",
   );
   const dueMinor = owedToUs.reduce(
-    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor),
+    // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+    // never "open money" a party is still holding against.
+    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor - o.writtenOffMinor),
     0n,
   );
   if (dueMinor > 0n) items.push({ kind: "due", amountMinor: dueMinor });
@@ -70,7 +72,9 @@ export async function findOpenMoneyForParty(
     "owed_by_us",
   );
   const payableMinor = owedByUs.reduce(
-    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor),
+    // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+    // never "open money" a party is still holding against.
+    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor - o.writtenOffMinor),
     0n,
   );
   if (payableMinor > 0n) items.push({ kind: "payable", amountMinor: payableMinor });

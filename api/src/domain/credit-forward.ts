@@ -44,7 +44,11 @@ import { computeObligationStatus } from "./obligation-status.js";
  */
 export interface CreditForwardResult {
   settledMinor: bigint;
-  status: "pending" | "part_paid" | "paid" | "waived";
+  // "written_off" is unreachable here in practice — every call site passes
+  // a brand-new obligation, never one carrying prior write-off history —
+  // but computeObligationStatus's return type is unconditional, not
+  // value-dependent, so this stays honest to it rather than narrowed by a cast.
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
 }
 
 export async function applyCreditForward(
