@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import {
@@ -6,6 +6,7 @@ import {
   incidentRecovery,
   lease as leaseTable,
   obligation,
+  payment,
 } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
@@ -558,6 +559,110 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       expect(res.status).toBe(409);
       const body: { code: string } = await res.json();
       expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-202/PR-2 — correcting a recovery amount for a customer carrying credit-forward leaves the older, unrelated payment active", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      // A 500,000 surplus, held as unapplied credit (GAP-5b/DM §10.2) — big
+      // enough to fund both contributions below with room to spare.
+      const paymentARes = await post("/api/payment", token, {
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "500000",
+        occurredOn: "2026-08-01",
+      });
+      expect(paymentARes.status).toBe(201);
+      const paymentA: { id: string } = await paymentARes.json();
+
+      const opened1 = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-08-05",
+      });
+      const { id: incident1Id }: { id: string } = await opened1.json();
+
+      // Agreeing draws 100,000 straight from paymentA's credit (GAP-5b) —
+      // the obligation is already settled before `receive` is ever called.
+      const agreed1 = await post(`/api/incident/${incident1Id}/customer-contribution`, token, {
+        agreedAmountMinor: "100000",
+        agreedOn: "2026-08-06",
+      });
+      expect(agreed1.status).toBe(201);
+      const contribution1: { id: string } = await agreed1.json();
+
+      // Re-recording the same amount exercises the reverse-then-repost path
+      // (GAP-12/W-61) against the allocation credit-forward already made.
+      // The bug this closes: the old code called `markPaymentReversed` on
+      // paymentA itself — the allocation's *parent* payment — not just the
+      // one allocation. paymentA still carries 400,000 of untouched credit
+      // that has nothing to do with this correction.
+      const corrected = await post(
+        `/api/incident/${incident1Id}/recovery/${contribution1.id}/receive`,
+        token,
+        { receivedAmountMinor: "100000", receivedOn: "2026-08-07" },
+      );
+      expect(corrected.status).toBe(200);
+
+      const [paymentARow] = await db
+        .select({ status: payment.status })
+        .from(payment)
+        .where(eq(payment.id, paymentA.id));
+      expect(paymentARow?.status).not.toBe("reversed");
+
+      // Proof by consequence, not just by reading the flag: a second,
+      // unrelated contribution must still be able to draw on paymentA's
+      // remaining credit. `applyCreditForward`'s own candidate query filters
+      // `status <> 'reversed'` (GAP-201/PR-1) — if paymentA had been wrongly
+      // reversed, this would settle to "pending" instead of "paid".
+      const opened2 = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-08-08",
+      });
+      const { id: incident2Id }: { id: string } = await opened2.json();
+
+      const agreed2 = await post(`/api/incident/${incident2Id}/customer-contribution`, token, {
+        agreedAmountMinor: "50000",
+        agreedOn: "2026-08-09",
+      });
+      expect(agreed2.status).toBe(201);
+      const contribution2: { id: string } = await agreed2.json();
+
+      const [ob2] = await db
+        .select({ settledMinor: obligation.settledMinor, status: obligation.status })
+        .from(obligation)
+        .where(eq(obligation.sourceId, contribution2.id));
+      expect(ob2).toEqual({ settledMinor: 50000n, status: "paid" });
+
+      // The correction above minted a fresh payment (the "repost" half of
+      // reverse-then-repost) — found by shape, since the handler never
+      // returns its id.
+      const [paymentBRow] = await db
+        .select({ id: payment.id })
+        .from(payment)
+        .where(and(eq(payment.partyCustomerId, customerId), eq(payment.amountMinor, 100000n)));
+      expect(paymentBRow?.id).toBeDefined();
+
+      // paymentA is shared across both incidents' credit-forward draws, so
+      // its own allocations (and the row itself) are unwound once, before
+      // either incident's teardown looks for allocations against its own
+      // obligations. Registered after both incidents, so payments unwind
+      // first (the same ordering `trackCreatedPayment`'s own doc comment
+      // requires).
+      ctx.trackCreatedIncident(incident1Id);
+      ctx.trackCreatedIncident(incident2Id);
+      ctx.trackCreatedPayment(paymentA.id);
+      if (paymentBRow) ctx.trackCreatedPayment(paymentBRow.id);
 
       await ctx.cleanup();
     });

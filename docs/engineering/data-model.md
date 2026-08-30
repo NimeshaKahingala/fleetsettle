@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.16 — **§4.4's `loan_payment` DDL brought back into line with migrations `0032`/`0033` (GAP-190), found validating an external evaluation against current code.** Three drifts closed: the doc's `amount_minor` CHECK still read `> 0`, two migrations behind — `0032` had already widened it to admit a zero settlement, and `0033` (new) tightens it again to block a *negative* one, which the widened form let through unintentionally. `expense_id`/`partner_payout_id` — the link a void cascades through — were in `0032` from the start but never made it into this document's DDL. And `replaces_id` had no partial unique index; `0033` gives it the one `0025` gave every other W-50 table seven migrations earlier, `loan_payment` not existing yet to receive it at the time. Decided 26 Aug 2026.
+**Status:** v1.1.17 — **§15's UC-75 `held_minor` query gains a `payment_id` provenance column on `incident_recovery` (GAP-202/H-4, migration `0035`) — and, folded into this entry rather than its own, the two terms GAP-201 (30 Aug 2026, PR #156) added to that same query's SQL block, which shipped without the version bump this document's own convention requires.** `payment_id` names the specific payment `recordRecoveryReceived` itself minted for a receipt, mirroring `write_off_recovery.payment_id`; nullable, since an insurer-sourced recovery and a credit-forward-settled one both mint none. Decided 30 Aug 2026.
+
+**v1.1.16** — **§4.4's `loan_payment` DDL brought back into line with migrations `0032`/`0033` (GAP-190), found validating an external evaluation against current code.** Three drifts closed: the doc's `amount_minor` CHECK still read `> 0`, two migrations behind — `0032` had already widened it to admit a zero settlement, and `0033` (new) tightens it again to block a *negative* one, which the widened form let through unintentionally. `expense_id`/`partner_payout_id` — the link a void cascades through — were in `0032` from the start but never made it into this document's DDL. And `replaces_id` had no partial unique index; `0033` gives it the one `0025` gave every other W-50 table seven migrations earlier, `loan_payment` not existing yet to receive it at the time. Decided 26 Aug 2026.
 
 **v1.1.15** — **GAP-188: UC-70's own late-fact query, alongside its two sum queries.** `belongs_to_period_id IS NOT NULL` is the whole predicate — the same four sources §15's `costs_minor` query already unions, one extra column, one extra filter. Decided 26 Aug 2026.
 
@@ -1046,6 +1048,7 @@ CREATE TABLE incident_recovery (
   agreed_amount_minor   bigint NOT NULL CHECK (agreed_amount_minor >= 0),
   received_amount_minor bigint NOT NULL DEFAULT 0,
   obligation_id         uuid,                     -- customer contributions become receivable
+  payment_id            uuid REFERENCES payment(id),  -- migration 0035, GAP-202/H-4
   note                  text,
   -- The month it was agreed and the month the money arrived are different
   -- months, and §7.2 reports both. One column cannot say both.
@@ -1059,6 +1062,8 @@ CREATE TABLE incident_recovery (
 ```
 
 `received_amount_minor` separate from `agreed_amount_minor` is what keeps §7.2's `60,000 pending recovery` visible in July and August without ever entering profit.
+
+**`payment_id`, added 30 August 2026 (GAP-202/H-4), is nullable and names the specific `payment` row `recordRecoveryReceived` itself minted for the current `received_amount_minor`** — mirroring `write_off_recovery.payment_id`. Null before any receipt, for every `source: 'insurer'` row (an insurer is never a `POST /api/payment` party), and for a customer receipt settled entirely through credit-forward (GAP-5b) rather than a fresh payment of its own. It exists for provenance only: a correction's own reverse-then-repost still unwinds every live `payment_allocation` on the obligation, not just this one column's payment, because a shared credit-forward payment funding this obligation must be unwound too, whichever row minted it.
 
 **And the two period columns are what let the report say *which* month.** `posted_period_id` is when the recovery was agreed and became expected; `received_period_id` is when the money actually landed, null until it does. §7.2's month-by-month table falls straight out:
 

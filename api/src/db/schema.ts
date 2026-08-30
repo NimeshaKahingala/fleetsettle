@@ -817,6 +817,7 @@ export const incidentRecovery = pgTable("incident_recovery", {
   agreedAmountMinor: bigint("agreed_amount_minor", { mode: "bigint" }).notNull(),
   receivedAmountMinor: bigint("received_amount_minor", { mode: "bigint" }).notNull().default(0n),
   obligationId: uuid("obligation_id"),
+  paymentId: uuid("payment_id"), // GAP-202/H-4, migration 0035
   note: text("note"),
   postedPeriodId: uuid("posted_period_id").notNull(),
   receivedPeriodId: uuid("received_period_id"),
