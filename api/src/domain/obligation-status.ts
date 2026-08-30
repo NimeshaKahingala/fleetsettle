@@ -27,3 +27,36 @@ export function computeObligationStatus(
   if (settledMinor > 0n || waivedMinor > 0n || writtenOffMinor > 0n) return "part_paid";
   return "pending";
 }
+
+export interface AllocationStep {
+  takeMinor: bigint;
+  newSettledMinor: bigint;
+  status: ReturnType<typeof computeObligationStatus>;
+}
+
+/**
+ * One step of the oldest-first allocation loop `payment.ts` and `offset.ts`
+ * both run (§6.5) — "how much of this specific obligation does the next
+ * chunk of money cover," identical in both because it is the same rule
+ * applied to two different money movements. `null` means this obligation has
+ * nothing left to take (already settled/waived/written off in full) — the
+ * caller's own `continue`.
+ */
+export function computeAllocationStep(
+  ob: { amountMinor: bigint; settledMinor: bigint; waivedMinor: bigint; writtenOffMinor: bigint },
+  remainingMinor: bigint,
+): AllocationStep | null {
+  // GAP-203/H-1/D2: a written-off portion is never collectible.
+  const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
+  if (outstanding <= 0n) return null;
+
+  const takeMinor = remainingMinor < outstanding ? remainingMinor : outstanding;
+  const newSettledMinor = ob.settledMinor + takeMinor;
+  const status = computeObligationStatus(
+    ob.amountMinor,
+    newSettledMinor,
+    ob.waivedMinor,
+    ob.writtenOffMinor,
+  );
+  return { takeMinor, newSettledMinor, status };
+}
