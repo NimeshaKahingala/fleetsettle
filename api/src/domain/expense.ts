@@ -85,6 +85,15 @@ export interface CreateExpenseInput {
   borneByDriverId?: string;
   borneByCustomerId?: string;
   paidByUserId: string;
+  /**
+   * GAP-207/NM-5: the real authenticated actor, distinct from `paidByUserId`
+   * — the manager entering the expense (`borne_by`'s `paid_by` half, W-48:
+   * whose pocket the cash came from) is not always the person who typed it
+   * in. `expense.created_by` is the audit fact "who entered this record"
+   * (F-8.6); collapsing it into `paidByUserId` let a record appear to have
+   * been entered by someone who never touched the request.
+   */
+  actorUserId: string;
   litres?: number;
   odometerReadingKm?: number;
   odometerSource?: OdometerSource;
@@ -186,7 +195,7 @@ export async function createExpense(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
-        createdBy: input.paidByUserId,
+        createdBy: input.actorUserId,
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
     });
