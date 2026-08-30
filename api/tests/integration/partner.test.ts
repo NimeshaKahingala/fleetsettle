@@ -54,6 +54,109 @@ describe("ownership shares (P7, F-1.3/UC-02)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-206/NM-1 — a buy-in that reduces an existing owner's share, not just replaces a disjoint set", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner1 = await mintUser(db, ctx, businessId, "owner");
+    const owner2 = await mintUser(db, ctx, businessId, "owner_manager");
+    const owner3 = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner1.asgardeoSub);
+
+    const first = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-01-01",
+      shares: [
+        { userId: owner1.userId, shareBp: 6000 },
+        { userId: owner2.userId, shareBp: 4000 },
+      ],
+    });
+    expect(first.status).toBe(201);
+    const firstBody: Array<{ id: string }> = await first.json();
+
+    // INV-16's own worked example: owner3 buys in, owner1 and owner2 both
+    // continue at reduced shares — both repeat (vehicle_id, user_id) pairs
+    // against their own still-open rows from the first call. Before
+    // GAP-206, this reached the generic handler as a raw 500 — the
+    // exclusion constraint has no application-level mapping until the prior
+    // open row is closed first.
+    const second = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-06-01",
+      shares: [
+        { userId: owner1.userId, shareBp: 4000 },
+        { userId: owner2.userId, shareBp: 4000 },
+        { userId: owner3.userId, shareBp: 2000 },
+      ],
+    });
+    expect(second.status).toBe(201);
+    const secondBody: Array<{ id: string; userId: string; shareBp: number }> = await second.json();
+    expect(secondBody).toHaveLength(3);
+    ctx.trackCreatedOwnershipShares([
+      ...firstBody.map((s) => s.id),
+      ...secondBody.map((s) => s.id),
+    ]);
+
+    const rows = await db
+      .select({
+        userId: ownershipShare.userId,
+        shareBp: ownershipShare.shareBp,
+        effectiveFrom: ownershipShare.effectiveFrom,
+        effectiveTo: ownershipShare.effectiveTo,
+      })
+      .from(ownershipShare)
+      .where(eq(ownershipShare.vehicleId, vehicleId));
+
+    // The first split's two rows both closed the day before the second
+    // split starts — not deleted (W-50), not left open.
+    const closed = rows.filter((r) => r.effectiveFrom === "2026-01-01");
+    expect(closed).toHaveLength(2);
+    for (const row of closed) {
+      expect(row.effectiveTo).toBe("2026-05-31");
+    }
+
+    // The second split's three rows are the live ones.
+    const open = rows.filter((r) => r.effectiveFrom === "2026-06-01");
+    expect(open).toHaveLength(3);
+    for (const row of open) {
+      expect(row.effectiveTo).toBeNull();
+    }
+    expect(open.find((r) => r.userId === owner1.userId)?.shareBp).toBe(4000);
+    expect(open.find((r) => r.userId === owner2.userId)?.shareBp).toBe(4000);
+    expect(open.find((r) => r.userId === owner3.userId)?.shareBp).toBe(2000);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — GAP-206/NM-1: effectiveFrom not after the current split's own start date", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const first = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-06-01",
+      shares: [{ userId: owner.userId, shareBp: 10000 }],
+    });
+    expect(first.status).toBe(201);
+    const firstBody: Array<{ id: string }> = await first.json();
+    ctx.trackCreatedOwnershipShares(firstBody.map((s) => s.id));
+
+    // Same date as the currently open split — would close it the day
+    // *before* it started (an inverted range the exclusion constraint has
+    // no opinion on), so this is refused before it ever reaches the write.
+    const second = await post("/api/ownership-share", token, {
+      vehicleId,
+      effectiveFrom: "2026-06-01",
+      shares: [{ userId: owner.userId, shareBp: 10000 }],
+    });
+    expect(second.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("400 — shares that do not total 100% (INV-16)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

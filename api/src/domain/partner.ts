@@ -1,4 +1,4 @@
-import { newId, splitInteger, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { addDays, newId, splitInteger, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Reader, Writer } from "../db/client.js";
 import {
   isExclusionViolation,
@@ -12,10 +12,12 @@ import {
   ManagementAgreementOverlapsError,
   NotFoundError,
   OwnershipSharesInvalidError,
+  OwnershipSharesOverlapError,
   PartnerPayoutAlreadyVoidedError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
+  ValidationError,
 } from "../errors/app-error.js";
 import {
   findOpenPeriodRow,
@@ -24,8 +26,10 @@ import {
 } from "../queries/accounting-period.js";
 import { sumOutOfPocketExpensesForUser } from "../queries/expense.js";
 import {
+  closeOpenOwnershipShares,
   findBankingEventForBusiness,
   findCapitalContributionForBusiness,
+  findOpenOwnershipShareEffectiveFroms,
   findPartnerPayoutForBusiness,
   insertBankingEvent,
   insertCapitalContribution,
@@ -64,6 +68,19 @@ export interface SetOwnershipSharesInput {
  * transaction, once all rows exist, which is exactly why a 60/40 split can
  * land as one legal multi-row change instead of rejecting the first row for
  * summing to less than 100% on its own.
+ *
+ * GAP-206/NM-1: a re-split closes every currently-open share for this
+ * vehicle first — the `changeDailyLeaseRate`/`changeVehicleArrangement`
+ * shape, which every other date-ranged table in this schema already uses.
+ * Before this, INV-16's own worked example ("last year's split changes when
+ * someone buys in") reached the generic handler as a raw 500: a continuing
+ * owner's new row shares `(vehicle_id, user_id)` with their own still-open
+ * old row, and `ownership_share_vehicle_id_user_id_daterange_excl`
+ * (`[effective_from, ∞)` against `[effective_from, ∞)`) always overlaps.
+ * `effectiveFrom` must land strictly after whatever was open — closing at a
+ * date *before* the open row's own start would write an inverted range
+ * (`effective_to < effective_from`) that the exclusion constraint has no
+ * opinion on, so it is checked here rather than left to fail silently.
  */
 export async function setOwnershipShares(
   writer: Writer,
@@ -81,9 +98,20 @@ export async function setOwnershipShares(
     // withActor (db/client.ts) only attributes writes inside a real
     // transaction — wrapped here for that reason as much as for the
     // deferred constraint trigger, which already needed one implicitly.
-    await writer.transaction((tx) => insertOwnershipShares(tx, rows));
+    await writer.transaction(async (tx) => {
+      const openFroms = await findOpenOwnershipShareEffectiveFroms(tx, input.vehicleId);
+      const latestOpenFrom = openFroms.reduce((max, from) => (from > max ? from : max), "");
+      if (openFroms.length > 0 && input.effectiveFrom <= latestOpenFrom) {
+        throw new ValidationError("effectiveFrom must be after the current split's own start date");
+      }
+      await closeOpenOwnershipShares(tx, input.vehicleId, addDays(input.effectiveFrom, -1));
+      await insertOwnershipShares(tx, rows);
+    });
   } catch (err) {
     if (isSharesNotFullViolation(err)) throw new OwnershipSharesInvalidError();
+    if (isExclusionViolation(err, "ownership_share_vehicle_id_user_id_daterange_excl")) {
+      throw new OwnershipSharesOverlapError();
+    }
     throw err;
   }
 

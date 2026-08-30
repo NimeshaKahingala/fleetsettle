@@ -63,6 +63,50 @@ export async function insertOwnershipShares(
   await db.insert(ownershipShare).values(values);
 }
 
+/**
+ * GAP-206/NM-1: the effective-from dates of whatever is currently open for
+ * this vehicle — read *before* `closeOpenOwnershipShares` below, never
+ * after. Closing first and checking second would let a too-early
+ * `effectiveFrom` reach the `UPDATE` regardless: `daterange(effective_from,
+ * effective_to, '[]')` throws its own raw error the moment `effective_to`
+ * lands before `effective_from`, so the check has to happen before that
+ * write is even attempted, not be left to catch what it produces.
+ */
+export async function findOpenOwnershipShareEffectiveFroms(
+  db: ReadDb,
+  vehicleId: string,
+): Promise<string[]> {
+  const rows = await db
+    .select({ effectiveFrom: ownershipShare.effectiveFrom })
+    .from(ownershipShare)
+    .where(and(eq(ownershipShare.vehicleId, vehicleId), isNull(ownershipShare.effectiveTo)));
+  return rows.map((r) => r.effectiveFrom);
+}
+
+/**
+ * GAP-206/NM-1: a re-split closes every currently-open share for this
+ * vehicle — the same "close the open row(s), then insert the new set"
+ * shape `endDailyLeaseRateRow` already uses for `daily_lease_rate`, applied
+ * here across however many owners this vehicle has, not just one. An owner
+ * continuing at a new percentage, an owner buying in for the first time, and
+ * an owner selling out entirely are the same write from this table's own
+ * point of view: whatever was open for this vehicle ends the day before the
+ * new split starts, unconditionally — the incoming rows are what say who
+ * continues and at what share, not this UPDATE. The caller must already
+ * have checked `effectiveTo` (via `findOpenOwnershipShareEffectiveFroms`
+ * above) is not before any open row's own `effectiveFrom`.
+ */
+export async function closeOpenOwnershipShares(
+  db: WriteDb,
+  vehicleId: string,
+  effectiveTo: string,
+): Promise<void> {
+  await db
+    .update(ownershipShare)
+    .set({ effectiveTo })
+    .where(and(eq(ownershipShare.vehicleId, vehicleId), isNull(ownershipShare.effectiveTo)));
+}
+
 export interface OwnershipShareRow {
   id: string;
   vehicleId: string;
