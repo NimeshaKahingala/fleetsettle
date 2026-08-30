@@ -35,6 +35,26 @@ async function postExpense(token: string, body: unknown) {
   return post("/api/expense", token, body);
 }
 
+/**
+ * A business with a vehicle, a customer, an active lease between them, and
+ * a manager's own token — the fixture GAP-202's own credit-forward test
+ * needs before it can do anything specific.
+ */
+async function setupBusinessWithCustomerLease(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const [vehicleId, customerId] = await Promise.all([
+    ctx.createVehicle(businessId),
+    ctx.createCustomer(businessId),
+  ]);
+  const [leaseId, owner] = await Promise.all([
+    ctx.createLease(businessId, vehicleId, customerId),
+    mintUser(db, ctx, businessId, "manager"),
+  ]);
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, vehicleId, customerId, leaseId, token };
+}
+
 /** F-3.4/UC-12/W-9/W-10/W-11 test matrix, and §7.2's golden fixture (G-2). */
 describe("incident (P8, F-3.4/UC-12)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -565,13 +585,10 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("GAP-202/PR-2 — correcting a recovery amount for a customer carrying credit-forward leaves the older, unrelated payment active", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
+      const { vehicleId, customerId, leaseId, token } = await setupBusinessWithCustomerLease(
+        ctx,
+        db,
+      );
 
       // A 500,000 surplus, held as unapplied credit (GAP-5b/DM §10.2) — big
       // enough to fund both contributions below with room to spare.
