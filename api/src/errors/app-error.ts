@@ -399,6 +399,20 @@ export class PartyArchivedError extends AppError {
   }
 }
 
+// GAP-204/H-2/D3 (decided 30 Aug 2026: refuse, require the prior treatment be
+// voided first): recordOffRoad had no guard against being called twice on
+// the same incident — a second 'credit_days' silently applied a second
+// adjustment against the same billing period, and a second 'extend' pushed
+// the lease's end date out again on top of the first.
+export class OffRoadTreatmentAlreadyRecordedError extends AppError {
+  constructor(
+    message = "This incident already has a rent treatment recorded — void it first, then " +
+      "record the new one",
+  ) {
+    super(409, "OFF_ROAD_TREATMENT_ALREADY_RECORDED", message);
+  }
+}
+
 // GAP-178/B19: a second live recovery against the same (incident, source).
 // Migration 0031's unique index is the enforcement; before it, a re-submitted
 // form or a manager re-entering a revised figure without voiding the first

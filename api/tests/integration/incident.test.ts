@@ -55,6 +55,92 @@ async function setupBusinessWithCustomerLease(ctx: TestContext, db: ReturnType<t
   return { businessId, vehicleId, customerId, leaseId, token };
 }
 
+/**
+ * GAP-204: shared by every 'credit_days' off-road test (the happy path and
+ * the repeat-refusal test both need the identical billing-period/obligation
+ * fixture) — SonarCloud flagged the two as duplicated new code once the
+ * second existed, so this is that setup named once rather than repeated.
+ */
+async function setupCreditDaysIncident(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  const periodId = await ctx.createOpenPeriod(businessId, {
+    periodStart: "2026-07-01",
+    periodEnd: "2026-07-31",
+  });
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+    status: "active",
+    rentAmountMinor: 31_000n,
+  });
+  const billingPeriodId = await ctx.createBillingPeriod(leaseId, {
+    periodStart: "2026-07-01",
+    periodEnd: "2026-07-31",
+    rentAmountMinor: 31_000n,
+  });
+  // Minted before the obligation it will later be `created_by` on —
+  // `ctx.cleanup()` unwinds most-recently-tracked first, so the user's own
+  // teardown must be registered before anything that will reference it via
+  // a FK, or its DELETE runs first and violates that FK.
+  const owner = await mintUser(db, ctx, businessId, "manager");
+  const token = await signAccessToken(owner.asgardeoSub);
+  const obligationId = await ctx.createObligation(businessId, periodId, {
+    direction: "owed_to_us",
+    partyType: "customer",
+    customerId,
+    // GAP-196: a real billing_period obligation is always kind "rent"
+    // (domain/billing-period.ts's own insertObligation call) — this
+    // fixture omitted it and fell through to the factory's generic
+    // "other" default, which findObligationBySource now correctly
+    // refuses to match once it requires kind/direction rather than
+    // source alone. The fixture was unrealistic, not the new check.
+    kind: "rent",
+    amountMinor: 31_000n,
+    dueOn: "2026-07-01",
+    sourceType: "billing_period",
+    sourceId: billingPeriodId,
+  });
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  return { obligationId, incidentId, token };
+}
+
+/**
+ * GAP-204: shared by every 'extend' off-road test — same reasoning as
+ * `setupCreditDaysIncident` above.
+ */
+async function setupExtendIncident(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+    status: "active",
+    endDate: "2026-12-31",
+  });
+  const owner = await mintUser(db, ctx, businessId, "manager");
+  const token = await signAccessToken(owner.asgardeoSub);
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  return { leaseId, incidentId, token };
+}
+
 /** F-3.4/UC-12/W-9/W-10/W-11 test matrix, and §7.2's golden fixture (G-2). */
 describe("incident (P8, F-3.4/UC-12)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -189,53 +275,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("'credit_days' — a pro-rata rent discount against the billing period's own obligation", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      const periodId = await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-07-01",
-        periodEnd: "2026-07-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        rentAmountMinor: 31_000n,
-      });
-      const billingPeriodId = await ctx.createBillingPeriod(leaseId, {
-        periodStart: "2026-07-01",
-        periodEnd: "2026-07-31",
-        rentAmountMinor: 31_000n,
-      });
-      // Minted before the obligation it will later be `created_by` on —
-      // `ctx.cleanup()` unwinds most-recently-tracked first, so the user's
-      // own teardown must be registered before anything that will reference
-      // it via a FK, or its DELETE runs first and violates that FK.
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-      const obligationId = await ctx.createObligation(businessId, periodId, {
-        direction: "owed_to_us",
-        partyType: "customer",
-        customerId,
-        // GAP-196: a real billing_period obligation is always kind "rent"
-        // (domain/billing-period.ts's own insertObligation call) — this
-        // fixture omitted it and fell through to the factory's generic
-        // "other" default, which findObligationBySource now correctly
-        // refuses to match once it requires kind/direction rather than
-        // source alone. The fixture was unrealistic, not the new check.
-        kind: "rent",
-        amountMinor: 31_000n,
-        dueOn: "2026-07-01",
-        sourceType: "billing_period",
-        sourceId: billingPeriodId,
-      });
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { obligationId, incidentId, token } = await setupCreditDaysIncident(ctx, db);
 
       // 10 off-road days of a 31-day July: 31,000 * 10/31 = 10,000 (largest-remainder).
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
@@ -258,25 +298,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("'extend' — pushes the lease's end date out and records why (D-7)", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        endDate: "2026-12-31",
-      });
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
 
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
         offRoadFrom: "2026-07-08",
@@ -287,6 +309,64 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const body: { leaseExtensionId?: string } = await res.json();
       expect(body.leaseExtensionId).toBeDefined();
 
+      const [leaseRow] = await db.select().from(leaseTable).where(eq(leaseTable.id, leaseId));
+      expect(leaseRow?.endDate).toBe("2027-01-12");
+
+      await ctx.cleanup();
+    });
+
+    it("409 — GAP-204/H-2/D3: a second 'credit_days' against the same incident is refused, not double-applied", async () => {
+      const ctx = new TestContext(db);
+      const { obligationId, incidentId, token } = await setupCreditDaysIncident(ctx, db);
+
+      const first = await post(`/api/incident/${incidentId}/off-road`, token, {
+        offRoadFrom: "2026-07-01",
+        offRoadTo: "2026-07-10",
+        rentTreatment: "credit_days",
+      });
+      expect(first.status).toBe(200);
+
+      const second = await post(`/api/incident/${incidentId}/off-road`, token, {
+        offRoadFrom: "2026-07-01",
+        offRoadTo: "2026-07-10",
+        rentTreatment: "credit_days",
+      });
+      expect(second.status).toBe(409);
+      const secondBody: { code: string } = await second.json();
+      expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
+
+      // Credited once (10,000), not twice (20,000) — the obligation still
+      // reads 21,000, exactly as the single-application test asserts.
+      const obligationRows = await db
+        .select()
+        .from(obligation)
+        .where(eq(obligation.id, obligationId));
+      expect(obligationRows[0]?.amountMinor).toBe(21_000n);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — GAP-204/H-2/D3: a second 'extend' against the same incident is refused, not double-applied", async () => {
+      const ctx = new TestContext(db);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
+
+      const first = await post(`/api/incident/${incidentId}/off-road`, token, {
+        offRoadFrom: "2026-07-08",
+        offRoadTo: "2026-07-19",
+        rentTreatment: "extend",
+      });
+      expect(first.status).toBe(200);
+
+      const second = await post(`/api/incident/${incidentId}/off-road`, token, {
+        offRoadFrom: "2026-07-08",
+        offRoadTo: "2026-07-19",
+        rentTreatment: "extend",
+      });
+      expect(second.status).toBe(409);
+      const secondBody: { code: string } = await second.json();
+      expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
+
+      // Pushed once (12 days, to 2027-01-12), not twice (24 days).
       const [leaseRow] = await db.select().from(leaseTable).where(eq(leaseTable.id, leaseId));
       expect(leaseRow?.endDate).toBe("2027-01-12");
 

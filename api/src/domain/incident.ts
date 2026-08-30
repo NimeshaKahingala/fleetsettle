@@ -12,6 +12,7 @@ import {
   IncidentRecoveryAlreadyVoidedError,
   InsuranceClaimAlreadyExistsError,
   NotFoundError,
+  OffRoadTreatmentAlreadyRecordedError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
@@ -111,6 +112,20 @@ export interface RecordedOffRoad {
  * split) against the billing period's own rent obligation. `extend` pushes
  * `lease.end_date` out and records why (D-7) — the added days' own mileage
  * allowance follows automatically the next time F-2.3 runs, no recalculation.
+ *
+ * GAP-204/H-2/D3 (decided 30 Aug 2026): refuses a second call while a live
+ * treatment already exists — `rent_treatment` was written every time this
+ * ran but never read back, so a second `credit_days` silently applied a
+ * second adjustment against the same billing period, and a second `extend`
+ * pushed the lease's end date out again on top of the first. `continue` sets
+ * nothing live (the safe default, above) and never blocks a real choice
+ * afterward; only `credit_days`/`extend` — the two with an actual financial
+ * or lease-date effect — do. W-61's "undo what you did, in the order you
+ * did it" governs: `credit_days` undoes through the existing `voidAdjustment`
+ * path (F-2.4); `extend` has no void path in this schema at all yet
+ * (`lease_extension` carries no `voided_at` trio, GAP-190's own W-50 sweep
+ * never reached it) — refusing is still strictly better than a second
+ * push nobody can see was ever applied twice.
  */
 export async function recordOffRoad(
   writer: Writer,
@@ -119,6 +134,20 @@ export async function recordOffRoad(
   return writer.transaction(async (tx) => {
     const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId);
     if (!existing) throw new NotFoundError("No such incident in this business");
+
+    if (existing.rentTreatment === "credit_days") {
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already has a rent-credit adjustment recorded for its off-road window " +
+          "— void that adjustment first (F-2.4), then record the new one",
+      );
+    }
+    if (existing.rentTreatment === "extend") {
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already extended the lease's end date for its off-road window, and " +
+          "reversing an extension is not supported yet — contact support before recording a " +
+          "different treatment",
+      );
+    }
 
     await updateIncidentOffRoad(tx, input.incidentId, {
       offRoadFrom: input.offRoadFrom,
