@@ -1,6 +1,8 @@
 import { addDays, businessToday } from "@fleetsettle/shared";
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { expense } from "../../src/db/schema.js";
 import { findOdometerReadingForBusiness } from "../../src/queries/odometer-reading.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
@@ -70,6 +72,60 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
       paidByUserId: owner.userId,
     });
     ctx.trackCreatedExpense(body.id);
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-207/NM-5 — createdBy records who actually entered the expense, not who paidByUserId names", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const partner = await mintUser(db, ctx, businessId, "owner_manager");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // The owner enters this expense, but names the partner as who actually
+    // paid out of pocket (W-48's paid_by half) — a routine "he covered it"
+    // entry, not a misattribution. Before GAP-207, domain/expense.ts wrote
+    // `created_by: input.paidByUserId`, so the audit trail would have
+    // recorded this as the *partner's* own entry — someone who never
+    // touched the request.
+    const res = await postExpense(token, {
+      category: "office",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      paidByUserId: partner.userId,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; paidByUserId: string } = await res.json();
+    expect(body.paidByUserId).toBe(partner.userId);
+    ctx.trackCreatedExpense(body.id);
+
+    const [row] = await db
+      .select({ createdBy: expense.createdBy, paidByUserId: expense.paidByUserId })
+      .from(expense)
+      .where(eq(expense.id, body.id));
+    expect(row).toMatchObject({ createdBy: owner.userId, paidByUserId: partner.userId });
+
+    await ctx.cleanup();
+  });
+
+  it("404 — GAP-207/NM-5: paidByUserId names someone who is not an active member of this business", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const otherBusinessId = await ctx.createBusiness({ name: "Someone Else's Fleet" });
+    const outsider = await mintUser(db, ctx, otherBusinessId, "owner");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "office",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      paidByUserId: outsider.userId,
+    });
+    expect(res.status).toBe(404);
 
     await ctx.cleanup();
   });
