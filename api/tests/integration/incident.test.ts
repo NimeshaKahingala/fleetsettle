@@ -114,8 +114,10 @@ async function setupCreditDaysIncident(ctx: TestContext, db: ReturnType<typeof w
 }
 
 /**
- * GAP-204: shared by every 'extend' off-road test — same reasoning as
- * `setupCreditDaysIncident` above.
+ * GAP-204: an incident whose lease has a real end date to push — every
+ * 'extend' off-road test needs it, and so does 'continue' (the two share
+ * the identical fixture; only the rentTreatment each submits differs), same
+ * reasoning as `setupCreditDaysIncident` above.
  */
 async function setupExtendIncident(ctx: TestContext, db: ReturnType<typeof writer>) {
   const businessId = await ctx.createBusiness();
@@ -236,25 +238,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   describe("record off-road and rent treatment (step 2/W-9)", () => {
     it("'continue' — the default, safe path: no lease touched", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        endDate: "2026-12-31",
-      });
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
 
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
         offRoadFrom: "2026-07-08",
