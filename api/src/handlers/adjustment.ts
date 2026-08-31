@@ -46,6 +46,10 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
     requireCapability(c, "dailyOperations");
   }
 
+  // M-8, 31 Aug 2026: the client's own occurredOn, when given — a waiver
+  // agreed in the past and entered today (U-8: any record can be entered
+  // for a past date) must window into the month it was actually given, not
+  // the month it was typed in.
   const today = businessToday(requireBusinessTimezone(c));
 
   const result = await applyAdjustment(c.get("writer"), {
@@ -55,7 +59,7 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
     amountMinor: body.amountMinor,
     sign: body.sign,
     ...(body.reason !== undefined ? { reason: body.reason } : {}),
-    occurredOn: today,
+    occurredOn: body.occurredOn ?? today,
     userId,
     ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });

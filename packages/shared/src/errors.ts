@@ -105,6 +105,11 @@ export const ERROR_CODES = [
   // N5 (evaluation, GAP-190): archiving a vehicle refuses while an open loan
   // still finances it.
   "VEHICLE_HAS_OPEN_LOAN",
+  // M-10, 31 Aug 2026: a second `taken` deposit while one is already `held`
+  // — closer to DM §10.4's one-deposit-per-party-per-lease shape than
+  // summing across two rows, and the actual bug it closes: the driver's own
+  // statement only ever showed the newest of the two.
+  "DRIVER_ALREADY_HOLDING_DEPOSIT",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

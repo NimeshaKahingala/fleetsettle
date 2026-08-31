@@ -3,6 +3,7 @@ import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   DepositMovementAlreadyVoidedError,
+  DriverAlreadyHoldingDepositError,
   NotFoundError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
@@ -13,6 +14,7 @@ import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   findDepositForBusiness,
   findDepositMovementForBusiness,
+  findHeldDepositForDriver,
   findNewestLiveTerminalMovement,
   insertDeposit,
   insertDepositMovement,
@@ -70,6 +72,12 @@ export async function takeDriverDeposit(
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      // M-10, 31 Aug 2026: migration 0038's own partial unique index —
+      // idempotency lives in the constraint, this only gives the violation
+      // a friendly name (CLAUDE.md → Writes).
+      if (isUniqueViolation(err, "deposit_one_held_per_driver")) {
+        throw new DriverAlreadyHoldingDepositError();
+      }
       throw err;
     }
 
