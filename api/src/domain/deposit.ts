@@ -14,7 +14,6 @@ import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   findDepositForBusiness,
   findDepositMovementForBusiness,
-  findHeldDepositForDriver,
   findNewestLiveTerminalMovement,
   insertDeposit,
   insertDepositMovement,
