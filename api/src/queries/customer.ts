@@ -79,25 +79,48 @@ export async function findCustomerForBusiness(
  * (mapped to `PartyAlreadyArchivedError` by the caller) rather than a
  * clobber.
  */
+/**
+ * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — `setVehicleLifecycle`'s
+ * own PR #144 fix (Copilot review), applied to this table's sibling.
+ * `archiveCustomer`'s own `FOR UPDATE` lock and `assertArchivable` check
+ * already run first, so this closes no live route — it makes the write
+ * itself assert tenancy too, not trust the caller's earlier check alone.
+ */
 export async function archiveCustomerRow(
   db: WriteDb,
+  businessId: string,
   customerId: string,
   values: { voidedReason: string; voidedBy: string },
 ): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(customer)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(and(eq(customer.id, customerId), isNull(customer.voidedAt)))
+    .where(
+      and(
+        eq(customer.id, customerId),
+        eq(customer.businessId, businessId),
+        isNull(customer.voidedAt),
+      ),
+    )
     .returning({ voidedAt: customer.voidedAt });
   return rows[0] as { voidedAt: string } | undefined;
 }
 
-/** F-1.11's "Unarchive" alternate: nothing about his history changed while he was gone, so there is nothing else to touch. */
-export async function unarchiveCustomerRow(db: WriteDb, customerId: string): Promise<void> {
+/**
+ * F-1.11's "Unarchive" alternate: nothing about his history changed while
+ * he was gone, so there is nothing else to touch.
+ *
+ * NL-2, 31 Aug 2026: same `businessId` fix as `archiveCustomerRow` above.
+ */
+export async function unarchiveCustomerRow(
+  db: WriteDb,
+  businessId: string,
+  customerId: string,
+): Promise<void> {
   await db
     .update(customer)
     .set({ voidedAt: null, voidedReason: null, voidedBy: null })
-    .where(eq(customer.id, customerId));
+    .where(and(eq(customer.id, customerId), eq(customer.businessId, businessId)));
 }
 
 export async function listCustomersForBusiness(

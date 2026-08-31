@@ -66,9 +66,23 @@ export async function findLeaseForBusiness(
   return rows[0] as LeaseRow | undefined;
 }
 
-/** F-2.5/UC-17: old periods keep their old figure (already frozen onto `billing_period` at generation time) — this only changes what the *next* generated period picks up. */
+/**
+ * F-2.5/UC-17: old periods keep their old figure (already frozen onto
+ * `billing_period` at generation time) — this only changes what the
+ * *next* generated period picks up.
+ *
+ * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — defence in depth,
+ * matching the pattern PR #144 already established for this class
+ * (`changeVehicleArrangement`/`changeVehicleServiceInterval`/`archiveDriverRow`/
+ * `unarchiveCustomerRow`, all of which PR #144 left as `.where(eq(id, …))`
+ * alone). Every caller already resolves the lease through
+ * `findLeaseForBusiness` first, so this closes no live route — it makes a
+ * write that already cannot cross a tenant boundary say so in its own
+ * `WHERE` clause too, rather than trusting the caller silently.
+ */
 export async function updateLeaseTerms(
   db: WriteDb,
+  businessId: string,
   leaseId: string,
   values: {
     rentAmountMinor: bigint;
@@ -87,7 +101,7 @@ export async function updateLeaseTerms(
         ? { mileageExcessRateMinor: values.mileageExcessRateMinor }
         : {}),
     })
-    .where(eq(lease.id, leaseId));
+    .where(and(eq(lease.id, leaseId), eq(lease.businessId, businessId)));
 }
 
 /** F-3.4/UC-12/D-7: rent_treatment='extend' pushes the term out — the `lease_extension` row is the audit trail for why; this is the plain field update it accompanies. */
