@@ -53,8 +53,12 @@ function formatShortDate(date: string): string {
   }).format(new Date(`${date}T00:00:00Z`));
 }
 
+/** GAP-203/H-1/D2: see `LeaseHubScreen`'s own copy — a partial write-off is gone from outstanding just as a waiver is, and this figure feeds the customer's total. */
 function outstandingMinor(due: LeaseObligationRow): Minor {
-  return (BigInt(due.amountMinor) - BigInt(due.settledMinor) - BigInt(due.waivedMinor)) as Minor;
+  return (BigInt(due.amountMinor) -
+    BigInt(due.settledMinor) -
+    BigInt(due.waivedMinor) -
+    BigInt(due.writtenOffMinor)) as Minor;
 }
 
 function totalOutstandingMinor(dues: LeaseObligationRow[]): Minor {
