@@ -216,6 +216,17 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     expect(period2Res.status).toBe(201);
     expect(await period2Res.json()).toMatchObject({ seq: 2, daysCount: 28, allowanceKm: 2800 });
 
+    // Period 3 (12 Mar–11 Apr, 31 days, allowance 3,100) — generated *before*
+    // the 12 Mar reading below, which is the order production actually
+    // produces: `rollDueBillingPeriods` fires when `latestPeriodEnd < today`,
+    // so on the morning period 2 ends, period 3 already exists with
+    // `period_start = 2026-03-12`. Generating it after the reading (as this
+    // test first did) is the one ordering under which the `period_start`
+    // upper bound looks correct, which is exactly why it hid the bug.
+    const period3Res = await postBillingPeriod(token, leaseId);
+    expect(period3Res.status).toBe(201);
+    expect(await period3Res.json()).toMatchObject({ seq: 3, daysCount: 31, allowanceKm: 3100 });
+
     // GAP-205/H-3: the bug itself. Reading on time for period 2 (12 Mar),
     // but `previous.readOn` (14 Feb) is two days *inside* period 1's own
     // range, not exactly on period 2's 12 Feb start. The old predicate
@@ -225,6 +236,14 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     // yet," even though period 2 itself was never touched by the late
     // reading before it. 2,900 driven against 2,800 allowed is 100 over,
     // 2,500 charged — period 2 alone, not combined with period 1.
+    //
+    // This is also the under-billing guard (review, 31 Aug 2026): period 3
+    // exists by now and starts on this very date, so a `period_start <=
+    // toDate` upper bound would sweep it in and report
+    // `combinedAllowanceKm: 5900` (2,800 + 3,100), `excessKm: 0` and
+    // nothing charged at all — a full period's allowance granted a month
+    // early, and then counted again when period 3 is really closed below.
+    // The bound is on `period_end`, so 3,100 stays out until 11 Apr.
     const assess2 = await postOdometerReading(token, {
       leaseId,
       readingKm: 3000 + 2900,
@@ -242,10 +261,12 @@ describe("mileage assessment (P5, F-2.3/UC-14) — G-3 reproduces exactly", () =
     });
     expect(body2.splits).toEqual([]);
 
-    // Period 3 (12 Mar–11 Apr, 31 days, allowance 3,100).
-    const period3Res = await postBillingPeriod(token, leaseId);
-    expect(period3Res.status).toBe(201);
-    expect(await period3Res.json()).toMatchObject({ seq: 3, daysCount: 31, allowanceKm: 3100 });
+    // Period 4 (12 Apr–11 May, 30 days, allowance 3,000), again generated
+    // before the reading that closes period 3 — same cron ordering, so the
+    // guard is proven twice rather than once.
+    const period4Res = await postBillingPeriod(token, leaseId);
+    expect(period4Res.status).toBe(201);
+    expect(await period4Res.json()).toMatchObject({ seq: 4, daysCount: 30, allowanceKm: 3000 });
 
     // Proof period 2 was not left re-selectable: if the overlap predicate's
     // lower bound were inclusive (`>=` instead of the strict `>`), period 2
