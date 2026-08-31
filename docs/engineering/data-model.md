@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.18 — **§10.1's `obligation` gains `written_off_minor` (GAP-203/H-1/D2, migration `0036`), and every read that computes "what remains outstanding" now subtracts it the same way it already subtracts `waived_minor`.** A partial write-off ("he'll never pay the last bit," UC-90) used to discard its own remainder with no row recording it, since `recordWriteOff` flipped `status` to `written_off` unconditionally regardless of the amount given. `written_off_minor` mirrors `waived_minor` exactly — a running total, not a delta — and `computeObligationStatus` takes it as a fourth, default-0 argument so no pre-existing caller's behaviour changed. §15's UC-74/UC-78/UC-56 queries, `queries/obligation.ts`'s outstanding reads, `domain/party-archive.ts`'s open-money check and `domain/lease-closure.ts`'s unpaid summary all gain the term. Decided 30 Aug 2026.
+**Status:** v1.1.19 — **§15's UC-70 earned/costs queries move to net basis (M-1, after D1).** `earned_minor` now subtracts `waived_minor` and gains `customer_contribution`/the insurer settlement; `costs_minor` gains `write_off`. Both were already in UC-99's own export before this fix and neither reached the report — the exact drift D1 exists to close. UC-70's earned query is written out in full for the first time; it was never given its own SQL block, an omission rather than a design choice. Golden G-1 (`134,000`) reproduces unmoved — it carries neither a waiver nor an incident. Decided 31 Aug 2026.
+
+**v1.1.18** — **§10.1's `obligation` gains `written_off_minor` (GAP-203/H-1/D2, migration `0036`), and every read that computes "what remains outstanding" now subtracts it the same way it already subtracts `waived_minor`.** A partial write-off ("he'll never pay the last bit," UC-90) used to discard its own remainder with no row recording it, since `recordWriteOff` flipped `status` to `written_off` unconditionally regardless of the amount given. `written_off_minor` mirrors `waived_minor` exactly — a running total, not a delta — and `computeObligationStatus` takes it as a fourth, default-0 argument so no pre-existing caller's behaviour changed. §15's UC-74/UC-78/UC-56 queries, `queries/obligation.ts`'s outstanding reads, `domain/party-archive.ts`'s open-money check and `domain/lease-closure.ts`'s unpaid summary all gain the term. Decided 30 Aug 2026.
 
 **v1.1.17** — **§15's UC-75 `held_minor` query gains a `payment_id` provenance column on `incident_recovery` (GAP-202/H-4, migration `0035`) — and, folded into this entry rather than its own, the two terms GAP-201 (30 Aug 2026, PR #156) added to that same query's SQL block, which shipped without the version bump this document's own convention requires.** `payment_id` names the specific payment `recordRecoveryReceived` itself minted for a receipt, mirroring `write_off_recovery.payment_id`; nullable, since an insurer-sourced recovery and a credit-forward-settled one both mint none. Decided 30 Aug 2026.
 
@@ -2081,7 +2083,7 @@ SELECT d.id, d.name, SUM(a.amount_minor) AS outstanding_minor
 
 `banked`'s destination groups are exactly `banking_event.destination` (`text NOT NULL`) — no enum, no lookup table, because F-7.4 never asked for one: destinations are free text a manager types once and reuses.
 
-**UC-70 what a vehicle cost this month — the query most likely to be written wrong**
+**UC-70 what a vehicle earned and cost this month — the queries most likely to be written wrong**
 
 A month's costs are **not** `SELECT SUM(amount_minor) FROM expense`. A charter's driver fee is money owed to a person, so it lives on `obligation`, and a cost query that reads only the expense table under-reports every month containing a trip by exactly that fee. In §7.1 that is 9,000 of a 46,000 total — the month would read 9,000 more profitable than it was.
 
@@ -2096,10 +2098,43 @@ SELECT COALESCE(SUM(amount_minor), 0) AS costs_minor
      WHERE vehicle_id = $1 AND posted_period_id = $2
        AND direction = 'owed_by_us' AND kind IN ('driver_fee','management_fee')
        AND voided_at IS NULL                            -- W-53
+    UNION ALL
+    SELECT amount_minor FROM write_off                  -- M-1/D1, 31 Aug 2026
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND voided_at IS NULL
   ) c;
 ```
 
-Verified against G-1: `37,000` of expenses + `9,000` of driver fee = **`46,000`**, giving `180,000 − 46,000 = 134,000`.
+**M-1/D1, 31 Aug 2026: `write_off` joins the union.** A write-off is a loss you were handed (W-28), never netted against the obligation that earned it — booked as its own cost, in the period it was written off, the same "separate line" reasoning UC-99's own export already applied (§16.1) before this cost query caught up to it. Before this fix a written-off receivable looked fully collected here and abandoned only in the year's export — the two could never reconcile.
+
+Verified against G-1 (no write-off in that fixture, so unmoved): `37,000` of expenses + `9,000` of driver fee = **`46,000`**.
+
+**The earned half was never given its own SQL block here — an omission, not a design choice, found resolving M-1.** It is the mirror of the costs query above, `direction = 'owed_to_us'`, and — **M-1/D1, 31 Aug 2026: net, not gross** — subtracts `waived_minor`, the way §15's UC-74/UC-56/UC-78 queries already subtract it from *outstanding*. A waiver is a discount decision on what was ever really collectible (FL §5.73), not income this report should count and then never receive.
+
+```sql
+SELECT COALESCE(SUM(amount_minor), 0) AS earned_minor
+  FROM (
+    SELECT amount_minor - waived_minor AS amount_minor FROM obligation
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND direction = 'owed_to_us'
+       AND kind IN ('rent','daily_amount','mileage_excess','customer_contribution')
+       AND voided_at IS NULL
+    UNION ALL
+    SELECT agreed_amount_minor FROM trip
+     WHERE vehicle_id = $1 AND posted_period_id = $2 AND status = 'closed'
+    UNION ALL
+    SELECT ic.received_amount_minor FROM insurance_claim ic
+      JOIN incident i ON i.id = ic.incident_id
+     WHERE i.vehicle_id = $1 AND ic.received_period_id = $2
+       AND ic.received_amount_minor > 0
+  ) e;
+```
+
+`customer_contribution` (GAP-175, the customer half of an incident recovery) and the insurer settlement (recognised on `received_on`/`received_period_id`, never on the date claimed — W-11: expected money is not earned money) were both already in UC-99's own export before this fix, and neither reached this query — the exact drift D1 exists to close. `insurance_claim` carries no `vehicle_id` of its own; the incident it belongs to does, hence the join.
+
+Verified against a scratch scenario (not G-1, which carries neither a waiver nor an incident): a 50,000 rent obligation with a 10,000 waiver reads `earned_minor = 40,000`, and an 8,000 customer contribution plus a 12,000 insurer settlement both reach `earned_minor` for the first time.
+
+Giving G-1's own `180,000 − 46,000 = 134,000`, unmoved — none of G-1's obligations carry a waiver, and G-1 has no incident, no write-off.
 
 **UC-70's late-fact lines — GAP-188, F-8.1's aggregate half**
 

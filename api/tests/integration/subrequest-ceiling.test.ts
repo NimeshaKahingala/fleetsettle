@@ -18,9 +18,20 @@ const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}`
  * gap batched `getVehicleMonthReport`'s per-vehicle loop and made
  * `sumAllTimeEarnedForUser` flat in period count instead of looping
  * `getVehicleMonthReport` once per accounting period. This is that
- * measurement turned into a standing regression guard — 35, deliberately
- * well under 50, because staying on the Free plan (the recorded decision)
- * means there is no margin to absorb a miss.
+ * measurement turned into a standing regression guard — deliberately well
+ * under 50, because staying on the Free plan (the recorded decision) means
+ * there is no margin to absorb a miss.
+ *
+ * **M-1/D1, 31 Aug 2026: 35 → 40.** Net earned/costs (GAP-211) added two
+ * genuinely new sources — the insurer settlement and `write_off` — each
+ * queried once for `getVehicleMonthReport`'s own period and once for
+ * `sumAllTimeEarnedForUser`'s all-time loop, four new round trips in this
+ * fixture's own six-period shape. Measured at 37 with those four in place;
+ * 40 keeps the same "comfortable margin, not the wire" reasoning the
+ * original 35 used, rather than chasing every last round trip into a
+ * hand-rolled `UNION ALL` whose own risk (a raw-SQL join replacing a typed
+ * query builder one) would cost more correctness than four subrequests are
+ * worth, 13 short of the real ceiling.
  */
 describe("GAP-145: subrequest ceiling on the report/summary endpoints", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -69,7 +80,7 @@ describe("GAP-145: subrequest ceiling on the report/summary endpoints", () => {
     );
 
     expect(res.status).toBe(200);
-    expect(count).toBeLessThan(35);
+    expect(count).toBeLessThan(40);
 
     await ctx.cleanup();
   });
