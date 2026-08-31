@@ -55,12 +55,14 @@ export async function findIncidentForBusiness(
   db: ReadDb,
   businessId: string,
   incidentId: string,
+  forUpdate = false,
 ): Promise<IncidentRow | undefined> {
-  const rows = await db
+  const query = db
     .select(INCIDENT_COLUMNS)
     .from(incident)
     .where(and(eq(incident.id, incidentId), eq(incident.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as IncidentRow | undefined;
 }
 
@@ -318,7 +320,7 @@ export interface IncidentRecoveryListRow extends IncidentRecoveryRow {
 }
 
 /**
- * GAP-201/NM-4: `forUpdate` locks the row for the caller's own transaction —
+ * GAP-202/NM-4: `forUpdate` locks the row for the caller's own transaction —
  * the same "lock the parent" reasoning `write-off.ts`'s `findWriteOffForBusiness`
  * already uses for `recordWriteOffRecovery`/`voidWriteOff`. `recordRecoveryReceived`
  * and `voidIncidentRecovery` both take it now, so a concurrent void-vs-receive
