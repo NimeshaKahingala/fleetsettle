@@ -19,13 +19,24 @@ const INVALID_DATETIME_FORMAT = "22008";
 
 /**
  * GAP-178/B13. Migration 0031's archive guard raises this instead of the
- * default `P0001`, so the matcher below keys on the code alone.
+ * default `P0001`, so the matcher below keys on the code alone — the fix
+ * B18 (below) recommends for every `P0001` raiser, taken here because a
+ * dedicated code was cheap to add for a brand-new trigger.
  *
- * Every other raiser in this schema shares `P0001` and is told apart by
- * substring-matching its message — four of them, filed as B18 in this same
- * step because a migration rewording a message silently breaks the mapping.
- * A fifth would have widened the defect while pinning it. `FS0` is not a
- * class PostgreSQL defines, so nothing else can claim this code.
+ * `FS0` is not a class PostgreSQL defines, so nothing else can claim this
+ * code.
+ *
+ * **B18 is still open, not fixed by this one exception.** `isPeriodClosedViolation`/
+ * `isSharesNotFullViolation`/`isBusinessHasNoOwnerViolation`/
+ * `isPlatformHasNoAdminViolation` (below) all still share the generic
+ * `P0001` and are told apart only by substring-matching their own trigger's
+ * fixed message text — a migration that rewords any one of those four
+ * messages silently breaks its matcher, and the violation then falls
+ * through as an unmapped 500 with no compiler or test to say so at the
+ * point of the edit. Recorded here rather than fixed as a side effect of
+ * this file's own neighbourhood being touched: giving each an `FS00x`
+ * `ERRCODE` the way `FS001` does is the real fix, and is its own change,
+ * not a comment correction's job.
  */
 const PARTY_ARCHIVED = "FS001";
 
