@@ -21,6 +21,21 @@ function get(path: string, token: string) {
   return request(path, bearer(token));
 }
 
+/**
+ * A business with an open accounting period, one driver, and an owner's
+ * token — the fixture every advance/deposit/offset test here opens with.
+ * Extracted 31 Aug 2026: the block appeared nine times, so SonarCloud flags
+ * the tenth copy a new test adds.
+ */
+async function setupDriverFixture(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, driverId, owner, token };
+}
+
 describe("driver advances (P4, F-6.3/UC-53)", () => {
   const db = writer(TEST_DATABASE_URL);
   afterAll(async () => {
@@ -29,11 +44,7 @@ describe("driver advances (P4, F-6.3/UC-53)", () => {
 
   it("happy path — issue, part-settle, then settle in full: the advance closes at zero", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -66,11 +77,7 @@ describe("driver advances (P4, F-6.3/UC-53)", () => {
 
   it("400 — settling more than the advance's original amount", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -133,11 +140,7 @@ describe("GET /api/advance/{id}/settlement (GAP-147)", () => {
 
   it("happy path — every settlement against this advance, newest first", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -191,11 +194,7 @@ describe("GET /api/advance/{id}/settlement (GAP-147)", () => {
 
   it("a voided settlement stays in the list, struck through with its reason (W-50)", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -281,11 +280,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("happy path — take, top up, then refund in full: the balance is the SUM of movements", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -318,11 +313,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("M-10 — a second 'taken' deposit while one is already held is refused, directing the manager to the top-up movement", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const first = await post("/api/deposit", token, {
       driverId,
@@ -359,11 +350,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("400 — a movement that would draw the deposit below zero", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -385,11 +372,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("400 — a movement against a deposit that is no longer held", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -486,11 +469,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("400 — applied with no obligationId", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
