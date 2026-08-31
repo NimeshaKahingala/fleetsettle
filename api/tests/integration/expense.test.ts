@@ -76,37 +76,34 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
     await ctx.cleanup();
   });
 
-  it("M-9 — 400 for a spentOn in the future, a year typo away from a report that would never show it", async () => {
+  // M-9 and NL-1 are two ways of writing a date that cannot be right, and
+  // both must be refused at the edge rather than stored. Table-driven
+  // rather than two near-identical `it` blocks: same endpoint, same
+  // assertion, one field differing — which SonarCloud correctly reads as
+  // duplication when it is written out twice.
+  it("M-9/NL-1 — 400 for a spentOn in the future, or one that is not a real calendar day", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
-    // 2062 for 2026 — the exact one-keypress typo the finding names.
-    const res = await postExpense(token, {
-      category: "office",
-      amountMinor: "50000",
-      spentOn: "2062-07-15",
-    });
-    expect(res.status).toBe(400);
+    const cases = [
+      // 2062 for 2026 — the exact one-keypress typo M-9 names, a year away
+      // from any report that would ever surface it.
+      { spentOn: "2062-07-15", why: "M-9: a future date" },
+      // Matches YYYY-MM-DD and passes the regex, but February has no 30th.
+      { spentOn: "2026-02-30", why: "NL-1: not a real calendar day" },
+    ];
 
-    await ctx.cleanup();
-  });
-
-  it("NL-1 — 400 for a spentOn that matches YYYY-MM-DD but is not a real calendar day", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const res = await postExpense(token, {
-      category: "office",
-      amountMinor: "50000",
-      spentOn: "2026-02-30",
-    });
-    expect(res.status).toBe(400);
+    for (const { spentOn, why } of cases) {
+      const res = await postExpense(token, {
+        category: "office",
+        amountMinor: "50000",
+        spentOn,
+      });
+      expect(res.status, why).toBe(400);
+    }
 
     await ctx.cleanup();
   });
