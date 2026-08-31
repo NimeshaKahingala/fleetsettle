@@ -1240,11 +1240,17 @@ export async function sumPartnerPayoutsForBusiness(
   db: ReadDb,
   businessId: string,
 ): Promise<bigint> {
+  // Summed in Postgres, not JS (TS §7's bounded-CPU rule, the same reason
+  // `sumEarnedForVehicleMonth` above aggregates rather than reducing): a
+  // business's `partner_payout` rows only ever accumulate, and this report
+  // is read on every home screen. `COALESCE(…, 0)` is load-bearing — `SUM()`
+  // over zero rows is NULL, and a business that has never paid a partner out
+  // must read `0n` here, not blow up on a null.
   const rows = await db
-    .select({ amountMinor: partnerPayout.amountMinor })
+    .select({ total: sql<string>`COALESCE(SUM(${partnerPayout.amountMinor}), 0)` })
     .from(partnerPayout)
     .where(and(eq(partnerPayout.businessId, businessId), isNull(partnerPayout.voidedAt)));
-  return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
+  return BigInt(rows[0]?.total ?? 0);
 }
 
 /** GAP-70/DM §15: the same `banking_event` rows `listPartnerCashPositions` already subtracts, regrouped by destination — no enum, `destination` is free text a manager types once and reuses (F-7.4). */
