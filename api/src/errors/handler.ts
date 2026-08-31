@@ -1,5 +1,5 @@
 import type { ErrorHandler } from "hono";
-import type { ErrorBody } from "@fleetsettle/shared";
+import { WireFormatError, type ErrorBody } from "@fleetsettle/shared";
 import type { Env } from "../types.js";
 import { isInvalidDateViolation, isPartyArchivedViolation } from "../db/pg-error.js";
 import { AppError, PartyArchivedError, ValidationError } from "./app-error.js";
@@ -33,23 +33,33 @@ export const errorHandler: ErrorHandler<Env> = (err, c) => {
   // depth for a calendar-invalid date reaching Postgres by some path other
   // than `asBusinessDate`, which already rejects one at the schema layer.
   //
-  // L-1/NL-1, 31 Aug 2026: `TypeError` is thrown in exactly two places in
-  // this codebase, both here on purpose (checked, not assumed — a grep
-  // found no third) — `money.ts`'s `parse()` and `dates.ts`'s
-  // `asBusinessDate()`, both "not a valid wire value" signals. Most
-  // callers reach these through a zod schema first (`moneyWireSchema`/
-  // `businessDateSchema`), where a bad value never gets this far — but
-  // several handlers call `asBusinessDate(body.someField)` directly on a
-  // field typed as a bare string, with no zod-level shape+calendar check
-  // in front of it (`expense.spentOn`, `advance.issuedOn`, several others).
-  // For those, this `TypeError` was the *only* signal a bad date ever
-  // produced, and it reached here as an ordinary uncaught exception — a
-  // 500, not the 400 both codecs' own messages already describe.
+  // L-1/NL-1, 31 Aug 2026: `WireFormatError` is "this string is not a valid
+  // wire value", thrown by `money.ts`'s `parse()` and `dates.ts`'s
+  // `asBusinessDate()` and by nothing else. Most callers reach those through
+  // a zod schema first (`moneyWireSchema`/`businessDateSchema`), where a bad
+  // value never gets this far — but several handlers call
+  // `asBusinessDate(body.someField)` directly on a field typed as a bare
+  // string, with no zod-level shape+calendar check in front of it
+  // (`expense.spentOn`, `advance.issuedOn`, several others). For those this
+  // is the only signal a bad date ever produces, and it would otherwise
+  // reach here as an uncaught exception — a 500, not the 400 both codecs'
+  // own messages already describe.
+  //
+  // Narrowed from a bare `err instanceof TypeError` after review (both
+  // Copilot and claude[bot] on PR #170, and they were right). That version
+  // was justified by a grep finding no third `throw new TypeError`, which is
+  // true and beside the point: the engine raises `TypeError` itself for a
+  // whole family of ordinary bugs nobody writes as a `throw` — a null deref,
+  // mixing BigInt with Number, `JSON.stringify` on a bigint a handler forgot
+  // to `toWire`. Every one of those would have been reported to the caller
+  // as a 400 with the raw internal message, logged at `warn`, and stripped
+  // of its stack (only attached at `error`, below) — a real server bug
+  // dressed up as the user's own typo. See `wire-format-error.ts`.
   const mapped = isPartyArchivedViolation(err)
     ? new PartyArchivedError()
     : isInvalidDateViolation(err)
       ? new ValidationError("Not a valid calendar date")
-      : err instanceof TypeError
+      : err instanceof WireFormatError
         ? new ValidationError(err.message)
         : err;
   const appError = mapped instanceof AppError ? mapped : undefined;
