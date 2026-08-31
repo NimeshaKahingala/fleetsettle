@@ -55,6 +55,34 @@ async function startLease(
 }
 
 /**
+ * The arrangement-A lease every closure test starts from: a full-year
+ * accounting period (a closure generates and truncates billing periods, so
+ * it needs room either side), a vehicle set to arrangement A, a customer, an
+ * owner's token, and the lease itself already started and tracked.
+ *
+ * Extracted 31 Aug 2026 — this exact block appeared nine times in this file,
+ * which SonarCloud flags the moment a tenth is added by a new test. One copy
+ * now, and the tests below say what they are actually about.
+ */
+async function setupClosableLease(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId, {
+    periodStart: "2026-01-01",
+    periodEnd: "2026-12-31",
+  });
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+
+  const started = await startLease(token, vehicleId, customerId);
+  ctx.trackCreatedLease(started.id);
+
+  return { businessId, vehicleId, customerId, started, token };
+}
+
+/**
  * F-2.6/UC-16 "Close the lease" — a Phase 1 flow discovered unbuilt while
  * wiring P13's deposit-releases read (TRACKER.md): nothing set a deposit to
  * `hold_window` because nothing ever closed a lease. Tests exercise the
@@ -105,19 +133,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
   describe("POST /{id}/close — steps 1-3", () => {
     it("'days_used': prorates the rent, truncates the period's own allowance, and assesses final mileage", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       // Jan 12 .. Feb 11 is the natural 31-day period; closing on Jan 21 is
       // 10 days used, so 3,100,000 / 31 = 100,000 per day — no rounding
@@ -174,19 +190,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("M-3 — 'days_used' books its pro-rata reduction as agreed_discount, never goodwill, so UC-77's annual goodwill total is not inflated by an ordinary closure", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       const res = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
@@ -210,19 +214,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("'full': charges the full period even though it truncates the mileage allowance to days used", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       const res = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
@@ -239,19 +231,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("'agreed': the obligation becomes exactly the agreed figure, recorded as an agreed_discount adjustment", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       const res = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
@@ -268,19 +248,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("400 — a lease already stopped cannot be closed a second time", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       const first = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
@@ -351,19 +319,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
   describe("GET /{id}/closure-summary — step 4/INV-18", () => {
     it("lists every unpaid amount this customer owes plus any open incident", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { vehicleId, started, token } = await setupClosableLease(ctx, db);
 
       const closeRes = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
@@ -622,19 +578,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("404 — no deposit was ever taken on this lease", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
       const closeRes = await post(`/api/lease/${started.id}/close`, token, {
         closingDate: "2026-01-21",
         finalPeriodMode: "full",
@@ -654,19 +598,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
   describe("POST /{id}/close-out — step 7", () => {
     it("marks the lease closed and frees its own future occupancy, keeping days up to and including the closing date", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { businessId, vehicleId, started, token } = await setupClosableLease(ctx, db);
 
       // Simulate P13's cron having already materialised the rolling calendar.
       await ctx.createVehicleDayAllocation(businessId, vehicleId, "2026-01-20", "A", started.id);
@@ -720,19 +652,7 @@ describe("close a lease (F-2.6/UC-16)", () => {
 
     it("400 — a lease that was never stopped cannot be closed out", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-01-01",
-        periodEnd: "2026-12-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const started = await startLease(token, vehicleId, customerId);
-      ctx.trackCreatedLease(started.id);
+      const { started, token } = await setupClosableLease(ctx, db);
 
       const res = await post(`/api/lease/${started.id}/close-out`, token);
       expect(res.status).toBe(400);
