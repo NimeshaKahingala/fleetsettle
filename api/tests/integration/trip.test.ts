@@ -1661,6 +1661,87 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
     await ctx.cleanup();
   });
 
+  it("L-5 — a driver-borne fuel fill never counts toward kmPerLitre, the same way it's already excluded from costs", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const customerId = await ctx.createCustomer(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      customerId,
+      driverId,
+      startDate: "2026-07-29",
+      endDate: "2026-07-31",
+      agreedAmountMinor: "6000000",
+      driverFeeMinor: "900000",
+      openingOdometerKm: 10000,
+      openingOdometerSource: "in_person",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    // The business's own fill — 35 litres, exactly §7.1's charter figure.
+    const usFuel = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "2200000",
+      spentOn: "2026-07-31",
+      borneBy: "us",
+      litres: 35,
+    });
+    expect(usFuel.status).toBe(201);
+    const usFuelBody: { id: string } = await usFuel.json();
+    ctx.trackCreatedExpense(usFuelBody.id);
+
+    // The driver's own fill, out of his own pocket — real litres burned,
+    // but not this business's fuel (UC-72/W-20: "only fuel you bought").
+    // Before this fix these litres were summed into the trip's own total
+    // regardless, understating km/l by counting distance against fuel
+    // nobody here paid for.
+    const driverFuel = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-31",
+      borneBy: "driver",
+      borneByDriverId: driverId,
+      litres: 8,
+    });
+    expect(driverFuel.status).toBe(201);
+    const driverFuelBody: { id: string } = await driverFuel.json();
+    ctx.trackCreatedExpense(driverFuelBody.id);
+
+    const closed = await postCloseTrip(token, tripBody.id, {
+      closingDate: "2026-07-31",
+      closingOdometerKm: 10350,
+      closingOdometerSource: "in_person",
+    });
+    expect(closed.status).toBe(200);
+    const closedBody: {
+      costsMinor: string;
+      litres: number | null;
+      kmPerLitre: number | null;
+    } = await closed.json();
+    // Costs were already right before this fix (sumTripCostsByCategory
+    // already filtered borne_by = 'us') — 2,200,000, not 2,700,000.
+    expect(closedBody.costsMinor).toBe("2200000");
+    // litres/km-per-l is the actual fix: 35, not 43 — the driver's own 8
+    // litres never reach either figure.
+    expect(closedBody.litres).toBe(35);
+    expect(closedBody.kmPerLitre).toBe(10);
+
+    await ctx.cleanup();
+  });
+
   it("INV-17 — will not close while an advance against the trip is unreconciled", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
