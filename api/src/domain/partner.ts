@@ -99,7 +99,23 @@ export async function setOwnershipShares(
     // transaction — wrapped here for that reason as much as for the
     // deferred constraint trigger, which already needed one implicitly.
     await writer.transaction(async (tx) => {
-      const openFroms = await findOpenOwnershipShareEffectiveFroms(tx, input.vehicleId);
+      // GAP-206/NM-1, review 31 Aug 2026: `FOR UPDATE` on the open rows.
+      // `closeOpenOwnershipShares` below updates "whatever is currently
+      // open", so the set this check validates against and the set that
+      // UPDATE touches must be the same one. Unlocked, a concurrent re-split
+      // can insert a *later* split between the two, and this UPDATE then
+      // sets `effective_to` to a date before that row's own `effective_from`
+      // — an inverted daterange, which Postgres rejects as a raw 500 rather
+      // than the 400/409 this function is careful to map everything else to.
+      //
+      // A first-ever split locks nothing here (there are no open rows to
+      // lock), which is fine: two concurrent first splits are caught by the
+      // `ownership_share_vehicle_id_user_id_daterange_excl` exclusion
+      // constraint when they name the same owner, and by the deferred
+      // `assert_shares_total` trigger when they name different ones — both
+      // already mapped below. The inverted-range case is the one that needed
+      // serialising, and it can only arise when open rows exist.
+      const openFroms = await findOpenOwnershipShareEffectiveFroms(tx, input.vehicleId, true);
       const latestOpenFrom = openFroms.reduce((max, from) => (from > max ? from : max), "");
       if (openFroms.length > 0 && input.effectiveFrom <= latestOpenFrom) {
         throw new ValidationError("effectiveFrom must be after the current split's own start date");
