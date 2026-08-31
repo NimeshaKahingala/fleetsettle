@@ -8,6 +8,7 @@
  * years from now, in a conversation about a figure nobody can reproduce.
  */
 import { splitInteger } from "./split.js";
+import { WireFormatError } from "./wire-format-error.js";
 
 /** Whole minor units — LKR cents. Branded so a bare bigint cannot pass for one. */
 export type Minor = bigint & { readonly __minor: unique symbol };
@@ -53,7 +54,7 @@ const WIRE = /^(?!-0+$)-?\d+$/;
  */
 export function parse(wire: string): Minor {
   if (!WIRE.test(wire)) {
-    throw new TypeError(`Not a money value: ${JSON.stringify(wire)}`);
+    throw new WireFormatError(`Not a money value: ${JSON.stringify(wire)}`);
   }
   return brand(BigInt(wire));
 }

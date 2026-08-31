@@ -142,6 +142,7 @@ export const listCustomerObligationsHandler: RouteHandler<
       amountMinor: toWire(row.amountMinor as Minor),
       settledMinor: toWire(row.settledMinor as Minor),
       waivedMinor: toWire(row.waivedMinor as Minor),
+      writtenOffMinor: toWire(row.writtenOffMinor as Minor),
       status: computeObligationStatus(
         row.amountMinor,
         row.settledMinor,

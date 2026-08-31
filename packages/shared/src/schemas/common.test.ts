@@ -12,7 +12,7 @@ describe("moneyWireSchema", () => {
     expect(moneyWireSchema.safeParse("abc").success).toBe(false);
   });
 
-  it("L-1 — rejects '-0' (and '-00') as a clean 400, not a TypeError escaping the transform", () => {
+  it("L-1 — rejects '-0' (and '-00') as a failed parse, never by throwing out of the transform", () => {
     for (const bad of ["-0", "-00", "-000"]) {
       const result = moneyWireSchema.safeParse(bad);
       expect(result.success).toBe(false);

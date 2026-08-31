@@ -236,6 +236,7 @@ export const listLeaseObligationsHandler: RouteHandler<
       amountMinor: toWire(row.amountMinor as Minor),
       settledMinor: toWire(row.settledMinor as Minor),
       waivedMinor: toWire(row.waivedMinor as Minor),
+      writtenOffMinor: toWire(row.writtenOffMinor as Minor),
       status: row.status as "pending" | "part_paid" | "paid" | "waived" | "written_off",
     })),
     200,

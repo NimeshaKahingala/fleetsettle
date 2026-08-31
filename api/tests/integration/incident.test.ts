@@ -859,7 +859,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     // April: the accident, the extension, the first repair invoice, and the
     // insurance claim — all submitted while April is still open.
-    const julyPeriodId = await ctx.createOpenPeriod(businessId, {
+    const aprilPeriodId = await ctx.createOpenPeriod(businessId, {
       periodStart: "2026-04-01",
       periodEnd: "2026-04-30",
     });
@@ -931,7 +931,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     expect(claim.status).toBe(201);
     const claimBody: { id: string } = await claim.json();
 
-    await ctx.closePeriod(julyPeriodId);
+    await ctx.closePeriod(aprilPeriodId);
 
     // May: the second repair invoice (parts), and the customer's
     // contribution — agreed and paid in the same month.
@@ -981,8 +981,8 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       .select()
       .from(accountingPeriod)
       .where(eq(accountingPeriod.businessId, businessId));
-    const augustPeriodId = periodsSoFar.find((p) => p.periodStart === "2026-05-01")!.id;
-    await ctx.closePeriod(augustPeriodId);
+    const mayPeriodId = periodsSoFar.find((p) => p.periodStart === "2026-05-01")!.id;
+    await ctx.closePeriod(mayPeriodId);
 
     // June: the insurer settles.
     await ctx.createOpenPeriod(businessId, { periodStart: "2026-06-01", periodEnd: "2026-06-30" });
@@ -1021,17 +1021,17 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       .select()
       .from(accountingPeriod)
       .where(eq(accountingPeriod.businessId, businessId));
-    const septemberPeriodId = allPeriods.find((p) => p.periodStart === "2026-06-01")!.id;
+    const junePeriodId = allPeriods.find((p) => p.periodStart === "2026-06-01")!.id;
 
     const insurerRow = recoveryRows.find((r) => r.source === "insurer")!;
-    expect(insurerRow.postedPeriodId).toBe(julyPeriodId);
-    expect(insurerRow.receivedPeriodId).toBe(septemberPeriodId);
+    expect(insurerRow.postedPeriodId).toBe(aprilPeriodId);
+    expect(insurerRow.receivedPeriodId).toBe(junePeriodId);
     expect(insurerRow.agreedAmountMinor).toBe(60_000n);
     expect(insurerRow.receivedAmountMinor).toBe(60_000n);
 
     const customerRow = recoveryRows.find((r) => r.source === "customer")!;
-    expect(customerRow.postedPeriodId).toBe(augustPeriodId);
-    expect(customerRow.receivedPeriodId).toBe(augustPeriodId);
+    expect(customerRow.postedPeriodId).toBe(mayPeriodId);
+    expect(customerRow.receivedPeriodId).toBe(mayPeriodId);
 
     // GAP-59: expense.incident_id now carries a real composite FK, so the
     // two repair expenses must be tracked (and so unwound) after the

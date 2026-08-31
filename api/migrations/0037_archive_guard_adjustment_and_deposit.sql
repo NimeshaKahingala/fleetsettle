@@ -51,12 +51,23 @@ BEGIN
   END IF;
 
   archived := NULL;
+  -- FOR SHARE, and no voided_at filter in the WHERE — migration 0034's own
+  -- correction to assert_party_not_archived(), which this function has to
+  -- match rather than merely resemble. Filtering on status here means a
+  -- still-active party (the common case) matches no rows, and a SELECT that
+  -- returns no rows locks nothing: the archive-vs-insert race 0034 exists to
+  -- close would be wide open again for exactly the tables this migration is
+  -- adding. Lock the party row regardless of its status, then read the
+  -- status off the locked row. Shared locks don't conflict with each other,
+  -- so two ordinary adjustments against the same active party never block;
+  -- only the FOR UPDATE an archive takes (domain/party-archive.ts) forces
+  -- either side to wait.
   IF ob.party_type = 'driver' AND ob.party_driver_id IS NOT NULL THEN
-    SELECT true INTO archived FROM driver d
-      WHERE d.id = ob.party_driver_id AND d.voided_at IS NOT NULL;
+    SELECT (d.voided_at IS NOT NULL) INTO archived FROM driver d
+      WHERE d.id = ob.party_driver_id FOR SHARE;
   ELSIF ob.party_type = 'customer' AND ob.party_customer_id IS NOT NULL THEN
-    SELECT true INTO archived FROM customer c
-      WHERE c.id = ob.party_customer_id AND c.voided_at IS NOT NULL;
+    SELECT (c.voided_at IS NOT NULL) INTO archived FROM customer c
+      WHERE c.id = ob.party_customer_id FOR SHARE;
   END IF;
 
   IF archived THEN
