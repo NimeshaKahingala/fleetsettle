@@ -185,17 +185,26 @@ describe("reports (P11)", () => {
       // (a separate, already-filed gap) — the handler pins every adjustment
       // to the business's own today, never the obligation's own `dueOn`.
       const today = businessToday();
-      const exportRes = await getReport(
-        `/export?from=${today.slice(0, 4)}-01-01&to=${today.slice(0, 4)}-12-31`,
-        token,
-      );
+      // The window is derived from both dates rather than from the current
+      // year, which is what this used to do. The rent line is pinned to the
+      // 2026 fixture while the waiver lands on the business's own today, so
+      // a `${year}-01-01`..`${year}-12-31` window silently stops covering the
+      // rent line the moment the clock leaves 2026 — a test that would have
+      // started failing on a date, with nothing about it having changed.
+      const RENT_DUE_ON = "2026-07-05";
+      const from = today < RENT_DUE_ON ? today : RENT_DUE_ON;
+      const to = today > RENT_DUE_ON ? today : RENT_DUE_ON;
+      const exportRes = await getReport(`/export?from=${from}&to=${to}`, token);
       expect(exportRes.status).toBe(200);
       const lines = (await exportRes.text()).trim().split("\r\n");
       // Both facts visible (F-2.4's own acceptance line: "the month shows the
       // 340 charged and the 340 waived") — the charge is never silently
       // reduced in place.
-      expect(lines).toContain("2026-07-05,D-4444,Rent,In,500.00,");
-      expect(lines).toContain(`${today},D-4444,Waiver,Out,100.00,`);
+      expect(lines).toContain(`${RENT_DUE_ON},D-4444,Rent,In,500.00,`);
+      // Matched by shape, not by an exact date prefix: the waiver's own date
+      // is whatever `businessToday()` returned inside the handler, and
+      // pinning it here would also make this assertion race midnight.
+      expect(lines.some((l) => l.endsWith(",D-4444,Waiver,Out,100.00,"))).toBe(true);
 
       await ctx.cleanup();
     });
