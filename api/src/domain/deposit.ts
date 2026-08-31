@@ -272,6 +272,7 @@ export async function recordDepositMovement(
 
 export interface VoidDepositMovementInput {
   businessId: string;
+  depositId: string;
   movementId: string;
   reason: string;
   userId: string;
@@ -312,6 +313,14 @@ export async function voidDepositMovement(
       const movement = await findDepositMovementForBusiness(tx, input.businessId, input.movementId);
       if (!movement) throw new NotFoundError("No such deposit movement in this business");
       if (movement.voidedAt !== null) throw new DepositMovementAlreadyVoidedError();
+
+      // NL-5: the URL's own parent segment (`/{id}/movement/{movementId}/void`)
+      // is otherwise decorative — `findDepositMovementForBusiness` only
+      // scopes by business, so a movement belonging to a different deposit
+      // would still be voided if this check were skipped.
+      if (movement.depositId !== input.depositId) {
+        throw new NotFoundError("No such deposit movement in this business");
+      }
 
       // GAP-178/B10: same parent lock, same order as `recordDepositMovementTx`
       // — voiding a movement changes the held balance a concurrent draw is

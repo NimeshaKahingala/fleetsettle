@@ -225,11 +225,12 @@ export const voidWriteOffRecoveryHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { recoveryId } = c.req.valid("param");
+  const { id, recoveryId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidWriteOffRecovery(c.get("writer"), {
     businessId,
+    writeOffId: id,
     recoveryId,
     reason: body.reason,
     userId,

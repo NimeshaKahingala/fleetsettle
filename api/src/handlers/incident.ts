@@ -318,16 +318,19 @@ export const recordRecoveryReceivedHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
 
   const businessId = requireBusinessId(c);
-  const { recoveryId } = c.req.valid("param");
+  const { id, recoveryId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const existing = await findIncidentRecoveryForBusiness(c.get("reader"), businessId, recoveryId);
-  if (!existing || existing.voidedAt !== null) throw new NotFoundError();
+  if (!existing || existing.voidedAt !== null || existing.incidentId !== id) {
+    throw new NotFoundError();
+  }
 
   assertNotFutureBusinessDate(c, asBusinessDate(body.receivedOn), "receivedOn");
 
   const { recovery } = await recordRecoveryReceived(c.get("writer"), {
     businessId,
+    incidentId: id,
     recoveryId,
     receivedAmountMinor: body.receivedAmountMinor,
     receivedOn: asBusinessDate(body.receivedOn),
@@ -386,13 +389,14 @@ export const settleInsuranceClaimHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
 
   const businessId = requireBusinessId(c);
-  const { claimId } = c.req.valid("param");
+  const { id, claimId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   assertNotFutureBusinessDate(c, asBusinessDate(body.receivedOn), "receivedOn");
 
   const result = await settleInsuranceClaim(c.get("writer"), {
     businessId,
+    incidentId: id,
     claimId,
     receivedAmountMinor: body.receivedAmountMinor,
     receivedOn: asBusinessDate(body.receivedOn),
@@ -430,11 +434,12 @@ export const voidIncidentRecoveryHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
 
   const businessId = requireBusinessId(c);
-  const { recoveryId } = c.req.valid("param");
+  const { id, recoveryId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidIncidentRecovery(c.get("writer"), {
     businessId,
+    incidentId: id,
     recoveryId,
     reason: body.reason,
     userId: requireUserId(c),

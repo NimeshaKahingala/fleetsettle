@@ -375,6 +375,7 @@ export async function voidWriteOff(
 
 export interface VoidWriteOffRecoveryInput {
   businessId: string;
+  writeOffId: string;
   recoveryId: string;
   reason: string;
   userId: string;
@@ -406,6 +407,14 @@ export async function voidWriteOffRecovery(
       );
       if (!recovery) throw new NotFoundError("No such recovery in this business");
       if (recovery.voidedAt !== null) throw new WriteOffRecoveryAlreadyVoidedError();
+
+      // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/void`)
+      // is otherwise decorative — `findWriteOffRecoveryForBusiness` only
+      // scopes by business, so a recovery belonging to a different write-off
+      // would still be voided if this check were skipped.
+      if (recovery.writeOffId !== input.writeOffId) {
+        throw new NotFoundError("No such recovery in this business");
+      }
 
       const voided = await voidWriteOffRecoveryRow(tx, input.recoveryId, {
         voidedReason: input.reason,

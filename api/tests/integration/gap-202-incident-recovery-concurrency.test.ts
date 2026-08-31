@@ -63,6 +63,7 @@ describe("GAP-202/NM-4 — voiding an incident recovery checks receivedAmountMin
       outcome(() =>
         voidIncidentRecovery(other, {
           businessId,
+          incidentId,
           recoveryId,
           reason: "entered against the wrong customer",
           userId,
@@ -71,6 +72,7 @@ describe("GAP-202/NM-4 — voiding an incident recovery checks receivedAmountMin
       outcome(() =>
         recordRecoveryReceived(db, {
           businessId,
+          incidentId,
           recoveryId,
           receivedAmountMinor: 10_000n as Minor,
           receivedOn: "2026-08-07" as BusinessDate,

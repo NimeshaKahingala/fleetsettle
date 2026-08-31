@@ -128,11 +128,12 @@ export const voidDepositMovementHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { movementId } = c.req.valid("param");
+  const { id, movementId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidDepositMovement(c.get("writer"), {
     businessId,
+    depositId: id,
     movementId,
     reason: body.reason,
     userId,
