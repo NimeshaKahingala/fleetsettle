@@ -55,12 +55,14 @@ export async function findIncidentForBusiness(
   db: ReadDb,
   businessId: string,
   incidentId: string,
+  forUpdate = false,
 ): Promise<IncidentRow | undefined> {
-  const rows = await db
+  const query = db
     .select(INCIDENT_COLUMNS)
     .from(incident)
     .where(and(eq(incident.id, incidentId), eq(incident.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as IncidentRow | undefined;
 }
 

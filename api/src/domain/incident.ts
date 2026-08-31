@@ -133,13 +133,30 @@ export async function recordOffRoad(
   input: RecordOffRoadInput,
 ): Promise<RecordedOffRoad> {
   return writer.transaction(async (tx) => {
-    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId);
+    // GAP-204/H-2/D3, review 31 Aug 2026: `FOR UPDATE`. Read without the
+    // lock, two near-simultaneous requests both see `rentTreatment === null`,
+    // both pass the guard below and both apply the pro-rata adjustment or
+    // the lease extension — the exact double-apply this guard exists to
+    // stop, merely made harder to hit rather than prevented. The write
+    // itself is not conditional on `rent_treatment` still being unset, so
+    // serialising the read is what makes the check mean anything. Same
+    // "lock the row you are about to decide from" shape `voidWriteOff`
+    // (GAP-190/B12) and `voidIncidentRecovery` (GAP-202/NM-4) already take.
+    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId, true);
     if (!existing) throw new NotFoundError("No such incident in this business");
 
     if (existing.rentTreatment === "credit_days") {
+      // The message deliberately does *not* promise "void the adjustment and
+      // record a new one": voiding an `adjustment` (F-2.4) does not clear
+      // `incident.rent_treatment`, because nothing links the adjustment back
+      // to the incident that raised it. A manager told to void first would
+      // do so and still be refused here, with no way forward and no
+      // explanation. Stating the real limit is the honest version until that
+      // linkage exists; re-recording a treatment is its own change.
       throw new OffRoadTreatmentAlreadyRecordedError(
-        "This incident already has a rent-credit adjustment recorded for its off-road window " +
-          "— void that adjustment first (F-2.4), then record the new one",
+        "This incident already has a rent-credit adjustment recorded for its off-road window, " +
+          "and changing it is not supported yet — contact support before recording a " +
+          "different treatment",
       );
     }
     if (existing.rentTreatment === "extend") {
