@@ -173,7 +173,7 @@ export async function archiveDriver(
   const voided = await writer.transaction(async (tx) => {
     await findDriverForBusiness(tx, input.businessId, input.partyId, true);
     await assertArchivable(tx, input.businessId, "driver", input.partyId);
-    return archiveDriverRow(tx, input.partyId, {
+    return archiveDriverRow(tx, input.businessId, input.partyId, {
       voidedReason: input.reason,
       voidedBy: input.userId,
     });
@@ -191,7 +191,7 @@ export async function unarchiveDriver(
 ): Promise<DriverRow> {
   const existing = await findDriverForBusiness(reader, businessId, driverId);
   if (!existing) throw new NotFoundError("No such driver in this business");
-  await writer.transaction((tx) => unarchiveDriverRow(tx, driverId));
+  await writer.transaction((tx) => unarchiveDriverRow(tx, businessId, driverId));
   return { ...existing, voidedAt: null };
 }
 
@@ -212,7 +212,7 @@ export async function archiveCustomer(
   const voided = await writer.transaction(async (tx) => {
     await findCustomerForBusiness(tx, input.businessId, input.partyId, true);
     await assertArchivable(tx, input.businessId, "customer", input.partyId);
-    return archiveCustomerRow(tx, input.partyId, {
+    return archiveCustomerRow(tx, input.businessId, input.partyId, {
       voidedReason: input.reason,
       voidedBy: input.userId,
     });
@@ -230,6 +230,6 @@ export async function unarchiveCustomer(
 ): Promise<CustomerRow> {
   const existing = await findCustomerForBusiness(reader, businessId, customerId);
   if (!existing) throw new NotFoundError("No such customer in this business");
-  await writer.transaction((tx) => unarchiveCustomerRow(tx, customerId));
+  await writer.transaction((tx) => unarchiveCustomerRow(tx, businessId, customerId));
   return { ...existing, voidedAt: null };
 }

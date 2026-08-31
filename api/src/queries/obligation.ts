@@ -394,6 +394,17 @@ export interface OutstandingObligation {
  * read-only screen) never write, and locking rows they only display would
  * be pure contention with no correctness benefit — only `offset.ts`'s own
  * write path, inside its transaction, passes `true`.
+ *
+ * M-6, 31 Aug 2026: `orderBy` tie-broken on `id` (UUIDv7, so insertion
+ * order) — `dueOn` alone leaves same-day dues (a rent and a mileage
+ * excess both on the 12th, several `daily_amount` rows from one
+ * confirm-all) in whatever order Postgres happens to return them, so
+ * *which* of the day's dues a partial payment actually clears could
+ * disagree between the allocation preview and the write, or between two
+ * replays of the same figures. `findOwnershipSharesAsOfBulk`
+ * (queries/reports.ts) already states the same argument for the identical
+ * reason: an unordered `SELECT` leaves money-affecting order to the query
+ * planner.
  */
 export async function findOutstandingObligationsForDriver(
   db: ReadDb,
@@ -424,7 +435,7 @@ export async function findOutstandingObligationsForDriver(
         isNull(obligation.voidedAt),
       ),
     )
-    .orderBy(asc(obligation.dueOn));
+    .orderBy(asc(obligation.dueOn), asc(obligation.id));
   const rows = await (forUpdate ? query.for("update") : query);
   return rows;
 }
@@ -438,6 +449,9 @@ export async function findOutstandingObligationsForDriver(
  * write path passes `true`; `lease-closure.ts`'s closure summary and
  * `customer.ts`'s obligations screen are both display-only reads via
  * `reader` and stay unlocked.
+ *
+ * M-6, 31 Aug 2026: same `id` tie-break, same reason —
+ * `findOutstandingObligationsForDriver`'s own comment above.
  */
 export async function findOutstandingObligationsForParty(
   db: ReadDb,
@@ -476,7 +490,7 @@ export async function findOutstandingObligationsForParty(
         isNull(obligation.voidedAt),
       ),
     )
-    .orderBy(asc(obligation.dueOn));
+    .orderBy(asc(obligation.dueOn), asc(obligation.id));
   const rows = await (forUpdate ? query.for("update") : query);
   return rows;
 }
@@ -758,6 +772,11 @@ export interface LeaseObligationRow {
  * (queries/day-record.ts's `listDayRecordsForDriver`); the incident-recovery
  * path is a single join rather than two hops, since
  * `incident_recovery.incident_id → incident.lease_id` is only one.
+ *
+ * M-6, 31 Aug 2026: same `id` tie-break, same reason —
+ * `findOutstandingObligationsForDriver`'s own comment above. A lease with
+ * several same-day dues (a rent and a mileage excess both landing on the
+ * 12th) would otherwise render in an order that moves between refreshes.
  */
 export async function findObligationsForLease(
   db: ReadDb,
@@ -822,6 +841,6 @@ export async function findObligationsForLease(
     .where(
       and(eq(obligation.businessId, businessId), isNull(obligation.voidedAt), or(...sourceClauses)),
     )
-    .orderBy(asc(obligation.dueOn));
+    .orderBy(asc(obligation.dueOn), asc(obligation.id));
   return rows;
 }

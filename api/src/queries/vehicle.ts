@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   dayRecord,
@@ -108,13 +108,23 @@ export async function findVehicleForBusiness(
  * kilometres — editable on its own page, never required to save the
  * vehicle (U-2). `null` clears it, the same "no interval, no prompt"
  * reading `findLastMaintenanceOdometerKm`'s own doc comment gives W-56.
+ *
+ * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — the identical
+ * `setVehicleLifecycle` fix above (Copilot review, PR #144), applied to
+ * its own sibling that missed it. The caller already gates on
+ * `findVehicleForBusiness` first; this is the write itself asserting
+ * tenancy too, not a substitute for that check.
  */
 export async function setVehicleServiceInterval(
   db: WriteDb,
+  businessId: string,
   vehicleId: string,
   serviceIntervalKm: number | null,
 ): Promise<void> {
-  await db.update(vehicle).set({ serviceIntervalKm }).where(eq(vehicle.id, vehicleId));
+  await db
+    .update(vehicle)
+    .set({ serviceIntervalKm })
+    .where(and(eq(vehicle.id, vehicleId), eq(vehicle.businessId, businessId)));
 }
 
 /** GAP-185/UC-106: "purchase price" is entered alongside a loan (F-12.1) but lives on the vehicle itself, never required (U-2). */
@@ -163,9 +173,22 @@ export interface CurrentVehicleArrangementRow {
   effectiveFrom: string;
 }
 
-/** F-1.2/GAP-54: the current row itself (id + own start date), not just the letter `CURRENT_ARRANGEMENT`/`findVehicleForBusiness` project — changing it needs both to close the old row and to validate the new effective date against it. */
+/**
+ * F-1.2/GAP-54: the current row itself (id + own start date), not just the
+ * letter `CURRENT_ARRANGEMENT`/`findVehicleForBusiness` project — changing
+ * it needs both to close the old row and to validate the new effective
+ * date against it.
+ *
+ * NL-2/L-2, 31 Aug 2026: `vehicle_arrangement` carries no `business_id` of
+ * its own — joined through `vehicle`, the same table every other reader of
+ * this row already resolves tenancy through. `changeVehicleArrangement`'s
+ * own caller already gates on `findVehicleForBusiness` first, so this
+ * closes no live route — the same defence-in-depth PR #144 already applied
+ * to `setVehicleLifecycle`.
+ */
 export async function findCurrentVehicleArrangementRow(
   db: ReadDb,
+  businessId: string,
   vehicleId: string,
 ): Promise<CurrentVehicleArrangementRow | undefined> {
   const rows = await db
@@ -175,18 +198,50 @@ export async function findCurrentVehicleArrangementRow(
       effectiveFrom: vehicleArrangement.effectiveFrom,
     })
     .from(vehicleArrangement)
-    .where(and(eq(vehicleArrangement.vehicleId, vehicleId), isNull(vehicleArrangement.effectiveTo)))
+    .innerJoin(vehicle, eq(vehicle.id, vehicleArrangement.vehicleId))
+    .where(
+      and(
+        eq(vehicleArrangement.vehicleId, vehicleId),
+        eq(vehicle.businessId, businessId),
+        isNull(vehicleArrangement.effectiveTo),
+      ),
+    )
     .limit(1);
   return rows[0] as CurrentVehicleArrangementRow | undefined;
 }
 
-/** F-1.2/GAP-54: the first write that ever closes a `vehicle_arrangement` row. Must land before the replacement's `INSERT` in the same transaction — the exclusion constraint is not deferred, so the old range has to stop overlapping first (the same ordering `endDailyLeaseRow` needs). */
+/**
+ * F-1.2/GAP-54: the first write that ever closes a `vehicle_arrangement`
+ * row. Must land before the replacement's `INSERT` in the same
+ * transaction — the exclusion constraint is not deferred, so the old range
+ * has to stop overlapping first (the same ordering `endDailyLeaseRow`
+ * needs).
+ *
+ * NL-2/L-2, 31 Aug 2026: same tenancy fix as `findCurrentVehicleArrangementRow`
+ * above — no direct `business_id` column, so scoped via a subquery against
+ * `vehicle` rather than a join (Postgres `UPDATE` has no native join
+ * clause). `id` here is always the value that same, now business-scoped
+ * read just returned, so this is belt-and-braces on an already-correct
+ * caller, not a fix to a reachable gap.
+ */
 export async function endVehicleArrangementRow(
   db: WriteDb,
+  businessId: string,
   id: string,
   effectiveTo: string,
 ): Promise<void> {
-  await db.update(vehicleArrangement).set({ effectiveTo }).where(eq(vehicleArrangement.id, id));
+  await db
+    .update(vehicleArrangement)
+    .set({ effectiveTo })
+    .where(
+      and(
+        eq(vehicleArrangement.id, id),
+        inArray(
+          vehicleArrangement.vehicleId,
+          db.select({ id: vehicle.id }).from(vehicle).where(eq(vehicle.businessId, businessId)),
+        ),
+      ),
+    );
 }
 
 /**

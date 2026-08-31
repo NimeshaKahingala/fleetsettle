@@ -163,7 +163,7 @@ export const changeVehicleServiceIntervalHandler: RouteHandler<
   const row = await findVehicleForBusiness(reader, businessId, id);
   if (!row) throw new NotFoundError();
 
-  await changeVehicleServiceInterval(c.get("writer"), id, body.serviceIntervalKm);
+  await changeVehicleServiceInterval(c.get("writer"), businessId, id, body.serviceIntervalKm);
   return c.json(toResponse({ ...row, serviceIntervalKm: body.serviceIntervalKm }), 200);
 };
 
@@ -343,6 +343,7 @@ export const changeVehicleArrangementHandler: RouteHandler<
   if (!vehicleRow) throw new NotFoundError();
 
   const result = await changeVehicleArrangement(c.get("writer"), {
+    businessId,
     vehicleId: id,
     arrangement: body.arrangement,
     effectiveFrom: body.effectiveFrom,

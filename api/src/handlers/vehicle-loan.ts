@@ -202,7 +202,7 @@ export const listLoanPaymentsHandler: RouteHandler<typeof listLoanPaymentsRoute,
   const loanRow = await findVehicleLoanForBusiness(reader, businessId, id);
   if (!loanRow) throw new NotFoundError("No such loan in this business");
 
-  const rows = await listLoanPaymentsForLoan(reader, id);
+  const rows = await listLoanPaymentsForLoan(reader, businessId, id);
   return c.json(rows.map(paymentToResponse), 200);
 };
 

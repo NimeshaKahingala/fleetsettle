@@ -158,7 +158,7 @@ export interface RenewLeaseInput {
  * period `generateNextBillingPeriod` produces will pick up the new rent.
  */
 export async function renewLease(writer: Writer, input: RenewLeaseInput): Promise<void> {
-  await updateLeaseTerms(writer, input.leaseId, {
+  await updateLeaseTerms(writer, input.businessId, input.leaseId, {
     rentAmountMinor: input.rentAmountMinor,
     ...(input.mileageDailyLimitKm !== undefined
       ? { mileageDailyLimitKm: input.mileageDailyLimitKm }
