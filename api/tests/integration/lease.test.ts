@@ -278,6 +278,32 @@ describe("renew a lease (P5, F-2.5/UC-17)", () => {
     await ctx.cleanup();
   });
 
+  it("NM-6 — 400 for a zero rent, matching startLease's own GAP-177 rule for the identical field", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "A");
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const leaseRes = await postLease(token, {
+      vehicleId,
+      customerId,
+      startDate: "2026-01-12",
+      billingDay: 12,
+      rentAmountMinor: "70000",
+    });
+    const { id: leaseId }: { id: string } = await leaseRes.json();
+    ctx.trackCreatedLease(leaseId);
+
+    const renewRes = await renewLease(token, leaseId, { rentAmountMinor: "0" });
+    expect(renewRes.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("404 — the lease belongs to another business", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

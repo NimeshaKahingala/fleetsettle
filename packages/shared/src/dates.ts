@@ -38,8 +38,29 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
   return f;
 }
 
+/**
+ * NL-1, 31 Aug 2026: `ISO_DATE` alone only checks the *shape* —
+ * `"2026-02-30"` matches `\d{4}-\d{2}-\d{2}` just as well as a real date
+ * does. Re-derived through `Date.UTC` and compared back against the input,
+ * the same technique `addCalendarMonths` already uses below: `Date.UTC`
+ * silently rolls an out-of-range day into the next month (30 Feb becomes
+ * 2 Mar) rather than rejecting it, so a mismatch after formatting back is
+ * exactly what an invalid calendar date looks like. Without this, a typo'd
+ * date reached Postgres as a string, which throws its own `22008` — a raw
+ * 500 from the generic handler rather than a 400 naming the actual field.
+ */
 export function asBusinessDate(value: string): BusinessDate {
   if (!ISO_DATE.test(value)) {
+    throw new TypeError(`Not a business date: ${JSON.stringify(value)}`);
+  }
+  // eslint-disable-next-line no-restricted-syntax -- a calendar year, not money
+  const year = Number(value.slice(0, 4));
+  // eslint-disable-next-line no-restricted-syntax -- a calendar month, not money
+  const month = Number(value.slice(5, 7));
+  // eslint-disable-next-line no-restricted-syntax -- a day-of-month, not money
+  const day = Number(value.slice(8, 10));
+  const reformatted = utc.format(new Date(Date.UTC(year, month - 1, day)));
+  if (reformatted !== value) {
     throw new TypeError(`Not a business date: ${JSON.stringify(value)}`);
   }
   return value as BusinessDate;

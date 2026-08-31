@@ -76,6 +76,41 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
     await ctx.cleanup();
   });
 
+  it("M-9 — 400 for a spentOn in the future, a year typo away from a report that would never show it", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // 2062 for 2026 — the exact one-keypress typo the finding names.
+    const res = await postExpense(token, {
+      category: "office",
+      amountMinor: "50000",
+      spentOn: "2062-07-15",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("NL-1 — 400 for a spentOn that matches YYYY-MM-DD but is not a real calendar day", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "office",
+      amountMinor: "50000",
+      spentOn: "2026-02-30",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("GAP-207/NM-5 — createdBy records who actually entered the expense, not who paidByUserId names", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

@@ -55,6 +55,7 @@ import type {
   voidPartnerPayoutRoute,
 } from "../route-defs/partner.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /**
  * GAP-121: `findBusinessMemberUserId` proves active membership, never role
@@ -182,6 +183,8 @@ export const recordCapitalContributionHandler: RouteHandler<
   const member = await findBusinessMemberUserId(reader, businessId, body.userId);
   if (!member) throw new NotFoundError("No such partner in this business");
   assertIsPartner(member);
+
+  assertNotFutureBusinessDate(c, body.contributedOn, "contributedOn");
 
   const { contributionId } = await recordCapitalContribution(c.get("writer"), {
     businessId,
@@ -398,6 +401,8 @@ export const recordBankingEventHandler: RouteHandler<typeof recordBankingEventRo
   const member = await findBusinessMemberUserId(reader, businessId, userId);
   if (!member) throw new NotFoundError("No such partner in this business");
 
+  assertNotFutureBusinessDate(c, body.bankedOn, "bankedOn");
+
   const { bankingEventId, discrepancyMinor } = await recordBankingEvent(c.get("writer"), {
     businessId,
     fromUserId: userId,
@@ -492,6 +497,8 @@ export const recordPartnerPayoutHandler: RouteHandler<
   const member = await findBusinessMemberUserId(reader, businessId, body.userId);
   if (!member) throw new NotFoundError("No such partner in this business");
   assertIsPartner(member);
+
+  assertNotFutureBusinessDate(c, body.occurredOn, "occurredOn");
 
   const { payoutId } = await recordPartnerPayout(c.get("writer"), {
     businessId,

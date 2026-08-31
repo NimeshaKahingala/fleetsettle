@@ -36,6 +36,7 @@ import type {
   listTripExpensesRoute,
 } from "../route-defs/trip.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 type TripResponseRow = Pick<
   TripRow,
@@ -315,6 +316,8 @@ export const closeTripHandler: RouteHandler<typeof closeTripRoute, Env> = async 
 
   const trip = await findTripForBusiness(c.get("reader"), businessId, id);
   if (!trip) throw new NotFoundError();
+
+  assertNotFutureBusinessDate(c, body.closingDate, "closingDate");
 
   const result = await closeTrip(c.get("writer"), {
     businessId,

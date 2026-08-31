@@ -9,9 +9,19 @@ import { parse as parseMoney } from "../money.js";
  * `BusinessDate` — so a schema that uses these never re-introduces `number`
  * or a bare `Date` one call site at a time.
  */
+/**
+ * L-1, 31 Aug 2026: the regex now matches `money.ts`'s own `WIRE` pattern
+ * exactly (`(?!-0+$)`, GAP-180/B7's own negative-zero exclusion), not the
+ * looser one this schema had drifted to. Before this, `"-0"` passed *this*
+ * regex, reached `.transform(parseMoney)`, and `parseMoney` threw a raw
+ * `TypeError` from inside the transform — an exception, not a zod issue, so
+ * `safeParse` never got the chance to turn it into a clean validation
+ * error and it reached the generic handler as a 500. Rejecting it here
+ * means `parseMoney` is never called with a value it would have thrown on.
+ */
 export const moneyWireSchema = z
   .string()
-  .regex(/^-?\d+$/, "Not a money value — whole minor units as a decimal string")
+  .regex(/^(?!-0+$)-?\d+$/, "Not a money value — whole minor units as a decimal string")
   .transform(parseMoney);
 
 /**

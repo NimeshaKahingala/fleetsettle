@@ -35,6 +35,7 @@ import type {
   startLeaseRoute,
 } from "../route-defs/lease.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 function toResponse(row: LeaseRow) {
   return {
@@ -252,6 +253,8 @@ export const closeLeaseHandler: RouteHandler<typeof closeLeaseRoute, Env> = asyn
 
   const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
   if (!existing) throw new NotFoundError();
+
+  assertNotFutureBusinessDate(c, body.closingDate, "closingDate");
 
   const { finalPeriod } = await closeLease(c.get("writer"), {
     businessId,

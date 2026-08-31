@@ -10,6 +10,12 @@
 const UNIQUE_VIOLATION = "23505";
 const EXCLUSION_VIOLATION = "23P01";
 const RAISE_EXCEPTION = "P0001";
+// NL-1, 31 Aug 2026: "date/time field value out of range" — Postgres's own
+// rejection of a calendar-invalid date (`'2026-02-30'`), the same class
+// `asBusinessDate`'s own re-derive-and-compare check now catches earlier.
+// Kept as defence in depth for any date string that reaches a query
+// without passing through `asBusinessDate` first.
+const INVALID_DATETIME_FORMAT = "22008";
 
 /**
  * GAP-178/B13. Migration 0031's archive guard raises this instead of the
@@ -54,6 +60,11 @@ function pgErrorOf(err: unknown): PostgresError | undefined {
  */
 export function isPartyArchivedViolation(err: unknown): boolean {
   return pgErrorOf(err)?.code === PARTY_ARCHIVED;
+}
+
+/** NL-1: true if `err` is Postgres rejecting a calendar-invalid date. Mapped globally, the same reasoning `isPartyArchivedViolation`'s own comment gives — a write path added next year should not have to remember this catch, since `asBusinessDate` already covers every date reaching this point through the normal wire schema. */
+export function isInvalidDateViolation(err: unknown): boolean {
+  return pgErrorOf(err)?.code === INVALID_DATETIME_FORMAT;
 }
 
 /** True if `err` (or the query error wrapping it) is a violation of the named unique index or constraint. */

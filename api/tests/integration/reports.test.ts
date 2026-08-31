@@ -2393,7 +2393,7 @@ describe("reports (P11)", () => {
       const opened = await post("/api/incident", {
         vehicleId,
         leaseId,
-        occurredOn: "2026-07-08",
+        occurredOn: "2026-01-08",
       });
       expect(opened.status).toBe(201);
       const { id: incidentId }: { id: string } = await opened.json();
@@ -2401,20 +2401,20 @@ describe("reports (P11)", () => {
 
       const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, {
         agreedAmountMinor: "20000",
-        agreedOn: "2026-07-20",
+        agreedOn: "2026-01-20",
       });
       expect(agreed.status).toBe(201);
 
       const filed = await post(`/api/incident/${incidentId}/insurance-claim`, {
         claimedAmountMinor: "75000",
         excessBorneMinor: "15000",
-        claimedOn: "2026-07-10",
+        claimedOn: "2026-01-10",
       });
       expect(filed.status).toBe(201);
       const { id: claimId }: { id: string } = await filed.json();
       const settled = await post(`/api/incident/${incidentId}/insurance-claim/${claimId}/settle`, {
         receivedAmountMinor: "60000",
-        receivedOn: "2026-09-15",
+        receivedOn: "2026-03-15",
       });
       expect(settled.status).toBe(200);
 
@@ -2424,7 +2424,7 @@ describe("reports (P11)", () => {
         vehicleId,
         amountMinor: "40000",
         reason: "customer unreachable after three attempts",
-        writtenOffOn: "2026-10-01",
+        writtenOffOn: "2026-04-01",
       });
       expect(written.status).toBe(201);
       const { id: writeOffId }: { id: string } = await written.json();
@@ -2436,11 +2436,11 @@ describe("reports (P11)", () => {
 
       // The customer half of an incident recovery, read from the obligation it
       // raises rather than from `incident_recovery` (which carries no date).
-      expect(lines).toContain("2026-07-20,B-2222,Customer contribution,In,200.00,");
+      expect(lines).toContain("2026-01-20,B-2222,Customer contribution,In,200.00,");
       // Recognised on `received_on`, not on the date the claim was filed —
       // W-11: expected money is not earned money.
-      expect(lines).toContain("2026-09-15,B-2222,Insurance settlement,In,600.00,");
-      expect(lines).toContain("2026-10-01,B-2222,Write-off,Out,400.00,");
+      expect(lines).toContain("2026-03-15,B-2222,Insurance settlement,In,600.00,");
+      expect(lines).toContain("2026-04-01,B-2222,Write-off,Out,400.00,");
 
       // The double-count guard. 600.00 arrived once, so it is reported once.
       expect(lines.filter((l) => l.includes("Insurance settlement"))).toHaveLength(1);
@@ -2470,7 +2470,7 @@ describe("reports (P11)", () => {
         vehicleId,
         amountMinor: "40000",
         reason: "recorded against the wrong customer",
-        writtenOffOn: "2026-10-01",
+        writtenOffOn: "2026-04-01",
       });
       expect(written.status).toBe(201);
       const { id: writeOffId }: { id: string } = await written.json();
@@ -2478,7 +2478,7 @@ describe("reports (P11)", () => {
 
       const before = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
       expect((await before.text()).trim().split("\r\n")).toContain(
-        "2026-10-01,C-3333,Write-off,Out,400.00,",
+        "2026-04-01,C-3333,Write-off,Out,400.00,",
       );
 
       const voided = await post(`/api/write-off/${writeOffId}/void`, {

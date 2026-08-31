@@ -11,6 +11,18 @@ describe("moneyWireSchema", () => {
     expect(moneyWireSchema.safeParse("134000.50").success).toBe(false);
     expect(moneyWireSchema.safeParse("abc").success).toBe(false);
   });
+
+  it("L-1 — rejects '-0' (and '-00') as a clean 400, not a TypeError escaping the transform", () => {
+    for (const bad of ["-0", "-00", "-000"]) {
+      const result = moneyWireSchema.safeParse(bad);
+      expect(result.success).toBe(false);
+    }
+    // A genuine zero, and an ordinary negative, both still parse — this is
+    // about the one string that cannot round-trip, not zero or negatives
+    // generally.
+    expect(moneyWireSchema.parse("0")).toBe(0n);
+    expect(moneyWireSchema.parse("-500")).toBe(-500n);
+  });
 });
 
 describe("businessDateSchema", () => {
