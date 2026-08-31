@@ -8,6 +8,8 @@
  * period, and nothing errors.
  */
 
+import { WireFormatError } from "./wire-format-error.js";
+
 /** `YYYY-MM-DD` in the business timezone. Never a `Date` — a date has no time. */
 export type BusinessDate = string & { readonly __businessDate: unique symbol };
 
@@ -51,7 +53,7 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
  */
 export function asBusinessDate(value: string): BusinessDate {
   if (!ISO_DATE.test(value)) {
-    throw new TypeError(`Not a business date: ${JSON.stringify(value)}`);
+    throw new WireFormatError(`Not a business date: ${JSON.stringify(value)}`);
   }
   // eslint-disable-next-line no-restricted-syntax -- a calendar year, not money
   const year = Number(value.slice(0, 4));
@@ -61,7 +63,7 @@ export function asBusinessDate(value: string): BusinessDate {
   const day = Number(value.slice(8, 10));
   const reformatted = utc.format(new Date(Date.UTC(year, month - 1, day)));
   if (reformatted !== value) {
-    throw new TypeError(`Not a business date: ${JSON.stringify(value)}`);
+    throw new WireFormatError(`Not a business date: ${JSON.stringify(value)}`);
   }
   return value as BusinessDate;
 }
