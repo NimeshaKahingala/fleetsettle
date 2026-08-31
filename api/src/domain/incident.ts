@@ -639,15 +639,18 @@ export async function voidIncidentRecovery(
         true,
       );
       if (!recovery) throw new NotFoundError("No such recovery in this business");
-      if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
 
       // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/void`)
       // is otherwise decorative — `findIncidentRecoveryForBusiness` only
       // scopes by business, so a recovery belonging to a different incident
-      // would still be voided if this check were skipped.
+      // would still be voided if this check were skipped. Before every
+      // state-specific branch below (already-voided, and the
+      // money-already-received refusal), so a parent mismatch always looks
+      // like absence rather than leaking the row's existence and its state.
       if (recovery.incidentId !== input.incidentId) {
         throw new NotFoundError("No such recovery in this business");
       }
+      if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
 
       if (recovery.receivedAmountMinor > 0n) {
         throw new VoidBlockedError(
