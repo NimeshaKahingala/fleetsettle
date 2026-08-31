@@ -103,6 +103,31 @@ async function postSettleAdvance(token: string, id: string, body: unknown) {
 }
 
 /**
+ * The arrangement-C charter fixture nearly every test in this file opens
+ * with: a business with an open accounting period, a vehicle set to
+ * arrangement C, a customer, a driver, and an owner's token.
+ *
+ * Extracted 31 Aug 2026, the same reason `setupG3LeaseFixture`
+ * (mileage-assessment.test.ts) was — SonarCloud measures duplication
+ * against *new* code, so a new test writing this block out again is flagged
+ * even though the block predates it many times over. The existing call
+ * sites are deliberately left alone: rewriting fifteen working tests to
+ * prove a point about a sixteenth is a much larger diff than the change
+ * being reviewed, and this file's tests are the P6 regression surface.
+ */
+async function setupCharterFixture(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  const periodId = await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "C");
+  const customerId = await ctx.createCustomer(businessId);
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, periodId, vehicleId, customerId, driverId, owner, token };
+}
+
+/**
  * F-5.1 / UC-20 test matrix. Unlike lease/daily-lease, a trip's
  * vehicle_day_allocation is always written in full at booking (DM §4.1), so
  * INV-1 is enforced here immediately — the 409 case below is the same
@@ -1663,14 +1688,7 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
 
   it("L-5 — a driver-borne fuel fill never counts toward kmPerLitre, the same way it's already excluded from costs", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    await ctx.setVehicleArrangement(vehicleId, "C");
-    const customerId = await ctx.createCustomer(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { vehicleId, customerId, driverId, token } = await setupCharterFixture(ctx, db);
 
     const trip = await postTrip(token, {
       vehicleId,
