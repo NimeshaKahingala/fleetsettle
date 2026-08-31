@@ -153,6 +153,9 @@ describe("ownership shares (P7, F-1.3/UC-02)", () => {
       shares: [{ userId: owner.userId, shareBp: 10000 }],
     });
     expect(second.status).toBe(400);
+    // Pinned so this stays the mapped guard and not an unmapped 500 or some
+    // other 4xx that happens to share the status.
+    expect(await second.json()).toMatchObject({ code: "VALIDATION_ERROR" });
 
     await ctx.cleanup();
   });
