@@ -133,16 +133,26 @@ export async function closeLease(writer: Writer, input: CloseLeaseInput): Promis
       finalAmountMinor = obligationRow.amountMinor as Minor;
 
       if (input.finalPeriodMode === "days_used" && daysUsed < originalDaysCount) {
-        const [proratedRentMinor] = split(period.rentAmountMinor as Minor, [
+        // M-3, 31 Aug 2026: `agreed_discount`, not `goodwill` — charging for
+        // the days actually used is a contractual entitlement, not a gift.
+        // `sumGoodwillGiven` (queries/reports.ts) sums
+        // waiver/auto_waiver/goodwill for UC-77's annual total, so every
+        // pro-rated closure was inflating the one number that report exists
+        // to produce, by exactly the days-not-used discount every closure
+        // like this legitimately owes. Computed against `obligationRow`'s
+        // own current `amountMinor`, not `period.rentAmountMinor` — the
+        // obligation may already carry an earlier adjustment, and proration
+        // against the period's own static figure would silently ignore it.
+        const [proratedRentMinor] = split(obligationRow.amountMinor as Minor, [
           BigInt(daysUsed),
           BigInt(originalDaysCount - daysUsed),
         ]);
-        const reduceBy = period.rentAmountMinor - (proratedRentMinor as bigint);
+        const reduceBy = obligationRow.amountMinor - (proratedRentMinor as bigint);
         if (reduceBy > 0n) {
           const applied = await applyAdjustmentTx(tx, {
             businessId: input.businessId,
             obligationId: obligationRow.id,
-            adjustmentType: "goodwill",
+            adjustmentType: "agreed_discount",
             amountMinor: reduceBy as Minor,
             sign: -1,
             reason: input.note ?? "Charged for the days actually used (F-2.6 closure)",

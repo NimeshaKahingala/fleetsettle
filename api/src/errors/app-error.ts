@@ -629,3 +629,15 @@ export class LoanPaymentAlreadyVoidedError extends AppError {
     super(409, "LOAN_PAYMENT_ALREADY_VOIDED", message);
   }
 }
+
+// M-10, 31 Aug 2026: a driver already holds a deposit — direct the manager
+// to the top-up movement instead of minting a second `deposit` row, which
+// left the driver's own statement (F-6.8/UC-59) showing only the newest of
+// the two.
+export class DriverAlreadyHoldingDepositError extends AppError {
+  constructor(
+    message = "This driver already has a deposit held — use the top-up movement to add to it",
+  ) {
+    super(409, "DRIVER_ALREADY_HOLDING_DEPOSIT", message);
+  }
+}
