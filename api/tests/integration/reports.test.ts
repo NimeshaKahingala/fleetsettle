@@ -1406,6 +1406,7 @@ describe("reports (P11)", () => {
       ctx.trackCreatedPayment(paymentId);
 
       const before = await getReport("/distributable-cash", ownerToken);
+      expect(before.status).toBe(200);
       const beforeBody: { cashOnHandMinor: string; distributableMinor: string | null } =
         await before.json();
       expect(beforeBody).toMatchObject({ cashOnHandMinor: "100000", distributableMinor: "100000" });
@@ -1429,6 +1430,7 @@ describe("reports (P11)", () => {
       // someone acts on it by moving money out of the business" stayed
       // unmoved by the action it exists to gate.
       const after = await getReport("/distributable-cash", ownerToken);
+      expect(after.status).toBe(200);
       const afterBody: { cashOnHandMinor: string; distributableMinor: string | null } =
         await after.json();
       expect(afterBody).toMatchObject({ cashOnHandMinor: "60000", distributableMinor: "60000" });
@@ -1437,6 +1439,7 @@ describe("reports (P11)", () => {
       // payout is drawn against the business's broader position, never
       // netted against this one partner's own field float.
       const cashPosition = await getReport("/cash-position", ownerToken);
+      expect(cashPosition.status).toBe(200);
       const cashPositionBody: { partners: { userId: string; heldMinor: string }[] } =
         await cashPosition.json();
       const ownerRow = cashPositionBody.partners.find((p) => p.userId === owner.userId);
