@@ -21,7 +21,7 @@ import {
 import {
   findOpenAdvancesForDriver,
   findOpenDepositsForParty,
-  sumDepositMovements,
+  sumDepositMovementsBulk,
 } from "../queries/driver-money.js";
 import { findOutstandingObligationsForParty } from "../queries/obligation.js";
 
@@ -79,13 +79,18 @@ export async function findOpenMoneyForParty(
   );
   if (payableMinor > 0n) items.push({ kind: "payable", amountMinor: payableMinor });
 
-  // GAP-132: a party normally holds few deposits, so this stays a handful of
-  // parallel reads rather than a full aggregate query — sequential awaits in
-  // a loop is the shape CLAUDE.md/api's own "no loop issuing one query per
-  // row" rule names, even at this small a scale.
+  // L-3: originally one parallel read per deposit (`Promise.all`) rather
+  // than a loop of sequential awaits, but still one query per deposit —
+  // `sumDepositMovementsBulk` (queries/driver-money.ts) folds this into the
+  // same single grouped query `sumDepositsHeld`/`listDepositsDueForRelease`
+  // now use, regardless of how many deposits this party happens to hold.
   const openDeposits = await findOpenDepositsForParty(reader, businessId, partyType, partyId);
-  const depositSums = await Promise.all(openDeposits.map((d) => sumDepositMovements(reader, d.id)));
-  const depositMinor = depositSums.reduce((sum, amount) => sum + amount, 0n);
+  const depositSums = await sumDepositMovementsBulk(
+    reader,
+    openDeposits.map((d) => d.id),
+  );
+  let depositMinor = 0n;
+  for (const amount of depositSums.values()) depositMinor += amount;
   if (depositMinor > 0n) items.push({ kind: "deposit_held", amountMinor: depositMinor });
 
   if (partyType === "driver") {

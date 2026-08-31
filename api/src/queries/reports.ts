@@ -24,7 +24,7 @@ import {
   vehicleUnavailability,
   writeOff,
 } from "../db/schema.js";
-import { sumDepositMovements } from "./driver-money.js";
+import { sumDepositMovementsBulk } from "./driver-money.js";
 
 type ReadDb = Reader | Writer | Tx;
 
@@ -1324,12 +1324,14 @@ export async function listAdvancesOutstandingByDriver(
  * Deposits held — the liability shown *beside* the cash position (§6.13),
  * never netted into `listPartnerCashPositions`'s own figure. DM §10.4's own
  * design: the held balance is the SUM of a deposit's movements, never a
- * stored column this read could go stale against — `sumDepositMovements`
+ * stored column this read could go stale against — `sumDepositMovementsBulk`
  * (queries/driver-money.ts) is the one place that sign logic lives, reused
- * here rather than re-derived. The number of currently-held deposits is
- * bounded (one per driver/customer with an open deposit), so summing each
- * individually is a small, real read, not the per-row bulk-write loop
- * IG §2 warns against.
+ * here rather than re-derived.
+ *
+ * L-3: originally one query per deposit in a loop — the exact N+1 shape
+ * GAP-145 already found and fixed on a different endpoint, at 79
+ * subrequests against Workers Free's 50-subrequest ceiling. Two queries
+ * total now, regardless of how many deposits are currently held.
  */
 export async function sumDepositsHeld(db: ReadDb, businessId: string): Promise<bigint> {
   const rows = await db
@@ -1338,10 +1340,12 @@ export async function sumDepositsHeld(db: ReadDb, businessId: string): Promise<b
     .where(
       and(eq(deposit.businessId, businessId), sql`${deposit.status} IN ('held', 'hold_window')`),
     );
+  const sums = await sumDepositMovementsBulk(
+    db,
+    rows.map((r) => r.id),
+  );
   let total = 0n;
-  for (const row of rows) {
-    total += await sumDepositMovements(db, row.id);
-  }
+  for (const amount of sums.values()) total += amount;
   return total;
 }
 
