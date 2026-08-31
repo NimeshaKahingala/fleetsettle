@@ -54,7 +54,9 @@ describe("M-2 — two concurrent calls generating the same lease's next billing 
     // run LIFO, and both were registered after createLease/createVehicle/
     // createCustomer above, so they clear before the rows they reference.
     ctx.track(async () => {
+      // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown on a disposable Neon branch (IG §8.3), the same shape TestContext's own sanctioned helpers use
       await db.delete(obligation).where(eq(obligation.id, firstPeriod.obligationId as string));
+      // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown on a disposable Neon branch (IG §8.3), the same shape TestContext's own sanctioned helpers use
       await db.delete(billingPeriod).where(eq(billingPeriod.id, firstPeriod.billingPeriod.id));
     });
 
@@ -82,8 +84,10 @@ describe("M-2 — two concurrent calls generating the same lease's next billing 
 
     ctx.track(async () => {
       if (a.value.obligationId) {
+        // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown on a disposable Neon branch (IG §8.3), the same shape TestContext's own sanctioned helpers use
         await db.delete(obligation).where(eq(obligation.id, a.value.obligationId));
       }
+      // eslint-disable-next-line no-restricted-syntax -- allow: test fixture teardown on a disposable Neon branch (IG §8.3), the same shape TestContext's own sanctioned helpers use
       await db.delete(billingPeriod).where(eq(billingPeriod.id, a.value.billingPeriod.id));
     });
 
