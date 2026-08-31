@@ -86,12 +86,15 @@ export interface CreateExpenseInput {
   borneByCustomerId?: string;
   paidByUserId: string;
   /**
-   * GAP-207/NM-5: the real authenticated actor, distinct from `paidByUserId`
-   * — the manager entering the expense (`borne_by`'s `paid_by` half, W-48:
-   * whose pocket the cash came from) is not always the person who typed it
-   * in. `expense.created_by` is the audit fact "who entered this record"
-   * (F-8.6); collapsing it into `paidByUserId` let a record appear to have
-   * been entered by someone who never touched the request.
+   * GAP-207/NM-5: the real authenticated actor, and a third fact distinct
+   * from the two W-48 already insists on keeping apart. `borne_by` is whose
+   * cost it ultimately is; `paid_by` (`paidByUserId`) is whose pocket the
+   * cash actually came from — two independent fields, not two halves of one,
+   * which is the whole point of W-48's manager-buys-the-driver's-fuel case.
+   * `actorUserId` is neither: it is who typed the record in, which
+   * `expense.created_by` records for the audit trail (F-8.6). Collapsing it
+   * into `paidByUserId` let a record appear to have been entered by someone
+   * who never touched the request.
    */
   actorUserId: string;
   litres?: number;

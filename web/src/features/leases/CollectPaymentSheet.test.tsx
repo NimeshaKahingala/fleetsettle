@@ -16,6 +16,7 @@ const olderDue: LeaseObligationRow = {
   amountMinor: "500000",
   settledMinor: "0",
   waivedMinor: "0",
+  writtenOffMinor: "0",
   status: "pending",
 };
 
@@ -27,6 +28,7 @@ const newerDue: LeaseObligationRow = {
   amountMinor: "300000",
   settledMinor: "0",
   waivedMinor: "0",
+  writtenOffMinor: "0",
   status: "pending",
 };
 

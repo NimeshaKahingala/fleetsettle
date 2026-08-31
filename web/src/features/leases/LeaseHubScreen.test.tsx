@@ -61,6 +61,7 @@ const dues: LeaseObligationRow[] = [
     amountMinor: "7000000",
     settledMinor: "0",
     waivedMinor: "0",
+    writtenOffMinor: "0",
     status: "pending",
   },
   {
@@ -71,6 +72,7 @@ const dues: LeaseObligationRow[] = [
     amountMinor: "50000",
     settledMinor: "50000",
     waivedMinor: "0",
+    writtenOffMinor: "0",
     status: "paid",
   },
 ];

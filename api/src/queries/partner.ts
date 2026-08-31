@@ -76,11 +76,13 @@ export async function insertOwnershipShares(
 export async function findOpenOwnershipShareEffectiveFroms(
   db: ReadDb,
   vehicleId: string,
+  forUpdate = false,
 ): Promise<string[]> {
-  const rows = await db
+  const query = db
     .select({ effectiveFrom: ownershipShare.effectiveFrom })
     .from(ownershipShare)
     .where(and(eq(ownershipShare.vehicleId, vehicleId), isNull(ownershipShare.effectiveTo)));
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows.map((r) => r.effectiveFrom);
 }
 
