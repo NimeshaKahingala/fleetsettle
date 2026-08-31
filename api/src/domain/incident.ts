@@ -52,6 +52,7 @@ import {
   findPaymentAllocationsForObligation,
   insertPayment,
   insertPaymentAllocation,
+  markPaymentReversed,
   voidPaymentAllocation,
 } from "../queries/payment.js";
 import { applyAdjustmentTx } from "./adjustment.js";
@@ -441,15 +442,15 @@ export async function recordRecoveryReceived(
         // shape `correctPayment` (F-8.2) uses — never more than one live
         // payment behind this recovery at a time.
         //
-        // GAP-202/PR-2: this used to also call `markPaymentReversed` on each
+        // GAP-202/PR-2: this used to call `markPaymentReversed` on each
         // allocation's *parent* payment. A customer carrying unapplied
         // credit-forward can have this obligation's allocation drawn from an
         // older, otherwise-unrelated surplus payment (GAP-5b, above) — that
         // payment can still be funding a live allocation against a different
         // obligation entirely. Reversing the whole payment marked it
-        // 'reversed' everywhere, not just here. Void or reduce the
-        // allocation only — the same `unwindObligationAllocations` shape
-        // `adjustment.ts` uses — and never touch the parent payment row.
+        // 'reversed' everywhere, not just here. So the allocations are voided
+        // on their own — the same `unwindObligationAllocations` shape
+        // `adjustment.ts` uses.
         const priorAllocations = await findPaymentAllocationsForObligation(
           tx,
           recovery.obligationId,
@@ -459,6 +460,29 @@ export async function recordRecoveryReceived(
             voidedReason: "Superseded by a corrected recovery amount",
             voidedBy: input.userId,
           });
+        }
+
+        // …but the payment *this recovery minted for its own previous
+        // amount* must still be reversed, and this is what H-4's own
+        // `incident_recovery.payment_id` (migration 0035) exists to identify.
+        //
+        // Found 31 Aug 2026 by `void-cascade.test.ts`'s "never leaves two
+        // active payments", which passes on `develop` and failed here.
+        // Voiding the allocation alone leaves that payment `active` and
+        // funding nothing — which `credit-forward.ts` reads as spendable
+        // customer credit, so a corrected-away 12,000 comes back as money he
+        // can apply to a future due. Both extremes are wrong: reversing every
+        // allocation's parent over-reverses a shared payment, and reversing
+        // none of them under-reverses this one. Reversing exactly the payment
+        // this recovery recorded as its own is the version that is right in
+        // both directions.
+        //
+        // `paymentId` is null for a recovery whose receipt predates 0035, and
+        // for one that settled entirely through credit-forward. Both are
+        // correctly skipped: in neither case did this recovery mint a payment
+        // of its own to reverse.
+        if (recovery.paymentId !== null) {
+          await markPaymentReversed(tx, recovery.paymentId);
         }
 
         // GAP-202/H-4: which payment (if any) this call itself minted is
