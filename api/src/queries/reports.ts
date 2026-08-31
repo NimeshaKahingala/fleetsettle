@@ -1522,12 +1522,14 @@ export async function sumPartnerPayoutsForBusiness(
   // business's `partner_payout` rows only ever accumulate, and this report
   // is read on every home screen. `COALESCE(…, 0)` is load-bearing — `SUM()`
   // over zero rows is NULL, and a business that has never paid a partner out
-  // must read `0n` here, not blow up on a null.
+  // must read `0n` here, not blow up on a null. `singleAggregateTotal` is
+  // what keeps that honest zero apart from a missing row (W-56): the first
+  // is a fact, the second means the query is broken and must throw.
   const rows = await db
     .select({ total: sql<string>`COALESCE(SUM(${partnerPayout.amountMinor}), 0)` })
     .from(partnerPayout)
     .where(and(eq(partnerPayout.businessId, businessId), isNull(partnerPayout.voidedAt)));
-  return BigInt(rows[0]?.total ?? 0);
+  return singleAggregateTotal(rows);
 }
 
 /** GAP-70/DM §15: the same `banking_event` rows `listPartnerCashPositions` already subtracts, regrouped by destination — no enum, `destination` is free text a manager types once and reuses (F-7.4). */
