@@ -143,6 +143,29 @@ async function setupExtendIncident(ctx: TestContext, db: ReturnType<typeof write
   return { leaseId, incidentId, token };
 }
 
+/**
+ * GAP-204/H-2/D3's own shape, shared by the `credit_days` and `extend`
+ * cases: the first treatment lands, the second against the same incident is
+ * refused with the same code. Extracted 31 Aug 2026 because writing it out
+ * once per treatment is duplication SonarCloud reads as such — and it is,
+ * the two blocks differed only in the payload. Each test still asserts its
+ * own "applied once, not twice" fact afterwards, which is the part that
+ * genuinely differs between them.
+ */
+async function expectSecondTreatmentRefused(
+  token: string,
+  incidentId: string,
+  body: { offRoadFrom: string; offRoadTo: string; rentTreatment: "credit_days" | "extend" },
+): Promise<void> {
+  const first = await post(`/api/incident/${incidentId}/off-road`, token, body);
+  expect(first.status).toBe(200);
+
+  const second = await post(`/api/incident/${incidentId}/off-road`, token, body);
+  expect(second.status).toBe(409);
+  const secondBody: { code: string } = await second.json();
+  expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
+}
+
 /** F-3.4/UC-12/W-9/W-10/W-11 test matrix, and §7.2's golden fixture (G-2). */
 describe("incident (P8, F-3.4/UC-12)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -303,21 +326,11 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const ctx = new TestContext(db);
       const { obligationId, incidentId, token } = await setupCreditDaysIncident(ctx, db);
 
-      const first = await post(`/api/incident/${incidentId}/off-road`, token, {
+      await expectSecondTreatmentRefused(token, incidentId, {
         offRoadFrom: "2026-07-01",
         offRoadTo: "2026-07-10",
         rentTreatment: "credit_days",
       });
-      expect(first.status).toBe(200);
-
-      const second = await post(`/api/incident/${incidentId}/off-road`, token, {
-        offRoadFrom: "2026-07-01",
-        offRoadTo: "2026-07-10",
-        rentTreatment: "credit_days",
-      });
-      expect(second.status).toBe(409);
-      const secondBody: { code: string } = await second.json();
-      expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
 
       // Credited once (10,000), not twice (20,000) — the obligation still
       // reads 21,000, exactly as the single-application test asserts.
@@ -334,21 +347,11 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const ctx = new TestContext(db);
       const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
 
-      const first = await post(`/api/incident/${incidentId}/off-road`, token, {
+      await expectSecondTreatmentRefused(token, incidentId, {
         offRoadFrom: "2026-07-08",
         offRoadTo: "2026-07-19",
         rentTreatment: "extend",
       });
-      expect(first.status).toBe(200);
-
-      const second = await post(`/api/incident/${incidentId}/off-road`, token, {
-        offRoadFrom: "2026-07-08",
-        offRoadTo: "2026-07-19",
-        rentTreatment: "extend",
-      });
-      expect(second.status).toBe(409);
-      const secondBody: { code: string } = await second.json();
-      expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
 
       // Pushed once (12 days, to 2027-01-12), not twice (24 days).
       const [leaseRow] = await db.select().from(leaseTable).where(eq(leaseTable.id, leaseId));
