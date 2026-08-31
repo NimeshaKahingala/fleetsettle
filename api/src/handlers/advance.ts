@@ -144,11 +144,12 @@ export const voidAdvanceSettlementHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { settlementId } = c.req.valid("param");
+  const { id, settlementId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidAdvanceSettlement(c.get("writer"), {
     businessId,
+    advanceId: id,
     settlementId,
     reason: body.reason,
     userId,

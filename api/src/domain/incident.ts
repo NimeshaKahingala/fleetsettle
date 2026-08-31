@@ -396,6 +396,7 @@ export async function recordCustomerContribution(
 
 export interface RecordRecoveryReceivedInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -437,6 +438,13 @@ export async function recordRecoveryReceived(
     input.recoveryId,
   );
   if (!recovery || recovery.voidedAt !== null) {
+    throw new NotFoundError("No such recovery in this business");
+  }
+  // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/receive`)
+  // is otherwise decorative — `findIncidentRecoveryForBusiness` only scopes
+  // by business, so a recovery belonging to a different incident would
+  // still accept a receipt if this check were skipped.
+  if (recovery.incidentId !== input.incidentId) {
     throw new NotFoundError("No such recovery in this business");
   }
 
@@ -591,6 +599,7 @@ export async function recordRecoveryReceived(
 
 export interface VoidIncidentRecoveryInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   reason: string;
   userId: string;
@@ -631,6 +640,14 @@ export async function voidIncidentRecovery(
       );
       if (!recovery) throw new NotFoundError("No such recovery in this business");
       if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
+
+      // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/void`)
+      // is otherwise decorative — `findIncidentRecoveryForBusiness` only
+      // scopes by business, so a recovery belonging to a different incident
+      // would still be voided if this check were skipped.
+      if (recovery.incidentId !== input.incidentId) {
+        throw new NotFoundError("No such recovery in this business");
+      }
 
       if (recovery.receivedAmountMinor > 0n) {
         throw new VoidBlockedError(
@@ -762,6 +779,7 @@ export async function submitInsuranceClaim(
 
 export interface SettleInsuranceClaimInput {
   businessId: string;
+  incidentId: string;
   claimId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -787,6 +805,14 @@ export async function settleInsuranceClaim(
   return writer.transaction(async (tx) => {
     const claim = await findInsuranceClaimForBusiness(tx, input.businessId, input.claimId);
     if (!claim) throw new NotFoundError("No such insurance claim in this business");
+
+    // NL-5: the URL's own parent segment (`/{id}/insurance-claim/{claimId}/settle`)
+    // is otherwise decorative — `findInsuranceClaimForBusiness` only scopes
+    // by business, so a claim belonging to a different incident would still
+    // be settled if this check were skipped.
+    if (claim.incidentId !== input.incidentId) {
+      throw new NotFoundError("No such insurance claim in this business");
+    }
 
     const receivedPeriod = await findPeriodForDate(tx, input.businessId, input.receivedOn);
     const status = input.status ?? "settled";
