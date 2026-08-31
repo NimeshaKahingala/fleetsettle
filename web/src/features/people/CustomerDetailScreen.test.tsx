@@ -30,6 +30,7 @@ const due: LeaseObligationRow = {
   amountMinor: "500000",
   settledMinor: "100000",
   waivedMinor: "0",
+  writtenOffMinor: "0",
   status: "part_paid",
 };
 
@@ -503,6 +504,7 @@ test("GAP-147: a manager can void a post-closure charge, but not an ordinary ren
     amountMinor: "50000",
     settledMinor: "0",
     waivedMinor: "0",
+    writtenOffMinor: "0",
     status: "pending",
   };
   const post = vi.fn().mockResolvedValue({ voidedAt: "2026-08-20T00:00:00.000Z" });

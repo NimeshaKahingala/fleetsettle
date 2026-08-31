@@ -1,3 +1,4 @@
+export * from "./wire-format-error.js";
 export * from "./money.js";
 export * from "./split.js";
 export * from "./dates.js";
