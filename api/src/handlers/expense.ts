@@ -28,6 +28,7 @@ import type {
   voidExpenseRoute,
 } from "../route-defs/expense.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
 export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
@@ -37,6 +38,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   const body = c.req.valid("json");
   const reader = c.get("reader");
   const spentOn = asBusinessDate(body.spentOn);
+  assertNotFutureBusinessDate(c, spentOn, "spentOn");
 
   if (body.vehicleId !== undefined) {
     const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);

@@ -45,6 +45,7 @@ import type {
   voidIncidentRecoveryRoute,
 } from "../route-defs/incident.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /** Shared with `handlers/vehicle.ts`'s own Incidents-section list (Web-P8a) — one mapping for `IncidentRow → incidentResponseSchema`, not a second copy that could drift. */
 export function incidentToResponse(row: IncidentRow) {
@@ -161,6 +162,8 @@ export const openIncidentHandler: RouteHandler<typeof openIncidentRoute, Env> = 
     const lease = await findLeaseForBusiness(reader, businessId, body.leaseId);
     if (!lease) throw new NotFoundError("No such lease in this business");
   }
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
 
   const { incidentId } = await openIncident(c.get("writer"), {
     businessId,
@@ -281,6 +284,8 @@ export const recordCustomerContributionHandler: RouteHandler<
   const existing = await findIncidentForBusiness(c.get("reader"), businessId, id);
   if (!existing) throw new NotFoundError();
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.agreedOn), "agreedOn");
+
   const { recoveryId } = await recordCustomerContribution(c.get("writer"), {
     businessId,
     incidentId: id,
@@ -319,6 +324,8 @@ export const recordRecoveryReceivedHandler: RouteHandler<
   const existing = await findIncidentRecoveryForBusiness(c.get("reader"), businessId, recoveryId);
   if (!existing || existing.voidedAt !== null) throw new NotFoundError();
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.receivedOn), "receivedOn");
+
   const { recovery } = await recordRecoveryReceived(c.get("writer"), {
     businessId,
     recoveryId,
@@ -345,6 +352,8 @@ export const submitInsuranceClaimHandler: RouteHandler<
   if (!existing) throw new NotFoundError();
 
   const excessBorneMinor = body.excessBorneMinor ?? (0n as Minor);
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.claimedOn), "claimedOn");
 
   const { claimId } = await submitInsuranceClaim(c.get("writer"), {
     businessId,
@@ -379,6 +388,8 @@ export const settleInsuranceClaimHandler: RouteHandler<
   const businessId = requireBusinessId(c);
   const { claimId } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.receivedOn), "receivedOn");
 
   const result = await settleInsuranceClaim(c.get("writer"), {
     businessId,

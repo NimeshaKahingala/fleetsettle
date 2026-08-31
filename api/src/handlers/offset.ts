@@ -6,6 +6,7 @@ import { NotFoundError } from "../errors/app-error.js";
 import { findDriverForBusiness } from "../queries/driver.js";
 import type { createOffsetRoute, voidOffsetRoute } from "../route-defs/offset.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /** F-6.4/UC-56/W-2. `dailyOperations` (STAFF) — the same day-to-day capability driver money already sits under. */
 export const createOffsetHandler: RouteHandler<typeof createOffsetRoute, Env> = async (c) => {
@@ -17,6 +18,8 @@ export const createOffsetHandler: RouteHandler<typeof createOffsetRoute, Env> = 
 
   const driver = await findDriverForBusiness(reader, businessId, body.driverId);
   if (!driver) throw new NotFoundError("No such driver in this business");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
 
   const { offsetId } = await createOffset(c.get("writer"), {
     businessId,

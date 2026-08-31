@@ -1,8 +1,8 @@
 import type { ErrorHandler } from "hono";
 import type { ErrorBody } from "@fleetsettle/shared";
 import type { Env } from "../types.js";
-import { isPartyArchivedViolation } from "../db/pg-error.js";
-import { AppError, PartyArchivedError } from "./app-error.js";
+import { isInvalidDateViolation, isPartyArchivedViolation } from "../db/pg-error.js";
+import { AppError, PartyArchivedError, ValidationError } from "./app-error.js";
 
 /**
  * The one global `app.onError` (IG §3.3). Handlers throw; this is the only
@@ -29,7 +29,29 @@ export const errorHandler: ErrorHandler<Env> = (err, c) => {
   //
   // `assert_period_open` stays per-site: a caller sometimes wants to handle
   // PERIOD_CLOSED rather than return it, and several do.
-  const mapped = isPartyArchivedViolation(err) ? new PartyArchivedError() : err;
+  // NL-1: the same reasoning as the archive guard just above — defence in
+  // depth for a calendar-invalid date reaching Postgres by some path other
+  // than `asBusinessDate`, which already rejects one at the schema layer.
+  //
+  // L-1/NL-1, 31 Aug 2026: `TypeError` is thrown in exactly two places in
+  // this codebase, both here on purpose (checked, not assumed — a grep
+  // found no third) — `money.ts`'s `parse()` and `dates.ts`'s
+  // `asBusinessDate()`, both "not a valid wire value" signals. Most
+  // callers reach these through a zod schema first (`moneyWireSchema`/
+  // `businessDateSchema`), where a bad value never gets this far — but
+  // several handlers call `asBusinessDate(body.someField)` directly on a
+  // field typed as a bare string, with no zod-level shape+calendar check
+  // in front of it (`expense.spentOn`, `advance.issuedOn`, several others).
+  // For those, this `TypeError` was the *only* signal a bad date ever
+  // produced, and it reached here as an ordinary uncaught exception — a
+  // 500, not the 400 both codecs' own messages already describe.
+  const mapped = isPartyArchivedViolation(err)
+    ? new PartyArchivedError()
+    : isInvalidDateViolation(err)
+      ? new ValidationError("Not a valid calendar date")
+      : err instanceof TypeError
+        ? new ValidationError(err.message)
+        : err;
   const appError = mapped instanceof AppError ? mapped : undefined;
   const status = appError?.status ?? 500;
   const level = status >= 500 ? "error" : "warn";

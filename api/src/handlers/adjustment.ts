@@ -18,6 +18,7 @@ import type {
   voidAdjustmentRoute,
 } from "../route-defs/adjustment.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 const WAIVER_TYPES = new Set(["waiver", "auto_waiver"]);
 
@@ -51,6 +52,9 @@ export const createAdjustmentHandler: RouteHandler<typeof createAdjustmentRoute,
   // for a past date) must window into the month it was actually given, not
   // the month it was typed in.
   const today = businessToday(requireBusinessTimezone(c));
+  if (body.occurredOn !== undefined) {
+    assertNotFutureBusinessDate(c, body.occurredOn, "occurredOn");
+  }
 
   const result = await applyAdjustment(c.get("writer"), {
     businessId,

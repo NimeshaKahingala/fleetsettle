@@ -31,6 +31,7 @@ import type {
   voidLoanPaymentRoute,
 } from "../route-defs/vehicle-loan.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 import type { VehicleLoanWithFigures } from "../domain/vehicle-loan.js";
 
 // W-52/UC-107: a down payment names exactly one owner, and a named loan
@@ -107,6 +108,8 @@ export const recordVehicleLoanHandler: RouteHandler<typeof recordVehicleLoanRout
     assertIsPartner(member);
   }
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.startedOn), "startedOn");
+
   const { loanId } = await recordVehicleLoan(c.get("writer"), {
     businessId,
     vehicleId: body.vehicleId,
@@ -159,6 +162,8 @@ export const recordLoanPaymentHandler: RouteHandler<typeof recordLoanPaymentRout
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.paidOn), "paidOn");
 
   // No pre-fetch here — recordLoanPayment locks and re-checks the loan
   // itself, inside its own transaction (Gitar review, PR #130). A read
@@ -216,6 +221,8 @@ export const settleVehicleLoanHandler: RouteHandler<typeof settleVehicleLoanRout
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
   const reader = c.get("reader");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.settledOn), "settledOn");
 
   // No pre-fetch here, same reasoning as recordLoanPaymentHandler
   // (Gitar review, PR #130) — settleVehicleLoan locks and re-checks the
