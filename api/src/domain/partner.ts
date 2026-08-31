@@ -36,10 +36,10 @@ import {
   insertManagementFeeAgreement,
   insertOwnershipShares,
   insertPartnerPayout,
-  listManagementFeeAgreementHistoryForManager,
   revokeManagementFeeAgreement,
   sumCapitalContributionsForUser,
-  sumManagementFeeAsOfDate,
+  sumManagementFeeObligationForPeriod,
+  sumManagementFeeObligationsForPeriodsBulk,
   sumPartnerPayoutsForUser,
   voidBankingEventRow,
   voidCapitalContributionRow,
@@ -540,11 +540,13 @@ function sumProfitShareForUser(
  * open period). Replaced with five flat queries regardless of how many
  * periods or vehicles this business has ever had: every vehicle, every
  * period's own earned/costs (grouped by vehicle *and* period in one round
- * trip each), the full ownership-share history, and the full
- * management-fee-agreement history for this manager. INV-16's
+ * trip each), the full ownership-share history, and every `management_fee`
+ * obligation this manager has ever been posted, grouped by period. INV-16's
  * effective-dating — which shares applied as of a given period's own end —
- * is then evaluated per period in memory, the same replay the original
- * loop did, just without a round trip per period to do it.
+ * is then evaluated per period in memory, the same replay the original loop
+ * did, just without a round trip per period to do it. The management fee
+ * figure needs no such replay (M-4): each period's own posted obligation
+ * already says exactly what was charged, so it is a lookup, not a filter.
  */
 async function sumAllTimeEarnedForUser(
   db: Reader,
@@ -558,11 +560,11 @@ async function sumAllTimeEarnedForUser(
   const vehicleIds = vehicles.map((v) => v.id);
   const periodIds = periods.map((p) => p.id);
 
-  const [earnedByPeriod, costsByPeriod, sharesByVehicle, feeAgreements] = await Promise.all([
+  const [earnedByPeriod, costsByPeriod, sharesByVehicle, feeByPeriod] = await Promise.all([
     sumVehicleEarnedForPeriodsBulk(db, vehicleIds, periodIds),
     sumVehicleCostsForPeriodsBulk(db, vehicleIds, periodIds),
     listOwnershipShareHistoryForVehicles(db, vehicleIds),
-    listManagementFeeAgreementHistoryForManager(db, businessId, userId),
+    sumManagementFeeObligationsForPeriodsBulk(db, businessId, userId, periodIds),
   ]);
 
   let total = 0n;
@@ -588,13 +590,11 @@ async function sumAllTimeEarnedForUser(
       if (idx !== -1) total += splitAmounts[idx] as bigint;
     }
 
-    total += feeAgreements
-      .filter(
-        (a) =>
-          a.effectiveFrom <= period.periodEnd &&
-          (a.effectiveTo === null || a.effectiveTo >= period.periodEnd),
-      )
-      .reduce((sum, a) => sum + a.monthlyAmountMinor, 0n);
+    // No `?? 0n` here: sumManagementFeeObligationsForPeriodsBulk seeds every
+    // id in periodIds itself, so a period this loop is iterating always has
+    // an entry — a missing one would mean the two lists of periods disagree,
+    // a real bug, not a legitimate zero.
+    total += feeByPeriod.get(period.id) as bigint;
   }
   return total;
 }
@@ -630,7 +630,7 @@ export async function getPartnerSummary(
     sumCapitalContributionsForUser(db, businessId, userId),
     sumOutOfPocketExpensesForUser(db, businessId, userId),
     sumPartnerPayoutsForUser(db, businessId, userId),
-    sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
+    sumManagementFeeObligationForPeriod(db, businessId, userId, period.id),
     getVehicleMonthReport(db, businessId, period.id, undefined),
     listPartnerCashPositions(db, businessId),
     sumAllTimeEarnedForUser(db, businessId, userId),

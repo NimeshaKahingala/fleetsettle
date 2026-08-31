@@ -1,8 +1,9 @@
-import { newId } from "@fleetsettle/shared";
+import { asBusinessDate, newId } from "@fleetsettle/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import { businessMember, ownershipShare, payment } from "../../src/db/schema.js";
+import { generateManagementFeeObligationsTx } from "../../src/domain/management-fee.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -112,6 +113,22 @@ describe("GET /api/partner/{userId} (A2, UC-67/W-52/W-53)", () => {
     expect(granted.status).toBe(201);
     const grantedBody: { id: string } = await granted.json();
     ctx.trackCreatedManagementFeeAgreement(grantedBody.id);
+    ctx.trackGeneratedManagementFeeObligations(grantedBody.id);
+
+    // M-4: granting an agreement does not, by itself, raise this period's
+    // obligation — only `generateManagementFeeObligationsTx` does, normally
+    // via cron or period-close (domain/management-fee.ts). The partner
+    // summary's own `earned.managementFeeMinor` now reads that obligation
+    // rather than replaying the agreement table, so the test has to create
+    // the fact it is asserting on, the same as every other fee this test
+    // exercises through a real endpoint rather than a table insert.
+    await db.transaction((tx) =>
+      generateManagementFeeObligationsTx(tx, {
+        businessId,
+        periodId,
+        periodStart: asBusinessDate("2026-07-01"),
+      }),
+    );
 
     // Owner1 puts in far more than his 50% share would suggest — the whole
     // point of W-52 is that this buys a claim, never a bigger slice.
