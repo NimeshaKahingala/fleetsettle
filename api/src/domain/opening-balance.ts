@@ -262,9 +262,15 @@ async function materializeOpeningBalanceEntries(
  * `advance` half). `payment` reverses by flipping `status`, which
  * `listPartnerCashPositions` already filters on — never routed through
  * `payment_correction`, which unwinds real allocations this row never has.
- * `deposit_movement` has no such filter anywhere (`sumDepositMovements`
- * sums every row regardless of `voided_at`), so its only correct reversal
- * is a real offsetting entry for the same amount, not a flag.
+ * `deposit_movement` is different, and not for the reason once written
+ * here: `sumDepositMovements` (queries/driver-money.ts) does filter
+ * `voided_at`, and `voidDepositMovementRow` is a real, working void path
+ * used elsewhere. This reversal still writes a real offsetting `refunded`
+ * movement rather than voiding the original — because a correction here is
+ * not "this entry was wrong," it is "money that genuinely existed is now
+ * being handed back," the identical fact a top-up followed by an ordinary
+ * refund already represents. Voiding would say the original `taken` never
+ * happened; it did, and the deposit's own history should keep saying so.
  */
 async function reverseOpeningBalancePostings(
   tx: Tx,

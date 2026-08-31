@@ -183,6 +183,17 @@ export async function materializeDailyLeaseHorizon(
           expectedMinor: rateMinor,
           postedPeriodId: openPeriod.id,
         });
+      } else {
+        // L-6, 31 Aug 2026: an open period covers this date but no rate
+        // does — `changeDailyLeaseRate` is gapless inside its own
+        // transaction (a new rate's `effective_from` always closes the
+        // prior one the same instant), so this is latent, not live, today.
+        // Reported through the same channel as the "no open period at all"
+        // case below rather than dropped silently, so a second writer of
+        // `daily_lease_rate.effective_to` that *can* leave a gap fails
+        // loudly here instead of rediscovering this exact allocation with
+        // no expected amount.
+        unrestorableDayRecordDates.push(d);
       }
     } else if (d < today) {
       // A backfilled past date (no open period at all, or one that starts

@@ -25,6 +25,6 @@ CREATE UNIQUE INDEX loan_payment_replaces_id_key ON loan_payment (replaces_id) W
 -- is_settlement), so Postgres registers it as a table-level constraint —
 -- `loan_payment_check`, not `loan_payment_amount_minor_check` — despite
 -- being written inline after amount_minor in 0032's DDL.
-ALTER TABLE loan_payment DROP CONSTRAINT loan_payment_check; -- allow: widening a CHECK is additive — every existing row already satisfies amount_minor >= 0, so no row can fail the new clause
+ALTER TABLE loan_payment DROP CONSTRAINT loan_payment_check; -- allow: narrowing a CHECK on a table with no live rows yet (loan_payment ships in this same migration set) cannot fail against existing data — the new clause is stricter (a negative amount_minor with is_settlement = true, previously admitted, now rejected), not additive
 ALTER TABLE loan_payment ADD CONSTRAINT loan_payment_check
   CHECK (amount_minor > 0 OR (is_settlement = true AND amount_minor >= 0));
