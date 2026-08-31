@@ -123,25 +123,46 @@ export async function truncateBillingPeriodForClosure(
 }
 
 /**
- * F-2.3/GAP-205/H-3: every period this mileage reading closes out — an
- * *overlap* with `[fromDate, toDate]`, not full containment. `fromDate` is
- * the previous reading's own date, so a period is only genuinely still open
- * if it ends *after* that date (`gt`, strict) — a period ending exactly on
- * it was the one that previous reading itself already closed, and including
- * it again here would double-count it against a second assessment. `toDate`
- * stays inclusive on `periodStart` (`lte`): a period beginning exactly on
- * today's reading is legitimately just starting to close.
+ * F-2.3/GAP-205/H-3: every period this mileage reading closes out — the
+ * periods whose **end** falls in `(fromDate, toDate]`. Both bounds are on
+ * `period_end`, deliberately, because "closes out" is a statement about a
+ * period having *ended*, never about when it began.
  *
- * The old predicate (`periodStart >= fromDate AND periodEnd <= toDate`,
- * full containment) refused a reading whenever the *previous* one had
- * landed even a day late: a late reading's own date sits inside the period
- * it closed, so the *next* period's `periodStart` — which precedes that
- * late date — failed `periodStart >= fromDate` even though the next period
- * itself was never touched. `periods.length === 0` then read as "no billing
- * period covers this range yet" and refused a perfectly legitimate reading.
+ * `fromDate` is the previous reading's own date, so a period is only
+ * genuinely still open if it ends *after* that date (`gt`, strict) — a
+ * period ending exactly on it was the one that previous reading itself
+ * already closed, and including it again would double-count it against a
+ * second assessment.
+ *
+ * `toDate` is this reading's date, and bounds `period_end` inclusively
+ * (`lte`) — **corrected 31 Aug 2026**, it used to bound `period_start`, and
+ * that was a real under-billing bug rather than a stylistic choice.
+ * `rollDueBillingPeriods` (queries/scheduled.ts) generates the next period
+ * as soon as `latestPeriodEnd < today`, so on the morning a period ends the
+ * *following* period already exists with `period_start = toDate`. An
+ * ordinary, perfectly on-time reading that afternoon therefore swept in a
+ * period that had barely started, and `combinedAllowanceKm`
+ * (domain/mileage.ts) adds each period's full `allowanceKm` with no
+ * proration — granting a whole period's allowance early, understating
+ * `excessKm`, and under-billing the customer. The next reading then matched
+ * the same period again for its real close-out, counting one allowance
+ * twice. CLAUDE.md's "mileage is one-directional" rule is exactly this:
+ * driving under an allowance produces no credit and no carry-forward, and a
+ * not-yet-elapsed period is the purest form of "under the allowance."
+ *
+ * The original GAP-205 case still works, which is the point of moving the
+ * bound rather than reverting it. The old predicate (`periodStart >=
+ * fromDate AND periodEnd <= toDate`, full containment) refused a reading
+ * whenever the *previous* one landed even a day late: a late reading's date
+ * sits inside the period it closed, so the next period's `periodStart` —
+ * which precedes that late date — failed `periodStart >= fromDate`, and
+ * `periods.length === 0` read as "no billing period covers this range yet."
+ * Dropping the `period_start` bound entirely, rather than loosening it,
+ * fixes that without ever admitting a period that has not ended.
+ *
  * No separate exclusion against `mileage_assessment`/`_split` is needed:
- * billing periods are strictly adjacent with no gaps (`billing-period.ts`'s
- * own generator sets `period_end` to the day before the next `period_start`),
+ * billing periods are strictly adjacent with no gaps (this file's own
+ * generator sets `period_end` to the day before the next `period_start`),
  * and `previous.readOn` is always either the handover reading or exactly the
  * `toReadingId` date of the assessment that closed everything up to it — so
  * the strict `gt` on `periodEnd` alone is what the exclusion needs.
@@ -158,8 +179,8 @@ export async function findBillingPeriodsInRange(
     .where(
       and(
         eq(billingPeriod.leaseId, leaseId),
-        lte(billingPeriod.periodStart, toDate),
         gt(billingPeriod.periodEnd, fromDate),
+        lte(billingPeriod.periodEnd, toDate),
       ),
     )
     .orderBy(asc(billingPeriod.seq));
