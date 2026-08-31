@@ -318,7 +318,7 @@ export interface IncidentRecoveryListRow extends IncidentRecoveryRow {
 }
 
 /**
- * GAP-201/NM-4: `forUpdate` locks the row for the caller's own transaction —
+ * GAP-202/NM-4: `forUpdate` locks the row for the caller's own transaction —
  * the same "lock the parent" reasoning `write-off.ts`'s `findWriteOffForBusiness`
  * already uses for `recordWriteOffRecovery`/`voidWriteOff`. `recordRecoveryReceived`
  * and `voidIncidentRecovery` both take it now, so a concurrent void-vs-receive

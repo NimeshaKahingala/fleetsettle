@@ -441,7 +441,7 @@ export async function recordRecoveryReceived(
         // shape `correctPayment` (F-8.2) uses — never more than one live
         // payment behind this recovery at a time.
         //
-        // GAP-201/PR-2: this used to also call `markPaymentReversed` on each
+        // GAP-202/PR-2: this used to also call `markPaymentReversed` on each
         // allocation's *parent* payment. A customer carrying unapplied
         // credit-forward can have this obligation's allocation drawn from an
         // older, otherwise-unrelated surplus payment (GAP-5b, above) — that
@@ -539,7 +539,7 @@ export interface VoidedIncidentRecovery {
  * `voidObligationBySource` — the obligation `recordCustomerContribution`
  * minted alongside this row, never entered separately (§2's exception).
  *
- * GAP-201/NM-4: the read and both checks now happen inside the transaction,
+ * GAP-202/NM-4: the read and both checks now happen inside the transaction,
  * against a `FOR UPDATE` row — the same "lock the parent" shape
  * `write-off.ts`'s `voidWriteOff` already uses (GAP-190/B12). Read outside
  * it (the shape this used to have), a concurrent `recordRecoveryReceived`
