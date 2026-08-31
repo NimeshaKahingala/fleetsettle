@@ -20,6 +20,7 @@ const obligation: LeaseObligationRow = {
   amountMinor: "6000000",
   settledMinor: "0",
   waivedMinor: "0",
+  writtenOffMinor: "0",
   status: "pending",
 };
 

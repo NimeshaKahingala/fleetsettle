@@ -71,14 +71,14 @@ export async function findLeaseForBusiness(
  * `billing_period` at generation time) — this only changes what the
  * *next* generated period picks up.
  *
- * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — defence in depth,
- * matching the pattern PR #144 already established for this class
- * (`changeVehicleArrangement`/`changeVehicleServiceInterval`/`archiveDriverRow`/
- * `unarchiveCustomerRow`, all of which PR #144 left as `.where(eq(id, …))`
- * alone). Every caller already resolves the lease through
- * `findLeaseForBusiness` first, so this closes no live route — it makes a
- * write that already cannot cross a tenant boundary say so in its own
- * `WHERE` clause too, rather than trusting the caller silently.
+ * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — defence in depth. Every
+ * caller already resolves the lease through `findLeaseForBusiness` first, so
+ * this closes no live route; it makes a write that already cannot cross a
+ * tenant boundary say so in its own `WHERE` clause too, rather than trusting
+ * the caller silently. The rule this PR applies across the layer: a write
+ * scoped only by a row id is one refactor away from being reachable with an
+ * id the caller never proved it owns, and the cost of saying so in the
+ * `WHERE` is a single extra predicate.
  */
 export async function updateLeaseTerms(
   db: WriteDb,

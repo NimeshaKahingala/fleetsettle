@@ -16,6 +16,7 @@ const due: LeaseObligationRow = {
   amountMinor: "7000000",
   settledMinor: "1000000",
   waivedMinor: "0",
+  writtenOffMinor: "0",
   status: "part_paid",
 };
 
