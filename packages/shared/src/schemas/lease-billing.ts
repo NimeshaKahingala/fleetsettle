@@ -182,6 +182,16 @@ export const leaseObligationRowSchema = z.object({
   amountMinor: z.string(),
   settledMinor: z.string(),
   waivedMinor: z.string(),
+  /**
+   * GAP-203/H-1/D2. On the wire because outstanding is
+   * `amount − settled − waived − writtenOff`, and every screen that computes
+   * that figure prefills a write-off or a payment amount from it. Omitted (as
+   * it was until 31 Aug 2026), a partly-written-off due reads at its full
+   * face value and prefills a follow-up write-off that the API's own
+   * "exceeds what remains outstanding" guard then rejects — the second
+   * partial write-off this field exists to allow, refused at its own default.
+   */
+  writtenOffMinor: z.string(),
   status: z.enum(["pending", "part_paid", "paid", "waived", "written_off"]),
 });
 export type LeaseObligationRow = z.infer<typeof leaseObligationRowSchema>;
