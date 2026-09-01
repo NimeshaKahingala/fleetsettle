@@ -269,6 +269,53 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     await ctx.cleanup();
   });
 
+  it("M-10: 409, not 500, when a deposit_held entry names a driver who already holds one", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // A deposit taken the ordinary way, before the opening balance ever names
+    // this driver — the case the sibling fix in reverseOpeningBalancePostings
+    // does not cover, since there is no earlier batch of this one's own to
+    // reverse.
+    const takeRes = await request("/api/deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({ driverId, amountMinor: "900000", occurredOn: "2026-01-05" }),
+    });
+    expect(takeRes.status).toBe(201);
+    const taken: { id: string } = await takeRes.json();
+    ctx.trackCreatedDeposit(taken.id);
+
+    const saveRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
+    });
+    expect(saveRes.status).toBe(200);
+    const savedBatch: { id: string } = await saveRes.json();
+    ctx.trackCreatedOpeningBalance(savedBatch.id);
+
+    // Migration 0038's index makes this unavoidable; the only question is
+    // whether the owner is told why. Before this, 23505 escaped insertDeposits
+    // as an unhandled 500 on the go-live screen.
+    const commitRes = await commitOpeningBalance(token);
+    expect(commitRes.status).toBe(409);
+    expect(await commitRes.json()).toMatchObject({ code: "DRIVER_ALREADY_HOLDING_DEPOSIT" });
+
+    // And the refusal left nothing half-written — one deposit, the original.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "held" });
+
+    await ctx.cleanup();
+  });
+
   it("GAP-109: re-confirming a batch committed before F3 shipped materialises it, and a normal retry after that stays a no-op", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

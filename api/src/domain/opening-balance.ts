@@ -1,6 +1,6 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import { findFirstPeriodStatus, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   findDepositForBusiness,
@@ -22,6 +22,7 @@ import {
 } from "../queries/obligation.js";
 import { insertPayments, markPaymentReversed, type NewPayment } from "../queries/payment.js";
 import {
+  DriverAlreadyHoldingDepositError,
   NotFoundError,
   OpeningBalanceLockedError,
   PeriodClosedError,
@@ -245,7 +246,29 @@ async function materializeOpeningBalanceEntries(
   }
 
   await insertObligations(tx, obligationRows);
-  await insertDeposits(tx, depositRows);
+  // M-10, 1 September 2026: the other way into 0038's index, and the one the
+  // sibling fix in `reverseOpeningBalancePostings` does not cover. That one
+  // handles this batch's *own* earlier deposit; this handles a deposit the
+  // driver already had from `takeDriverDeposit` before the opening balance
+  // ever named him. Reproduced: take a deposit (201), save a `deposit_held`
+  // entry for the same driver (200), confirm → 23505 out of `insertDeposits`,
+  // an unhandled 500 on the owner's go-live screen.
+  //
+  // `takeDriverDeposit` already gives this violation a name; the same name
+  // belongs here, for the same reason (CLAUDE.md → Writes: idempotency lives
+  // in the constraint, application code only makes it legible). Before 0038
+  // this silently produced the two-deposits-one-driver state that migration's
+  // own repair exists to undo, so the 409 is the fix, not a regression.
+  try {
+    await insertDeposits(tx, depositRows);
+  } catch (err) {
+    if (isUniqueViolation(err, "deposit_one_held_per_driver")) {
+      throw new DriverAlreadyHoldingDepositError(
+        "This driver already has a deposit held, so it cannot also be entered as an opening balance — remove that entry, or record the difference as a top-up instead",
+      );
+    }
+    throw err;
+  }
   await insertDepositMovements(tx, depositMovementRows);
   await insertAdvances(tx, advanceRows);
   await insertPayments(tx, paymentRows);
