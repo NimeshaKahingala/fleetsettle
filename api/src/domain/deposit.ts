@@ -3,6 +3,7 @@ import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   DepositMovementAlreadyVoidedError,
+  DriverAlreadyHoldingDepositError,
   NotFoundError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
@@ -70,6 +71,12 @@ export async function takeDriverDeposit(
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      // M-10, 31 Aug 2026: migration 0038's own partial unique index —
+      // idempotency lives in the constraint, this only gives the violation
+      // a friendly name (CLAUDE.md → Writes).
+      if (isUniqueViolation(err, "deposit_one_held_per_driver")) {
+        throw new DriverAlreadyHoldingDepositError();
+      }
       throw err;
     }
 
@@ -264,6 +271,7 @@ export async function recordDepositMovement(
 
 export interface VoidDepositMovementInput {
   businessId: string;
+  depositId: string;
   movementId: string;
   reason: string;
   userId: string;
@@ -303,6 +311,16 @@ export async function voidDepositMovement(
     return await writer.transaction(async (tx) => {
       const movement = await findDepositMovementForBusiness(tx, input.businessId, input.movementId);
       if (!movement) throw new NotFoundError("No such deposit movement in this business");
+
+      // NL-5: the URL's own parent segment (`/{id}/movement/{movementId}/void`)
+      // is otherwise decorative — `findDepositMovementForBusiness` only
+      // scopes by business, so a movement belonging to a different deposit
+      // would still be voided if this check were skipped. Before the
+      // already-voided branch, so a parent mismatch always looks like
+      // absence rather than leaking the row's existence and state as a 409.
+      if (movement.depositId !== input.depositId) {
+        throw new NotFoundError("No such deposit movement in this business");
+      }
       if (movement.voidedAt !== null) throw new DepositMovementAlreadyVoidedError();
 
       // GAP-178/B10: same parent lock, same order as `recordDepositMovementTx`

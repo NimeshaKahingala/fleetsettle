@@ -1,7 +1,7 @@
 import { and, eq, lte, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { deposit, driver, vehicle, vehicleDocument } from "../db/schema.js";
-import { sumDepositMovements } from "./driver-money.js";
+import { sumDepositMovementsBulk } from "./driver-money.js";
 
 type ReadDb = Reader | Writer | Tx;
 
@@ -64,11 +64,11 @@ export interface DepositReleaseRow {
 
 /**
  * F-2.7/UC-16 step 6, W-29: every deposit whose hold window has reached its
- * release date and is still sitting in it. The number of these is bounded —
- * one per settled lease/daily-lease awaiting release — so summing each
- * deposit's own movements here is the same small, real read `sumDepositsHeld`
- * (queries/reports.ts) already justifies, not the per-row bulk-write loop
- * IG §2 warns against.
+ * release date and is still sitting in it.
+ *
+ * L-3: originally summed each deposit's own movements in a loop, one query
+ * per deposit — the same N+1 shape `sumDepositsHeld` (queries/reports.ts)
+ * had, fixed here the identical way, via `sumDepositMovementsBulk`.
  */
 export async function listDepositsDueForRelease(
   db: ReadDb,
@@ -93,16 +93,16 @@ export async function listDepositsDueForRelease(
       ),
     );
 
-  const result: DepositReleaseRow[] = [];
-  for (const row of rows) {
-    const heldMinor = await sumDepositMovements(db, row.id);
-    result.push({
-      depositId: row.id,
-      partyType: row.partyType as "customer" | "driver",
-      partyId: (row.partyCustomerId ?? row.partyDriverId) as string,
-      holdReleaseDate: row.holdReleaseDate as string,
-      heldMinor,
-    });
-  }
-  return result;
+  const sums = await sumDepositMovementsBulk(
+    db,
+    rows.map((r) => r.id),
+  );
+  return rows.map((row) => ({
+    depositId: row.id,
+    partyType: row.partyType as "customer" | "driver",
+    partyId: (row.partyCustomerId ?? row.partyDriverId) as string,
+    holdReleaseDate: row.holdReleaseDate as string,
+    // eslint-disable-next-line no-restricted-syntax -- allow: sums is seeded with 0n for every id in rows above, so row.id always has an entry here
+    heldMinor: sums.get(row.id) ?? 0n,
+  }));
 }

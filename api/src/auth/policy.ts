@@ -23,11 +23,19 @@
  * vs. management) decides "his" vehicles for which action — is real design
  * work this pass did not do, recorded rather than guessed at.
  *
- * `viewReports` is the same flat stand-in a second time: UC-70/71/72 name a
- * `manager` as seeing only "shared vehicles," but every report in P11 reads
- * across the whole business regardless of role, for the identical reason —
- * the per-vehicle WHERE clause this would need is the same undone work as
- * `managePartnerCapital`'s, not a new gap.
+ * `viewReports` was the same flat stand-in a second time — corrected
+ * 13 Aug 2026, D-17 (data-model.md §17): a manager's own scope is now
+ * resolved at the handler that calls `getVehicleMonthReport`, never inside
+ * that function itself (it is also called by `sumAllTimeEarnedForUser`,
+ * partner.ts, for the unrelated partner-summary figure, and baking scope
+ * into the shared function would have silently changed money there) —
+ * the vehicles whose `management_fee_agreement` overlapped the reported
+ * accounting period (INV-34), not the agreement's status today or at the
+ * period's end. UC-71/72/74/76/78 stay whole-business for a manager on
+ * purpose (use-cases.md W-59): a manager runs operations, so receivables,
+ * cash, lost days and ageing are his working set regardless of which
+ * vehicle a fee agreement names. `managePartnerCapital`'s own per-vehicle
+ * restriction (the paragraph above) is the gap that remains undone.
  */
 
 export type Role = "owner" | "owner_manager" | "manager" | "driver";

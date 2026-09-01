@@ -131,23 +131,40 @@ export async function unlinkDriver(db: WriteDb, driverId: string): Promise<void>
  * (mapped to `PartyAlreadyArchivedError` by the caller) rather than a
  * clobber.
  */
+/**
+ * NL-2, 31 Aug 2026: `businessId` in the `WHERE` — `setVehicleLifecycle`'s
+ * own PR #144 fix (Copilot review), applied to this table's sibling.
+ * `archiveDriver`'s own `FOR UPDATE` lock and `assertArchivable` check
+ * already run first, so this closes no live route — it makes the write
+ * itself assert tenancy too, not trust the caller's earlier check alone.
+ */
 export async function archiveDriverRow(
   db: WriteDb,
+  businessId: string,
   driverId: string,
   values: { voidedReason: string; voidedBy: string },
 ): Promise<{ voidedAt: string } | undefined> {
   const rows = await db
     .update(driver)
     .set({ voidedAt: sql`now()`, voidedReason: values.voidedReason, voidedBy: values.voidedBy })
-    .where(and(eq(driver.id, driverId), isNull(driver.voidedAt)))
+    .where(and(eq(driver.id, driverId), eq(driver.businessId, businessId), isNull(driver.voidedAt)))
     .returning({ voidedAt: driver.voidedAt });
   return rows[0] as { voidedAt: string } | undefined;
 }
 
-/** F-1.11's "Unarchive" alternate: nothing about his history changed while he was gone, so there is nothing else to touch. */
-export async function unarchiveDriverRow(db: WriteDb, driverId: string): Promise<void> {
+/**
+ * F-1.11's "Unarchive" alternate: nothing about his history changed while
+ * he was gone, so there is nothing else to touch.
+ *
+ * NL-2, 31 Aug 2026: same `businessId` fix as `archiveDriverRow` above.
+ */
+export async function unarchiveDriverRow(
+  db: WriteDb,
+  businessId: string,
+  driverId: string,
+): Promise<void> {
   await db
     .update(driver)
     .set({ voidedAt: null, voidedReason: null, voidedBy: null })
-    .where(eq(driver.id, driverId));
+    .where(and(eq(driver.id, driverId), eq(driver.businessId, businessId)));
 }

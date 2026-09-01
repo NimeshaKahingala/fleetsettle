@@ -12,6 +12,7 @@ import {
   IncidentRecoveryAlreadyVoidedError,
   InsuranceClaimAlreadyExistsError,
   NotFoundError,
+  OffRoadTreatmentAlreadyRecordedError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
@@ -112,14 +113,59 @@ export interface RecordedOffRoad {
  * split) against the billing period's own rent obligation. `extend` pushes
  * `lease.end_date` out and records why (D-7) — the added days' own mileage
  * allowance follows automatically the next time F-2.3 runs, no recalculation.
+ *
+ * GAP-204/H-2/D3 (decided 30 Aug 2026): refuses a second call while a live
+ * treatment already exists — `rent_treatment` was written every time this
+ * ran but never read back, so a second `credit_days` silently applied a
+ * second adjustment against the same billing period, and a second `extend`
+ * pushed the lease's end date out again on top of the first. `continue` sets
+ * nothing live (the safe default, above) and never blocks a real choice
+ * afterward; only `credit_days`/`extend` — the two with an actual financial
+ * or lease-date effect — do. W-61's "undo what you did, in the order you
+ * did it" governs: `credit_days` undoes through the existing `voidAdjustment`
+ * path (F-2.4); `extend` has no void path in this schema at all yet
+ * (`lease_extension` carries no `voided_at` trio, GAP-190's own W-50 sweep
+ * never reached it) — refusing is still strictly better than a second
+ * push nobody can see was ever applied twice.
  */
 export async function recordOffRoad(
   writer: Writer,
   input: RecordOffRoadInput,
 ): Promise<RecordedOffRoad> {
   return writer.transaction(async (tx) => {
-    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId);
+    // GAP-204/H-2/D3, review 31 Aug 2026: `FOR UPDATE`. Read without the
+    // lock, two near-simultaneous requests both see `rentTreatment === null`,
+    // both pass the guard below and both apply the pro-rata adjustment or
+    // the lease extension — the exact double-apply this guard exists to
+    // stop, merely made harder to hit rather than prevented. The write
+    // itself is not conditional on `rent_treatment` still being unset, so
+    // serialising the read is what makes the check mean anything. Same
+    // "lock the row you are about to decide from" shape `voidWriteOff`
+    // (GAP-190/B12) and `voidIncidentRecovery` (GAP-202/NM-4) already take.
+    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId, true);
     if (!existing) throw new NotFoundError("No such incident in this business");
+
+    if (existing.rentTreatment === "credit_days") {
+      // The message deliberately does *not* promise "void the adjustment and
+      // record a new one": voiding an `adjustment` (F-2.4) does not clear
+      // `incident.rent_treatment`, because nothing links the adjustment back
+      // to the incident that raised it. A manager told to void first would
+      // do so and still be refused here, with no way forward and no
+      // explanation. Stating the real limit is the honest version until that
+      // linkage exists; re-recording a treatment is its own change.
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already has a rent-credit adjustment recorded for its off-road window, " +
+          "and changing it is not supported yet — contact support before recording a " +
+          "different treatment",
+      );
+    }
+    if (existing.rentTreatment === "extend") {
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already extended the lease's end date for its off-road window, and " +
+          "reversing an extension is not supported yet — contact support before recording a " +
+          "different treatment",
+      );
+    }
 
     await updateIncidentOffRoad(tx, input.incidentId, {
       offRoadFrom: input.offRoadFrom,
@@ -350,6 +396,7 @@ export async function recordCustomerContribution(
 
 export interface RecordRecoveryReceivedInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -391,6 +438,13 @@ export async function recordRecoveryReceived(
     input.recoveryId,
   );
   if (!recovery || recovery.voidedAt !== null) {
+    throw new NotFoundError("No such recovery in this business");
+  }
+  // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/receive`)
+  // is otherwise decorative — `findIncidentRecoveryForBusiness` only scopes
+  // by business, so a recovery belonging to a different incident would
+  // still accept a receipt if this check were skipped.
+  if (recovery.incidentId !== input.incidentId) {
     throw new NotFoundError("No such recovery in this business");
   }
 
@@ -545,6 +599,7 @@ export async function recordRecoveryReceived(
 
 export interface VoidIncidentRecoveryInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   reason: string;
   userId: string;
@@ -584,6 +639,17 @@ export async function voidIncidentRecovery(
         true,
       );
       if (!recovery) throw new NotFoundError("No such recovery in this business");
+
+      // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/void`)
+      // is otherwise decorative — `findIncidentRecoveryForBusiness` only
+      // scopes by business, so a recovery belonging to a different incident
+      // would still be voided if this check were skipped. Before every
+      // state-specific branch below (already-voided, and the
+      // money-already-received refusal), so a parent mismatch always looks
+      // like absence rather than leaking the row's existence and its state.
+      if (recovery.incidentId !== input.incidentId) {
+        throw new NotFoundError("No such recovery in this business");
+      }
       if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
 
       if (recovery.receivedAmountMinor > 0n) {
@@ -716,6 +782,7 @@ export async function submitInsuranceClaim(
 
 export interface SettleInsuranceClaimInput {
   businessId: string;
+  incidentId: string;
   claimId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -741,6 +808,14 @@ export async function settleInsuranceClaim(
   return writer.transaction(async (tx) => {
     const claim = await findInsuranceClaimForBusiness(tx, input.businessId, input.claimId);
     if (!claim) throw new NotFoundError("No such insurance claim in this business");
+
+    // NL-5: the URL's own parent segment (`/{id}/insurance-claim/{claimId}/settle`)
+    // is otherwise decorative — `findInsuranceClaimForBusiness` only scopes
+    // by business, so a claim belonging to a different incident would still
+    // be settled if this check were skipped.
+    if (claim.incidentId !== input.incidentId) {
+      throw new NotFoundError("No such insurance claim in this business");
+    }
 
     const receivedPeriod = await findPeriodForDate(tx, input.businessId, input.receivedOn);
     const status = input.status ?? "settled";

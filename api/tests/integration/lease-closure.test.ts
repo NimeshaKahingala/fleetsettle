@@ -172,6 +172,42 @@ describe("close a lease (F-2.6/UC-16)", () => {
       await ctx.cleanup();
     });
 
+    it("M-3 — 'days_used' books its pro-rata reduction as agreed_discount, never goodwill, so UC-77's annual goodwill total is not inflated by an ordinary closure", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId, {
+        periodStart: "2026-01-01",
+        periodEnd: "2026-12-31",
+      });
+      const vehicleId = await ctx.createVehicle(businessId);
+      await ctx.setVehicleArrangement(vehicleId, "A");
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const started = await startLease(token, vehicleId, customerId);
+      ctx.trackCreatedLease(started.id);
+
+      const res = await post(`/api/lease/${started.id}/close`, token, {
+        closingDate: "2026-01-21",
+        finalPeriodMode: "days_used",
+        closingOdometerKm: 300,
+        odometerSource: "at_return",
+      });
+      expect(res.status).toBe(200);
+
+      // 3,100,000 prorated to 10 of 31 days leaves a 2,100,000 reduction —
+      // real money, but a contractual entitlement (days not used), not a
+      // gift. Before this fix it landed in the same bucket as a genuine
+      // waiver.
+      const goodwillRes = await get("/api/reports/goodwill?from=2026-01-01&to=2026-01-31", token);
+      expect(goodwillRes.status).toBe(200);
+      const goodwillBody: { totalMinor: string } = await goodwillRes.json();
+      expect(goodwillBody.totalMinor).toBe("0");
+
+      await ctx.cleanup();
+    });
+
     it("'full': charges the full period even though it truncates the mileage allowance to days used", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

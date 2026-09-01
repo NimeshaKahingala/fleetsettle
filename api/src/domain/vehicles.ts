@@ -107,6 +107,8 @@ export async function createVehicle(
 }
 
 export interface ChangeVehicleArrangementInput {
+  /** NL-2/L-2, 31 Aug 2026: threaded through to `findCurrentVehicleArrangementRow`/`endVehicleArrangementRow` — neither had a `businessId` before, since `vehicle_arrangement` carries none of its own. */
+  businessId: string;
   vehicleId: string;
   arrangement: "A" | "B" | "C";
   effectiveFrom: BusinessDate;
@@ -148,7 +150,7 @@ export async function changeVehicleArrangement(
   input: ChangeVehicleArrangementInput,
 ): Promise<ChangedVehicleArrangement> {
   return await writer.transaction(async (tx) => {
-    const current = await findCurrentVehicleArrangementRow(tx, input.vehicleId);
+    const current = await findCurrentVehicleArrangementRow(tx, input.businessId, input.vehicleId);
     if (!current) throw new NotFoundError("This vehicle has no current arrangement");
     if (current.arrangement === input.arrangement) {
       throw new ValidationError("This vehicle is already configured for this arrangement");
@@ -203,7 +205,12 @@ export async function changeVehicleArrangement(
       }
     }
 
-    await endVehicleArrangementRow(tx, current.id, addDays(input.effectiveFrom, -1));
+    await endVehicleArrangementRow(
+      tx,
+      input.businessId,
+      current.id,
+      addDays(input.effectiveFrom, -1),
+    );
 
     const newArrangementId = newId();
     await insertVehicleArrangement(tx, {
@@ -269,10 +276,13 @@ export async function unarchiveVehicle(
 /** F-3.5/UC-13/GAP-68. `null` clears the interval — the same "no interval, no prompt" reading the rest of this feature carries. */
 export async function changeVehicleServiceInterval(
   writer: Writer,
+  businessId: string,
   vehicleId: string,
   serviceIntervalKm: number | null,
 ): Promise<void> {
-  await writer.transaction((tx) => setVehicleServiceInterval(tx, vehicleId, serviceIntervalKm));
+  await writer.transaction((tx) =>
+    setVehicleServiceInterval(tx, businessId, vehicleId, serviceIntervalKm),
+  );
 }
 
 export interface VehicleMaintenanceStatus {

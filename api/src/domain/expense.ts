@@ -85,6 +85,18 @@ export interface CreateExpenseInput {
   borneByDriverId?: string;
   borneByCustomerId?: string;
   paidByUserId: string;
+  /**
+   * GAP-207/NM-5: the real authenticated actor, and a third fact distinct
+   * from the two W-48 already insists on keeping apart. `borne_by` is whose
+   * cost it ultimately is; `paid_by` (`paidByUserId`) is whose pocket the
+   * cash actually came from — two independent fields, not two halves of one,
+   * which is the whole point of W-48's manager-buys-the-driver's-fuel case.
+   * `actorUserId` is neither: it is who typed the record in, which
+   * `expense.created_by` records for the audit trail (F-8.6). Collapsing it
+   * into `paidByUserId` let a record appear to have been entered by someone
+   * who never touched the request.
+   */
+  actorUserId: string;
   litres?: number;
   odometerReadingKm?: number;
   odometerSource?: OdometerSource;
@@ -186,7 +198,7 @@ export async function createExpense(
         ...(linkage.belongsToPeriodId !== null
           ? { belongsToPeriodId: linkage.belongsToPeriodId }
           : {}),
-        createdBy: input.paidByUserId,
+        createdBy: input.actorUserId,
         ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
       });
     });

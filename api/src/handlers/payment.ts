@@ -18,6 +18,7 @@ import type {
   recordPaymentRoute,
 } from "../route-defs/payment.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 export function toListRow(row: PaymentListRow) {
   return {
@@ -77,6 +78,8 @@ export const recordPaymentHandler: RouteHandler<typeof recordPaymentRoute, Env> 
     if (!member) throw new NotFoundError("No such active member in this business");
   }
 
+  assertNotFutureBusinessDate(c, body.occurredOn, "occurredOn");
+
   const result = await recordPayment(c.get("writer"), {
     businessId,
     direction: body.direction,
@@ -109,6 +112,8 @@ export const correctPaymentHandler: RouteHandler<typeof correctPaymentRoute, Env
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, body.correctedOn, "correctedOn");
 
   const result = await correctPayment(c.get("writer"), {
     businessId,

@@ -10,16 +10,33 @@
 const UNIQUE_VIOLATION = "23505";
 const EXCLUSION_VIOLATION = "23P01";
 const RAISE_EXCEPTION = "P0001";
+// NL-1, 31 Aug 2026: "date/time field value out of range" — Postgres's own
+// rejection of a calendar-invalid date (`'2026-02-30'`), the same class
+// `asBusinessDate`'s own re-derive-and-compare check now catches earlier.
+// Kept as defence in depth for any date string that reaches a query
+// without passing through `asBusinessDate` first.
+const INVALID_DATETIME_FORMAT = "22008";
 
 /**
  * GAP-178/B13. Migration 0031's archive guard raises this instead of the
- * default `P0001`, so the matcher below keys on the code alone.
+ * default `P0001`, so the matcher below keys on the code alone — the fix
+ * B18 (below) recommends for every `P0001` raiser, taken here because a
+ * dedicated code was cheap to add for a brand-new trigger.
  *
- * Every other raiser in this schema shares `P0001` and is told apart by
- * substring-matching its message — four of them, filed as B18 in this same
- * step because a migration rewording a message silently breaks the mapping.
- * A fifth would have widened the defect while pinning it. `FS0` is not a
- * class PostgreSQL defines, so nothing else can claim this code.
+ * `FS0` is not a class PostgreSQL defines, so nothing else can claim this
+ * code.
+ *
+ * **B18 is still open, not fixed by this one exception.** `isPeriodClosedViolation`/
+ * `isSharesNotFullViolation`/`isBusinessHasNoOwnerViolation`/
+ * `isPlatformHasNoAdminViolation` (below) all still share the generic
+ * `P0001` and are told apart only by substring-matching their own trigger's
+ * fixed message text — a migration that rewords any one of those four
+ * messages silently breaks its matcher, and the violation then falls
+ * through as an unmapped 500 with no compiler or test to say so at the
+ * point of the edit. Recorded here rather than fixed as a side effect of
+ * this file's own neighbourhood being touched: giving each an `FS00x`
+ * `ERRCODE` the way `FS001` does is the real fix, and is its own change,
+ * not a comment correction's job.
  */
 const PARTY_ARCHIVED = "FS001";
 
@@ -54,6 +71,11 @@ function pgErrorOf(err: unknown): PostgresError | undefined {
  */
 export function isPartyArchivedViolation(err: unknown): boolean {
   return pgErrorOf(err)?.code === PARTY_ARCHIVED;
+}
+
+/** NL-1: true if `err` is Postgres rejecting a calendar-invalid date. Mapped globally, the same reasoning `isPartyArchivedViolation`'s own comment gives — a write path added next year should not have to remember this catch, since `asBusinessDate` already covers every date reaching this point through the normal wire schema. */
+export function isInvalidDateViolation(err: unknown): boolean {
+  return pgErrorOf(err)?.code === INVALID_DATETIME_FORMAT;
 }
 
 /** True if `err` (or the query error wrapping it) is a violation of the named unique index or constraint. */

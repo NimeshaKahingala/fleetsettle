@@ -24,7 +24,7 @@ import {
   vehicleUnavailability,
   writeOff,
 } from "../db/schema.js";
-import { sumDepositMovements } from "./driver-money.js";
+import { sumDepositMovementsBulk } from "./driver-money.js";
 
 type ReadDb = Reader | Writer | Tx;
 
@@ -108,6 +108,179 @@ function foldIntoNestedBigIntMap(
 }
 
 /**
+ * M-1/D1, 31 Aug 2026: `sumVehicleEarned*`/`sumVehicleCosts*` and the UC-99
+ * export (`listTransactionsForDateRange`) each independently listed which
+ * obligation kinds count — and had drifted: the export already included
+ * `customer_contribution`, `insurance_settlement` and `write_off`, none of
+ * which the report side read at all, and neither side subtracted
+ * `waived_minor` from what a receivable actually collects. One shared list
+ * per direction, read by every sum function below and by
+ * `listObligationTransactionsForDateRange`, so the two families cannot
+ * drift again the same way.
+ */
+const EARNED_OBLIGATION_KINDS = [
+  "rent",
+  "daily_amount",
+  "mileage_excess",
+  // GAP-175: the customer half of an incident recovery — a receivable like
+  // any other, raised by `recordCustomerContribution` against `obligation`.
+  "customer_contribution",
+] as const;
+const COST_OBLIGATION_KINDS = ["driver_fee", "management_fee"] as const;
+
+/**
+ * M-1/D1: the insurer half of an incident recovery, recognised when the
+ * money actually arrives — the same basis
+ * `listInsuranceSettlementTransactionsForDateRange`'s own comment already
+ * justifies (a claim is money *expected* until it lands). `insurance_claim`
+ * carries no `vehicle_id` of its own; the incident it belongs to does.
+ */
+async function sumInsuranceSettlementForPeriodBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodId: string,
+): Promise<VehicleTotalRow[]> {
+  if (vehicleIds.length === 0) return [];
+  return db
+    .select({
+      vehicleId: incident.vehicleId,
+      total: sql<string>`SUM(${insuranceClaim.receivedAmountMinor})`,
+    })
+    .from(insuranceClaim)
+    .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
+    .where(
+      and(
+        inArray(incident.vehicleId, vehicleIds),
+        eq(insuranceClaim.receivedPeriodId, periodId),
+        sql`${insuranceClaim.receivedAmountMinor} > 0`,
+      ),
+    )
+    .groupBy(incident.vehicleId);
+}
+
+/** `sumInsuranceSettlementForPeriodBulk`'s own query, keyed by `received_on` falling in `[from, to]` rather than `received_period_id` — for the date-range report family, the same `postedPeriodId`-vs-`dueOn` split every other earned/cost pair in this file already has. */
+async function sumInsuranceSettlementForDateRangeBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  from: string,
+  to: string,
+): Promise<VehicleTotalRow[]> {
+  if (vehicleIds.length === 0) return [];
+  return db
+    .select({
+      vehicleId: incident.vehicleId,
+      total: sql<string>`SUM(${insuranceClaim.receivedAmountMinor})`,
+    })
+    .from(insuranceClaim)
+    .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
+    .where(
+      and(
+        inArray(incident.vehicleId, vehicleIds),
+        gte(insuranceClaim.receivedOn, from),
+        lte(insuranceClaim.receivedOn, to),
+        sql`${insuranceClaim.receivedAmountMinor} > 0`,
+      ),
+    )
+    .groupBy(incident.vehicleId);
+}
+
+/**
+ * M-1/D1: a write-off is a loss you were handed, never netted against the
+ * obligation that earned it (W-28/INV-14, same as `listWriteOffTransactionsForDateRange`'s
+ * own comment) — booked as its own cost, in the period it was written off,
+ * not retroactively into the month the original charge was raised.
+ */
+async function sumWriteOffForPeriodBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodId: string,
+): Promise<VehicleTotalRow[]> {
+  if (vehicleIds.length === 0) return [];
+  return db
+    .select({ vehicleId: writeOff.vehicleId, total: sql<string>`SUM(${writeOff.amountMinor})` })
+    .from(writeOff)
+    .where(
+      and(
+        inArray(writeOff.vehicleId, vehicleIds),
+        eq(writeOff.postedPeriodId, periodId),
+        isNull(writeOff.voidedAt),
+      ),
+    )
+    .groupBy(writeOff.vehicleId);
+}
+
+/** `sumWriteOffForPeriodBulk`'s own query, keyed by `written_off_on` falling in `[from, to]` rather than `posted_period_id`. */
+async function sumWriteOffForDateRangeBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  from: string,
+  to: string,
+): Promise<VehicleTotalRow[]> {
+  if (vehicleIds.length === 0) return [];
+  return db
+    .select({ vehicleId: writeOff.vehicleId, total: sql<string>`SUM(${writeOff.amountMinor})` })
+    .from(writeOff)
+    .where(
+      and(
+        inArray(writeOff.vehicleId, vehicleIds),
+        gte(writeOff.writtenOffOn, from),
+        lte(writeOff.writtenOffOn, to),
+        isNull(writeOff.voidedAt),
+      ),
+    )
+    .groupBy(writeOff.vehicleId);
+}
+
+/** `sumInsuranceSettlementForPeriodBulk`'s own query, additionally grouped by `received_period_id` — for `sumVehicleEarnedForPeriodsBulk` (partner.ts's all-time balance), the same "every period in one round trip" shape `foldIntoNestedBigIntMap` already folds. */
+async function sumInsuranceSettlementForPeriodsBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodIds: string[],
+): Promise<VehiclePeriodTotalRow[]> {
+  if (vehicleIds.length === 0 || periodIds.length === 0) return [];
+  return db
+    .select({
+      vehicleId: incident.vehicleId,
+      periodId: insuranceClaim.receivedPeriodId,
+      total: sql<string>`SUM(${insuranceClaim.receivedAmountMinor})`,
+    })
+    .from(insuranceClaim)
+    .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
+    .where(
+      and(
+        inArray(incident.vehicleId, vehicleIds),
+        inArray(insuranceClaim.receivedPeriodId, periodIds),
+        sql`${insuranceClaim.receivedAmountMinor} > 0`,
+      ),
+    )
+    .groupBy(incident.vehicleId, insuranceClaim.receivedPeriodId);
+}
+
+/** `sumWriteOffForPeriodBulk`'s own query, additionally grouped by `posted_period_id` — `sumVehicleCostsForPeriodsBulk`'s own sibling, same reasoning as `sumInsuranceSettlementForPeriodsBulk` above. */
+async function sumWriteOffForPeriodsBulk(
+  db: ReadDb,
+  vehicleIds: string[],
+  periodIds: string[],
+): Promise<VehiclePeriodTotalRow[]> {
+  if (vehicleIds.length === 0 || periodIds.length === 0) return [];
+  return db
+    .select({
+      vehicleId: writeOff.vehicleId,
+      periodId: writeOff.postedPeriodId,
+      total: sql<string>`SUM(${writeOff.amountMinor})`,
+    })
+    .from(writeOff)
+    .where(
+      and(
+        inArray(writeOff.vehicleId, vehicleIds),
+        inArray(writeOff.postedPeriodId, periodIds),
+        isNull(writeOff.voidedAt),
+      ),
+    )
+    .groupBy(writeOff.vehicleId, writeOff.postedPeriodId);
+}
+
+/**
  * UC-70/DM §15: "everything recognised in the accounting period" (W-40) —
  * rent, the daily amount, and mileage excess all live on `obligation`; trip
  * income is recognised at closing (W-41), never on `obligation`.
@@ -169,6 +342,16 @@ export async function sumVehicleEarnedForPeriod(
  * here so nothing downstream has to know the difference between "zero" and
  * "absent" (W-56 is still honoured: a vehicle with no rows genuinely earned
  * nothing in this period, not a missing figure).
+ *
+ * **M-1/D1, 31 Aug 2026: net, not gross.** `SUM(amount_minor - waived_minor)`
+ * — a waiver is a discount decision on what was ever really charged (FL
+ * §5.73: "the month shows the 340 charged and the 340 waived"), not income
+ * this report should count and then silently never collect. Gains a third
+ * and fourth source: `customer_contribution` folded into
+ * `EARNED_OBLIGATION_KINDS` above, and the insurer settlement
+ * (`sumInsuranceSettlementForPeriodBulk`) — both already counted in UC-99's
+ * export, neither counted here before this fix, which is the whole reason
+ * the two could never reconcile.
  */
 export async function sumVehicleEarnedForPeriodBulk(
   db: ReadDb,
@@ -178,36 +361,40 @@ export async function sumVehicleEarnedForPeriodBulk(
   const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        eq(obligation.postedPeriodId, periodId),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId);
-  const tripRows = await db
-    .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
-    .from(trip)
-    .where(
-      and(
-        inArray(trip.vehicleId, vehicleIds),
-        eq(trip.postedPeriodId, periodId),
-        eq(trip.status, "closed"),
-      ),
-    )
-    .groupBy(trip.vehicleId);
+  const [obligationRows, tripRows, insuranceRows] = await Promise.all([
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        total: sql<string>`SUM(${obligation.amountMinor} - ${obligation.waivedMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          eq(obligation.postedPeriodId, periodId),
+          eq(obligation.direction, "owed_to_us"),
+          inArray(obligation.kind, EARNED_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId),
+    db
+      .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
+      .from(trip)
+      .where(
+        and(
+          inArray(trip.vehicleId, vehicleIds),
+          eq(trip.postedPeriodId, periodId),
+          eq(trip.status, "closed"),
+        ),
+      )
+      .groupBy(trip.vehicleId),
+    sumInsuranceSettlementForPeriodBulk(db, vehicleIds, periodId),
+  ]);
 
   foldIntoBigIntMap(out, obligationRows);
   foldIntoBigIntMap(out, tripRows);
+  foldIntoBigIntMap(out, insuranceRows);
   return out;
 }
 
@@ -219,6 +406,14 @@ export async function sumVehicleEarnedForPeriodBulk(
  * single-period, single-vehicle version once per accounting period —
  * `O(vehicles × periods)` round trips on the same endpoint GAP-145 already
  * found fanning out past Workers Free's subrequest ceiling.
+ *
+ * **M-1/D1, 31 Aug 2026: net, not gross** — `sumVehicleEarnedForPeriodBulk`'s
+ * own fix, applied here too. This feeds `sumAllTimeEarnedForUser`'s own
+ * per-vehicle profit split (partner.ts) — leaving this variant on the old
+ * gross basis while its single-period sibling moved to net would have
+ * reintroduced the exact disagreement M-1 exists to close, one level
+ * removed (a partner's own all-time balance against the vehicle P&L it is
+ * derived from).
  */
 export async function sumVehicleEarnedForPeriodsBulk(
   db: ReadDb,
@@ -228,45 +423,55 @@ export async function sumVehicleEarnedForPeriodsBulk(
   const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
   if (vehicleIds.length === 0 || periodIds.length === 0) return out;
 
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      periodId: obligation.postedPeriodId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        inArray(obligation.postedPeriodId, periodIds),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId, obligation.postedPeriodId);
-  const tripRows = await db
-    .select({
-      vehicleId: trip.vehicleId,
-      periodId: trip.postedPeriodId,
-      total: sql<string>`SUM(${trip.agreedAmountMinor})`,
-    })
-    .from(trip)
-    .where(
-      and(
-        inArray(trip.vehicleId, vehicleIds),
-        inArray(trip.postedPeriodId, periodIds),
-        eq(trip.status, "closed"),
-      ),
-    )
-    .groupBy(trip.vehicleId, trip.postedPeriodId);
+  const [obligationRows, tripRows, insuranceRows] = await Promise.all([
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        periodId: obligation.postedPeriodId,
+        total: sql<string>`SUM(${obligation.amountMinor} - ${obligation.waivedMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          inArray(obligation.postedPeriodId, periodIds),
+          eq(obligation.direction, "owed_to_us"),
+          inArray(obligation.kind, EARNED_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId, obligation.postedPeriodId),
+    db
+      .select({
+        vehicleId: trip.vehicleId,
+        periodId: trip.postedPeriodId,
+        total: sql<string>`SUM(${trip.agreedAmountMinor})`,
+      })
+      .from(trip)
+      .where(
+        and(
+          inArray(trip.vehicleId, vehicleIds),
+          inArray(trip.postedPeriodId, periodIds),
+          eq(trip.status, "closed"),
+        ),
+      )
+      .groupBy(trip.vehicleId, trip.postedPeriodId),
+    sumInsuranceSettlementForPeriodsBulk(db, vehicleIds, periodIds),
+  ]);
 
   foldIntoNestedBigIntMap(out, obligationRows);
   foldIntoNestedBigIntMap(out, tripRows);
+  foldIntoNestedBigIntMap(out, insuranceRows);
   return out;
 }
 
-/** `sumVehicleCostsForPeriodBulk`'s own two queries, additionally grouped by `postedPeriodId` — see `sumVehicleEarnedForPeriodsBulk`'s comment for why. */
+/**
+ * `sumVehicleCostsForPeriodBulk`'s own two queries, additionally grouped by
+ * `postedPeriodId` — see `sumVehicleEarnedForPeriodsBulk`'s comment for why.
+ *
+ * **M-1/D1, 31 Aug 2026: gains `write_off`** — the same reasoning as
+ * `sumVehicleCostsForPeriodBulk`'s own fix.
+ */
 export async function sumVehicleCostsForPeriodsBulk(
   db: ReadDb,
   vehicleIds: string[],
@@ -275,42 +480,46 @@ export async function sumVehicleCostsForPeriodsBulk(
   const out = new Map(periodIds.map((pid) => [pid, zeroSeededMap(vehicleIds)]));
   if (vehicleIds.length === 0 || periodIds.length === 0) return out;
 
-  const expenseRows = await db
-    .select({
-      vehicleId: expense.vehicleId,
-      periodId: expense.postedPeriodId,
-      total: sql<string>`SUM(${expense.amountMinor})`,
-    })
-    .from(expense)
-    .where(
-      and(
-        inArray(expense.vehicleId, vehicleIds),
-        inArray(expense.postedPeriodId, periodIds),
-        eq(expense.borneBy, "us"),
-        isNull(expense.voidedAt),
-      ),
-    )
-    .groupBy(expense.vehicleId, expense.postedPeriodId);
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      periodId: obligation.postedPeriodId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        inArray(obligation.postedPeriodId, periodIds),
-        eq(obligation.direction, "owed_by_us"),
-        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId, obligation.postedPeriodId);
+  const [expenseRows, obligationRows, writeOffRows] = await Promise.all([
+    db
+      .select({
+        vehicleId: expense.vehicleId,
+        periodId: expense.postedPeriodId,
+        total: sql<string>`SUM(${expense.amountMinor})`,
+      })
+      .from(expense)
+      .where(
+        and(
+          inArray(expense.vehicleId, vehicleIds),
+          inArray(expense.postedPeriodId, periodIds),
+          eq(expense.borneBy, "us"),
+          isNull(expense.voidedAt),
+        ),
+      )
+      .groupBy(expense.vehicleId, expense.postedPeriodId),
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        periodId: obligation.postedPeriodId,
+        total: sql<string>`SUM(${obligation.amountMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          inArray(obligation.postedPeriodId, periodIds),
+          eq(obligation.direction, "owed_by_us"),
+          inArray(obligation.kind, COST_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId, obligation.postedPeriodId),
+    sumWriteOffForPeriodsBulk(db, vehicleIds, periodIds),
+  ]);
 
   foldIntoNestedBigIntMap(out, expenseRows);
   foldIntoNestedBigIntMap(out, obligationRows);
+  foldIntoNestedBigIntMap(out, writeOffRows);
   return out;
 }
 
@@ -325,6 +534,11 @@ export async function sumVehicleCostsForPeriodsBulk(
  * land in one accounting period rather than another. `obligation.dueOn` for
  * the window, `trip.closingDate` for the window (UC-70's own "trips by
  * closing date", INV-30).
+ *
+ * **M-1/D1, 31 Aug 2026: net, not gross**, plus `customer_contribution` and
+ * the insurer settlement — `sumVehicleEarnedForPeriodBulk`'s own fix,
+ * applied here too (`getUtilisationReport`'s revenue-per-available-day is
+ * the same "earned" fact, on a date-range basis instead of a period one).
  */
 export async function sumVehicleEarnedForDateRange(
   db: ReadDb,
@@ -336,34 +550,64 @@ export async function sumVehicleEarnedForDateRange(
   // (TS §7's bounded-CPU rule). `COALESCE(…, 0)` is load-bearing — `SUM()`
   // over zero rows is NULL, and the JS `reduce` this replaces returned `0n`
   // for a vehicle with no activity, which is a fact this report renders.
-  const obligationRows = await db
-    .select({ total: sql<string>`COALESCE(SUM(${obligation.amountMinor}), 0)` })
-    .from(obligation)
-    .where(
-      and(
-        eq(obligation.vehicleId, vehicleId),
-        gte(obligation.dueOn, from),
-        lte(obligation.dueOn, to),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
-        isNull(obligation.voidedAt),
+  const [obligationRows, tripRows, insuranceRows] = await Promise.all([
+    db
+      .select({
+        total: sql<string>`COALESCE(SUM(${obligation.amountMinor} - ${obligation.waivedMinor}), 0)`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          eq(obligation.vehicleId, vehicleId),
+          gte(obligation.dueOn, from),
+          lte(obligation.dueOn, to),
+          eq(obligation.direction, "owed_to_us"),
+          inArray(obligation.kind, EARNED_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
       ),
-    );
-  const tripRows = await db
-    .select({ total: sql<string>`COALESCE(SUM(${trip.agreedAmountMinor}), 0)` })
-    .from(trip)
-    .where(
-      and(
-        eq(trip.vehicleId, vehicleId),
-        gte(trip.closingDate, from),
-        lte(trip.closingDate, to),
-        eq(trip.status, "closed"),
+    db
+      .select({ total: sql<string>`COALESCE(SUM(${trip.agreedAmountMinor}), 0)` })
+      .from(trip)
+      .where(
+        and(
+          eq(trip.vehicleId, vehicleId),
+          gte(trip.closingDate, from),
+          lte(trip.closingDate, to),
+          eq(trip.status, "closed"),
+        ),
       ),
-    );
-  return singleAggregateTotal(obligationRows) + singleAggregateTotal(tripRows);
+    db
+      .select({
+        total: sql<string>`COALESCE(SUM(${insuranceClaim.receivedAmountMinor}), 0)`,
+      })
+      .from(insuranceClaim)
+      .innerJoin(incident, eq(incident.id, insuranceClaim.incidentId))
+      .where(
+        and(
+          eq(incident.vehicleId, vehicleId),
+          gte(insuranceClaim.receivedOn, from),
+          lte(insuranceClaim.receivedOn, to),
+          sql`${insuranceClaim.receivedAmountMinor} > 0`,
+        ),
+      ),
+  ]);
+  return (
+    singleAggregateTotal(obligationRows) +
+    singleAggregateTotal(tripRows) +
+    singleAggregateTotal(insuranceRows)
+  );
 }
 
-/** GAP-145: `sumVehicleEarnedForDateRange`'s own two queries, grouped across every vehicle in `vehicleIds` — `getVehicleYearReport`'s own per-vehicle loop, see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists. */
+/**
+ * GAP-145: `sumVehicleEarnedForDateRange`'s own two queries, grouped across
+ * every vehicle in `vehicleIds` — `getVehicleYearReport`'s own per-vehicle
+ * loop, see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists.
+ *
+ * **M-1/D1, 31 Aug 2026: net, not gross**, plus `customer_contribution` and
+ * the insurer settlement — `sumVehicleEarnedForPeriodBulk`'s own fix,
+ * applied here too.
+ */
 export async function sumVehicleEarnedForDateRangeBulk(
   db: ReadDb,
   vehicleIds: string[],
@@ -373,38 +617,42 @@ export async function sumVehicleEarnedForDateRangeBulk(
   const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        gte(obligation.dueOn, from),
-        lte(obligation.dueOn, to),
-        eq(obligation.direction, "owed_to_us"),
-        sql`${obligation.kind} IN ('rent', 'daily_amount', 'mileage_excess')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId);
-  const tripRows = await db
-    .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
-    .from(trip)
-    .where(
-      and(
-        inArray(trip.vehicleId, vehicleIds),
-        gte(trip.closingDate, from),
-        lte(trip.closingDate, to),
-        eq(trip.status, "closed"),
-      ),
-    )
-    .groupBy(trip.vehicleId);
+  const [obligationRows, tripRows, insuranceRows] = await Promise.all([
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        total: sql<string>`SUM(${obligation.amountMinor} - ${obligation.waivedMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          gte(obligation.dueOn, from),
+          lte(obligation.dueOn, to),
+          eq(obligation.direction, "owed_to_us"),
+          inArray(obligation.kind, EARNED_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId),
+    db
+      .select({ vehicleId: trip.vehicleId, total: sql<string>`SUM(${trip.agreedAmountMinor})` })
+      .from(trip)
+      .where(
+        and(
+          inArray(trip.vehicleId, vehicleIds),
+          gte(trip.closingDate, from),
+          lte(trip.closingDate, to),
+          eq(trip.status, "closed"),
+        ),
+      )
+      .groupBy(trip.vehicleId),
+    sumInsuranceSettlementForDateRangeBulk(db, vehicleIds, from, to),
+  ]);
 
   foldIntoBigIntMap(out, obligationRows);
   foldIntoBigIntMap(out, tripRows);
+  foldIntoBigIntMap(out, insuranceRows);
   return out;
 }
 
@@ -451,7 +699,14 @@ export async function sumVehicleCostsForDateRange(
   );
 }
 
-/** GAP-145: `sumVehicleCostsForDateRange`'s own two queries, grouped across every vehicle in `vehicleIds` — see `sumVehicleEarnedForPeriodBulk`'s comment for why this exists. */
+/**
+ * GAP-145: `sumVehicleCostsForDateRange`'s own two queries, grouped across
+ * every vehicle in `vehicleIds` — see `sumVehicleEarnedForPeriodBulk`'s
+ * comment for why this exists.
+ *
+ * **M-1/D1, 31 Aug 2026: gains `write_off`** — the same reasoning as
+ * `sumVehicleCostsForPeriodBulk`'s own fix.
+ */
 export async function sumVehicleCostsForDateRangeBulk(
   db: ReadDb,
   vehicleIds: string[],
@@ -461,39 +716,43 @@ export async function sumVehicleCostsForDateRangeBulk(
   const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
-  const expenseRows = await db
-    .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
-    .from(expense)
-    .where(
-      and(
-        inArray(expense.vehicleId, vehicleIds),
-        gte(expense.spentOn, from),
-        lte(expense.spentOn, to),
-        eq(expense.borneBy, "us"),
-        isNull(expense.voidedAt),
-      ),
-    )
-    .groupBy(expense.vehicleId);
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        gte(obligation.dueOn, from),
-        lte(obligation.dueOn, to),
-        eq(obligation.direction, "owed_by_us"),
-        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId);
+  const [expenseRows, obligationRows, writeOffRows] = await Promise.all([
+    db
+      .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
+      .from(expense)
+      .where(
+        and(
+          inArray(expense.vehicleId, vehicleIds),
+          gte(expense.spentOn, from),
+          lte(expense.spentOn, to),
+          eq(expense.borneBy, "us"),
+          isNull(expense.voidedAt),
+        ),
+      )
+      .groupBy(expense.vehicleId),
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        total: sql<string>`SUM(${obligation.amountMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          gte(obligation.dueOn, from),
+          lte(obligation.dueOn, to),
+          eq(obligation.direction, "owed_by_us"),
+          inArray(obligation.kind, COST_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId),
+    sumWriteOffForDateRangeBulk(db, vehicleIds, from, to),
+  ]);
 
   foldIntoBigIntMap(out, expenseRows);
   foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, writeOffRows);
   return out;
 }
 
@@ -532,7 +791,19 @@ export async function sumVehicleCostsForPeriod(
   );
 }
 
-/** GAP-145: `sumVehicleCostsForPeriod`'s own two queries, grouped across every vehicle in `vehicleIds` instead of run once per vehicle — see `sumVehicleEarnedForPeriodBulk`'s own comment for why. */
+/**
+ * GAP-145: `sumVehicleCostsForPeriod`'s own two queries, grouped across
+ * every vehicle in `vehicleIds` instead of run once per vehicle — see
+ * `sumVehicleEarnedForPeriodBulk`'s own comment for why.
+ *
+ * **M-1/D1, 31 Aug 2026: gains `write_off`.** A write-off is a loss you were
+ * handed (W-28), never netted against the obligation that earned it —
+ * booked as its own cost, in the period it was written off, via
+ * `sumWriteOffForPeriodBulk`. Also fixes UC-70's own asymmetry: `write_off`
+ * was already in UC-99's export as an "out" transaction, but never reached
+ * this sum, so a written-off receivable looked collected here and
+ * abandoned there.
+ */
 export async function sumVehicleCostsForPeriodBulk(
   db: ReadDb,
   vehicleIds: string[],
@@ -541,37 +812,41 @@ export async function sumVehicleCostsForPeriodBulk(
   const out = zeroSeededMap(vehicleIds);
   if (vehicleIds.length === 0) return out;
 
-  const expenseRows = await db
-    .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
-    .from(expense)
-    .where(
-      and(
-        inArray(expense.vehicleId, vehicleIds),
-        eq(expense.postedPeriodId, periodId),
-        eq(expense.borneBy, "us"),
-        isNull(expense.voidedAt),
-      ),
-    )
-    .groupBy(expense.vehicleId);
-  const obligationRows = await db
-    .select({
-      vehicleId: obligation.vehicleId,
-      total: sql<string>`SUM(${obligation.amountMinor})`,
-    })
-    .from(obligation)
-    .where(
-      and(
-        inArray(obligation.vehicleId, vehicleIds),
-        eq(obligation.postedPeriodId, periodId),
-        eq(obligation.direction, "owed_by_us"),
-        sql`${obligation.kind} IN ('driver_fee', 'management_fee')`,
-        isNull(obligation.voidedAt),
-      ),
-    )
-    .groupBy(obligation.vehicleId);
+  const [expenseRows, obligationRows, writeOffRows] = await Promise.all([
+    db
+      .select({ vehicleId: expense.vehicleId, total: sql<string>`SUM(${expense.amountMinor})` })
+      .from(expense)
+      .where(
+        and(
+          inArray(expense.vehicleId, vehicleIds),
+          eq(expense.postedPeriodId, periodId),
+          eq(expense.borneBy, "us"),
+          isNull(expense.voidedAt),
+        ),
+      )
+      .groupBy(expense.vehicleId),
+    db
+      .select({
+        vehicleId: obligation.vehicleId,
+        total: sql<string>`SUM(${obligation.amountMinor})`,
+      })
+      .from(obligation)
+      .where(
+        and(
+          inArray(obligation.vehicleId, vehicleIds),
+          eq(obligation.postedPeriodId, periodId),
+          eq(obligation.direction, "owed_by_us"),
+          inArray(obligation.kind, COST_OBLIGATION_KINDS),
+          isNull(obligation.voidedAt),
+        ),
+      )
+      .groupBy(obligation.vehicleId),
+    sumWriteOffForPeriodBulk(db, vehicleIds, periodId),
+  ]);
 
   foldIntoBigIntMap(out, expenseRows);
   foldIntoBigIntMap(out, obligationRows);
+  foldIntoBigIntMap(out, writeOffRows);
   return out;
 }
 
@@ -1324,12 +1599,14 @@ export async function listAdvancesOutstandingByDriver(
  * Deposits held — the liability shown *beside* the cash position (§6.13),
  * never netted into `listPartnerCashPositions`'s own figure. DM §10.4's own
  * design: the held balance is the SUM of a deposit's movements, never a
- * stored column this read could go stale against — `sumDepositMovements`
+ * stored column this read could go stale against — `sumDepositMovementsBulk`
  * (queries/driver-money.ts) is the one place that sign logic lives, reused
- * here rather than re-derived. The number of currently-held deposits is
- * bounded (one per driver/customer with an open deposit), so summing each
- * individually is a small, real read, not the per-row bulk-write loop
- * IG §2 warns against.
+ * here rather than re-derived.
+ *
+ * L-3: originally one query per deposit in a loop — the exact N+1 shape
+ * GAP-145 already found and fixed on a different endpoint, at 79
+ * subrequests against Workers Free's 50-subrequest ceiling. Two queries
+ * total now, regardless of how many deposits are currently held.
  */
 export async function sumDepositsHeld(db: ReadDb, businessId: string): Promise<bigint> {
   const rows = await db
@@ -1338,10 +1615,12 @@ export async function sumDepositsHeld(db: ReadDb, businessId: string): Promise<b
     .where(
       and(eq(deposit.businessId, businessId), sql`${deposit.status} IN ('held', 'hold_window')`),
     );
+  const sums = await sumDepositMovementsBulk(
+    db,
+    rows.map((r) => r.id),
+  );
   let total = 0n;
-  for (const row of rows) {
-    total += await sumDepositMovements(db, row.id);
-  }
+  for (const amount of sums.values()) total += amount;
   return total;
 }
 
@@ -2010,7 +2289,78 @@ async function listWriteOffTransactionsForDateRange(
   }));
 }
 
-/** GAP-18/UC-99: the whole year of transactions in one call — bulk queries (never one per row), merged and left for the domain layer to sort and render. */
+/**
+ * M-1/D1, 31 Aug 2026: the other half of net earned (`sumVehicleEarned*`'s
+ * own `amount_minor - waived_minor`) — a waiver's own line, dated by
+ * `occurredOn` rather than the original obligation's `due_on` (they can
+ * differ: a waiver granted after the fact is dated when it was granted,
+ * not retroactively). **Not** netted into the obligation row above, on
+ * purpose: F-2.4's own acceptance line is "the month shows the 340 charged
+ * and the 340 waived" — both facts visible, not one fact quietly reduced —
+ * the same reasoning `listWriteOffTransactionsForDateRange`'s own comment
+ * already gives for keeping a write-off a separate line rather than netting
+ * it into the charge it reduces. `adjustment` carries no `vehicle_id` of
+ * its own (only `obligation_id`, the same shape migration 0037's archive
+ * guard already had to work around for this table) — resolved via the join.
+ * Every other `adjustment_type` (late fee, goodwill, agreed discount,
+ * rounding, extra charge) changes the obligation's own `amount_minor`
+ * directly (`domain/adjustment.ts`'s own `newAmountMinor` branch), already
+ * flows straight through the obligation row itself, and is deliberately
+ * excluded here — a second line for it would double it.
+ */
+async function listWaiverTransactionsForDateRange(
+  db: ReadDb,
+  businessId: string,
+  from: string,
+  to: string,
+): Promise<TransactionRow[]> {
+  const rows = await db
+    .select({
+      date: adjustment.occurredOn,
+      vehicleId: obligation.vehicleId,
+      registration: vehicle.registration,
+      amountMinor: adjustment.amountMinor,
+      belongsToPeriodStart: accountingPeriod.periodStart,
+    })
+    .from(adjustment)
+    .innerJoin(obligation, eq(obligation.id, adjustment.obligationId))
+    .leftJoin(vehicle, eq(vehicle.id, obligation.vehicleId))
+    .leftJoin(accountingPeriod, eq(accountingPeriod.id, adjustment.belongsToPeriodId))
+    .where(
+      and(
+        eq(adjustment.businessId, businessId),
+        gte(adjustment.occurredOn, from),
+        lte(adjustment.occurredOn, to),
+        inArray(adjustment.adjustmentType, ["waiver", "auto_waiver"]),
+        isNull(adjustment.voidedAt),
+      ),
+    );
+  return rows.map((r) => ({
+    date: r.date,
+    vehicleId: r.vehicleId,
+    registration: r.registration,
+    kind: "waiver",
+    direction: "out" as const,
+    amountMinor: r.amountMinor,
+    belongsToPeriodStart: r.belongsToPeriodStart,
+  }));
+}
+
+/**
+ * GAP-18/UC-99: the whole year of transactions in one call — bulk queries
+ * (never one per row), merged and left for the domain layer to sort and
+ * render.
+ *
+ * M-1/D1: reads `EARNED_OBLIGATION_KINDS`/`COST_OBLIGATION_KINDS` — the
+ * identical two lists `sumVehicleEarned*`/`sumVehicleCosts*` now read, so
+ * the year's CSV and the year's report can no longer drift on which
+ * obligation kinds count as which. GAP-175's own reasoning for
+ * `customer_contribution` (read from the `obligation` row
+ * `recordCustomerContribution` raises, never from `incident_recovery`
+ * itself — that table carries no date column of its own, and its row is
+ * the agreement while the obligation is the receivable; reading both would
+ * bill the customer twice) lives on the shared constant's own comment now.
+ */
 export async function listTransactionsForDateRange(
   db: ReadDb,
   businessId: string,
@@ -2018,29 +2368,39 @@ export async function listTransactionsForDateRange(
   to: string,
 ): Promise<TransactionRow[]> {
   const [earned, costs, trips] = await Promise.all([
-    listObligationTransactionsForDateRange(db, businessId, from, to, "owed_to_us", [
-      "rent",
-      "daily_amount",
-      "mileage_excess",
-      // GAP-175: the customer half of an incident recovery. It is read here,
-      // from the `obligation` row `recordCustomerContribution` raises, rather
-      // than from `incident_recovery` itself — that table carries no date
-      // column of its own, and its row is the agreement while the obligation
-      // is the receivable. Reading both would bill the customer twice.
-      "customer_contribution",
-    ]),
-    listObligationTransactionsForDateRange(db, businessId, from, to, "owed_by_us", [
-      "driver_fee",
-      "management_fee",
-    ]),
+    listObligationTransactionsForDateRange(
+      db,
+      businessId,
+      from,
+      to,
+      "owed_to_us",
+      EARNED_OBLIGATION_KINDS,
+    ),
+    listObligationTransactionsForDateRange(
+      db,
+      businessId,
+      from,
+      to,
+      "owed_by_us",
+      COST_OBLIGATION_KINDS,
+    ),
     listClosedTripTransactionsForDateRange(db, businessId, from, to),
   ]);
-  const [expenses, insuranceSettlements, writeOffs] = await Promise.all([
+  const [expenses, insuranceSettlements, writeOffs, waivers] = await Promise.all([
     listCostExpenseTransactionsForDateRange(db, businessId, from, to),
     listInsuranceSettlementTransactionsForDateRange(db, businessId, from, to),
     listWriteOffTransactionsForDateRange(db, businessId, from, to),
+    listWaiverTransactionsForDateRange(db, businessId, from, to),
   ]);
-  return [...earned, ...costs, ...trips, ...expenses, ...insuranceSettlements, ...writeOffs];
+  return [
+    ...earned,
+    ...costs,
+    ...trips,
+    ...expenses,
+    ...insuranceSettlements,
+    ...writeOffs,
+    ...waivers,
+  ];
 }
 
 export { desc };

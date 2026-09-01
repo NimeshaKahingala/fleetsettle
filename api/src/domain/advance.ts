@@ -191,6 +191,7 @@ export async function settleAdvance(
 
 export interface VoidAdvanceSettlementInput {
   businessId: string;
+  advanceId: string;
   settlementId: string;
   reason: string;
   userId: string;
@@ -223,6 +224,21 @@ export async function voidAdvanceSettlement(
         input.settlementId,
       );
       if (!settlement) throw new NotFoundError("No such settlement in this business");
+
+      // NL-5: the URL's own parent segment (`/{id}/settlement/{settlementId}/void`)
+      // is otherwise decorative — `findAdvanceSettlementForBusiness` only
+      // scopes by business, so a settlement belonging to a different
+      // advance would still be voided if this check were skipped, the same
+      // gap `voidLoanPayment` (vehicle-loan.ts) already guards against.
+      //
+      // Before every state-specific error, not after (review of this PR): a
+      // mismatched parent must be indistinguishable from a row that does not
+      // exist. Checked after the already-voided branch, a voided settlement
+      // belonging to someone else's advance answers 409 instead of 404 —
+      // which confirms both that the id is real and what state it is in.
+      if (settlement.advanceId !== input.advanceId) {
+        throw new NotFoundError("No such settlement in this business");
+      }
       if (settlement.voidedAt !== null) throw new AdvanceSettlementAlreadyVoidedError();
 
       const adv = await findAdvanceForBusiness(tx, input.businessId, settlement.advanceId, true);

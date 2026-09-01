@@ -1,10 +1,11 @@
-import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   bankingEvent,
   businessMember,
   capitalContribution,
   managementFeeAgreement,
+  obligation,
   ownershipShare,
   partnerPayout,
   vehicle,
@@ -61,6 +62,52 @@ export async function insertOwnershipShares(
 ): Promise<void> {
   if (values.length === 0) return;
   await db.insert(ownershipShare).values(values);
+}
+
+/**
+ * GAP-206/NM-1: the effective-from dates of whatever is currently open for
+ * this vehicle — read *before* `closeOpenOwnershipShares` below, never
+ * after. Closing first and checking second would let a too-early
+ * `effectiveFrom` reach the `UPDATE` regardless: `daterange(effective_from,
+ * effective_to, '[]')` throws its own raw error the moment `effective_to`
+ * lands before `effective_from`, so the check has to happen before that
+ * write is even attempted, not be left to catch what it produces.
+ */
+export async function findOpenOwnershipShareEffectiveFroms(
+  db: ReadDb,
+  vehicleId: string,
+  forUpdate = false,
+): Promise<string[]> {
+  const query = db
+    .select({ effectiveFrom: ownershipShare.effectiveFrom })
+    .from(ownershipShare)
+    .where(and(eq(ownershipShare.vehicleId, vehicleId), isNull(ownershipShare.effectiveTo)));
+  const rows = await (forUpdate ? query.for("update") : query);
+  return rows.map((r) => r.effectiveFrom);
+}
+
+/**
+ * GAP-206/NM-1: a re-split closes every currently-open share for this
+ * vehicle — the same "close the open row(s), then insert the new set"
+ * shape `endDailyLeaseRateRow` already uses for `daily_lease_rate`, applied
+ * here across however many owners this vehicle has, not just one. An owner
+ * continuing at a new percentage, an owner buying in for the first time, and
+ * an owner selling out entirely are the same write from this table's own
+ * point of view: whatever was open for this vehicle ends the day before the
+ * new split starts, unconditionally — the incoming rows are what say who
+ * continues and at what share, not this UPDATE. The caller must already
+ * have checked `effectiveTo` (via `findOpenOwnershipShareEffectiveFroms`
+ * above) is not before any open row's own `effectiveFrom`.
+ */
+export async function closeOpenOwnershipShares(
+  db: WriteDb,
+  vehicleId: string,
+  effectiveTo: string,
+): Promise<void> {
+  await db
+    .update(ownershipShare)
+    .set({ effectiveTo })
+    .where(and(eq(ownershipShare.vehicleId, vehicleId), isNull(ownershipShare.effectiveTo)));
 }
 
 export interface OwnershipShareRow {
@@ -620,74 +667,84 @@ export async function sumPartnerPayoutsForUser(
 }
 
 /**
- * A2/UC-67/W-53 "earned: management fee" — summed directly from
- * `management_fee_agreement.monthly_amount_minor` for every agreement
- * active on `asOfDate`, deliberately **not** read from
- * `obligation WHERE kind = 'management_fee'` even though A10a
- * (domain/management-fee.ts) now populates that kind for real. Kept as the
- * agreement-table read on purpose: this figure is a manager's *earned*
- * total as of any date within a period (`getPartnerSummary` calls it once
- * per period in `sumAllTimeEarnedForUser`'s loop), while the generator only
- * ever posts one obligation per agreement per *period*, dated to the
- * period's start — the two are not the same shape, and switching this read
- * to the obligation table is a real question for whoever revisits it, not a
- * side effect of A10a landing.
+ * A2/UC-67/W-53/M-4 "earned: management fee" — summed from
+ * `obligation WHERE kind = 'management_fee'`, posted to this exact period,
+ * the same record `sumVehicleCostsForPeriod`'s own `management_fee` branch
+ * already trusts as what was actually charged.
+ *
+ * Replaces an earlier read straight off `management_fee_agreement`,
+ * effective-dated as of the period's own *end*. `generateManagementFeeObligationsTx`
+ * (domain/management-fee.ts) decides which agreements get an obligation
+ * using the period's *start* — a manager added or removed mid-period could
+ * disagree between the two bases about whether a fee was owed at all, and
+ * an agreement corrected after generation, or an obligation voided outright,
+ * had no way to reach the replayed figure either way. Reading the obligation
+ * directly removes the second basis entirely: there is only the one the
+ * generator already wrote.
  */
-export async function sumManagementFeeAsOfDate(
+export async function sumManagementFeeObligationForPeriod(
   db: ReadDb,
   businessId: string,
   managerUserId: string,
-  asOfDate: string,
+  periodId: string,
 ): Promise<bigint> {
   const rows = await db
-    .select({ monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor })
-    .from(managementFeeAgreement)
-    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .select({ amountMinor: obligation.amountMinor })
+    .from(obligation)
     .where(
       and(
-        eq(vehicle.businessId, businessId),
-        eq(managementFeeAgreement.managerUserId, managerUserId),
-        lte(managementFeeAgreement.effectiveFrom, asOfDate),
-        or(
-          isNull(managementFeeAgreement.effectiveTo),
-          gte(managementFeeAgreement.effectiveTo, asOfDate),
-        ),
+        eq(obligation.businessId, businessId),
+        eq(obligation.partyType, "partner"),
+        eq(obligation.partyUserId, managerUserId),
+        eq(obligation.kind, "management_fee"),
+        eq(obligation.postedPeriodId, periodId),
+        isNull(obligation.voidedAt),
       ),
     );
-  return rows.reduce((sum, row) => sum + row.monthlyAmountMinor, 0n);
-}
-
-export interface ManagementFeeAgreementHistoryRow {
-  effectiveFrom: string;
-  effectiveTo: string | null;
-  monthlyAmountMinor: bigint;
+  return rows.reduce((sum, row) => sum + row.amountMinor, 0n);
 }
 
 /**
- * GAP-145: `sumManagementFeeAsOfDate`'s own filter, minus `asOfDate` — every
- * agreement this manager has ever held in this business, one query, for
- * `sumAllTimeEarnedForUser` to evaluate per period in memory rather than
- * calling `sumManagementFeeAsOfDate` once per accounting period.
+ * GAP-145/M-4: `sumManagementFeeObligationForPeriod`'s own filter, grouped
+ * across every period in `periodIds` in one query — for
+ * `sumAllTimeEarnedForUser`'s loop, the same "one query rather than one per
+ * period" reasoning `sumVehicleEarnedForPeriodsBulk` (queries/reports.ts)
+ * already documents. Every id in `periodIds` gets an entry, `0n` when no
+ * obligation was posted that period — a manager who joined partway through
+ * this business's history genuinely earned no fee in an earlier period, not
+ * a missing figure (W-56).
  */
-export async function listManagementFeeAgreementHistoryForManager(
+export async function sumManagementFeeObligationsForPeriodsBulk(
   db: ReadDb,
   businessId: string,
   managerUserId: string,
-): Promise<ManagementFeeAgreementHistoryRow[]> {
-  return db
+  periodIds: string[],
+): Promise<Map<string, bigint>> {
+  const out = new Map(periodIds.map((pid) => [pid, 0n]));
+  if (periodIds.length === 0) return out;
+
+  const rows = await db
     .select({
-      effectiveFrom: managementFeeAgreement.effectiveFrom,
-      effectiveTo: managementFeeAgreement.effectiveTo,
-      monthlyAmountMinor: managementFeeAgreement.monthlyAmountMinor,
+      periodId: obligation.postedPeriodId,
+      total: sql<string>`SUM(${obligation.amountMinor})`,
     })
-    .from(managementFeeAgreement)
-    .innerJoin(vehicle, eq(vehicle.id, managementFeeAgreement.vehicleId))
+    .from(obligation)
     .where(
       and(
-        eq(vehicle.businessId, businessId),
-        eq(managementFeeAgreement.managerUserId, managerUserId),
+        eq(obligation.businessId, businessId),
+        eq(obligation.partyType, "partner"),
+        eq(obligation.partyUserId, managerUserId),
+        eq(obligation.kind, "management_fee"),
+        inArray(obligation.postedPeriodId, periodIds),
+        isNull(obligation.voidedAt),
       ),
-    );
+    )
+    .groupBy(obligation.postedPeriodId);
+
+  for (const row of rows) {
+    if (out.has(row.periodId)) out.set(row.periodId, BigInt(row.total));
+  }
+  return out;
 }
 
 export interface ManagementFeeAgreementForGeneration {
@@ -697,7 +754,7 @@ export interface ManagementFeeAgreementForGeneration {
   monthlyAmountMinor: bigint;
 }
 
-/** A10a/GAP-39/W-53: every agreement effective on `asOfDate` (a period's own `period_start`), unscoped by manager — the generator raises one obligation per agreement, not per manager. The same effective-dated filter `sumManagementFeeAsOfDate` above uses, without narrowing to one `managerUserId`. */
+/** A10a/GAP-39/W-53: every agreement effective on `asOfDate` (a period's own `period_start`), unscoped by manager — the generator raises one obligation per agreement, not per manager. This is the read `sumManagementFeeObligationForPeriod` above no longer needs to duplicate, now that it reads the obligation the generator posted instead of replaying this table on its own basis. */
 export async function listManagementFeeAgreementsEffectiveAsOf(
   db: ReadDb,
   businessId: string,

@@ -77,6 +77,20 @@ export async function resolveMemberships(reader: Reader, sub: string): Promise<M
     .innerJoin(business, eq(business.id, businessMember.businessId))
     .where(eq(appUser.asgardeoSub, sub));
 
+  // `memberSelect` above filters `isNull(businessMember.revokedAt)` — a
+  // revoked owner/manager loses `resolveMemberships` entirely. This join
+  // carries no equivalent `isNull(driver.voidedAt)`, so an *archived*
+  // linked driver keeps every membership row, and with it `viewOwnData`
+  // (F-1.11/UC-59): he can still open his own app and see his own current
+  // figures after being let go. Decided deliberately, not an unstated
+  // consequence — W-58's own "archive, never delete" already means his
+  // historical rows keep rendering exactly as before; extending that to
+  // his own live login is the same instinct applied to the person, not
+  // only his records, and archiving him was never framed as revoking
+  // access the way a business member's revoke explicitly is. A future
+  // reviewer who wants an archived driver locked out entirely should add
+  // the filter here — this comment is what makes that a decision to
+  // revisit, not a bug to rediscover.
   const driverSelect = reader
     .select({
       userId: appUser.id,
