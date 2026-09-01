@@ -44,6 +44,40 @@ async function getDriverBalances(token: string, driverId: string) {
 }
 
 /**
+ * A business with one open January period, one driver and an owner's token —
+ * the start of all three M-10 deposit tests. Extracted 1 September 2026:
+ * written out three times it was 22.3% duplicated new code by SonarCloud's
+ * reckoning, which it was.
+ */
+async function setupDepositOpeningBalanceBusiness(
+  ctx: TestContext,
+  db: ReturnType<typeof writer>,
+): Promise<{ driverId: string; token: string }> {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { driverId, token };
+}
+
+/** Saves (and tracks) a one-entry `deposit_held` batch for `driverId`. */
+async function saveDepositOpeningBalance(
+  ctx: TestContext,
+  token: string,
+  driverId: string,
+  amountMinor: string,
+): Promise<void> {
+  const saveRes = await putOpeningBalance(token, {
+    goLiveDate: "2026-01-01",
+    entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor }],
+  });
+  expect(saveRes.status).toBe(200);
+  const savedBatch: { id: string } = await saveRes.json();
+  ctx.trackCreatedOpeningBalance(savedBatch.id);
+}
+
+/**
  * F-0.2 / UC-09 test matrix. Only `opening_balance_batch` and its entries
  * are written (DM §10.6) — the vehicle/lease/daily-lease terms UC-09 also
  * mentions are entered through F-1.1/F-2.1/F-1.7's own endpoints with a
@@ -224,19 +258,8 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
 
   it("M-10: correcting a committed batch releases the old deposit instead of leaving a second one held", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const saveRes = await putOpeningBalance(token, {
-      goLiveDate: "2026-01-01",
-      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
-    });
-    expect(saveRes.status).toBe(200);
-    const savedBatch: { id: string } = await saveRes.json();
-    ctx.trackCreatedOpeningBalance(savedBatch.id);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
     expect((await commitOpeningBalance(token)).status).toBe(200);
 
     // The correction. `reverseOpeningBalancePostings` refunds the old deposit
@@ -271,19 +294,8 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
 
   it("M-10: a topped-up opening-balance deposit is not released out of the cash position", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const saveRes = await putOpeningBalance(token, {
-      goLiveDate: "2026-01-01",
-      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
-    });
-    expect(saveRes.status).toBe(200);
-    const savedBatch: { id: string } = await saveRes.json();
-    ctx.trackCreatedOpeningBalance(savedBatch.id);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
     expect((await commitOpeningBalance(token)).status).toBe(200);
 
     const [dep] = await db
@@ -332,11 +344,7 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
 
   it("M-10: 409, not 500, when a deposit_held entry names a driver who already holds one", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
 
     // A deposit taken the ordinary way, before the opening balance ever names
     // this driver — the case the sibling fix in reverseOpeningBalancePostings
@@ -351,13 +359,7 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     const taken: { id: string } = await takeRes.json();
     ctx.trackCreatedDeposit(taken.id);
 
-    const saveRes = await putOpeningBalance(token, {
-      goLiveDate: "2026-01-01",
-      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
-    });
-    expect(saveRes.status).toBe(200);
-    const savedBatch: { id: string } = await saveRes.json();
-    ctx.trackCreatedOpeningBalance(savedBatch.id);
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
 
     // Migration 0038's index makes this unavoidable; the only question is
     // whether the owner is told why. Before this, 23505 escaped insertDeposits
