@@ -995,9 +995,13 @@ export class TestContext {
     });
   }
 
-  /** F-2.2/UC-11: `POST /api/payment` writes `payment` and its allocations (domain/payment.ts) — this is that write's teardown. It does not touch the obligations it settled; a caller that created those with `createObligation()` (or its own lease/day-record teardown) still owns tearing them down. */
+  /** F-2.2/UC-11: `POST /api/payment` writes `payment` and its allocations (domain/payment.ts) — this is that write's teardown. It does not touch the obligations it settled; a caller that created those with `createObligation()` (or its own lease/day-record teardown) still owns tearing them down. GAP-202/H-4, migration 0035: `incident_recovery.payment_id` can also reference this row (`recordRecoveryReceived`'s own receipt) — cleared first, or a payment `recordRecoveryReceived` minted trips that FK before the recovery row naming it is gone. A test that separately tears down the recovery's incident first (`trackCreatedIncident`, registered *before* this) never reaches this UPDATE with a live row to clear, since that row is already gone. */
   trackCreatedPayment(paymentId: string): void {
     this.track(async () => {
+      await this.#db
+        .update(incidentRecovery)
+        .set({ paymentId: null })
+        .where(eq(incidentRecovery.paymentId, paymentId));
       await this.#db.delete(paymentAllocation).where(eq(paymentAllocation.paymentId, paymentId));
       await this.#db.delete(payment).where(eq(payment.id, paymentId));
     });

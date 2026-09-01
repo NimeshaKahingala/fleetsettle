@@ -32,7 +32,11 @@ export interface RecordPostClosureChargeInput {
 
 export interface RecordedPostClosureCharge {
   obligationId: string;
-  status: "pending" | "part_paid" | "paid" | "waived";
+  // "written_off" is unreachable here — a brand-new obligation, settled only
+  // through applyCreditForward/deductFromDriverFee — but
+  // computeObligationStatus's return type is unconditional, not
+  // value-dependent, so this stays honest to it rather than narrowed by a cast.
+  status: "pending" | "part_paid" | "paid" | "waived" | "written_off";
   deductedFromFeeOffsetId: string | null;
 }
 

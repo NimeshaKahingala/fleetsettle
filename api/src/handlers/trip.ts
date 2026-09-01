@@ -188,6 +188,7 @@ export const bookTripHandler: RouteHandler<typeof bookTripRoute, Env> = async (c
           amountMinor: agreedAmountMinor,
           settledMinor: receivableSettledMinor ?? 0n,
           waivedMinor: 0n,
+          writtenOffMinor: 0n,
           status: receivableStatus ?? "pending",
         }
       : null;
@@ -258,6 +259,7 @@ export const confirmTripHoldHandler: RouteHandler<typeof confirmTripHoldRoute, E
           amountMinor: trip.agreedAmountMinor,
           settledMinor: receivableSettledMinor ?? 0n,
           waivedMinor: 0n,
+          writtenOffMinor: 0n,
           status: receivableStatus ?? "pending",
         }
       : null;

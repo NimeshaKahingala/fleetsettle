@@ -13,7 +13,7 @@ import {
   type VoidBlockingItem,
 } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { findObligationForBusiness, updateObligationSettled } from "../queries/obligation.js";
+import { applyWriteOffToObligation, findObligationForDepositApply } from "../queries/obligation.js";
 import { insertPayment, markPaymentReversed } from "../queries/payment.js";
 import { computeObligationStatus } from "./obligation-status.js";
 import {
@@ -46,12 +46,21 @@ export interface RecordedWriteOff {
 
 /**
  * F-8.3/UC-90/W-28, one transaction: clears the balance from receivables by
- * flipping the obligation straight to `written_off` (ST-7's own state,
- * already in the enum since P3) — never touching `settled_minor`/
- * `waived_minor`, which is what keeps this bucket entirely separate from a
- * waiver (INV-14). `obligationId` is optional — see the shared schema's own
- * comment — but when given it must belong to this business and still be
- * outstanding; a voided obligation has nothing left to write off.
+ * raising `written_off_minor` (never touching `settled_minor`/`waived_minor`,
+ * which is what keeps this bucket entirely separate from a waiver, INV-14).
+ * `obligationId` is optional — see the shared schema's own comment — but
+ * when given it must belong to this business, still be outstanding, and
+ * belong to the *same party* this write-off names (GAP-203/H-1: the handler
+ * already checked all four ids exist in this business, never that they name
+ * the same party — a write-off entered against the wrong customer's
+ * obligation by id typo used to succeed silently).
+ *
+ * GAP-203/H-1/D2 (decided 30 Aug 2026): a write-off can be partial —
+ * "he'll never pay the last bit" is a real business act, the same way a
+ * partial waiver already is. `written_off_minor` accumulates across
+ * multiple write-offs against the same obligation, mirroring `waived_minor`
+ * exactly; status flips to `written_off` only once
+ * `settled + waived + written_off` reaches the full amount.
  */
 export async function recordWriteOff(
   writer: Writer,
@@ -70,7 +79,7 @@ export async function recordWriteOff(
         throw new PeriodClosedError("No accounting period covers this business date yet");
 
       if (input.obligationId !== undefined) {
-        const obligation = await findObligationForBusiness(
+        const obligation = await findObligationForDepositApply(
           tx,
           input.businessId,
           input.obligationId,
@@ -79,9 +88,40 @@ export async function recordWriteOff(
         if (!obligation || obligation.voidedAt !== null) {
           throw new NotFoundError("No such obligation in this business");
         }
-        await updateObligationSettled(tx, input.businessId, input.obligationId, {
-          settledMinor: obligation.settledMinor,
-          status: "written_off",
+
+        // GAP-203/H-1: the obligation named must belong to the same party
+        // the write-off itself names — checked here, not just "exists in
+        // this business", the same class of gap GAP-93 closed for a
+        // payment's own party id.
+        const sameParty =
+          obligation.partyType === input.partyType &&
+          (input.partyType === "customer"
+            ? obligation.partyCustomerId === (input.partyCustomerId ?? null)
+            : obligation.partyDriverId === (input.partyDriverId ?? null));
+        if (!sameParty) {
+          throw new ValidationError(
+            "obligationId names an obligation against a different party than this write-off",
+          );
+        }
+
+        const newWrittenOffMinor = obligation.writtenOffMinor + input.amountMinor;
+        if (
+          obligation.settledMinor + obligation.waivedMinor + newWrittenOffMinor >
+          obligation.amountMinor
+        ) {
+          throw new ValidationError(
+            "This write-off would exceed what remains outstanding on this obligation",
+          );
+        }
+        const status = computeObligationStatus(
+          obligation.amountMinor,
+          obligation.settledMinor,
+          obligation.waivedMinor,
+          newWrittenOffMinor,
+        );
+        await applyWriteOffToObligation(tx, input.businessId, input.obligationId, {
+          writtenOffMinor: newWrittenOffMinor,
+          status,
         });
       }
 
@@ -260,10 +300,12 @@ export interface VoidedWriteOff {
 /**
  * GAP-12/W-61/INV-36 §3.7: refuses while any recovery against this write-off
  * is still live — a recovery is its own entered act (§2). Clear, this
- * restores the linked obligation's prior status exactly: `recordWriteOff`
- * never touched `settled_minor`/`waived_minor`, only flipped `status` to
- * `written_off`, so `computeObligationStatus` on the unchanged figures
- * re-derives precisely what it was before, no stored history needed.
+ * restores the linked obligation's prior state: `recordWriteOff` never
+ * touches `settled_minor`/`waived_minor`, only `written_off_minor` (and the
+ * `status` derived from it), so subtracting this one write-off's own amount
+ * back out and re-deriving status from the remaining figures (GAP-203/H-1/D2)
+ * restores exactly what was true before this write-off, no stored history
+ * needed — the same reasoning that held before write-offs could be partial.
  */
 export async function voidWriteOff(
   writer: Writer,
@@ -297,11 +339,22 @@ export async function voidWriteOff(
       }
 
       if (wo.obligationId !== null) {
-        const ob = await findObligationForBusiness(tx, input.businessId, wo.obligationId, true);
+        const ob = await findObligationForDepositApply(tx, input.businessId, wo.obligationId, true);
         if (ob && ob.voidedAt === null) {
-          const status = computeObligationStatus(ob.amountMinor, ob.settledMinor, ob.waivedMinor);
-          await updateObligationSettled(tx, input.businessId, wo.obligationId, {
-            settledMinor: ob.settledMinor,
+          // GAP-203/H-1/D2: this specific write-off's own amount comes back
+          // out of the obligation's written_off_minor — a partial write-off
+          // means the column is a running total across possibly several
+          // write-offs, so restoring it means subtracting only this one's
+          // share, never resetting it to zero.
+          const newWrittenOffMinor = ob.writtenOffMinor - wo.amountMinor;
+          const status = computeObligationStatus(
+            ob.amountMinor,
+            ob.settledMinor,
+            ob.waivedMinor,
+            newWrittenOffMinor,
+          );
+          await applyWriteOffToObligation(tx, input.businessId, wo.obligationId, {
+            writtenOffMinor: newWrittenOffMinor,
             status,
           });
         }

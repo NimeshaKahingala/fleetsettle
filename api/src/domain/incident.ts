@@ -408,6 +408,7 @@ export async function recordRecoveryReceived(
   }
 
   const receivedPeriod = await findPeriodForDate(writer, input.businessId, input.receivedOn);
+  let mintedPaymentId: string | null = null;
 
   try {
     await writer.transaction(async (tx) => {
@@ -440,6 +441,16 @@ export async function recordRecoveryReceived(
         // is before posting the new pair, the same "reverse then repost"
         // shape `correctPayment` (F-8.2) uses — never more than one live
         // payment behind this recovery at a time.
+        //
+        // GAP-202/PR-2: this used to call `markPaymentReversed` on each
+        // allocation's *parent* payment. A customer carrying unapplied
+        // credit-forward can have this obligation's allocation drawn from an
+        // older, otherwise-unrelated surplus payment (GAP-5b, above) — that
+        // payment can still be funding a live allocation against a different
+        // obligation entirely. Reversing the whole payment marked it
+        // 'reversed' everywhere, not just here. So the allocations are voided
+        // on their own — the same `unwindObligationAllocations` shape
+        // `adjustment.ts` uses.
         const priorAllocations = await findPaymentAllocationsForObligation(
           tx,
           recovery.obligationId,
@@ -449,18 +460,44 @@ export async function recordRecoveryReceived(
             voidedReason: "Superseded by a corrected recovery amount",
             voidedBy: input.userId,
           });
-          await markPaymentReversed(tx, alloc.paymentId);
         }
 
+        // …but the payment *this recovery minted for its own previous
+        // amount* must still be reversed, and this is what H-4's own
+        // `incident_recovery.payment_id` (migration 0035) exists to identify.
+        //
+        // Found 31 Aug 2026 by `void-cascade.test.ts`'s "never leaves two
+        // active payments", which passes on `develop` and failed here.
+        // Voiding the allocation alone leaves that payment `active` and
+        // funding nothing — which `credit-forward.ts` reads as spendable
+        // customer credit, so a corrected-away 12,000 comes back as money he
+        // can apply to a future due. Both extremes are wrong: reversing every
+        // allocation's parent over-reverses a shared payment, and reversing
+        // none of them under-reverses this one. Reversing exactly the payment
+        // this recovery recorded as its own is the version that is right in
+        // both directions.
+        //
+        // `paymentId` is null for a recovery whose receipt predates 0035, and
+        // for one that settled entirely through credit-forward. Both are
+        // correctly skipped: in neither case did this recovery mint a payment
+        // of its own to reverse.
+        if (recovery.paymentId !== null) {
+          await markPaymentReversed(tx, recovery.paymentId);
+        }
+
+        // GAP-202/H-4: which payment (if any) this call itself minted is
+        // recorded on the recovery row — `null` when this correction
+        // settles to zero, so a later reader can tell "no receipt" apart
+        // from "a receipt whose payment predates this column."
         if (input.receivedAmountMinor > 0n) {
           const linkage = await resolvePeriodLinkage(tx, input.businessId, input.receivedOn);
           if (!linkage) {
             throw new PeriodClosedError("No accounting period covers this business date yet");
           }
 
-          const paymentId = newId();
+          mintedPaymentId = newId();
           await insertPayment(tx, {
-            id: paymentId,
+            id: mintedPaymentId,
             businessId: input.businessId,
             direction: "received",
             partyType: "customer",
@@ -476,12 +513,17 @@ export async function recordRecoveryReceived(
           });
           await insertPaymentAllocation(tx, {
             id: newId(),
-            paymentId,
+            paymentId: mintedPaymentId,
             obligationId: recovery.obligationId,
             amountMinor: input.receivedAmountMinor,
             allocatedOn: input.receivedOn,
           });
         }
+
+        await recordIncidentRecoveryReceived(tx, input.recoveryId, {
+          receivedAmountMinor: input.receivedAmountMinor,
+          paymentId: mintedPaymentId,
+        });
       }
     });
   } catch (err) {
@@ -494,6 +536,9 @@ export async function recordRecoveryReceived(
       ...recovery,
       receivedAmountMinor: input.receivedAmountMinor,
       receivedPeriodId: receivedPeriod?.id ?? null,
+      ...(recovery.source === "customer" && recovery.obligationId !== null && customerId
+        ? { paymentId: mintedPaymentId }
+        : {}),
     },
   };
 }
@@ -517,35 +562,44 @@ export interface VoidedIncidentRecovery {
  * above), not by voiding the recovery it settled. Clear, this cascades only
  * `voidObligationBySource` — the obligation `recordCustomerContribution`
  * minted alongside this row, never entered separately (§2's exception).
+ *
+ * GAP-202/NM-4: the read and both checks now happen inside the transaction,
+ * against a `FOR UPDATE` row — the same "lock the parent" shape
+ * `write-off.ts`'s `voidWriteOff` already uses (GAP-190/B12). Read outside
+ * it (the shape this used to have), a concurrent `recordRecoveryReceived`
+ * landing in the gap between the check and the void is invisible to this
+ * check, and the recovery is voided anyway with money already received
+ * against it.
  */
 export async function voidIncidentRecovery(
   writer: Writer,
   input: VoidIncidentRecoveryInput,
 ): Promise<VoidedIncidentRecovery> {
-  const recovery = await findIncidentRecoveryForBusiness(
-    writer,
-    input.businessId,
-    input.recoveryId,
-  );
-  if (!recovery) throw new NotFoundError("No such recovery in this business");
-  if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
-
-  if (recovery.receivedAmountMinor > 0n) {
-    throw new VoidBlockedError(
-      `Cannot void — ${recovery.receivedAmountMinor.toString()} has already been received against ` +
-        "it. Correct the receipt itself first",
-      [
-        {
-          kind: "receipt",
-          id: input.recoveryId,
-          amountMinor: recovery.receivedAmountMinor.toString(),
-        },
-      ],
-    );
-  }
-
   try {
     return await writer.transaction(async (tx) => {
+      const recovery = await findIncidentRecoveryForBusiness(
+        tx,
+        input.businessId,
+        input.recoveryId,
+        true,
+      );
+      if (!recovery) throw new NotFoundError("No such recovery in this business");
+      if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
+
+      if (recovery.receivedAmountMinor > 0n) {
+        throw new VoidBlockedError(
+          `Cannot void — ${recovery.receivedAmountMinor.toString()} has already been received against ` +
+            "it. Correct the receipt itself first",
+          [
+            {
+              kind: "receipt",
+              id: input.recoveryId,
+              amountMinor: recovery.receivedAmountMinor.toString(),
+            },
+          ],
+        );
+      }
+
       const voided = await voidIncidentRecoveryRow(tx, input.recoveryId, {
         voidedReason: input.reason,
         voidedBy: input.userId,

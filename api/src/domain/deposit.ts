@@ -179,12 +179,19 @@ export async function recordDepositMovementTx(
     if (!sameParty) {
       throw new ValidationError("This obligation belongs to a different party than the deposit");
     }
-    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+    // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+    // never "outstanding" for a deposit to apply against.
+    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
     if (input.amountMinor > outstanding) {
       throw new ValidationError("This application exceeds what is outstanding on this obligation");
     }
     const settledMinor = ob.settledMinor + input.amountMinor;
-    const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+    const status = computeObligationStatus(
+      ob.amountMinor,
+      settledMinor,
+      ob.waivedMinor,
+      ob.writtenOffMinor,
+    );
     obligationSettlement = { id: input.obligationId, settledMinor, status };
   }
 
@@ -313,7 +320,12 @@ export async function voidDepositMovement(
         );
         if (ob && ob.voidedAt === null) {
           const settledMinor = ob.settledMinor - movement.amountMinor;
-          const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+          const status = computeObligationStatus(
+            ob.amountMinor,
+            settledMinor,
+            ob.waivedMinor,
+            ob.writtenOffMinor,
+          );
           await updateObligationSettled(tx, input.businessId, ob.id, { settledMinor, status });
         }
       }

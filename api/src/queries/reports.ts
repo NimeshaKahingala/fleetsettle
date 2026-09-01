@@ -17,6 +17,7 @@ import {
   obligation,
   odometerReading,
   ownershipShare,
+  partnerPayout,
   payment,
   trip,
   vehicle,
@@ -1000,7 +1001,9 @@ export async function listReceivables(db: ReadDb, businessId: string): Promise<R
       partyCustomerId: obligation.partyCustomerId,
       partyDriverId: obligation.partyDriverId,
       partyUserId: obligation.partyUserId,
-      outstandingMinor: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor})`,
+      // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+      // never "outstanding" here either.
+      outstandingMinor: sql<string>`SUM(${obligation.amountMinor} - ${obligation.settledMinor} - ${obligation.waivedMinor} - ${obligation.writtenOffMinor})`,
       oldestDueOn: sql<string>`MIN(${obligation.effectiveDueOn})`,
     })
     .from(obligation)
@@ -1078,13 +1081,13 @@ export async function listAgeingBuckets(
             WHEN ${asOfDate}::date - effective_due_on <= 90 THEN 3
             ELSE 4
           END AS bucket_rank,
-          amount_minor - settled_minor - waived_minor AS outstanding
+          amount_minor - settled_minor - waived_minor - written_off_minor AS outstanding
         FROM obligation
         WHERE business_id = ${businessId}
           AND direction = 'owed_to_us'
           AND status IN ('pending', 'part_paid')
           AND voided_at IS NULL
-          AND amount_minor - settled_minor - waived_minor > 0
+          AND amount_minor - settled_minor - waived_minor - written_off_minor > 0
       ) aged
      GROUP BY party_type, party_id, bucket, bucket_rank
      ORDER BY party_type, party_id, bucket_rank
@@ -1098,7 +1101,30 @@ export async function listAgeingBuckets(
   }));
 }
 
-/** UC-75/DM §15, reproduced verbatim (with the DM §15's own found-and-fixed correction: `payment` has no `voided_at` — it is corrected through `status` instead, §10.2). Deposits are deliberately not part of this figure — they are a liability shown beside it, never netted in (§6.13). */
+/**
+ * UC-75/DM §15. `heldMinor = received − paid − banked − advanced`: field cash
+ * this partner is physically holding right now, from every transaction where
+ * he was the one handling money — a customer/driver payment collected
+ * (`received`) or paid out on the spot (`paid`, UC-50 "pay the driver" —
+ * NH-2/GAP-201: this direction existed in `payment` since P4 and was never
+ * read here, so cash a partner handed straight to a driver read as though he
+ * still held it), minus what he's since banked or advanced. `status <>
+ * 'reversed'` (M-7/GAP-201), not `'active'`: a `'corrected'` payment's
+ * `amount_minor` already holds the true remaining figure (DM §10.2/§14), and
+ * excluding it here understated held cash by the whole original amount
+ * instead of just the corrected-away difference.
+ *
+ * Deliberately **not** reduced by `partner_payout` — UC-67 states "Holding"
+ * and "Taken out" as two separate lines, not one netted against the other,
+ * and `holdingMinor` is tested to stay unmoved by a payout/settlement
+ * (`partner-summary.test.ts`): a payout is drawn against the business's
+ * broader cash position, not against this specific field float. See
+ * `sumPartnerPayoutsForBusiness` below, subtracted only where UC-109's
+ * business-wide "safe to take out" figure is computed.
+ *
+ * Deposits are deliberately not part of this figure either — a liability
+ * shown beside it, never netted in (§6.13).
+ */
 export interface PartnerCashRow {
   userId: string;
   displayName: string | null;
@@ -1131,12 +1157,29 @@ export async function listPartnerCashPositions(
       and(
         eq(payment.businessId, businessId),
         eq(payment.direction, "received"),
-        eq(payment.status, "active"),
+        ne(payment.status, "reversed"),
         inArray(payment.handledByUserId, userIds),
       ),
     )
     .groupBy(payment.handledByUserId);
   const receivedByUser = new Map(receivedRows.map((r) => [r.uid, BigInt(r.total)]));
+
+  const paidRows = await db
+    .select({
+      uid: payment.handledByUserId,
+      total: sql<string>`SUM(${payment.amountMinor})`,
+    })
+    .from(payment)
+    .where(
+      and(
+        eq(payment.businessId, businessId),
+        eq(payment.direction, "paid"),
+        ne(payment.status, "reversed"),
+        inArray(payment.handledByUserId, userIds),
+      ),
+    )
+    .groupBy(payment.handledByUserId);
+  const paidByUser = new Map(paidRows.map((r) => [r.uid, BigInt(r.total)]));
 
   const bankedRows = await db
     .select({
@@ -1164,13 +1207,54 @@ export async function listPartnerCashPositions(
     .groupBy(advance.issuedByUserId);
   const advancedByUser = new Map(advancedRows.map((r) => [r.uid, BigInt(r.total)]));
 
-  // allow: a partner with no rows in one of these three sums genuinely moved nothing in that category — a real zero, not a missing figure (W-56)
+  // allow: a partner with no rows in one of these four sums genuinely moved nothing in that category — a real zero, not a missing figure (W-56)
   return users.map((u) => {
     const received = receivedByUser.get(u.id) ?? 0n; // eslint-disable-line no-restricted-syntax -- see the allow note above
+    const paid = paidByUser.get(u.id) ?? 0n; // eslint-disable-line no-restricted-syntax -- see the allow note above
     const banked = bankedByUser.get(u.id) ?? 0n; // eslint-disable-line no-restricted-syntax -- see the allow note above
     const advanced = advancedByUser.get(u.id) ?? 0n; // eslint-disable-line no-restricted-syntax -- see the allow note above
-    return { userId: u.id, displayName: u.displayName, heldMinor: received - banked - advanced };
+    return {
+      userId: u.id,
+      displayName: u.displayName,
+      heldMinor: received - paid - banked - advanced,
+    };
   });
+}
+
+/**
+ * GAP-201/NH-1: how much of the business's cash has already left it for a
+ * partner — every live `partner_payout` row, business-wide, all three kinds
+ * (`payout`, `partner_settlement`, `loan_on_behalf`). Each kind is real cash
+ * leaving the business for a partner's own account, whether it's an ordinary
+ * distribution, squaring the W-52 current account, or the business paying a
+ * lender on a named owner's behalf (`domain/vehicle-loan.ts`'s "the whole
+ * payment is a drawing against his own debt") — none of the three is a
+ * transfer between two spots business cash still sits in (contrast
+ * `banking_event`, UC-65).
+ *
+ * Subtracted only where UC-109's own "cash on hand and in bank" figure is
+ * computed (`getDistributableCashReport`) — never from `listPartnerCashPositions`'s
+ * per-partner `heldMinor` above, which UC-67 states as a separate line from
+ * "Taken out" and which a payout is drawn against the business's broader
+ * position, not against one partner's own field float.
+ */
+export async function sumPartnerPayoutsForBusiness(
+  db: ReadDb,
+  businessId: string,
+): Promise<bigint> {
+  // Summed in Postgres, not JS (TS §7's bounded-CPU rule, the same reason
+  // `sumEarnedForVehicleMonth` above aggregates rather than reducing): a
+  // business's `partner_payout` rows only ever accumulate, and this report
+  // is read on every home screen. `COALESCE(…, 0)` is load-bearing — `SUM()`
+  // over zero rows is NULL, and a business that has never paid a partner out
+  // must read `0n` here, not blow up on a null. `singleAggregateTotal` is
+  // what keeps that honest zero apart from a missing row (W-56): the first
+  // is a fact, the second means the query is broken and must throw.
+  const rows = await db
+    .select({ total: sql<string>`COALESCE(SUM(${partnerPayout.amountMinor}), 0)` })
+    .from(partnerPayout)
+    .where(and(eq(partnerPayout.businessId, businessId), isNull(partnerPayout.voidedAt)));
+  return singleAggregateTotal(rows);
 }
 
 /** GAP-70/DM §15: the same `banking_event` rows `listPartnerCashPositions` already subtracts, regrouped by destination — no enum, `destination` is free text a manager types once and reuses (F-7.4). */

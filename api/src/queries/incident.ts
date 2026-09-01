@@ -271,6 +271,8 @@ export interface IncidentRecoveryRow {
   receivedAmountMinor: bigint;
   /** GAP-10/A10b: set for `source: 'customer'` only — what `recordRecoveryReceived` settles alongside `received_amount_minor` so the two never disagree. */
   obligationId: string | null;
+  /** GAP-202/H-4, migration 0035: the specific payment `recordRecoveryReceived` itself minted for the current `received_amount_minor` — `null` before any receipt, or when the amount settled entirely through credit-forward (GAP-5b) rather than a fresh payment of its own. */
+  paymentId: string | null;
   postedPeriodId: string;
   receivedPeriodId: string | null;
   belongsToPeriodId: string | null;
@@ -286,6 +288,7 @@ const INCIDENT_RECOVERY_COLUMNS = {
   agreedAmountMinor: incidentRecovery.agreedAmountMinor,
   receivedAmountMinor: incidentRecovery.receivedAmountMinor,
   obligationId: incidentRecovery.obligationId,
+  paymentId: incidentRecovery.paymentId,
   postedPeriodId: incidentRecovery.postedPeriodId,
   receivedPeriodId: incidentRecovery.receivedPeriodId,
   belongsToPeriodId: incidentRecovery.belongsToPeriodId,
@@ -314,16 +317,25 @@ export interface IncidentRecoveryListRow extends IncidentRecoveryRow {
   belongsToPeriodStart: string | null;
 }
 
+/**
+ * GAP-202/NM-4: `forUpdate` locks the row for the caller's own transaction —
+ * the same "lock the parent" reasoning `write-off.ts`'s `findWriteOffForBusiness`
+ * already uses for `recordWriteOffRecovery`/`voidWriteOff`. `recordRecoveryReceived`
+ * and `voidIncidentRecovery` both take it now, so a concurrent void-vs-receive
+ * against the same recovery serialises rather than racing.
+ */
 export async function findIncidentRecoveryForBusiness(
   db: ReadDb,
   businessId: string,
   recoveryId: string,
+  forUpdate = false,
 ): Promise<IncidentRecoveryRow | undefined> {
-  const rows = await db
+  const query = db
     .select(INCIDENT_RECOVERY_COLUMNS)
     .from(incidentRecovery)
     .where(and(eq(incidentRecovery.id, recoveryId), eq(incidentRecovery.businessId, businessId)))
     .limit(1);
+  const rows = await (forUpdate ? query.for("update") : query);
   return rows[0] as IncidentRecoveryRow | undefined;
 }
 
@@ -394,11 +406,17 @@ export async function voidIncidentRecoveryRow(
  * makes a race against a concurrent `voidIncidentRecovery` a no-op here
  * (returns `undefined`) rather than settling an obligation and minting a
  * payment against a row the caller just voided.
+ *
+ * GAP-202/H-4, migration 0035: `paymentId`, when passed, records the
+ * specific payment this call itself minted — `undefined` leaves the column
+ * untouched (`settleInsuranceClaim`'s insurer path never mints one), an
+ * explicit `null` clears it (a correction settled entirely by
+ * credit-forward, GAP-5b, mints no fresh payment of its own).
  */
 export async function recordIncidentRecoveryReceived(
   db: WriteDb,
   recoveryId: string,
-  values: { receivedAmountMinor: bigint; receivedPeriodId?: string },
+  values: { receivedAmountMinor: bigint; receivedPeriodId?: string; paymentId?: string | null },
 ): Promise<{ id: string } | undefined> {
   const rows = await db
     .update(incidentRecovery)
@@ -407,6 +425,7 @@ export async function recordIncidentRecoveryReceived(
       ...(values.receivedPeriodId !== undefined
         ? { receivedPeriodId: values.receivedPeriodId }
         : {}),
+      ...(values.paymentId !== undefined ? { paymentId: values.paymentId } : {}),
     })
     .where(and(eq(incidentRecovery.id, recoveryId), isNull(incidentRecovery.voidedAt)))
     .returning({ id: incidentRecovery.id });

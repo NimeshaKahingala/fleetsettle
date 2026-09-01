@@ -84,7 +84,7 @@ export interface BookedTrip {
   receivableId: string | null;
   /** GAP-5b: the receivable's real settled amount and status after credit-forward — `null` alongside `receivableId` when none was raised. `0n`/`"pending"` when raised but the customer carried no credit to draw on. */
   receivableSettledMinor: bigint | null;
-  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off" | null;
 }
 
 interface TripFareObligationInput {
@@ -101,7 +101,10 @@ interface TripFareObligationInput {
 interface TripFareObligationResult {
   receivableId: string;
   receivableSettledMinor: bigint;
-  receivableStatus: "pending" | "part_paid" | "paid" | "waived";
+  // "written_off" is unreachable here — a brand-new obligation, settled only
+  // through applyCreditForward — but computeObligationStatus's return type
+  // is unconditional, not value-dependent, so this stays honest to it.
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off";
 }
 
 /**
@@ -472,7 +475,8 @@ export async function bookTrip(writer: Writer, input: BookTripInput): Promise<Bo
       // `confirmTripHold`.
       let receivableId: string | null = null;
       let receivableSettledMinor: bigint | null = null;
-      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
+      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off" | null =
+        null;
       if (!asHold) {
         await pauseDayRecordsForTrip(tx, input.vehicleId, input.startDate, input.endDate, tripId);
 
@@ -535,7 +539,7 @@ export interface ConfirmedTripHold {
   status: "booked";
   receivableId: string | null;
   receivableSettledMinor: bigint | null;
-  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null;
+  receivableStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off" | null;
 }
 
 /**
@@ -585,7 +589,8 @@ export async function confirmTripHold(
 
       let receivableId: string | null = null;
       let receivableSettledMinor: bigint | null = null;
-      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | null = null;
+      let receivableStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off" | null =
+        null;
       if (live.customerId !== null && live.agreedAmountMinor > 0n) {
         const posted = await postTripFareObligation(tx, {
           businessId: input.businessId,

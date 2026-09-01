@@ -237,8 +237,9 @@ export async function getLeaseClosureSummary(
     l.customerId,
     "owed_to_us",
   );
+  // GAP-203/H-1/D2: a written-off portion is never collectible.
   const totalUnpaidMinor = unpaidObligations.reduce(
-    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor),
+    (sum, o) => sum + (o.amountMinor - o.settledMinor - o.waivedMinor - o.writtenOffMinor),
     0n,
   ) as Minor;
 
@@ -374,7 +375,8 @@ export async function settleLeaseDeposit(
       let last: Awaited<ReturnType<typeof recordDepositMovementTx>> | undefined;
       for (const ob of unpaidObligations) {
         if (remaining <= 0n) break;
-        const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+        // GAP-203/H-1/D2: a written-off portion is never collectible.
+        const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
         if (outstanding <= 0n) continue;
 
         const take = (remaining < outstanding ? remaining : outstanding) as Minor;
