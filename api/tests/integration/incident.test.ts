@@ -971,8 +971,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     // pending (the insurer's, not yet settled) — the same visibly-temporary
     // reading §7.2 describes.
     const detailAfterMay = await get(`/api/incident/${incidentId}`, token);
-    const detailAfterMayBody: { bottomLine: Record<string, string> } =
-      await detailAfterMay.json();
+    const detailAfterMayBody: { bottomLine: Record<string, string> } = await detailAfterMay.json();
     expect(detailAfterMayBody.bottomLine).toEqual({
       totalRepairCostMinor: "95000",
       totalRecoveredMinor: "20000",
