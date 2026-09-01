@@ -56,6 +56,56 @@ async function setupBusinessWithCustomerLease(ctx: TestContext, db: ReturnType<t
 }
 
 /**
+ * An incident on a customer's lease with a contribution already agreed —
+ * everything both step-4 money tests need before they diverge. Extracted 1
+ * September 2026: M-10's own test repeated this block verbatim and SonarCloud
+ * read the file as 33.8% duplicated new code, which it was.
+ *
+ * `role` is a parameter rather than a constant because it is the one thing
+ * that genuinely differs: a waiver above the business's threshold needs
+ * `writeOffOrWaiveAboveThreshold` (owners), and the default threshold is 0,
+ * so any waiver at all does.
+ */
+async function setupAgreedContribution(
+  ctx: TestContext,
+  db: ReturnType<typeof writer>,
+  role: "owner" | "manager",
+  contribution: { agreedAmountMinor: string; agreedOn: string; note?: string },
+): Promise<{
+  customerId: string;
+  incidentId: string;
+  token: string;
+  agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string };
+}> {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+  const actor = await mintUser(db, ctx, businessId, role);
+  const token = await signAccessToken(actor.asgardeoSub);
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  const agreed = await post(
+    `/api/incident/${incidentId}/customer-contribution`,
+    token,
+    contribution,
+  );
+  expect(agreed.status).toBe(201);
+  const agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string } =
+    await agreed.json();
+
+  return { customerId, incidentId, token, agreedBody };
+}
+
+/**
  * GAP-204: shared by every 'credit_days' off-road test (the happy path and
  * the repeat-refusal test both need the identical billing-period/obligation
  * fixture) — SonarCloud flagged the two as duplicated new code once the
@@ -422,28 +472,10 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   describe("customer contribution (step 4/W-10)", () => {
     it("M-10: a waived contribution, then received, reads as settled rather than part_paid", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
-      const owner = await mintUser(db, ctx, businessId, "owner");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
-
-      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+      const { incidentId, token, agreedBody } = await setupAgreedContribution(ctx, db, "owner", {
         agreedAmountMinor: "20000",
         agreedOn: "2026-07-20",
       });
-      expect(agreed.status).toBe(201);
-      const agreedBody: { id: string } = await agreed.json();
 
       const [ob] = await db
         .select({ id: obligation.id })
@@ -499,30 +531,16 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("happy path — agreed opens a payable obligation, then received settles it (D-9/GAP-10)", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
-
-      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
-        agreedAmountMinor: "20000",
-        agreedOn: "2026-07-20",
-        note: "Agreed after repair estimate",
-      });
-      expect(agreed.status).toBe(201);
-      const agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string } =
-        await agreed.json();
+      const { customerId, incidentId, token, agreedBody } = await setupAgreedContribution(
+        ctx,
+        db,
+        "manager",
+        {
+          agreedAmountMinor: "20000",
+          agreedOn: "2026-07-20",
+          note: "Agreed after repair estimate",
+        },
+      );
       expect(agreedBody).toMatchObject({ agreedAmountMinor: "20000", receivedAmountMinor: "0" });
 
       const obligationsAfterAgree = await db
