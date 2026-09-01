@@ -9,6 +9,7 @@ import {
   insertDepositMovement,
   insertDepositMovements,
   insertDeposits,
+  sumDepositMovements,
   updateDepositStatus,
   voidAdvanceById,
   type NewAdvance,
@@ -346,11 +347,10 @@ async function reverseOpeningBalancePostings(
             ? { belongsToPeriodId: depositLinkage.belongsToPeriodId }
             : {}),
         });
-        // M-10 follow-up, 1 September 2026: and move the deposit off `held`,
-        // because the refund above is for the deposit's whole amount —
-        // `findDepositMovementAmount` reads the original `taken` posting.
+        // M-10 follow-up, 1 September 2026: move the deposit off `held` once
+        // the refund above has actually emptied it.
         //
-        // This line is what migration 0038 was repairing the absence of.
+        // This is what migration 0038 was repairing the absence of.
         // `insertDepositMovement` is the query layer; only
         // `recordDepositMovement`'s TERMINAL map (`refunded` → `released`)
         // maintains the status, and this path does not go through it. So a
@@ -362,10 +362,31 @@ async function reverseOpeningBalancePostings(
         // `held`. Not test-data residue, ordinary use of "correct a
         // committed opening balance" five times.
         //
-        // Without this, 0038's unique index turns that sixth correction into
-        // an unhandled 23505 — a 500 on a flow that used to work. The
-        // constraint and the writer that has to respect it ship together.
-        await updateDepositStatus(tx, posting.depositId, "released");
+        // Without it, 0038's unique index turns that sixth correction into an
+        // unhandled 23505 — a 500 on a flow that used to work. The constraint
+        // and the writer that has to respect it ship together.
+        //
+        // Conditional, not unconditional (Copilot's review of this PR, and it
+        // was right): the refund covers `findDepositMovementAmount`, the
+        // *original posting's* amount, not the deposit's current balance. A
+        // deposit taken at 20,000 through the opening balance and later topped
+        // up by 10,000 still holds 10,000 after this refund. `sumDepositsHeld`
+        // filters `status IN ('held','hold_window')`, so releasing it there
+        // would drop real money out of the cash position and
+        // `recordDepositMovement` would then refuse to touch it at all —
+        // a silent understatement, the one failure mode this system exists to
+        // prevent.
+        //
+        // A deposit still holding something therefore stays `held`, and the
+        // correction is then refused by the sibling guard below with
+        // DRIVER_ALREADY_HOLDING_DEPOSIT rather than going through. That is
+        // the honest outcome: the money in that deposit is real, so silently
+        // hiding it or silently stacking a second deposit beside it are both
+        // worse than telling the owner to record the difference as a top-up.
+        const remainingMinor = await sumDepositMovements(tx, posting.depositId);
+        if (remainingMinor <= 0n) {
+          await updateDepositStatus(tx, posting.depositId, "released");
+        }
         break;
       }
     }

@@ -269,6 +269,67 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     await ctx.cleanup();
   });
 
+  it("M-10: a topped-up opening-balance deposit is not released out of the cash position", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const saveRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
+    });
+    expect(saveRes.status).toBe(200);
+    const savedBatch: { id: string } = await saveRes.json();
+    ctx.trackCreatedOpeningBalance(savedBatch.id);
+    expect((await commitOpeningBalance(token)).status).toBe(200);
+
+    const [dep] = await db
+      .select({ id: deposit.id })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(dep).toBeDefined();
+    const depositId = dep?.id ?? "";
+
+    // The driver hands over another 10,000 on top of the opening figure.
+    const topUp = await request(`/api/deposit/${depositId}/movement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        movementType: "topped_up",
+        amountMinor: "1000000",
+        occurredOn: "2026-01-10",
+      }),
+    });
+    expect(topUp.status).toBe(200);
+
+    // Correcting the batch refunds only the original 2,000,000 posting, so
+    // 1,000,000 of the driver's money is still genuinely held. Releasing the
+    // deposit here would drop it out of `sumDepositsHeld`, which filters on
+    // status — so the correction is refused instead.
+    const correctionRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "1500000" }],
+    });
+    expect(correctionRes.status).toBe(409);
+    expect(await correctionRes.json()).toMatchObject({ code: "DRIVER_ALREADY_HOLDING_DEPOSIT" });
+
+    // The money is still visible and the deposit still usable — the whole
+    // point of refusing rather than releasing.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows).toEqual([{ status: "held" }]);
+
+    const cash: { depositsHeldMinor: string } = await (await getCashPosition(token)).json();
+    expect(cash.depositsHeldMinor).toBe("3000000");
+
+    await ctx.cleanup();
+  });
+
   it("M-10: 409, not 500, when a deposit_held entry names a driver who already holds one", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

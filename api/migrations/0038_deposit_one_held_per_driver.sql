@@ -52,6 +52,19 @@
 -- forward-only migration would bake an invented money decision into
 -- permanent history. That case still fails this migration loudly, which for
 -- money is the correct outcome.
+-- The net-zero test is the second half of the condition, and it is not
+-- belt-and-braces (Copilot's review of this PR, and it was right). "Has a
+-- refunded movement" is not "is empty": a deposit taken at 20,000, topped up
+-- by 10,000 and then refunded its original 20,000 still physically holds
+-- 10,000. `sumDepositsHeld` filters `status IN ('held','hold_window')`, so
+-- releasing that row would drop real money out of the cash position and
+-- `recordDepositMovement` would refuse to touch it again — a silent
+-- understatement, which is the one failure mode this system exists to
+-- prevent. Only a deposit that nets to nothing is released; anything
+-- ambiguous still fails the index below, loudly.
+--
+-- The sign rule is `sumDepositMovements`'s own (queries/driver-money.ts):
+-- `taken` and `topped_up` add, every other movement type subtracts.
 UPDATE deposit d
    SET status = 'released'
  WHERE d.party_type = 'driver'
@@ -62,7 +75,15 @@ UPDATE deposit d
       WHERE m.deposit_id = d.id
         AND m.movement_type = 'refunded'
         AND m.voided_at IS NULL
-   );
+   )
+   AND COALESCE((
+     SELECT SUM(CASE WHEN m.movement_type IN ('taken', 'topped_up')
+                     THEN m.amount_minor
+                     ELSE -m.amount_minor END)
+       FROM deposit_movement m
+      WHERE m.deposit_id = d.id
+        AND m.voided_at IS NULL
+   ), 0) <= 0;
 
 CREATE UNIQUE INDEX deposit_one_held_per_driver
   ON deposit (party_driver_id)
