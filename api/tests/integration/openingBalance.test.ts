@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { deposit } from "../../src/db/schema.js";
 import {
   insertBatch,
   insertEntries,
@@ -216,6 +218,53 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     expect(cashPosition.partners).toContainEqual(
       expect.objectContaining({ userId: owner.userId, heldMinor: "5000000" }),
     );
+
+    await ctx.cleanup();
+  });
+
+  it("M-10: correcting a committed batch releases the old deposit instead of leaving a second one held", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const saveRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "2000000" }],
+    });
+    expect(saveRes.status).toBe(200);
+    const savedBatch: { id: string } = await saveRes.json();
+    ctx.trackCreatedOpeningBalance(savedBatch.id);
+    expect((await commitOpeningBalance(token)).status).toBe(200);
+
+    // The correction. `reverseOpeningBalancePostings` refunds the old deposit
+    // in full, then `materializeOpeningBalanceEntries` inserts a fresh one for
+    // the same driver — so before this fix the driver held two deposits at
+    // once, and with migration 0038's unique index live this call came back
+    // 500 on an unhandled 23505 rather than 200.
+    const correctionRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "1500000" }],
+    });
+    expect(correctionRes.status).toBe(200);
+
+    // One held deposit, not two. The reversed one is `released` — the status
+    // `recordDepositMovement`'s TERMINAL map would have set had this path gone
+    // through it, which is the invariant 0038's repair restored for rows
+    // written before this fix existed.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows.filter((r) => r.status === "held")).toHaveLength(1);
+    expect(rows.filter((r) => r.status === "released")).toHaveLength(1);
+
+    // And the money the business believes it is holding is the corrected
+    // figure alone — never the old one standing beside it.
+    const cashPosition: { depositsHeldMinor: string } = await (await getCashPosition(token)).json();
+    expect(cashPosition.depositsHeldMinor).toBe("1500000");
 
     await ctx.cleanup();
   });

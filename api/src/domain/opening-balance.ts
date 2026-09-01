@@ -9,6 +9,7 @@ import {
   insertDepositMovement,
   insertDepositMovements,
   insertDeposits,
+  updateDepositStatus,
   voidAdvanceById,
   type NewAdvance,
   type NewDeposit,
@@ -322,6 +323,26 @@ async function reverseOpeningBalancePostings(
             ? { belongsToPeriodId: depositLinkage.belongsToPeriodId }
             : {}),
         });
+        // M-10 follow-up, 1 September 2026: and move the deposit off `held`,
+        // because the refund above is for the deposit's whole amount —
+        // `findDepositMovementAmount` reads the original `taken` posting.
+        //
+        // This line is what migration 0038 was repairing the absence of.
+        // `insertDepositMovement` is the query layer; only
+        // `recordDepositMovement`'s TERMINAL map (`refunded` → `released`)
+        // maintains the status, and this path does not go through it. So a
+        // correction left the old deposit fully refunded but still `held`,
+        // `materializeOpeningBalanceEntries` then inserted a fresh `held`
+        // deposit for the same driver, and the driver owned two — which is
+        // exactly the shape QA was in: six `deposit_held` postings for one
+        // driver off a committed batch, the five reversed ones all stuck at
+        // `held`. Not test-data residue, ordinary use of "correct a
+        // committed opening balance" five times.
+        //
+        // Without this, 0038's unique index turns that sixth correction into
+        // an unhandled 23505 — a 500 on a flow that used to work. The
+        // constraint and the writer that has to respect it ship together.
+        await updateDepositStatus(tx, posting.depositId, "released");
         break;
       }
     }
