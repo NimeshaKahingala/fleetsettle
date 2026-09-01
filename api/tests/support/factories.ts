@@ -1387,6 +1387,12 @@ export class TestContext {
         await this.#db.delete(payment).where(eq(payment.id, paymentId));
       }
       if (obligationIds.length > 0) {
+        // A recovery's obligation is adjustable like any other — nothing in
+        // `applyAdjustment` filters by kind — so a waiver against one holds
+        // `adjustment_obligation_id_fkey` and the DELETE below fails. Nothing
+        // exercised that until M-10's own test; `createObligation` and the
+        // lease teardown both already sweep adjustments the same way.
+        await this.#db.delete(adjustment).where(inArray(adjustment.obligationId, obligationIds));
         await this.#db.delete(obligation).where(inArray(obligation.id, obligationIds));
       }
       await this.#db.delete(incident).where(eq(incident.id, incidentId));
