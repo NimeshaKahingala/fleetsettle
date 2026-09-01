@@ -420,6 +420,83 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   });
 
   describe("customer contribution (step 4/W-10)", () => {
+    it("M-10: a waived contribution, then received, reads as settled rather than part_paid", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+        agreedAmountMinor: "20000",
+        agreedOn: "2026-07-20",
+      });
+      expect(agreed.status).toBe(201);
+      const agreedBody: { id: string } = await agreed.json();
+
+      const [ob] = await db
+        .select({ id: obligation.id })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+
+      // 5,000 of the 20,000 waived as goodwill. Nothing in `applyAdjustment`
+      // filters by obligation kind, so a recovery's obligation is as
+      // adjustable as any other — which is what made the old computation,
+      // reading the recovery's own `agreedAmountMinor` with waived assumed
+      // zero, wrong on two counts at once.
+      const waiver = await post("/api/adjustment", token, {
+        obligationId: ob?.id,
+        adjustmentType: "waiver",
+        amountMinor: "5000",
+        sign: -1,
+        reason: "Goodwill on part of the contribution",
+        occurredOn: "2026-07-22",
+      });
+      expect(waiver.status).toBe(201);
+
+      // The customer pays the 15,000 that is actually left.
+      const received = await post(
+        `/api/incident/${incidentId}/recovery/${agreedBody.id}/receive`,
+        token,
+        { receivedAmountMinor: "15000", receivedOn: "2026-07-25" },
+      );
+      expect(received.status).toBe(200);
+
+      // 15,000 received + 5,000 waived is the whole 20,000: nothing is still
+      // owed. This read `part_paid` before the fix, so a customer who had
+      // paid everything outstanding went on showing as owing it.
+      const after = await db
+        .select({
+          amountMinor: obligation.amountMinor,
+          settledMinor: obligation.settledMinor,
+          waivedMinor: obligation.waivedMinor,
+          status: obligation.status,
+        })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+      expect(after).toEqual([
+        {
+          amountMinor: 20000n,
+          settledMinor: 15000n,
+          waivedMinor: 5000n,
+          status: "waived",
+        },
+      ]);
+
+      await ctx.cleanup();
+    });
+
     it("happy path — agreed opens a payable obligation, then received settles it (D-9/GAP-10)", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();

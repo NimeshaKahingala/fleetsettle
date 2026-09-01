@@ -45,6 +45,7 @@ import {
 import { findLeaseForBusiness, updateLeaseEndDate } from "../queries/lease.js";
 import {
   findBillingPeriodRentObligation,
+  findObligationForBusiness,
   insertObligation,
   updateObligationSettled,
   voidObligationBySource,
@@ -476,10 +477,36 @@ export async function recordRecoveryReceived(
       if (!updated) throw new NotFoundError("No such recovery in this business");
 
       if (recovery.source === "customer" && recovery.obligationId !== null && customerId) {
+        // M-10 follow-up, 1 September 2026: read the obligation rather than
+        // recomputing its status from the recovery's own agreed figure with
+        // waived and written-off assumed zero. Nothing stops an adjustment or
+        // a write-off naming this obligation — neither path filters by kind —
+        // and once one has, both assumptions are wrong at once: the recovery's
+        // `agreed_amount_minor` no longer tracks `amount_minor` (a non-waiver
+        // adjustment moves the amount itself), and `waived_minor` is not 0.
+        //
+        // Proven, not supposed: a 20,000 contribution with 5,000 waived and
+        // 15,000 received came out `part_paid`. 15,000 + 5,000 is the whole
+        // 20,000, so it is settled — `computeObligationStatus` says `waived`
+        // when handed the row's real numbers. The customer had paid
+        // everything still owed and the obligation went on reading as though
+        // he had not.
+        //
+        // `forUpdate`, like every other read-modify-write on this row
+        // (GAP-5a): this settles concurrently with an adjustment against the
+        // same obligation.
+        const ob = await findObligationForBusiness(
+          tx,
+          input.businessId,
+          recovery.obligationId,
+          true,
+        );
+        if (!ob) throw new NotFoundError("No such recovery in this business");
         const status = computeObligationStatus(
-          recovery.agreedAmountMinor,
+          ob.amountMinor,
           input.receivedAmountMinor,
-          0n,
+          ob.waivedMinor,
+          ob.writtenOffMinor,
         );
         await updateObligationSettled(tx, input.businessId, recovery.obligationId, {
           settledMinor: input.receivedAmountMinor,
