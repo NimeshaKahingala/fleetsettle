@@ -24,6 +24,46 @@
 -- Scoped to `party_type = 'driver'` only — DM §10.4 makes no equivalent
 -- one-per-party promise for a customer deposit, and this fix's own finding
 -- (M-10) is specifically the driver's own statement.
+-- The repair below is load-bearing, not defensive: without it this migration
+-- fails on the first environment that has ever been clicked through. QA had
+-- six `held` deposits for one driver and 0038 died there with 23505,
+-- `Key (party_driver_id)=(019fe21a-…) is duplicated` — the integration
+-- workflow could not have caught it, because it builds every branch from
+-- empty and a data-shaped violation needs data.
+--
+-- Five of those six were `taken 500,000` *and* `refunded 500,000` — netted to
+-- nothing, yet still flagged `held`. That is not a duplicate deposit, it is a
+-- deposit whose status was never moved on: `recordDepositMovement`'s TERMINAL
+-- map (`refunded` → `released`, domain/deposit.ts) has set exactly that since
+-- 1 August 2026, so these rows cannot have come through it — every movement
+-- shares `occurred_on = 2026-08-09` while its parent spans 11–17 August, the
+-- signature of rows hand-inserted around the domain layer during testing.
+--
+-- So this restores an invariant the application already maintains rather than
+-- inventing a new rule, and it is the reason the fix is an UPDATE and not a
+-- merge: no money moves, no row is deleted, no amount is summed. Customer
+-- deposits are deliberately untouched — theirs are already consistent (the
+-- one live refund is correctly `released`), and DM §10.4 makes no
+-- one-per-party promise for a customer anyway.
+--
+-- What this deliberately does NOT do: reconcile two genuinely `held`,
+-- unrefunded deposits for one driver. There is no non-guessing answer to
+-- which survives or how their movements combine, and guessing inside a
+-- forward-only migration would bake an invented money decision into
+-- permanent history. That case still fails this migration loudly, which for
+-- money is the correct outcome.
+UPDATE deposit d
+   SET status = 'released'
+ WHERE d.party_type = 'driver'
+   AND d.status = 'held'
+   AND EXISTS (
+     SELECT 1
+       FROM deposit_movement m
+      WHERE m.deposit_id = d.id
+        AND m.movement_type = 'refunded'
+        AND m.voided_at IS NULL
+   );
+
 CREATE UNIQUE INDEX deposit_one_held_per_driver
   ON deposit (party_driver_id)
   WHERE party_type = 'driver' AND status = 'held';
