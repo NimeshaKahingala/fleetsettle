@@ -12,6 +12,7 @@ import {
   IncidentRecoveryAlreadyVoidedError,
   InsuranceClaimAlreadyExistsError,
   NotFoundError,
+  OffRoadTreatmentAlreadyRecordedError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
@@ -44,6 +45,7 @@ import {
 import { findLeaseForBusiness, updateLeaseEndDate } from "../queries/lease.js";
 import {
   findBillingPeriodRentObligation,
+  findObligationForBusiness,
   insertObligation,
   updateObligationSettled,
   voidObligationBySource,
@@ -112,14 +114,59 @@ export interface RecordedOffRoad {
  * split) against the billing period's own rent obligation. `extend` pushes
  * `lease.end_date` out and records why (D-7) — the added days' own mileage
  * allowance follows automatically the next time F-2.3 runs, no recalculation.
+ *
+ * GAP-204/H-2/D3 (decided 30 Aug 2026): refuses a second call while a live
+ * treatment already exists — `rent_treatment` was written every time this
+ * ran but never read back, so a second `credit_days` silently applied a
+ * second adjustment against the same billing period, and a second `extend`
+ * pushed the lease's end date out again on top of the first. `continue` sets
+ * nothing live (the safe default, above) and never blocks a real choice
+ * afterward; only `credit_days`/`extend` — the two with an actual financial
+ * or lease-date effect — do. W-61's "undo what you did, in the order you
+ * did it" governs: `credit_days` undoes through the existing `voidAdjustment`
+ * path (F-2.4); `extend` has no void path in this schema at all yet
+ * (`lease_extension` carries no `voided_at` trio, GAP-190's own W-50 sweep
+ * never reached it) — refusing is still strictly better than a second
+ * push nobody can see was ever applied twice.
  */
 export async function recordOffRoad(
   writer: Writer,
   input: RecordOffRoadInput,
 ): Promise<RecordedOffRoad> {
   return writer.transaction(async (tx) => {
-    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId);
+    // GAP-204/H-2/D3, review 31 Aug 2026: `FOR UPDATE`. Read without the
+    // lock, two near-simultaneous requests both see `rentTreatment === null`,
+    // both pass the guard below and both apply the pro-rata adjustment or
+    // the lease extension — the exact double-apply this guard exists to
+    // stop, merely made harder to hit rather than prevented. The write
+    // itself is not conditional on `rent_treatment` still being unset, so
+    // serialising the read is what makes the check mean anything. Same
+    // "lock the row you are about to decide from" shape `voidWriteOff`
+    // (GAP-190/B12) and `voidIncidentRecovery` (GAP-202/NM-4) already take.
+    const existing = await findIncidentForBusiness(tx, input.businessId, input.incidentId, true);
     if (!existing) throw new NotFoundError("No such incident in this business");
+
+    if (existing.rentTreatment === "credit_days") {
+      // The message deliberately does *not* promise "void the adjustment and
+      // record a new one": voiding an `adjustment` (F-2.4) does not clear
+      // `incident.rent_treatment`, because nothing links the adjustment back
+      // to the incident that raised it. A manager told to void first would
+      // do so and still be refused here, with no way forward and no
+      // explanation. Stating the real limit is the honest version until that
+      // linkage exists; re-recording a treatment is its own change.
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already has a rent-credit adjustment recorded for its off-road window, " +
+          "and changing it is not supported yet — contact support before recording a " +
+          "different treatment",
+      );
+    }
+    if (existing.rentTreatment === "extend") {
+      throw new OffRoadTreatmentAlreadyRecordedError(
+        "This incident already extended the lease's end date for its off-road window, and " +
+          "reversing an extension is not supported yet — contact support before recording a " +
+          "different treatment",
+      );
+    }
 
     await updateIncidentOffRoad(tx, input.incidentId, {
       offRoadFrom: input.offRoadFrom,
@@ -350,6 +397,7 @@ export async function recordCustomerContribution(
 
 export interface RecordRecoveryReceivedInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -393,6 +441,13 @@ export async function recordRecoveryReceived(
   if (!recovery || recovery.voidedAt !== null) {
     throw new NotFoundError("No such recovery in this business");
   }
+  // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/receive`)
+  // is otherwise decorative — `findIncidentRecoveryForBusiness` only scopes
+  // by business, so a recovery belonging to a different incident would
+  // still accept a receipt if this check were skipped.
+  if (recovery.incidentId !== input.incidentId) {
+    throw new NotFoundError("No such recovery in this business");
+  }
 
   let customerId: string | undefined;
   if (recovery.source === "customer" && recovery.obligationId !== null) {
@@ -408,6 +463,7 @@ export async function recordRecoveryReceived(
   }
 
   const receivedPeriod = await findPeriodForDate(writer, input.businessId, input.receivedOn);
+  let mintedPaymentId: string | null = null;
 
   try {
     await writer.transaction(async (tx) => {
@@ -421,10 +477,36 @@ export async function recordRecoveryReceived(
       if (!updated) throw new NotFoundError("No such recovery in this business");
 
       if (recovery.source === "customer" && recovery.obligationId !== null && customerId) {
+        // M-10 follow-up, 1 September 2026: read the obligation rather than
+        // recomputing its status from the recovery's own agreed figure with
+        // waived and written-off assumed zero. Nothing stops an adjustment or
+        // a write-off naming this obligation — neither path filters by kind —
+        // and once one has, both assumptions are wrong at once: the recovery's
+        // `agreed_amount_minor` no longer tracks `amount_minor` (a non-waiver
+        // adjustment moves the amount itself), and `waived_minor` is not 0.
+        //
+        // Proven, not supposed: a 20,000 contribution with 5,000 waived and
+        // 15,000 received came out `part_paid`. 15,000 + 5,000 is the whole
+        // 20,000, so it is settled — `computeObligationStatus` says `waived`
+        // when handed the row's real numbers. The customer had paid
+        // everything still owed and the obligation went on reading as though
+        // he had not.
+        //
+        // `forUpdate`, like every other read-modify-write on this row
+        // (GAP-5a): this settles concurrently with an adjustment against the
+        // same obligation.
+        const ob = await findObligationForBusiness(
+          tx,
+          input.businessId,
+          recovery.obligationId,
+          true,
+        );
+        if (!ob) throw new NotFoundError("No such recovery in this business");
         const status = computeObligationStatus(
-          recovery.agreedAmountMinor,
+          ob.amountMinor,
           input.receivedAmountMinor,
-          0n,
+          ob.waivedMinor,
+          ob.writtenOffMinor,
         );
         await updateObligationSettled(tx, input.businessId, recovery.obligationId, {
           settledMinor: input.receivedAmountMinor,
@@ -440,6 +522,16 @@ export async function recordRecoveryReceived(
         // is before posting the new pair, the same "reverse then repost"
         // shape `correctPayment` (F-8.2) uses — never more than one live
         // payment behind this recovery at a time.
+        //
+        // GAP-202/PR-2: this used to call `markPaymentReversed` on each
+        // allocation's *parent* payment. A customer carrying unapplied
+        // credit-forward can have this obligation's allocation drawn from an
+        // older, otherwise-unrelated surplus payment (GAP-5b, above) — that
+        // payment can still be funding a live allocation against a different
+        // obligation entirely. Reversing the whole payment marked it
+        // 'reversed' everywhere, not just here. So the allocations are voided
+        // on their own — the same `unwindObligationAllocations` shape
+        // `adjustment.ts` uses.
         const priorAllocations = await findPaymentAllocationsForObligation(
           tx,
           recovery.obligationId,
@@ -449,18 +541,44 @@ export async function recordRecoveryReceived(
             voidedReason: "Superseded by a corrected recovery amount",
             voidedBy: input.userId,
           });
-          await markPaymentReversed(tx, alloc.paymentId);
         }
 
+        // …but the payment *this recovery minted for its own previous
+        // amount* must still be reversed, and this is what H-4's own
+        // `incident_recovery.payment_id` (migration 0035) exists to identify.
+        //
+        // Found 31 Aug 2026 by `void-cascade.test.ts`'s "never leaves two
+        // active payments", which passes on `develop` and failed here.
+        // Voiding the allocation alone leaves that payment `active` and
+        // funding nothing — which `credit-forward.ts` reads as spendable
+        // customer credit, so a corrected-away 12,000 comes back as money he
+        // can apply to a future due. Both extremes are wrong: reversing every
+        // allocation's parent over-reverses a shared payment, and reversing
+        // none of them under-reverses this one. Reversing exactly the payment
+        // this recovery recorded as its own is the version that is right in
+        // both directions.
+        //
+        // `paymentId` is null for a recovery whose receipt predates 0035, and
+        // for one that settled entirely through credit-forward. Both are
+        // correctly skipped: in neither case did this recovery mint a payment
+        // of its own to reverse.
+        if (recovery.paymentId !== null) {
+          await markPaymentReversed(tx, recovery.paymentId);
+        }
+
+        // GAP-202/H-4: which payment (if any) this call itself minted is
+        // recorded on the recovery row — `null` when this correction
+        // settles to zero, so a later reader can tell "no receipt" apart
+        // from "a receipt whose payment predates this column."
         if (input.receivedAmountMinor > 0n) {
           const linkage = await resolvePeriodLinkage(tx, input.businessId, input.receivedOn);
           if (!linkage) {
             throw new PeriodClosedError("No accounting period covers this business date yet");
           }
 
-          const paymentId = newId();
+          mintedPaymentId = newId();
           await insertPayment(tx, {
-            id: paymentId,
+            id: mintedPaymentId,
             businessId: input.businessId,
             direction: "received",
             partyType: "customer",
@@ -476,12 +594,17 @@ export async function recordRecoveryReceived(
           });
           await insertPaymentAllocation(tx, {
             id: newId(),
-            paymentId,
+            paymentId: mintedPaymentId,
             obligationId: recovery.obligationId,
             amountMinor: input.receivedAmountMinor,
             allocatedOn: input.receivedOn,
           });
         }
+
+        await recordIncidentRecoveryReceived(tx, input.recoveryId, {
+          receivedAmountMinor: input.receivedAmountMinor,
+          paymentId: mintedPaymentId,
+        });
       }
     });
   } catch (err) {
@@ -494,12 +617,16 @@ export async function recordRecoveryReceived(
       ...recovery,
       receivedAmountMinor: input.receivedAmountMinor,
       receivedPeriodId: receivedPeriod?.id ?? null,
+      ...(recovery.source === "customer" && recovery.obligationId !== null && customerId
+        ? { paymentId: mintedPaymentId }
+        : {}),
     },
   };
 }
 
 export interface VoidIncidentRecoveryInput {
   businessId: string;
+  incidentId: string;
   recoveryId: string;
   reason: string;
   userId: string;
@@ -517,35 +644,55 @@ export interface VoidedIncidentRecovery {
  * above), not by voiding the recovery it settled. Clear, this cascades only
  * `voidObligationBySource` — the obligation `recordCustomerContribution`
  * minted alongside this row, never entered separately (§2's exception).
+ *
+ * GAP-202/NM-4: the read and both checks now happen inside the transaction,
+ * against a `FOR UPDATE` row — the same "lock the parent" shape
+ * `write-off.ts`'s `voidWriteOff` already uses (GAP-190/B12). Read outside
+ * it (the shape this used to have), a concurrent `recordRecoveryReceived`
+ * landing in the gap between the check and the void is invisible to this
+ * check, and the recovery is voided anyway with money already received
+ * against it.
  */
 export async function voidIncidentRecovery(
   writer: Writer,
   input: VoidIncidentRecoveryInput,
 ): Promise<VoidedIncidentRecovery> {
-  const recovery = await findIncidentRecoveryForBusiness(
-    writer,
-    input.businessId,
-    input.recoveryId,
-  );
-  if (!recovery) throw new NotFoundError("No such recovery in this business");
-  if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
-
-  if (recovery.receivedAmountMinor > 0n) {
-    throw new VoidBlockedError(
-      `Cannot void — ${recovery.receivedAmountMinor.toString()} has already been received against ` +
-        "it. Correct the receipt itself first",
-      [
-        {
-          kind: "receipt",
-          id: input.recoveryId,
-          amountMinor: recovery.receivedAmountMinor.toString(),
-        },
-      ],
-    );
-  }
-
   try {
     return await writer.transaction(async (tx) => {
+      const recovery = await findIncidentRecoveryForBusiness(
+        tx,
+        input.businessId,
+        input.recoveryId,
+        true,
+      );
+      if (!recovery) throw new NotFoundError("No such recovery in this business");
+
+      // NL-5: the URL's own parent segment (`/{id}/recovery/{recoveryId}/void`)
+      // is otherwise decorative — `findIncidentRecoveryForBusiness` only
+      // scopes by business, so a recovery belonging to a different incident
+      // would still be voided if this check were skipped. Before every
+      // state-specific branch below (already-voided, and the
+      // money-already-received refusal), so a parent mismatch always looks
+      // like absence rather than leaking the row's existence and its state.
+      if (recovery.incidentId !== input.incidentId) {
+        throw new NotFoundError("No such recovery in this business");
+      }
+      if (recovery.voidedAt !== null) throw new IncidentRecoveryAlreadyVoidedError();
+
+      if (recovery.receivedAmountMinor > 0n) {
+        throw new VoidBlockedError(
+          `Cannot void — ${recovery.receivedAmountMinor.toString()} has already been received against ` +
+            "it. Correct the receipt itself first",
+          [
+            {
+              kind: "receipt",
+              id: input.recoveryId,
+              amountMinor: recovery.receivedAmountMinor.toString(),
+            },
+          ],
+        );
+      }
+
       const voided = await voidIncidentRecoveryRow(tx, input.recoveryId, {
         voidedReason: input.reason,
         voidedBy: input.userId,
@@ -662,6 +809,7 @@ export async function submitInsuranceClaim(
 
 export interface SettleInsuranceClaimInput {
   businessId: string;
+  incidentId: string;
   claimId: string;
   receivedAmountMinor: Minor;
   receivedOn: BusinessDate;
@@ -687,6 +835,14 @@ export async function settleInsuranceClaim(
   return writer.transaction(async (tx) => {
     const claim = await findInsuranceClaimForBusiness(tx, input.businessId, input.claimId);
     if (!claim) throw new NotFoundError("No such insurance claim in this business");
+
+    // NL-5: the URL's own parent segment (`/{id}/insurance-claim/{claimId}/settle`)
+    // is otherwise decorative — `findInsuranceClaimForBusiness` only scopes
+    // by business, so a claim belonging to a different incident would still
+    // be settled if this check were skipped.
+    if (claim.incidentId !== input.incidentId) {
+      throw new NotFoundError("No such insurance claim in this business");
+    }
 
     const receivedPeriod = await findPeriodForDate(tx, input.businessId, input.receivedOn);
     const status = input.status ?? "settled";

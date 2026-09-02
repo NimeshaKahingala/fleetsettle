@@ -1,0 +1,18 @@
+-- 0035_incident_recovery_payment_id.sql
+--
+-- GAP-202/H-4, completing PR-2's interim fix. `incident_recovery` has no
+-- column recording which `payment` row `recordRecoveryReceived` itself
+-- minted for a given receipt — the only link back to it was an indirect
+-- `payment_allocation.obligation_id` join, which also matches any other
+-- live allocation against the same obligation (a customer's own
+-- credit-forward draw, GAP-5b, chief among them). PR-2 already made the
+-- correction path safe by voiding allocations without ever touching a
+-- payment's own status, but nothing on the recovery row itself named which
+-- payment was actually its own receipt.
+--
+-- Mirrors `write_off_recovery.payment_id` (0001), nullable rather than
+-- NOT NULL: an insurer-sourced recovery never mints a payment at all
+-- (insurers are never `POST /api/payment` parties), and a customer-sourced
+-- recovery settled entirely through credit-forward at "agree" time — before
+-- anyone has ever called `receive` — has none yet either.
+ALTER TABLE incident_recovery ADD COLUMN payment_id uuid REFERENCES payment(id);

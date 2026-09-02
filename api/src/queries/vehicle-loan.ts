@@ -210,6 +210,11 @@ export async function findLoanPaymentForBusiness(
  * `business_id` (unlike `vehicle_loan`, which joins through `vehicle`), so
  * there is no reason not to use it. Every existing call site already had
  * `businessId` in scope.
+ *
+ * M-6, 31 Aug 2026: `orderBy` tie-broken on `id` (UUIDv7, so insertion
+ * order) — same reasoning `queries/obligation.ts`'s own three fixes carry:
+ * two payments dated the same day would otherwise render in whatever order
+ * Postgres happens to return them.
  */
 export async function listLivePaymentsForLoan(
   db: ReadDb,
@@ -226,20 +231,31 @@ export async function listLivePaymentsForLoan(
         isNull(loanPayment.voidedAt),
       ),
     )
-    .orderBy(loanPayment.paidOn);
+    .orderBy(loanPayment.paidOn, loanPayment.id);
   return rows;
 }
 
-/** F-12.2's own list: every payment ever recorded against this loan, oldest first, live and voided alike (W-50: never deleted) — the read a manager needs to find one to void. */
+/**
+ * F-12.2's own list: every payment ever recorded against this loan, oldest
+ * first, live and voided alike (W-50: never deleted) — the read a manager
+ * needs to find one to void.
+ *
+ * M-6/NL-2, 31 Aug 2026: gains `businessId` (defence in depth — its own
+ * caller, `listLoanPaymentsHandler`, already resolves `loanId` through
+ * `findVehicleLoanForBusiness` first, the same pattern this file's own N7
+ * comment above already argues for) and the same `id` tie-break as its
+ * sibling above.
+ */
 export async function listLoanPaymentsForLoan(
   db: ReadDb,
+  businessId: string,
   loanId: string,
 ): Promise<LoanPaymentRow[]> {
   const rows = await db
     .select(LOAN_PAYMENT_COLUMNS)
     .from(loanPayment)
-    .where(eq(loanPayment.loanId, loanId))
-    .orderBy(loanPayment.paidOn);
+    .where(and(eq(loanPayment.loanId, loanId), eq(loanPayment.businessId, businessId)))
+    .orderBy(loanPayment.paidOn, loanPayment.id);
   return rows;
 }
 

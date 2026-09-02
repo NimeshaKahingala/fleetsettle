@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import {
   accountingPeriod,
@@ -604,6 +604,41 @@ export async function sumDepositMovements(db: ReadDb, depositId: string): Promis
     (sum, row) => (ADDS.has(row.movementType) ? sum + row.amountMinor : sum - row.amountMinor),
     0n,
   );
+}
+
+/**
+ * L-3/GAP-145: `sumDepositMovements`'s own query and sign logic, across every
+ * deposit in `depositIds` in one round trip — for the three call sites that
+ * used to call it once per deposit in a loop (`sumDepositsHeld`,
+ * `queries/reports.ts`; `listDepositsDueForRelease`, `queries/home.ts`;
+ * `listOpenMoneyForParty`, `domain/party-archive.ts`), the exact N+1 shape
+ * GAP-145 already found and fixed at 79 subrequests on a different endpoint.
+ * Every id in `depositIds` gets an entry, `0n` when a deposit genuinely has
+ * no live movements yet (W-56).
+ */
+export async function sumDepositMovementsBulk(
+  db: ReadDb,
+  depositIds: string[],
+): Promise<Map<string, bigint>> {
+  const out = new Map(depositIds.map((id) => [id, 0n]));
+  if (depositIds.length === 0) return out;
+
+  const rows = await db
+    .select({
+      depositId: depositMovement.depositId,
+      movementType: depositMovement.movementType,
+      amountMinor: depositMovement.amountMinor,
+    })
+    .from(depositMovement)
+    .where(and(inArray(depositMovement.depositId, depositIds), isNull(depositMovement.voidedAt)));
+
+  const ADDS = new Set(["taken", "topped_up"]);
+  for (const row of rows) {
+    const delta = ADDS.has(row.movementType) ? row.amountMinor : -row.amountMinor;
+    // eslint-disable-next-line no-restricted-syntax -- allow: out is seeded with 0n for every id in depositIds above, so a row's own depositId always has an entry here — the same reasoning queries/reports.ts's own addToBigIntMap documents
+    out.set(row.depositId, (out.get(row.depositId) ?? 0n) + delta);
+  }
+  return out;
 }
 
 /** GAP-103: a correction needs the original opening-balance movement's own amount to post an equal, opposite one — read by id directly, unfiltered by `voided_*`, since the caller already knows which exact row it means to reverse. */

@@ -290,12 +290,31 @@ export async function sumTripCostsByCategory(
   return rows.map((r) => ({ category: r.category, amountMinor: BigInt(r.amountMinor) }));
 }
 
-/** F-5.4/UC-44: fuel efficiency needs litres, not amount spent — "not available" when none were logged (W-56), never zero. */
+/**
+ * F-5.4/UC-44: fuel efficiency needs litres, not amount spent — "not
+ * available" when none were logged (W-56), never zero.
+ *
+ * L-5, 31 Aug 2026: `borne_by = 'us'` — the same filter its sibling
+ * `sumTripCostsByCategory` already carries. UC-72/W-20's own rule is
+ * "kilometres per litre **you** bought"; a driver- or customer-borne fill
+ * has no litres this business can trust, the identical reasoning W-20
+ * already gives for excluding a daily lease's own fuel. Without this
+ * filter, `closeTrip`'s `kmPerLitre` divided the vehicle's real distance by
+ * litres someone else paid for, understating consumption by exactly the
+ * fraction of fuel that was never actually a cost here.
+ */
 export async function sumTripFuelLitres(db: ReadDb, tripId: string): Promise<number | null> {
   const rows = await db
     .select({ litres: sql<string | null>`SUM(${expense.litres})` })
     .from(expense)
-    .where(and(eq(expense.tripId, tripId), eq(expense.category, "fuel"), isNull(expense.voidedAt)));
+    .where(
+      and(
+        eq(expense.tripId, tripId),
+        eq(expense.category, "fuel"),
+        eq(expense.borneBy, "us"),
+        isNull(expense.voidedAt),
+      ),
+    );
   const total = rows[0]?.litres;
   // eslint-disable-next-line no-restricted-syntax -- litres, a fuel volume, not money
   return total === null || total === undefined ? null : Number(total);

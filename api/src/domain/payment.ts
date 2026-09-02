@@ -8,7 +8,7 @@ import {
   updateObligationSettled,
 } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
-import { computeObligationStatus } from "./obligation-status.js";
+import { computeAllocationStep } from "./obligation-status.js";
 
 export interface RecordPaymentInput {
   businessId: string;
@@ -126,12 +126,9 @@ async function allocateAgainstOldest(
   let remaining: bigint = amountMinor;
   for (const ob of obligations) {
     if (remaining <= 0n) break;
-    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
-    if (outstanding <= 0n) continue;
-
-    const take = remaining < outstanding ? remaining : outstanding;
-    const newSettled = ob.settledMinor + take;
-    const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
+    const step = computeAllocationStep(ob, remaining);
+    if (!step) continue;
+    const { takeMinor: take, newSettledMinor: newSettled, status } = step;
 
     await updateObligationSettled(tx, businessId, ob.id, { settledMinor: newSettled, status });
     await insertPaymentAllocation(tx, {

@@ -15,6 +15,7 @@ import type {
   voidDepositMovementRoute,
 } from "../route-defs/deposit.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /** `row.partyDriverId` is passed alongside rather than read off `row` — every deposit this API creates is `party_type='driver'`, but the column itself stays nullable for the `party_type='customer'` deposits DM §10.4 also allows. */
 function toResponse(
@@ -46,6 +47,8 @@ export const takeDriverDepositHandler: RouteHandler<typeof takeDriverDepositRout
 
   const driver = await findDriverForBusiness(reader, businessId, body.driverId);
   if (!driver) throw new NotFoundError("No such driver in this business");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
 
   const { depositId, movementId } = await takeDriverDeposit(c.get("writer"), {
     businessId,
@@ -86,6 +89,8 @@ export const recordDepositMovementHandler: RouteHandler<
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
+
   const result = await recordDepositMovement(c.get("writer"), {
     businessId,
     depositId: id,
@@ -123,11 +128,12 @@ export const voidDepositMovementHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { movementId } = c.req.valid("param");
+  const { id, movementId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidDepositMovement(c.get("writer"), {
     businessId,
+    depositId: id,
     movementId,
     reason: body.reason,
     userId,

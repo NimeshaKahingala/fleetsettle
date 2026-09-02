@@ -103,6 +103,31 @@ async function postSettleAdvance(token: string, id: string, body: unknown) {
 }
 
 /**
+ * The arrangement-C charter fixture nearly every test in this file opens
+ * with: a business with an open accounting period, a vehicle set to
+ * arrangement C, a customer, a driver, and an owner's token.
+ *
+ * Extracted 31 Aug 2026, the same reason `setupG3LeaseFixture`
+ * (mileage-assessment.test.ts) was — SonarCloud measures duplication
+ * against *new* code, so a new test writing this block out again is flagged
+ * even though the block predates it many times over. The existing call
+ * sites are deliberately left alone: rewriting fifteen working tests to
+ * prove a point about a sixteenth is a much larger diff than the change
+ * being reviewed, and this file's tests are the P6 regression surface.
+ */
+async function setupCharterFixture(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  const periodId = await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "C");
+  const customerId = await ctx.createCustomer(businessId);
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, periodId, vehicleId, customerId, driverId, owner, token };
+}
+
+/**
  * F-5.1 / UC-20 test matrix. Unlike lease/daily-lease, a trip's
  * vehicle_day_allocation is always written in full at booking (DM §4.1), so
  * INV-1 is enforced here immediately — the 409 case below is the same
@@ -1657,6 +1682,80 @@ describe("close a trip (P6, F-5.4/UC-44)", () => {
         ),
       );
     expect(feeObligationsAfterReplay).toHaveLength(1);
+
+    await ctx.cleanup();
+  });
+
+  it("L-5 — a driver-borne fuel fill never counts toward kmPerLitre, the same way it's already excluded from costs", async () => {
+    const ctx = new TestContext(db);
+    const { vehicleId, customerId, driverId, token } = await setupCharterFixture(ctx, db);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      customerId,
+      driverId,
+      startDate: "2026-07-29",
+      endDate: "2026-07-31",
+      agreedAmountMinor: "6000000",
+      driverFeeMinor: "900000",
+      openingOdometerKm: 10000,
+      openingOdometerSource: "in_person",
+    });
+    expect(trip.status).toBe(201);
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    // The business's own fill — 35 litres, exactly §7.1's charter figure.
+    const usFuel = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "2200000",
+      spentOn: "2026-07-31",
+      borneBy: "us",
+      litres: 35,
+    });
+    expect(usFuel.status).toBe(201);
+    const usFuelBody: { id: string } = await usFuel.json();
+    ctx.trackCreatedExpense(usFuelBody.id);
+
+    // The driver's own fill, out of his own pocket — real litres burned,
+    // but not this business's fuel (UC-72/W-20: "only fuel you bought").
+    // Before this fix these litres were summed into the trip's own total
+    // regardless, understating km/l by counting distance against fuel
+    // nobody here paid for.
+    const driverFuel = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "500000",
+      spentOn: "2026-07-31",
+      borneBy: "driver",
+      borneByDriverId: driverId,
+      litres: 8,
+    });
+    expect(driverFuel.status).toBe(201);
+    const driverFuelBody: { id: string } = await driverFuel.json();
+    ctx.trackCreatedExpense(driverFuelBody.id);
+
+    const closed = await postCloseTrip(token, tripBody.id, {
+      closingDate: "2026-07-31",
+      closingOdometerKm: 10350,
+      closingOdometerSource: "in_person",
+    });
+    expect(closed.status).toBe(200);
+    const closedBody: {
+      costsMinor: string;
+      litres: number | null;
+      kmPerLitre: number | null;
+    } = await closed.json();
+    // Costs were already right before this fix (sumTripCostsByCategory
+    // already filtered borne_by = 'us') — 2,200,000, not 2,700,000.
+    expect(closedBody.costsMinor).toBe("2200000");
+    // litres/km-per-l is the actual fix: 35, not 43 — the driver's own 8
+    // litres never reach either figure.
+    expect(closedBody.litres).toBe(35);
+    expect(closedBody.kmPerLitre).toBe(10);
 
     await ctx.cleanup();
   });

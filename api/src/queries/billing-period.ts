@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, lte } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { billingPeriod } from "../db/schema.js";
 
@@ -122,7 +122,51 @@ export async function truncateBillingPeriodForClosure(
     .where(eq(billingPeriod.id, billingPeriodId));
 }
 
-/** F-2.3: every period fully contained in `[fromDate, toDate]` — the ones a mileage assessment between two readings can possibly span. */
+/**
+ * F-2.3/GAP-205/H-3: every period this mileage reading closes out — the
+ * periods whose **end** falls in `(fromDate, toDate]`. Both bounds are on
+ * `period_end`, deliberately, because "closes out" is a statement about a
+ * period having *ended*, never about when it began.
+ *
+ * `fromDate` is the previous reading's own date, so a period is only
+ * genuinely still open if it ends *after* that date (`gt`, strict) — a
+ * period ending exactly on it was the one that previous reading itself
+ * already closed, and including it again would double-count it against a
+ * second assessment.
+ *
+ * `toDate` is this reading's date, and bounds `period_end` inclusively
+ * (`lte`) — **corrected 31 Aug 2026**, it used to bound `period_start`, and
+ * that was a real under-billing bug rather than a stylistic choice.
+ * `rollDueBillingPeriods` (queries/scheduled.ts) generates the next period
+ * as soon as `latestPeriodEnd < today`, so on the morning a period ends the
+ * *following* period already exists with `period_start = toDate`. An
+ * ordinary, perfectly on-time reading that afternoon therefore swept in a
+ * period that had barely started, and `combinedAllowanceKm`
+ * (domain/mileage.ts) adds each period's full `allowanceKm` with no
+ * proration — granting a whole period's allowance early, understating
+ * `excessKm`, and under-billing the customer. The next reading then matched
+ * the same period again for its real close-out, counting one allowance
+ * twice. CLAUDE.md's "mileage is one-directional" rule is exactly this:
+ * driving under an allowance produces no credit and no carry-forward, and a
+ * not-yet-elapsed period is the purest form of "under the allowance."
+ *
+ * The original GAP-205 case still works, which is the point of moving the
+ * bound rather than reverting it. The old predicate (`periodStart >=
+ * fromDate AND periodEnd <= toDate`, full containment) refused a reading
+ * whenever the *previous* one landed even a day late: a late reading's date
+ * sits inside the period it closed, so the next period's `periodStart` —
+ * which precedes that late date — failed `periodStart >= fromDate`, and
+ * `periods.length === 0` read as "no billing period covers this range yet."
+ * Dropping the `period_start` bound entirely, rather than loosening it,
+ * fixes that without ever admitting a period that has not ended.
+ *
+ * No separate exclusion against `mileage_assessment`/`_split` is needed:
+ * billing periods are strictly adjacent with no gaps (this file's own
+ * generator sets `period_end` to the day before the next `period_start`),
+ * and `previous.readOn` is always either the handover reading or exactly the
+ * `toReadingId` date of the assessment that closed everything up to it — so
+ * the strict `gt` on `periodEnd` alone is what the exclusion needs.
+ */
 export async function findBillingPeriodsInRange(
   db: ReadDb,
   leaseId: string,
@@ -135,7 +179,7 @@ export async function findBillingPeriodsInRange(
     .where(
       and(
         eq(billingPeriod.leaseId, leaseId),
-        gte(billingPeriod.periodStart, fromDate),
+        gt(billingPeriod.periodEnd, fromDate),
         lte(billingPeriod.periodEnd, toDate),
       ),
     )

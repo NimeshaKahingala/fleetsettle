@@ -1,5 +1,7 @@
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { deposit } from "../../src/db/schema.js";
 import {
   insertBatch,
   insertEntries,
@@ -39,6 +41,40 @@ async function getCashPosition(token: string) {
 
 async function getDriverBalances(token: string, driverId: string) {
   return request(`/api/driver/${driverId}/balances`, bearer(token));
+}
+
+/**
+ * A business with one open January period, one driver and an owner's token —
+ * the start of all three M-10 deposit tests. Extracted 1 September 2026:
+ * written out three times it was 22.3% duplicated new code by SonarCloud's
+ * reckoning, which it was.
+ */
+async function setupDepositOpeningBalanceBusiness(
+  ctx: TestContext,
+  db: ReturnType<typeof writer>,
+): Promise<{ driverId: string; token: string }> {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-01-31" });
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { driverId, token };
+}
+
+/** Saves (and tracks) a one-entry `deposit_held` batch for `driverId`. */
+async function saveDepositOpeningBalance(
+  ctx: TestContext,
+  token: string,
+  driverId: string,
+  amountMinor: string,
+): Promise<void> {
+  const saveRes = await putOpeningBalance(token, {
+    goLiveDate: "2026-01-01",
+    entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor }],
+  });
+  expect(saveRes.status).toBe(200);
+  const savedBatch: { id: string } = await saveRes.json();
+  ctx.trackCreatedOpeningBalance(savedBatch.id);
 }
 
 /**
@@ -216,6 +252,129 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
     expect(cashPosition.partners).toContainEqual(
       expect.objectContaining({ userId: owner.userId, heldMinor: "5000000" }),
     );
+
+    await ctx.cleanup();
+  });
+
+  it("M-10: correcting a committed batch releases the old deposit instead of leaving a second one held", async () => {
+    const ctx = new TestContext(db);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
+    expect((await commitOpeningBalance(token)).status).toBe(200);
+
+    // The correction. `reverseOpeningBalancePostings` refunds the old deposit
+    // in full, then `materializeOpeningBalanceEntries` inserts a fresh one for
+    // the same driver — so before this fix the driver held two deposits at
+    // once, and with migration 0038's unique index live this call came back
+    // 500 on an unhandled 23505 rather than 200.
+    const correctionRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "1500000" }],
+    });
+    expect(correctionRes.status).toBe(200);
+
+    // One held deposit, not two. The reversed one is `released` — the status
+    // `recordDepositMovement`'s TERMINAL map would have set had this path gone
+    // through it, which is the invariant 0038's repair restored for rows
+    // written before this fix existed.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows.filter((r) => r.status === "held")).toHaveLength(1);
+    expect(rows.filter((r) => r.status === "released")).toHaveLength(1);
+
+    // And the money the business believes it is holding is the corrected
+    // figure alone — never the old one standing beside it.
+    const cashPosition: { depositsHeldMinor: string } = await (await getCashPosition(token)).json();
+    expect(cashPosition.depositsHeldMinor).toBe("1500000");
+
+    await ctx.cleanup();
+  });
+
+  it("M-10: a topped-up opening-balance deposit is not released out of the cash position", async () => {
+    const ctx = new TestContext(db);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
+    expect((await commitOpeningBalance(token)).status).toBe(200);
+
+    const [dep] = await db
+      .select({ id: deposit.id })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(dep).toBeDefined();
+    const depositId = dep?.id ?? "";
+
+    // The driver hands over another 10,000 on top of the opening figure.
+    const topUp = await request(`/api/deposit/${depositId}/movement`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        movementType: "topped_up",
+        amountMinor: "1000000",
+        occurredOn: "2026-01-10",
+      }),
+    });
+    expect(topUp.status).toBe(200);
+
+    // Correcting the batch refunds only the original 2,000,000 posting, so
+    // 1,000,000 of the driver's money is still genuinely held. Releasing the
+    // deposit here would drop it out of `sumDepositsHeld`, which filters on
+    // status — so the correction is refused instead.
+    const correctionRes = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "deposit_held", partyDriverId: driverId, amountMinor: "1500000" }],
+    });
+    expect(correctionRes.status).toBe(409);
+    expect(await correctionRes.json()).toMatchObject({ code: "DRIVER_ALREADY_HOLDING_DEPOSIT" });
+
+    // The money is still visible and the deposit still usable — the whole
+    // point of refusing rather than releasing.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows).toEqual([{ status: "held" }]);
+
+    const cash: { depositsHeldMinor: string } = await (await getCashPosition(token)).json();
+    expect(cash.depositsHeldMinor).toBe("3000000");
+
+    await ctx.cleanup();
+  });
+
+  it("M-10: 409, not 500, when a deposit_held entry names a driver who already holds one", async () => {
+    const ctx = new TestContext(db);
+    const { driverId, token } = await setupDepositOpeningBalanceBusiness(ctx, db);
+
+    // A deposit taken the ordinary way, before the opening balance ever names
+    // this driver — the case the sibling fix in reverseOpeningBalancePostings
+    // does not cover, since there is no earlier batch of this one's own to
+    // reverse.
+    const takeRes = await request("/api/deposit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({ driverId, amountMinor: "900000", occurredOn: "2026-01-05" }),
+    });
+    expect(takeRes.status).toBe(201);
+    const taken: { id: string } = await takeRes.json();
+    ctx.trackCreatedDeposit(taken.id);
+
+    await saveDepositOpeningBalance(ctx, token, driverId, "2000000");
+
+    // Migration 0038's index makes this unavoidable; the only question is
+    // whether the owner is told why. Before this, 23505 escaped insertDeposits
+    // as an unhandled 500 on the go-live screen.
+    const commitRes = await commitOpeningBalance(token);
+    expect(commitRes.status).toBe(409);
+    expect(await commitRes.json()).toMatchObject({ code: "DRIVER_ALREADY_HOLDING_DEPOSIT" });
+
+    // And the refusal left nothing half-written — one deposit, the original.
+    const rows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "held" });
 
     await ctx.cleanup();
   });

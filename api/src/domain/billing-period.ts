@@ -45,6 +45,14 @@ export interface GeneratedBillingPeriod {
 export async function generateNextBillingPeriodTx(
   tx: Tx,
   input: GenerateNextBillingPeriodInput,
+  // M-2, 31 Aug 2026: an optional out-parameter, written before the INSERT
+  // that might collide — `generateNextBillingPeriod`'s own catch needs the
+  // exact seq *this call* attempted, not a freshly re-derived "latest" once
+  // it retries (see that function's own comment for why the two can
+  // disagree). Still "never catches" in the sense its own doc comment
+  // means: this function makes no decision about what a violation means,
+  // it only leaves a trail for whichever caller does.
+  attemptedSeqOut?: { seq: number },
 ): Promise<GeneratedBillingPeriod> {
   const lease = await findLeaseForBusiness(tx, input.businessId, input.leaseId);
   if (!lease) throw new NotFoundError("No such lease in this business");
@@ -54,6 +62,7 @@ export async function generateNextBillingPeriodTx(
 
   const latest = await findLatestBillingPeriodForLease(tx, input.leaseId);
   const seq = latest ? latest.seq + 1 : 1;
+  if (attemptedSeqOut) attemptedSeqOut.seq = seq;
 
   const anchor = lease.startDate as BusinessDate;
   const periodStart = addCalendarMonths(anchor, seq - 1);
@@ -133,19 +142,31 @@ export async function generateNextBillingPeriodTx(
  * (F-2.1's own note on the invisible step). Idempotent on `(lease_id, seq)`
  * (DM §6); P13's cron calls this exact function on a schedule, and either
  * path re-firing is a no-op, not a duplicate due.
+ *
+ * M-2, 31 Aug 2026: the recovery below reads back the *colliding* seq from
+ * `attemptedSeqOut`, not a freshly re-derived `latest.seq + 1`. Re-deriving
+ * it here was the bug: by the time this catch runs, the winner of the race
+ * has already committed, so `findLatestBillingPeriodForLease` now returns
+ * *their* row — one seq later than this call's own attempt — and asking
+ * for `latest.seq + 1` looks for a row that was never written, rethrowing
+ * the original violation as a 500. **`latest.seq` alone is not the fix
+ * either** — `rollDueBillingPeriods` can commit several periods for this
+ * same lease in one run, so by the time this retry reads "latest" again it
+ * may already be several seqs ahead of the one that actually collided with
+ * *this* call. Only the seq this call itself computed, before its own
+ * `INSERT` ever ran, is guaranteed to be the right one to look up.
  */
 export async function generateNextBillingPeriod(
   writer: Writer,
   input: GenerateNextBillingPeriodInput,
 ): Promise<GeneratedBillingPeriod> {
+  const attempted: { seq: number } = { seq: 0 };
   try {
-    return await writer.transaction((tx) => generateNextBillingPeriodTx(tx, input));
+    return await writer.transaction((tx) => generateNextBillingPeriodTx(tx, input, attempted));
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
-    if (isUniqueViolation(err, "billing_period_lease_id_seq_key")) {
-      const latest = await findLatestBillingPeriodForLease(writer, input.leaseId);
-      const seq = latest ? latest.seq + 1 : 1;
-      const existing = await findBillingPeriodByLeaseAndSeq(writer, input.leaseId, seq);
+    if (isUniqueViolation(err, "billing_period_lease_id_seq_key") && attempted.seq > 0) {
+      const existing = await findBillingPeriodByLeaseAndSeq(writer, input.leaseId, attempted.seq);
       if (existing) {
         const obligationRow = await findBillingPeriodRentObligation(writer, existing.id);
         return { billingPeriod: existing, obligationId: obligationRow?.id ?? null, created: false };

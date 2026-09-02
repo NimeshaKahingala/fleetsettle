@@ -3,6 +3,7 @@ import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   DepositMovementAlreadyVoidedError,
+  DriverAlreadyHoldingDepositError,
   NotFoundError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
@@ -70,6 +71,12 @@ export async function takeDriverDeposit(
       });
     } catch (err) {
       if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+      // M-10, 31 Aug 2026: migration 0038's own partial unique index —
+      // idempotency lives in the constraint, this only gives the violation
+      // a friendly name (CLAUDE.md → Writes).
+      if (isUniqueViolation(err, "deposit_one_held_per_driver")) {
+        throw new DriverAlreadyHoldingDepositError();
+      }
       throw err;
     }
 
@@ -179,12 +186,19 @@ export async function recordDepositMovementTx(
     if (!sameParty) {
       throw new ValidationError("This obligation belongs to a different party than the deposit");
     }
-    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
+    // GAP-203/H-1/D2: a written-off portion is never collectible, so it is
+    // never "outstanding" for a deposit to apply against.
+    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
     if (input.amountMinor > outstanding) {
       throw new ValidationError("This application exceeds what is outstanding on this obligation");
     }
     const settledMinor = ob.settledMinor + input.amountMinor;
-    const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+    const status = computeObligationStatus(
+      ob.amountMinor,
+      settledMinor,
+      ob.waivedMinor,
+      ob.writtenOffMinor,
+    );
     obligationSettlement = { id: input.obligationId, settledMinor, status };
   }
 
@@ -257,6 +271,7 @@ export async function recordDepositMovement(
 
 export interface VoidDepositMovementInput {
   businessId: string;
+  depositId: string;
   movementId: string;
   reason: string;
   userId: string;
@@ -296,6 +311,16 @@ export async function voidDepositMovement(
     return await writer.transaction(async (tx) => {
       const movement = await findDepositMovementForBusiness(tx, input.businessId, input.movementId);
       if (!movement) throw new NotFoundError("No such deposit movement in this business");
+
+      // NL-5: the URL's own parent segment (`/{id}/movement/{movementId}/void`)
+      // is otherwise decorative — `findDepositMovementForBusiness` only
+      // scopes by business, so a movement belonging to a different deposit
+      // would still be voided if this check were skipped. Before the
+      // already-voided branch, so a parent mismatch always looks like
+      // absence rather than leaking the row's existence and state as a 409.
+      if (movement.depositId !== input.depositId) {
+        throw new NotFoundError("No such deposit movement in this business");
+      }
       if (movement.voidedAt !== null) throw new DepositMovementAlreadyVoidedError();
 
       // GAP-178/B10: same parent lock, same order as `recordDepositMovementTx`
@@ -313,7 +338,12 @@ export async function voidDepositMovement(
         );
         if (ob && ob.voidedAt === null) {
           const settledMinor = ob.settledMinor - movement.amountMinor;
-          const status = computeObligationStatus(ob.amountMinor, settledMinor, ob.waivedMinor);
+          const status = computeObligationStatus(
+            ob.amountMinor,
+            settledMinor,
+            ob.waivedMinor,
+            ob.writtenOffMinor,
+          );
           await updateObligationSettled(tx, input.businessId, ob.id, { settledMinor, status });
         }
       }

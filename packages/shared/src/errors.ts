@@ -34,6 +34,8 @@ export const ERROR_CODES = [
   "DAILY_LEASE_OVERLAPS",
   "TRIP_ADVANCE_UNSETTLED",
   "OWNERSHIP_SHARES_INVALID",
+  // GAP-206/NM-1: a concurrent re-split of the same vehicle's ownership.
+  "OWNERSHIP_SHARES_OVERLAP",
   "MANAGEMENT_AGREEMENT_OVERLAPS",
   "INSURANCE_CLAIM_ALREADY_EXISTS",
   "PAYMENT_ALREADY_REVERSED",
@@ -56,6 +58,9 @@ export const ERROR_CODES = [
   "PARTY_ARCHIVED",
   // GAP-178/B19: a second live recovery against the same (incident, source).
   "RECOVERY_ALREADY_RECORDED",
+  // GAP-204/H-2/D3: a second recordOffRoad call against the same incident
+  // while a live credit_days/extend treatment already exists.
+  "OFF_ROAD_TREATMENT_ALREADY_RECORDED",
   "CAPITAL_CONTRIBUTION_ALREADY_VOIDED",
   "BANKING_EVENT_ALREADY_VOIDED",
   "PARTNER_PAYOUT_ALREADY_VOIDED",
@@ -100,6 +105,11 @@ export const ERROR_CODES = [
   // N5 (evaluation, GAP-190): archiving a vehicle refuses while an open loan
   // still finances it.
   "VEHICLE_HAS_OPEN_LOAN",
+  // M-10, 31 Aug 2026: a second `taken` deposit while one is already `held`
+  // — closer to DM §10.4's one-deposit-per-party-per-lease shape than
+  // summing across two rows, and the actual bug it closes: the driver's own
+  // statement only ever showed the newest of the two.
+  "DRIVER_ALREADY_HOLDING_DEPOSIT",
   // Not one of IG §3.3's documented rows — those are all deliberate AppError
   // throws. This is the fallback for the global handler when the exception
   // was not one, e.g. a database blip: a real 500 still needs a code on the

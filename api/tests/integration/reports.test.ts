@@ -141,6 +141,144 @@ describe("reports (P11)", () => {
       await ctx.cleanup();
     });
 
+    it("M-1/D1 — a waiver reduces earned net, and the export still shows the full charge and the waiver as two separate lines", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "D-4444" });
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const obligationId = await ctx.createObligation(businessId, periodId, {
+        direction: "owed_to_us",
+        partyType: "customer",
+        customerId,
+        vehicleId,
+        kind: "rent",
+        amountMinor: 50_000n,
+        dueOn: "2026-07-05",
+      });
+
+      const waiveRes = await request("/api/adjustment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(token).headers },
+        body: JSON.stringify({
+          obligationId,
+          adjustmentType: "waiver",
+          amountMinor: "10000",
+          sign: -1,
+          reason: "goodwill for a late handover",
+        }),
+      });
+      expect(waiveRes.status).toBe(201);
+
+      const monthRes = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(monthRes.status).toBe(200);
+      const monthBody: { vehicles: { vehicleId: string; earnedMinor: string }[] } =
+        await monthRes.json();
+      const row = monthBody.vehicles.find((v) => v.vehicleId === vehicleId);
+      // 50,000 charged, 10,000 waived — 40,000 actually earned, not 50,000.
+      expect(row).toMatchObject({ earnedMinor: "40000" });
+
+      // `POST /api/adjustment` has no `occurredOn` field of its own yet
+      // (a separate, already-filed gap) — the handler pins every adjustment
+      // to the business's own today, never the obligation's own `dueOn`.
+      const today = businessToday();
+      // The window is derived from both dates rather than from the current
+      // year, which is what this used to do. The rent line is pinned to the
+      // 2026 fixture while the waiver lands on the business's own today, so
+      // a `${year}-01-01`..`${year}-12-31` window silently stops covering the
+      // rent line the moment the clock leaves 2026 — a test that would have
+      // started failing on a date, with nothing about it having changed.
+      const RENT_DUE_ON = "2026-07-05";
+      const from = today < RENT_DUE_ON ? today : RENT_DUE_ON;
+      const to = today > RENT_DUE_ON ? today : RENT_DUE_ON;
+      const exportRes = await getReport(`/export?from=${from}&to=${to}`, token);
+      expect(exportRes.status).toBe(200);
+      const lines = (await exportRes.text()).trim().split("\r\n");
+      // Both facts visible (F-2.4's own acceptance line: "the month shows the
+      // 340 charged and the 340 waived") — the charge is never silently
+      // reduced in place.
+      expect(lines).toContain(`${RENT_DUE_ON},D-4444,Rent,In,500.00,`);
+      // Matched by shape, not by an exact date prefix: the waiver's own date
+      // is whatever `businessToday()` returned inside the handler, and
+      // pinning it here would also make this assertion race midnight.
+      expect(lines.some((l) => l.endsWith(",D-4444,Waiver,Out,100.00,"))).toBe(true);
+
+      await ctx.cleanup();
+    });
+
+    it("M-1/D1 — a customer contribution, an insurer settlement and a write-off all reach the vehicle-month report, the way they already reach the export", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId, { registration: "E-5555" });
+      const customerId = await ctx.createCustomer(businessId);
+      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+      const owner = await mintUser(db, ctx, businessId, "owner_manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+      const post = (path: string, body: unknown) =>
+        request(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...bearer(token).headers },
+          body: JSON.stringify(body),
+        });
+
+      const opened = await post("/api/incident", {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-07-08",
+      });
+      expect(opened.status).toBe(201);
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const contributed = await post(`/api/incident/${incidentId}/customer-contribution`, {
+        agreedAmountMinor: "8000",
+        agreedOn: "2026-07-20",
+      });
+      expect(contributed.status).toBe(201);
+
+      const filed = await post(`/api/incident/${incidentId}/insurance-claim`, {
+        claimedAmountMinor: "20000",
+        excessBorneMinor: "8000",
+        claimedOn: "2026-07-10",
+      });
+      expect(filed.status).toBe(201);
+      const { id: claimId }: { id: string } = await filed.json();
+      const settled = await post(`/api/incident/${incidentId}/insurance-claim/${claimId}/settle`, {
+        receivedAmountMinor: "12000",
+        receivedOn: "2026-07-18",
+      });
+      expect(settled.status).toBe(200);
+
+      const written = await post("/api/write-off", {
+        partyType: "customer",
+        partyCustomerId: customerId,
+        vehicleId,
+        amountMinor: "5000",
+        reason: "customer unreachable",
+        writtenOffOn: "2026-07-25",
+      });
+      expect(written.status).toBe(201);
+      const { id: writeOffId }: { id: string } = await written.json();
+      ctx.trackCreatedWriteOff(writeOffId);
+
+      const monthRes = await getReport(`/vehicle-month?periodId=${periodId}`, token);
+      expect(monthRes.status).toBe(200);
+      const monthBody: {
+        vehicles: { vehicleId: string; earnedMinor: string; costsMinor: string }[];
+      } = await monthRes.json();
+      const row = monthBody.vehicles.find((v) => v.vehicleId === vehicleId);
+      // Before this fix both were "0" — neither kind reached
+      // sumVehicleEarnedForPeriodBulk/sumVehicleCostsForPeriodBulk at all,
+      // even though the export already counted every one of them.
+      expect(row).toMatchObject({ earnedMinor: "20000", costsMinor: "5000" });
+
+      await ctx.cleanup();
+    });
+
     it("GAP-188/F-8.1 — a late obligation and a late expense list as their own lines, dated and labelled, without changing earnedMinor/costsMinor", async () => {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
@@ -1001,6 +1139,103 @@ describe("reports (P11)", () => {
 
       await ctx.cleanup();
     });
+
+    it("NH-2/GAP-201 — a direct payment to a driver reduces heldMinor the same way a received payment increases it", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const driverId = await ctx.createDriver(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const receivedId = newId();
+      await db.insert(payment).values({
+        id: receivedId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 50_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(receivedId);
+
+      // UC-50 "pay the driver" — cash the owner hands straight to a driver
+      // out of what he's currently holding, before it's read here.
+      const paidId = newId();
+      await db.insert(payment).values({
+        id: paidId,
+        businessId,
+        direction: "paid",
+        partyType: "driver",
+        partyDriverId: driverId,
+        amountMinor: 15_000n,
+        occurredOn: "2026-07-06",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paidId);
+
+      const token = await signAccessToken(owner.asgardeoSub);
+      const res = await getReport("/cash-position", token);
+      expect(res.status).toBe(200);
+      const body: { partners: { userId: string; heldMinor: string }[] } = await res.json();
+
+      const ownerRow = body.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("35000");
+
+      await ctx.cleanup();
+    });
+
+    it("M-7/GAP-201 — a corrected payment still counts at its remaining amount, not zero", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 10_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+      const correction = await request(`/api/payment/${paymentId}/correct`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(ownerToken).headers },
+        body: JSON.stringify({
+          differenceMinor: "2000",
+          bearer: "absorbed_loss",
+          reason: "Miscounted at handover",
+          correctedOn: "2026-07-06",
+        }),
+      });
+      expect(correction.status).toBe(200);
+      const correctionBody: { correctionId: string } = await correction.json();
+      ctx.trackCreatedPaymentCorrection(correctionBody.correctionId);
+
+      const res = await getReport("/cash-position", ownerToken);
+      expect(res.status).toBe(200);
+      const body: { partners: { userId: string; heldMinor: string }[] } = await res.json();
+
+      // Before the fix, filtering on status = 'active' dropped this payment
+      // entirely — 0 held, not the 8,000 the business genuinely still has.
+      const ownerRow = body.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("8000");
+
+      await ctx.cleanup();
+    });
   });
 
   describe("distributable cash (GAP-186/UC-109, W-70)", () => {
@@ -1144,6 +1379,71 @@ describe("reports (P11)", () => {
         await res.json();
       expect(body.loanInstalmentsDueMinor).toBeNull();
       expect(body.distributableMinor).toBeNull();
+
+      await ctx.cleanup();
+    });
+
+    it("NH-1/GAP-201 — a partner payout reduces cash on hand and distributable, without moving the per-partner holding figure", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const periodId = await ctx.createOpenPeriod(businessId);
+      const customerId = await ctx.createCustomer(businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const ownerToken = await signAccessToken(owner.asgardeoSub);
+
+      const paymentId = newId();
+      await db.insert(payment).values({
+        id: paymentId,
+        businessId,
+        direction: "received",
+        partyType: "customer",
+        partyCustomerId: customerId,
+        amountMinor: 100_000n,
+        occurredOn: "2026-07-05",
+        handledByUserId: owner.userId,
+        postedPeriodId: periodId,
+      });
+      ctx.trackCreatedPayment(paymentId);
+
+      const before = await getReport("/distributable-cash", ownerToken);
+      expect(before.status).toBe(200);
+      const beforeBody: { cashOnHandMinor: string; distributableMinor: string | null } =
+        await before.json();
+      expect(beforeBody).toMatchObject({ cashOnHandMinor: "100000", distributableMinor: "100000" });
+
+      const payout = await request("/api/partner-payout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...bearer(ownerToken).headers },
+        body: JSON.stringify({
+          userId: owner.userId,
+          amountMinor: "40000",
+          kind: "payout",
+          occurredOn: "2026-07-12",
+        }),
+      });
+      expect(payout.status).toBe(201);
+      const payoutBody: { id: string } = await payout.json();
+      ctx.trackCreatedPartnerPayout(payoutBody.id);
+
+      // Before this fix, taking the payout changed nothing here — the exact
+      // figure UC-109 calls "the single most expensive wrong number… because
+      // someone acts on it by moving money out of the business" stayed
+      // unmoved by the action it exists to gate.
+      const after = await getReport("/distributable-cash", ownerToken);
+      expect(after.status).toBe(200);
+      const afterBody: { cashOnHandMinor: string; distributableMinor: string | null } =
+        await after.json();
+      expect(afterBody).toMatchObject({ cashOnHandMinor: "60000", distributableMinor: "60000" });
+
+      // UC-67 states "Holding" and "Taken out" as two separate lines — the
+      // payout is drawn against the business's broader position, never
+      // netted against this one partner's own field float.
+      const cashPosition = await getReport("/cash-position", ownerToken);
+      expect(cashPosition.status).toBe(200);
+      const cashPositionBody: { partners: { userId: string; heldMinor: string }[] } =
+        await cashPosition.json();
+      const ownerRow = cashPositionBody.partners.find((p) => p.userId === owner.userId);
+      expect(ownerRow?.heldMinor).toBe("100000");
 
       await ctx.cleanup();
     });
@@ -2105,7 +2405,7 @@ describe("reports (P11)", () => {
       const opened = await post("/api/incident", {
         vehicleId,
         leaseId,
-        occurredOn: "2026-07-08",
+        occurredOn: "2026-01-08",
       });
       expect(opened.status).toBe(201);
       const { id: incidentId }: { id: string } = await opened.json();
@@ -2113,20 +2413,20 @@ describe("reports (P11)", () => {
 
       const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, {
         agreedAmountMinor: "20000",
-        agreedOn: "2026-07-20",
+        agreedOn: "2026-01-20",
       });
       expect(agreed.status).toBe(201);
 
       const filed = await post(`/api/incident/${incidentId}/insurance-claim`, {
         claimedAmountMinor: "75000",
         excessBorneMinor: "15000",
-        claimedOn: "2026-07-10",
+        claimedOn: "2026-01-10",
       });
       expect(filed.status).toBe(201);
       const { id: claimId }: { id: string } = await filed.json();
       const settled = await post(`/api/incident/${incidentId}/insurance-claim/${claimId}/settle`, {
         receivedAmountMinor: "60000",
-        receivedOn: "2026-09-15",
+        receivedOn: "2026-03-15",
       });
       expect(settled.status).toBe(200);
 
@@ -2136,7 +2436,7 @@ describe("reports (P11)", () => {
         vehicleId,
         amountMinor: "40000",
         reason: "customer unreachable after three attempts",
-        writtenOffOn: "2026-10-01",
+        writtenOffOn: "2026-04-01",
       });
       expect(written.status).toBe(201);
       const { id: writeOffId }: { id: string } = await written.json();
@@ -2148,11 +2448,11 @@ describe("reports (P11)", () => {
 
       // The customer half of an incident recovery, read from the obligation it
       // raises rather than from `incident_recovery` (which carries no date).
-      expect(lines).toContain("2026-07-20,B-2222,Customer contribution,In,200.00,");
+      expect(lines).toContain("2026-01-20,B-2222,Customer contribution,In,200.00,");
       // Recognised on `received_on`, not on the date the claim was filed —
       // W-11: expected money is not earned money.
-      expect(lines).toContain("2026-09-15,B-2222,Insurance settlement,In,600.00,");
-      expect(lines).toContain("2026-10-01,B-2222,Write-off,Out,400.00,");
+      expect(lines).toContain("2026-03-15,B-2222,Insurance settlement,In,600.00,");
+      expect(lines).toContain("2026-04-01,B-2222,Write-off,Out,400.00,");
 
       // The double-count guard. 600.00 arrived once, so it is reported once.
       expect(lines.filter((l) => l.includes("Insurance settlement"))).toHaveLength(1);
@@ -2182,7 +2482,7 @@ describe("reports (P11)", () => {
         vehicleId,
         amountMinor: "40000",
         reason: "recorded against the wrong customer",
-        writtenOffOn: "2026-10-01",
+        writtenOffOn: "2026-04-01",
       });
       expect(written.status).toBe(201);
       const { id: writeOffId }: { id: string } = await written.json();
@@ -2190,7 +2490,7 @@ describe("reports (P11)", () => {
 
       const before = await getReport("/export?from=2026-01-01&to=2026-12-31", token);
       expect((await before.text()).trim().split("\r\n")).toContain(
-        "2026-10-01,C-3333,Write-off,Out,400.00,",
+        "2026-04-01,C-3333,Write-off,Out,400.00,",
       );
 
       const voided = await post(`/api/write-off/${writeOffId}/void`, {

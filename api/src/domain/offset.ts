@@ -24,7 +24,7 @@ import {
   sumOutstandingByDirectionForDriver,
   updateObligationSettled,
 } from "../queries/obligation.js";
-import { computeObligationStatus } from "./obligation-status.js";
+import { computeAllocationStep, computeObligationStatus } from "./obligation-status.js";
 
 export interface CreateOffsetInput {
   businessId: string;
@@ -144,7 +144,11 @@ export interface DeductFromDriverFeeInput {
 export interface DeductedFromDriverFee {
   offsetId: string;
   obligationSettledMinor: bigint;
-  obligationStatus: "pending" | "part_paid" | "paid" | "waived";
+  // "written_off" is unreachable here — an offset deduction never touches a
+  // write-off — but computeObligationStatus's return type is unconditional,
+  // not value-dependent, so this stays honest to it rather than narrowed by
+  // a cast.
+  obligationStatus: "pending" | "part_paid" | "paid" | "waived" | "written_off";
 }
 
 /**
@@ -266,12 +270,9 @@ async function allocateAgainstOldest(
   let remaining: bigint = amountMinor;
   for (const ob of obligations) {
     if (remaining <= 0n) break;
-    const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor;
-    if (outstanding <= 0n) continue;
-
-    const take = remaining < outstanding ? remaining : outstanding;
-    const newSettled = ob.settledMinor + take;
-    const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
+    const step = computeAllocationStep(ob, remaining);
+    if (!step) continue;
+    const { takeMinor: take, newSettledMinor: newSettled, status } = step;
 
     await updateObligationSettled(tx, businessId, ob.id, { settledMinor: newSettled, status });
     await insertOffsetAllocation(tx, {
@@ -319,7 +320,12 @@ export async function voidOffset(writer: Writer, input: VoidOffsetInput): Promis
         const ob = await findObligationForBusiness(tx, input.businessId, alloc.obligationId, true);
         if (ob && ob.voidedAt === null) {
           const newSettled = ob.settledMinor - alloc.amountMinor;
-          const status = computeObligationStatus(ob.amountMinor, newSettled, ob.waivedMinor);
+          const status = computeObligationStatus(
+            ob.amountMinor,
+            newSettled,
+            ob.waivedMinor,
+            ob.writtenOffMinor,
+          );
           await updateObligationSettled(tx, input.businessId, ob.id, {
             settledMinor: newSettled,
             status,

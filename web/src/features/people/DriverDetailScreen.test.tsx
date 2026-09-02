@@ -882,6 +882,7 @@ test("GAP-146 — a held driver deposit can be applied against selected arrears"
         amountMinor: "75000",
         settledMinor: "25000",
         waivedMinor: "0",
+        writtenOffMinor: "0",
         status: "part_paid",
       },
     ],

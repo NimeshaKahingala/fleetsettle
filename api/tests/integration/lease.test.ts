@@ -235,6 +235,39 @@ describe("start a lease (P2, F-2.1/UC-10)", () => {
   });
 });
 
+/**
+ * An arrangement-A lease at 70,000 from 12 January, billed on the 12th —
+ * the fixture every renewal test starts from, since a renewal needs
+ * something to renew. Extracted 31 Aug 2026: SonarCloud measures
+ * duplication against new code, so the second test to write this block out
+ * is flagged for it even though the block predates it.
+ */
+async function setupRenewableLease(
+  ctx: TestContext,
+  db: ReturnType<typeof writer>,
+  periodOverrides?: { periodStart: string; periodEnd: string },
+) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId, periodOverrides);
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+
+  const leaseRes = await postLease(token, {
+    vehicleId,
+    customerId,
+    startDate: "2026-01-12",
+    billingDay: 12,
+    rentAmountMinor: "70000",
+  });
+  const { id: leaseId }: { id: string } = await leaseRes.json();
+  ctx.trackCreatedLease(leaseId);
+
+  return { businessId, vehicleId, customerId, leaseId, token };
+}
+
 /** F-2.5/UC-17. Old periods keep their old figure — only the next generated period picks up a renewal. */
 describe("renew a lease (P5, F-2.5/UC-17)", () => {
   const db = writer(TEST_DATABASE_URL);
@@ -244,23 +277,10 @@ describe("renew a lease (P5, F-2.5/UC-17)", () => {
 
   it("happy path — a new rent applies only to periods generated from now on", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
-    const vehicleId = await ctx.createVehicle(businessId);
-    await ctx.setVehicleArrangement(vehicleId, "A");
-    const customerId = await ctx.createCustomer(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const leaseRes = await postLease(token, {
-      vehicleId,
-      customerId,
-      startDate: "2026-01-12",
-      billingDay: 12,
-      rentAmountMinor: "70000",
+    const { leaseId, token } = await setupRenewableLease(ctx, db, {
+      periodStart: "2026-01-01",
+      periodEnd: "2026-12-31",
     });
-    const { id: leaseId }: { id: string } = await leaseRes.json();
-    ctx.trackCreatedLease(leaseId);
 
     const renewRes = await renewLease(token, leaseId, { rentAmountMinor: "80000" });
     expect(renewRes.status).toBe(200);
@@ -274,6 +294,16 @@ describe("renew a lease (P5, F-2.5/UC-17)", () => {
     const period2Res = await generateBillingPeriod(token, leaseId);
     expect(period2Res.status).toBe(201);
     expect(await period2Res.json()).toMatchObject({ seq: 2, rentAmountMinor: "80000" });
+
+    await ctx.cleanup();
+  });
+
+  it("NM-6 — 400 for a zero rent, matching startLease's own GAP-177 rule for the identical field", async () => {
+    const ctx = new TestContext(db);
+    const { leaseId, token } = await setupRenewableLease(ctx, db);
+
+    const renewRes = await renewLease(token, leaseId, { rentAmountMinor: "0" });
+    expect(renewRes.status).toBe(400);
 
     await ctx.cleanup();
   });

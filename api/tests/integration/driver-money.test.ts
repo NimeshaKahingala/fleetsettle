@@ -1,7 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { obligation, offsetAllocation, offsetRecord } from "../../src/db/schema.js";
+import { deposit, obligation, offsetAllocation, offsetRecord } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -21,6 +21,21 @@ function get(path: string, token: string) {
   return request(path, bearer(token));
 }
 
+/**
+ * A business with an open accounting period, one driver, and an owner's
+ * token — the fixture every advance/deposit/offset test here opens with.
+ * Extracted 31 Aug 2026: the block appeared nine times, so SonarCloud flags
+ * the tenth copy a new test adds.
+ */
+async function setupDriverFixture(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const driverId = await ctx.createDriver(businessId);
+  const owner = await mintUser(db, ctx, businessId, "owner");
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, driverId, owner, token };
+}
+
 describe("driver advances (P4, F-6.3/UC-53)", () => {
   const db = writer(TEST_DATABASE_URL);
   afterAll(async () => {
@@ -29,11 +44,7 @@ describe("driver advances (P4, F-6.3/UC-53)", () => {
 
   it("happy path — issue, part-settle, then settle in full: the advance closes at zero", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -66,11 +77,7 @@ describe("driver advances (P4, F-6.3/UC-53)", () => {
 
   it("400 — settling more than the advance's original amount", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -133,11 +140,7 @@ describe("GET /api/advance/{id}/settlement (GAP-147)", () => {
 
   it("happy path — every settlement against this advance, newest first", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -191,11 +194,7 @@ describe("GET /api/advance/{id}/settlement (GAP-147)", () => {
 
   it("a voided settlement stays in the list, struck through with its reason (W-50)", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const issueRes = await post("/api/advance", token, {
       driverId,
@@ -281,11 +280,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("happy path — take, top up, then refund in full: the balance is the SUM of movements", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -316,13 +311,46 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
     await ctx.cleanup();
   });
 
+  it("M-10 — a second 'taken' deposit while one is already held is refused, directing the manager to the top-up movement", async () => {
+    const ctx = new TestContext(db);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
+
+    const first = await post("/api/deposit", token, {
+      driverId,
+      amountMinor: "2000000",
+      occurredOn: "2026-07-01",
+    });
+    expect(first.status).toBe(201);
+    const firstBody: { id: string } = await first.json();
+    ctx.trackCreatedDeposit(firstBody.id);
+
+    // Both taps are plausible for the same real intent — "he handed me
+    // another 1,000,000" — but the *take* endpoint mints a whole new
+    // deposit rather than adding to the one already held.
+    const second = await post("/api/deposit", token, {
+      driverId,
+      amountMinor: "1000000",
+      occurredOn: "2026-07-05",
+    });
+    expect(second.status).toBe(409);
+    const secondBody: { code: string; error: string } = await second.json();
+    expect(secondBody.code).toBe("DRIVER_ALREADY_HOLDING_DEPOSIT");
+    expect(secondBody.error).toMatch(/top-up/i);
+
+    // The one deposit that does exist is unaffected by the refused attempt.
+    const heldRows = await db
+      .select({ status: deposit.status })
+      .from(deposit)
+      .where(eq(deposit.partyDriverId, driverId));
+    expect(heldRows).toHaveLength(1);
+    expect(heldRows[0]).toMatchObject({ status: "held" });
+
+    await ctx.cleanup();
+  });
+
   it("400 — a movement that would draw the deposit below zero", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -344,11 +372,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("400 — a movement against a deposit that is no longer held", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,
@@ -445,11 +469,7 @@ describe("driver deposits (P4, F-6.7/UC-58/W-8)", () => {
 
   it("400 — applied with no obligationId", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+    const { driverId, token } = await setupDriverFixture(ctx, db);
 
     const takeRes = await post("/api/deposit", token, {
       driverId,

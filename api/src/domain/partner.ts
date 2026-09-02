@@ -1,4 +1,4 @@
-import { newId, splitInteger, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { addDays, newId, splitInteger, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Reader, Writer } from "../db/client.js";
 import {
   isExclusionViolation,
@@ -12,10 +12,12 @@ import {
   ManagementAgreementOverlapsError,
   NotFoundError,
   OwnershipSharesInvalidError,
+  OwnershipSharesOverlapError,
   PartnerPayoutAlreadyVoidedError,
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
+  ValidationError,
 } from "../errors/app-error.js";
 import {
   findOpenPeriodRow,
@@ -24,18 +26,20 @@ import {
 } from "../queries/accounting-period.js";
 import { sumOutOfPocketExpensesForUser } from "../queries/expense.js";
 import {
+  closeOpenOwnershipShares,
   findBankingEventForBusiness,
   findCapitalContributionForBusiness,
+  findOpenOwnershipShareEffectiveFroms,
   findPartnerPayoutForBusiness,
   insertBankingEvent,
   insertCapitalContribution,
   insertManagementFeeAgreement,
   insertOwnershipShares,
   insertPartnerPayout,
-  listManagementFeeAgreementHistoryForManager,
   revokeManagementFeeAgreement,
   sumCapitalContributionsForUser,
-  sumManagementFeeAsOfDate,
+  sumManagementFeeObligationForPeriod,
+  sumManagementFeeObligationsForPeriodsBulk,
   sumPartnerPayoutsForUser,
   voidBankingEventRow,
   voidCapitalContributionRow,
@@ -64,6 +68,19 @@ export interface SetOwnershipSharesInput {
  * transaction, once all rows exist, which is exactly why a 60/40 split can
  * land as one legal multi-row change instead of rejecting the first row for
  * summing to less than 100% on its own.
+ *
+ * GAP-206/NM-1: a re-split closes every currently-open share for this
+ * vehicle first — the `changeDailyLeaseRate`/`changeVehicleArrangement`
+ * shape, which every other date-ranged table in this schema already uses.
+ * Before this, INV-16's own worked example ("last year's split changes when
+ * someone buys in") reached the generic handler as a raw 500: a continuing
+ * owner's new row shares `(vehicle_id, user_id)` with their own still-open
+ * old row, and `ownership_share_vehicle_id_user_id_daterange_excl`
+ * (`[effective_from, ∞)` against `[effective_from, ∞)`) always overlaps.
+ * `effectiveFrom` must land strictly after whatever was open — closing at a
+ * date *before* the open row's own start would write an inverted range
+ * (`effective_to < effective_from`) that the exclusion constraint has no
+ * opinion on, so it is checked here rather than left to fail silently.
  */
 export async function setOwnershipShares(
   writer: Writer,
@@ -81,9 +98,36 @@ export async function setOwnershipShares(
     // withActor (db/client.ts) only attributes writes inside a real
     // transaction — wrapped here for that reason as much as for the
     // deferred constraint trigger, which already needed one implicitly.
-    await writer.transaction((tx) => insertOwnershipShares(tx, rows));
+    await writer.transaction(async (tx) => {
+      // GAP-206/NM-1, review 31 Aug 2026: `FOR UPDATE` on the open rows.
+      // `closeOpenOwnershipShares` below updates "whatever is currently
+      // open", so the set this check validates against and the set that
+      // UPDATE touches must be the same one. Unlocked, a concurrent re-split
+      // can insert a *later* split between the two, and this UPDATE then
+      // sets `effective_to` to a date before that row's own `effective_from`
+      // — an inverted daterange, which Postgres rejects as a raw 500 rather
+      // than the 400/409 this function is careful to map everything else to.
+      //
+      // A first-ever split locks nothing here (there are no open rows to
+      // lock), which is fine: two concurrent first splits are caught by the
+      // `ownership_share_vehicle_id_user_id_daterange_excl` exclusion
+      // constraint when they name the same owner, and by the deferred
+      // `assert_shares_total` trigger when they name different ones — both
+      // already mapped below. The inverted-range case is the one that needed
+      // serialising, and it can only arise when open rows exist.
+      const openFroms = await findOpenOwnershipShareEffectiveFroms(tx, input.vehicleId, true);
+      const latestOpenFrom = openFroms.reduce((max, from) => (from > max ? from : max), "");
+      if (openFroms.length > 0 && input.effectiveFrom <= latestOpenFrom) {
+        throw new ValidationError("effectiveFrom must be after the current split's own start date");
+      }
+      await closeOpenOwnershipShares(tx, input.vehicleId, addDays(input.effectiveFrom, -1));
+      await insertOwnershipShares(tx, rows);
+    });
   } catch (err) {
     if (isSharesNotFullViolation(err)) throw new OwnershipSharesInvalidError();
+    if (isExclusionViolation(err, "ownership_share_vehicle_id_user_id_daterange_excl")) {
+      throw new OwnershipSharesOverlapError();
+    }
     throw err;
   }
 
@@ -512,11 +556,13 @@ function sumProfitShareForUser(
  * open period). Replaced with five flat queries regardless of how many
  * periods or vehicles this business has ever had: every vehicle, every
  * period's own earned/costs (grouped by vehicle *and* period in one round
- * trip each), the full ownership-share history, and the full
- * management-fee-agreement history for this manager. INV-16's
+ * trip each), the full ownership-share history, and every `management_fee`
+ * obligation this manager has ever been posted, grouped by period. INV-16's
  * effective-dating — which shares applied as of a given period's own end —
- * is then evaluated per period in memory, the same replay the original
- * loop did, just without a round trip per period to do it.
+ * is then evaluated per period in memory, the same replay the original loop
+ * did, just without a round trip per period to do it. The management fee
+ * figure needs no such replay (M-4): each period's own posted obligation
+ * already says exactly what was charged, so it is a lookup, not a filter.
  */
 async function sumAllTimeEarnedForUser(
   db: Reader,
@@ -530,11 +576,11 @@ async function sumAllTimeEarnedForUser(
   const vehicleIds = vehicles.map((v) => v.id);
   const periodIds = periods.map((p) => p.id);
 
-  const [earnedByPeriod, costsByPeriod, sharesByVehicle, feeAgreements] = await Promise.all([
+  const [earnedByPeriod, costsByPeriod, sharesByVehicle, feeByPeriod] = await Promise.all([
     sumVehicleEarnedForPeriodsBulk(db, vehicleIds, periodIds),
     sumVehicleCostsForPeriodsBulk(db, vehicleIds, periodIds),
     listOwnershipShareHistoryForVehicles(db, vehicleIds),
-    listManagementFeeAgreementHistoryForManager(db, businessId, userId),
+    sumManagementFeeObligationsForPeriodsBulk(db, businessId, userId, periodIds),
   ]);
 
   let total = 0n;
@@ -560,13 +606,11 @@ async function sumAllTimeEarnedForUser(
       if (idx !== -1) total += splitAmounts[idx] as bigint;
     }
 
-    total += feeAgreements
-      .filter(
-        (a) =>
-          a.effectiveFrom <= period.periodEnd &&
-          (a.effectiveTo === null || a.effectiveTo >= period.periodEnd),
-      )
-      .reduce((sum, a) => sum + a.monthlyAmountMinor, 0n);
+    // No `?? 0n` here: sumManagementFeeObligationsForPeriodsBulk seeds every
+    // id in periodIds itself, so a period this loop is iterating always has
+    // an entry — a missing one would mean the two lists of periods disagree,
+    // a real bug, not a legitimate zero.
+    total += feeByPeriod.get(period.id) as bigint;
   }
   return total;
 }
@@ -602,7 +646,7 @@ export async function getPartnerSummary(
     sumCapitalContributionsForUser(db, businessId, userId),
     sumOutOfPocketExpensesForUser(db, businessId, userId),
     sumPartnerPayoutsForUser(db, businessId, userId),
-    sumManagementFeeAsOfDate(db, businessId, userId, period.periodEnd),
+    sumManagementFeeObligationForPeriod(db, businessId, userId, period.id),
     getVehicleMonthReport(db, businessId, period.id, undefined),
     listPartnerCashPositions(db, businessId),
     sumAllTimeEarnedForUser(db, businessId, userId),

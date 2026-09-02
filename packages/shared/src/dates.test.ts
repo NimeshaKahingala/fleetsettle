@@ -44,6 +44,19 @@ describe("asBusinessDate", () => {
       expect(() => asBusinessDate(bad)).toThrow(TypeError);
     }
   });
+
+  it("NL-1 — rejects a day that does not exist on the calendar, not just the wrong shape", () => {
+    // Each matches \d{4}-\d{2}-\d{2} exactly — the shape check alone would
+    // have let every one of these through, and Date.UTC would have silently
+    // rolled it into the next month rather than erroring.
+    for (const bad of ["2026-02-30", "2026-02-29", "2026-04-31", "2026-13-01", "2026-00-15"]) {
+      expect(() => asBusinessDate(bad)).toThrow(TypeError);
+    }
+    // 2028 genuinely is a leap year — the same day rejected above must be
+    // accepted here, proving this checks the calendar, not merely "Feb has
+    // no 29th, ever".
+    expect(asBusinessDate("2028-02-29")).toBe("2028-02-29");
+  });
 });
 
 describe("inclusiveDays — both ends counted (W-54)", () => {

@@ -75,8 +75,18 @@ function formatShortDate(date: string): string {
   }).format(new Date(`${date}T00:00:00Z`));
 }
 
+/**
+ * GAP-203/H-1/D2: `writtenOffMinor` belongs in this subtraction exactly as
+ * `waivedMinor` does — a partial write-off reduces what is still collectible
+ * (INV-14 keeps the two in separate buckets, but both are gone from
+ * outstanding). Left out, a partly-written-off due reads at face value here
+ * and prefills that figure into the collect and write-off sheets below.
+ */
 function outstandingMinor(due: LeaseObligationRow): Minor {
-  return (BigInt(due.amountMinor) - BigInt(due.settledMinor) - BigInt(due.waivedMinor)) as Minor;
+  return (BigInt(due.amountMinor) -
+    BigInt(due.settledMinor) -
+    BigInt(due.waivedMinor) -
+    BigInt(due.writtenOffMinor)) as Minor;
 }
 
 /**

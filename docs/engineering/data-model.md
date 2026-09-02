@@ -1,6 +1,12 @@
 # Data Model
 
-**Status:** v1.1.16 — **§4.4's `loan_payment` DDL brought back into line with migrations `0032`/`0033` (GAP-190), found validating an external evaluation against current code.** Three drifts closed: the doc's `amount_minor` CHECK still read `> 0`, two migrations behind — `0032` had already widened it to admit a zero settlement, and `0033` (new) tightens it again to block a *negative* one, which the widened form let through unintentionally. `expense_id`/`partner_payout_id` — the link a void cascades through — were in `0032` from the start but never made it into this document's DDL. And `replaces_id` had no partial unique index; `0033` gives it the one `0025` gave every other W-50 table seven migrations earlier, `loan_payment` not existing yet to receive it at the time. Decided 26 Aug 2026.
+**Status:** v1.1.19 — **§15's UC-70 earned/costs queries move to net basis (M-1, after D1).** `earned_minor` now subtracts `waived_minor` and gains `customer_contribution`/the insurer settlement; `costs_minor` gains `write_off`. Both were already in UC-99's own export before this fix and neither reached the report — the exact drift D1 exists to close. UC-70's earned query is written out in full for the first time; it was never given its own SQL block, an omission rather than a design choice. Golden G-1 (`134,000`) reproduces unmoved — it carries neither a waiver nor an incident. Decided 31 Aug 2026.
+
+**v1.1.18** — **§10.1's `obligation` gains `written_off_minor` (GAP-203/H-1/D2, migration `0036`), and every read that computes "what remains outstanding" now subtracts it the same way it already subtracts `waived_minor`.** A partial write-off ("he'll never pay the last bit," UC-90) used to discard its own remainder with no row recording it, since `recordWriteOff` flipped `status` to `written_off` unconditionally regardless of the amount given. `written_off_minor` mirrors `waived_minor` exactly — a running total, not a delta — and `computeObligationStatus` takes it as a fourth, default-0 argument so no pre-existing caller's behaviour changed. §15's UC-74/UC-78/UC-56 queries, `queries/obligation.ts`'s outstanding reads, `domain/party-archive.ts`'s open-money check and `domain/lease-closure.ts`'s unpaid summary all gain the term. Decided 30 Aug 2026.
+
+**v1.1.17** — **§15's UC-75 `held_minor` query gains a `payment_id` provenance column on `incident_recovery` (GAP-202/H-4, migration `0035`) — and, folded into this entry rather than its own, the two terms GAP-201 (30 Aug 2026, PR #156) added to that same query's SQL block, which shipped without the version bump this document's own convention requires.** `payment_id` names the specific payment `recordRecoveryReceived` itself minted for a receipt, mirroring `write_off_recovery.payment_id`; nullable, since an insurer-sourced recovery and a credit-forward-settled one both mint none. Decided 30 Aug 2026.
+
+**v1.1.16** — **§4.4's `loan_payment` DDL brought back into line with migrations `0032`/`0033` (GAP-190), found validating an external evaluation against current code.** Three drifts closed: the doc's `amount_minor` CHECK still read `> 0`, two migrations behind — `0032` had already widened it to admit a zero settlement, and `0033` (new) tightens it again to block a *negative* one, which the widened form let through unintentionally. `expense_id`/`partner_payout_id` — the link a void cascades through — were in `0032` from the start but never made it into this document's DDL. And `replaces_id` had no partial unique index; `0033` gives it the one `0025` gave every other W-50 table seven migrations earlier, `loan_payment` not existing yet to receive it at the time. Decided 26 Aug 2026.
 
 **v1.1.15** — **GAP-188: UC-70's own late-fact query, alongside its two sum queries.** `belongs_to_period_id IS NOT NULL` is the whole predicate — the same four sources §15's `costs_minor` query already unions, one extra column, one extra filter. Decided 26 Aug 2026.
 
@@ -1046,6 +1052,7 @@ CREATE TABLE incident_recovery (
   agreed_amount_minor   bigint NOT NULL CHECK (agreed_amount_minor >= 0),
   received_amount_minor bigint NOT NULL DEFAULT 0,
   obligation_id         uuid,                     -- customer contributions become receivable
+  payment_id            uuid REFERENCES payment(id),  -- migration 0035, GAP-202/H-4
   note                  text,
   -- The month it was agreed and the month the money arrived are different
   -- months, and §7.2 reports both. One column cannot say both.
@@ -1059,6 +1066,8 @@ CREATE TABLE incident_recovery (
 ```
 
 `received_amount_minor` separate from `agreed_amount_minor` is what keeps §7.2's `60,000 pending recovery` visible in July and August without ever entering profit.
+
+**`payment_id`, added 30 August 2026 (GAP-202/H-4), is nullable and names the specific `payment` row `recordRecoveryReceived` itself minted for the current `received_amount_minor`** — mirroring `write_off_recovery.payment_id`. Null before any receipt, for every `source: 'insurer'` row (an insurer is never a `POST /api/payment` party), and for a customer receipt settled entirely through credit-forward (GAP-5b) rather than a fresh payment of its own. It exists for provenance only: a correction's own reverse-then-repost still unwinds every live `payment_allocation` on the obligation, not just this one column's payment, because a shared credit-forward payment funding this obligation must be unwound too, whichever row minted it.
 
 **And the two period columns are what let the report say *which* month.** `posted_period_id` is when the recovery was agreed and became expected; `received_period_id` is when the money actually landed, null until it does. §7.2's month-by-month table falls straight out:
 
@@ -1095,6 +1104,7 @@ CREATE TABLE obligation (
   amount_minor  bigint NOT NULL CHECK (amount_minor >= 0),
   settled_minor bigint NOT NULL DEFAULT 0 CHECK (settled_minor >= 0),
   waived_minor  bigint NOT NULL DEFAULT 0 CHECK (waived_minor >= 0),
+  written_off_minor bigint NOT NULL DEFAULT 0 CHECK (written_off_minor >= 0),  -- migration 0036, GAP-203/H-1/D2
   due_on        date NOT NULL,
   effective_due_on date NOT NULL,    -- UC-78: weekly settler is not late on Thursday
   status        text NOT NULL DEFAULT 'pending' CHECK (status IN
@@ -1104,7 +1114,7 @@ CREATE TABLE obligation (
   belongs_to_period_id uuid REFERENCES accounting_period(id),   -- W-35
   created_at    timestamptz NOT NULL DEFAULT now(),
 
-  CHECK (settled_minor + waived_minor <= amount_minor),
+  CHECK (settled_minor + waived_minor + written_off_minor <= amount_minor),
   CHECK ((party_customer_id IS NOT NULL)::int
        + (party_driver_id   IS NOT NULL)::int
        + (party_user_id     IS NOT NULL)::int = 1),
@@ -1119,6 +1129,8 @@ CREATE INDEX obligation_outstanding ON obligation
 ```
 
 **W-2 needs no special machinery.** A driver's two balances are two `SUM`s over this table filtered by `direction`. Nothing nets them, because nothing in the schema can — only an `offset` row moves both.
+
+**`written_off_minor`, added 30 August 2026 (GAP-203/H-1/D2), mirrors `waived_minor` exactly** — a running total across possibly several write-offs against the same obligation, never a delta, never a flag. Before this column existed, `recordWriteOff` flipped `status` straight to `written_off` regardless of the amount given, so a partial write-off (a real business act, UC-90) silently discarded the remainder with no row recording it, and a second write-off against the same obligation was accepted on top of it. **A written-off portion is never collectible**: every read that computes "what remains outstanding" — `queries/obligation.ts`'s outstanding queries, `queries/reports.ts`'s receivables and ageing (§15), `domain/party-archive.ts`'s open-money check, `domain/lease-closure.ts`'s unpaid summary and deposit-application sweep — subtracts it the same way it already subtracts `waived_minor`. `computeObligationStatus` (`domain/obligation-status.ts`) takes it as a fourth argument, defaulting to 0 so no pre-existing caller changed behaviour; reaching the full amount reads as `'written_off'` whenever a write-off contributed, the same precedence `recordWriteOff` already gave it unconditionally before write-offs could be partial.
 
 ### 10.2 Payments and allocation
 
@@ -1236,6 +1248,10 @@ CREATE TABLE adjustment (
 
 -- W-28 / INV-14. A SEPARATE TABLE, not an adjustment_type. They must never
 -- share a bucket, and the surest way to guarantee that is to not share a table.
+-- GAP-203/H-1/D2: no unique constraint on obligation_id, deliberately — a
+-- partial write-off is a real business act, so a second (or third) live
+-- write-off against the same obligation is legitimate, the same way two
+-- waivers already are. `obligation.written_off_minor` is the running total.
 CREATE TABLE write_off (
   id            uuid PRIMARY KEY,
   business_id   uuid NOT NULL REFERENCES business(id),
@@ -1951,7 +1967,7 @@ SELECT driver_id, lost_reason,
 
 ```sql
 SELECT party_type, COALESCE(party_customer_id, party_driver_id) AS party_id,
-       SUM(amount_minor - settled_minor - waived_minor) AS outstanding_minor,
+       SUM(amount_minor - settled_minor - waived_minor - written_off_minor) AS outstanding_minor,
        MIN(effective_due_on)                            AS oldest
   FROM obligation
  WHERE business_id = $1 AND direction = 'owed_to_us'
@@ -1964,7 +1980,7 @@ SELECT party_type, COALESCE(party_customer_id, party_driver_id) AS party_id,
 ```sql
 WITH aged AS (
   SELECT party_type, COALESCE(party_customer_id, party_driver_id) AS party_id,
-         amount_minor - settled_minor - waived_minor AS outstanding_minor,
+         amount_minor - settled_minor - waived_minor - written_off_minor AS outstanding_minor,
          CASE WHEN $2::date - effective_due_on <= 0  THEN 'current'
               WHEN $2::date - effective_due_on <= 30 THEN '1-30'
               WHEN $2::date - effective_due_on <= 60 THEN '31-60'
@@ -1998,7 +2014,7 @@ Found by the `B4-REPORTS-DESIGN.md` verification pass, 7 August 2026, which had 
 **UC-56 the driver's two balances, unmerged**
 
 ```sql
-SELECT direction, SUM(amount_minor - settled_minor - waived_minor) AS balance_minor
+SELECT direction, SUM(amount_minor - settled_minor - waived_minor - written_off_minor) AS balance_minor
   FROM obligation
  WHERE party_driver_id = $1 AND status IN ('pending','part_paid')
  GROUP BY direction;
@@ -2012,12 +2028,17 @@ The join is across four tables and the arithmetic is not obvious, so it belongs 
 
 ```sql
 SELECT u.id, u.display_name,
-       COALESCE(r.total,0) - COALESCE(b.total,0) - COALESCE(a.total,0) AS held_minor
+       COALESCE(r.total,0) - COALESCE(p.total,0) - COALESCE(b.total,0) - COALESCE(a.total,0)
+         AS held_minor
   FROM app_user u
   LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
                FROM payment
-              WHERE direction='received' AND status='active'   -- payment has no voided_at
+              WHERE direction='received' AND status <> 'reversed'  -- payment has no voided_at
               GROUP BY 1) r ON r.uid = u.id
+  LEFT JOIN (SELECT handled_by_user_id uid, SUM(amount_minor) total
+               FROM payment
+              WHERE direction='paid' AND status <> 'reversed'
+              GROUP BY 1) p ON p.uid = u.id
   LEFT JOIN (SELECT from_user_id uid, SUM(amount_counted_minor) total
                FROM banking_event WHERE voided_at IS NULL GROUP BY 1) b ON b.uid = u.id
   LEFT JOIN (SELECT issued_by_user_id uid, SUM(amount_minor) total
@@ -2028,13 +2049,16 @@ SELECT u.id, u.display_name,
                  WHERE business_id = $1 AND revoked_at IS NULL);
 ```
 
-Three things this query encodes that prose kept getting wrong:
+Four things this query encodes that prose kept getting wrong:
 
+- It subtracts `direction = 'paid'` payments too, not only `'received'` — UC-50 "pay the driver" is the same handled-cash event as collecting a customer payment, just outbound (GAP-201, 30 August 2026: this direction existed in `payment` since P4 and was never read here, so cash a partner handed straight to a driver read as though he still held it)
+- It reads `status <> 'reversed'`, not `status = 'active'` — a `'corrected'` payment's `amount_minor` already holds the true remaining figure (§10.2/§14); filtering on `'active'` alone understated held cash by the whole original amount rather than just the corrected-away difference (GAP-201)
 - It subtracts `amount_counted_minor`, not `amount_recorded_minor` — when the bank counted less, the partner is still holding the difference until `discrepancy_bearer` decides otherwise (INV-23)
 - It subtracts **unsettled advances**, because that cash is with a driver, not the partner — which is why `advance.issued_by_user_id` had to exist at all
-- **Deposits held are not in this figure.** They are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it
 
-**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
+**Deposits held are not in this figure**, nor is a `partner_payout`. Deposits are cash the business holds but does not own (§6.13), reported as a liability *beside* the cash position, never netted into it. A `partner_payout` is real cash already paid to a partner, but UC-67 states "Holding" and "Taken out" as two separate lines, not one netted against the other — a payout is drawn against the business's broader cash position, not against this one partner's own field float, and is instead subtracted where `use-cases.md`'s UC-109 ("how much can we safely take out") composes its own total (`domain/reports.ts`'s `getDistributableCashReport`, which sums this query's own `held_minor` across every partner, adds `banked` back in, and now also subtracts `SUM(amount_minor) FROM partner_payout WHERE voided_at IS NULL`, business-wide, all three `kind`s — GAP-201). Subtracting a payout here instead would also contradict the shipped behaviour this section otherwise follows verbatim, which `api/tests/integration/partner-summary.test.ts` locks in directly: `holdingMinor` stays unmoved by a payout or settlement recorded against the same partner.
+
+**⚑ Held-per-partner is only the first third of UC-75, and the other two subtrahends need their own queries to reappear anywhere.** UC-75 itself is explicit — *"What each partner is holding, **what is in each account**, and what is out with drivers as advances"* — and F-7.5 repeats it step for step: *"Held by each partner, **in each account**, plus advances outstanding with drivers."* The query above computes `held = received − paid − banked − advanced` correctly, but banked and advanced only ever existed as subtrahends inside one arithmetic expression — this document never gave either its own row, so a report built strictly to this section could not say *where* the missing money went, only that it was missing. Found by the `B4-REPORTS-DESIGN.md` verification pass (§8.1, 7 August 2026), and confirmed against the shipped implementation: `listPartnerCashPositions` (`api/src/queries/reports.ts`) follows this section faithfully, including the omission.
 
 ```sql
 -- Banked, by destination — the same banking_event rows the held-per-
@@ -2059,7 +2083,7 @@ SELECT d.id, d.name, SUM(a.amount_minor) AS outstanding_minor
 
 `banked`'s destination groups are exactly `banking_event.destination` (`text NOT NULL`) — no enum, no lookup table, because F-7.4 never asked for one: destinations are free text a manager types once and reuses.
 
-**UC-70 what a vehicle cost this month — the query most likely to be written wrong**
+**UC-70 what a vehicle earned and cost this month — the queries most likely to be written wrong**
 
 A month's costs are **not** `SELECT SUM(amount_minor) FROM expense`. A charter's driver fee is money owed to a person, so it lives on `obligation`, and a cost query that reads only the expense table under-reports every month containing a trip by exactly that fee. In §7.1 that is 9,000 of a 46,000 total — the month would read 9,000 more profitable than it was.
 
@@ -2074,10 +2098,43 @@ SELECT COALESCE(SUM(amount_minor), 0) AS costs_minor
      WHERE vehicle_id = $1 AND posted_period_id = $2
        AND direction = 'owed_by_us' AND kind IN ('driver_fee','management_fee')
        AND voided_at IS NULL                            -- W-53
+    UNION ALL
+    SELECT amount_minor FROM write_off                  -- M-1/D1, 31 Aug 2026
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND voided_at IS NULL
   ) c;
 ```
 
-Verified against G-1: `37,000` of expenses + `9,000` of driver fee = **`46,000`**, giving `180,000 − 46,000 = 134,000`.
+**M-1/D1, 31 Aug 2026: `write_off` joins the union.** A write-off is a loss you were handed (W-28), never netted against the obligation that earned it — booked as its own cost, in the period it was written off, the same "separate line" reasoning UC-99's own export already applied (§16.1) before this cost query caught up to it. Before this fix a written-off receivable looked fully collected here and abandoned only in the year's export — the two could never reconcile.
+
+Verified against G-1 (no write-off in that fixture, so unmoved): `37,000` of expenses + `9,000` of driver fee = **`46,000`**.
+
+**The earned half was never given its own SQL block here — an omission, not a design choice, found resolving M-1.** It is the mirror of the costs query above, `direction = 'owed_to_us'`, and — **M-1/D1, 31 Aug 2026: net, not gross** — subtracts `waived_minor`, the way §15's UC-74/UC-56/UC-78 queries already subtract it from *outstanding*. A waiver is a discount decision on what was ever really collectible (FL §5.73), not income this report should count and then never receive.
+
+```sql
+SELECT COALESCE(SUM(amount_minor), 0) AS earned_minor
+  FROM (
+    SELECT amount_minor - waived_minor AS amount_minor FROM obligation
+     WHERE vehicle_id = $1 AND posted_period_id = $2
+       AND direction = 'owed_to_us'
+       AND kind IN ('rent','daily_amount','mileage_excess','customer_contribution')
+       AND voided_at IS NULL
+    UNION ALL
+    SELECT agreed_amount_minor FROM trip
+     WHERE vehicle_id = $1 AND posted_period_id = $2 AND status = 'closed'
+    UNION ALL
+    SELECT ic.received_amount_minor FROM insurance_claim ic
+      JOIN incident i ON i.id = ic.incident_id
+     WHERE i.vehicle_id = $1 AND ic.received_period_id = $2
+       AND ic.received_amount_minor > 0
+  ) e;
+```
+
+`customer_contribution` (GAP-175, the customer half of an incident recovery) and the insurer settlement (recognised on `received_on`/`received_period_id`, never on the date claimed — W-11: expected money is not earned money) were both already in UC-99's own export before this fix, and neither reached this query — the exact drift D1 exists to close. `insurance_claim` carries no `vehicle_id` of its own; the incident it belongs to does, hence the join.
+
+Verified against a scratch scenario (not G-1, which carries neither a waiver nor an incident): a 50,000 rent obligation with a 10,000 waiver reads `earned_minor = 40,000`, and an 8,000 customer contribution plus a 12,000 insurer settlement both reach `earned_minor` for the first time.
+
+Giving G-1's own `180,000 − 46,000 = 134,000`, unmoved — none of G-1's obligations carry a waiver, and G-1 has no incident, no write-off.
 
 **UC-70's late-fact lines — GAP-188, F-8.1's aggregate half**
 

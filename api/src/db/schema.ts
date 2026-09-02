@@ -466,6 +466,7 @@ export const obligation = pgTable("obligation", {
   amountMinor: bigint("amount_minor", { mode: "bigint" }).notNull(),
   settledMinor: bigint("settled_minor", { mode: "bigint" }).notNull().default(0n),
   waivedMinor: bigint("waived_minor", { mode: "bigint" }).notNull().default(0n),
+  writtenOffMinor: bigint("written_off_minor", { mode: "bigint" }).notNull().default(0n), // GAP-203/H-1/D2, migration 0036
   dueOn: date("due_on", { mode: "string" }).notNull(),
   effectiveDueOn: date("effective_due_on", { mode: "string" }).notNull(),
   status: text("status").notNull().default("pending"),
@@ -817,6 +818,7 @@ export const incidentRecovery = pgTable("incident_recovery", {
   agreedAmountMinor: bigint("agreed_amount_minor", { mode: "bigint" }).notNull(),
   receivedAmountMinor: bigint("received_amount_minor", { mode: "bigint" }).notNull().default(0n),
   obligationId: uuid("obligation_id"),
+  paymentId: uuid("payment_id"), // GAP-202/H-4, migration 0035
   note: text("note"),
   postedPeriodId: uuid("posted_period_id").notNull(),
   receivedPeriodId: uuid("received_period_id"),

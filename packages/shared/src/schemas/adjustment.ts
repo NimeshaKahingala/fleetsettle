@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { positiveMoneyWireSchema, uuidSchema } from "./common.js";
+import { businessDateSchema, positiveMoneyWireSchema, uuidSchema } from "./common.js";
 
 /** DM §10.3's `CHECK` on `adjustment.adjustment_type`. `waiver`/`auto_waiver` never share a bucket with a write-off (W-28/INV-14, P10's own table). */
 export const adjustmentTypeSchema = z.enum([
@@ -28,6 +28,17 @@ export const createAdjustmentRequestSchema = z
     amountMinor: positiveMoneyWireSchema,
     sign: z.union([z.literal(-1), z.literal(1)]),
     reason: z.string().trim().max(500).optional(),
+    // M-8, 31 Aug 2026: optional, defaulting to today in the handler — every
+    // other money endpoint (advance, deposit, offset, payment, partner
+    // payout, banking event, incident recovery, write-off, post-closure
+    // charge) already accepts the date from the client; adjustment was the
+    // sole outlier, pinned to `businessToday()` regardless of what actually
+    // happened. Migration 0017 added `adjustment.occurred_on` specifically
+    // so UC-77's goodwill report could window on the date a waiver was
+    // *given*, not the date it was typed in — a waiver agreed in June and
+    // entered during a September catch-up never showed up in June's total
+    // and inflated September's instead.
+    occurredOn: businessDateSchema.optional(),
     // GAP-60/D-16/F-8.5: set when this adjustment is the corrected
     // replacement for one already voided — the target must belong to this
     // business and already be voided, checked server-side.

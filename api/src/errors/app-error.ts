@@ -214,6 +214,20 @@ export class OwnershipSharesInvalidError extends AppError {
   }
 }
 
+// GAP-206/NM-1: setOwnershipShares now closes every currently-open share for
+// the vehicle before inserting the new set (the daily_lease_rate shape), so
+// this exclusion violation is a genuine race — two concurrent re-splits —
+// rather than the routine "someone bought in" case it used to reach the
+// generic 500 handler as. Same 409 precedent as DailyLeaseOverlapsError/
+// VehicleUnavailabilityOverlapsError, every other EXCLUDE-backed table here.
+export class OwnershipSharesOverlapError extends AppError {
+  constructor(
+    message = "This vehicle's ownership shares were just changed by someone else — reload and try again",
+  ) {
+    super(409, "OWNERSHIP_SHARES_OVERLAP", message);
+  }
+}
+
 // DM §6.1's `management_fee_agreement_vehicle_id_manager_user_id_datera_excl`
 // exclusion constraint — a second agreement for the same vehicle and manager
 // over an overlapping date range.
@@ -396,6 +410,20 @@ export class PartyArchivedError extends AppError {
       "record this, then archive them again",
   ) {
     super(409, "PARTY_ARCHIVED", message);
+  }
+}
+
+// GAP-204/H-2/D3 (decided 30 Aug 2026: refuse, require the prior treatment be
+// voided first): recordOffRoad had no guard against being called twice on
+// the same incident — a second 'credit_days' silently applied a second
+// adjustment against the same billing period, and a second 'extend' pushed
+// the lease's end date out again on top of the first.
+export class OffRoadTreatmentAlreadyRecordedError extends AppError {
+  constructor(
+    message = "This incident already has a rent treatment recorded — void it first, then " +
+      "record the new one",
+  ) {
+    super(409, "OFF_ROAD_TREATMENT_ALREADY_RECORDED", message);
   }
 }
 
@@ -599,5 +627,17 @@ export class LoanPaymentExceedsRemainingError extends AppError {
 export class LoanPaymentAlreadyVoidedError extends AppError {
   constructor(message = "This payment has already been undone") {
     super(409, "LOAN_PAYMENT_ALREADY_VOIDED", message);
+  }
+}
+
+// M-10, 31 Aug 2026: a driver already holds a deposit — direct the manager
+// to the top-up movement instead of minting a second `deposit` row, which
+// left the driver's own statement (F-6.8/UC-59) showing only the newest of
+// the two.
+export class DriverAlreadyHoldingDepositError extends AppError {
+  constructor(
+    message = "This driver already has a deposit held — use the top-up movement to add to it",
+  ) {
+    super(409, "DRIVER_ALREADY_HOLDING_DEPOSIT", message);
   }
 }

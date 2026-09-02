@@ -23,6 +23,7 @@ import type {
   voidAdvanceSettlementRoute,
 } from "../route-defs/advance.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 function toResponse(row: AdvanceRow, settledMinor: bigint) {
   return {
@@ -47,6 +48,8 @@ export const issueAdvanceHandler: RouteHandler<typeof issueAdvanceRoute, Env> = 
 
   const driver = await findDriverForBusiness(reader, businessId, body.driverId);
   if (!driver) throw new NotFoundError("No such driver in this business");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.issuedOn), "issuedOn");
 
   const { advanceId } = await issueAdvance(c.get("writer"), {
     businessId,
@@ -82,6 +85,8 @@ export const settleAdvanceHandler: RouteHandler<typeof settleAdvanceRoute, Env> 
   const businessId = requireBusinessId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
 
   const result = await settleAdvance(c.get("writer"), {
     businessId,
@@ -139,11 +144,12 @@ export const voidAdvanceSettlementHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { settlementId } = c.req.valid("param");
+  const { id, settlementId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidAdvanceSettlement(c.get("writer"), {
     businessId,
+    advanceId: id,
     settlementId,
     reason: body.reason,
     userId,

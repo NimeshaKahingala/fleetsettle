@@ -29,6 +29,7 @@ import type {
   voidWriteOffRoute,
 } from "../route-defs/write-off.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 function toListRow(row: WriteOffListRow) {
   return {
@@ -102,6 +103,8 @@ export const recordWriteOffHandler: RouteHandler<typeof recordWriteOffRoute, Env
     if (!vehicle) throw new NotFoundError("No such vehicle in this business");
   }
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.writtenOffOn), "writtenOffOn");
+
   const { writeOffId } = await recordWriteOff(c.get("writer"), {
     businessId,
     ...(body.obligationId !== undefined ? { obligationId: body.obligationId } : {}),
@@ -143,6 +146,8 @@ export const recordWriteOffRecoveryHandler: RouteHandler<
   const userId = requireUserId(c);
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
 
   const { recoveryId, paymentId } = await recordWriteOffRecovery(c.get("writer"), {
     businessId,
@@ -220,11 +225,12 @@ export const voidWriteOffRecoveryHandler: RouteHandler<
   requireCapability(c, "dailyOperations");
   const businessId = requireBusinessId(c);
   const userId = requireUserId(c);
-  const { recoveryId } = c.req.valid("param");
+  const { id, recoveryId } = c.req.valid("param");
   const body = c.req.valid("json");
 
   const result = await voidWriteOffRecovery(c.get("writer"), {
     businessId,
+    writeOffId: id,
     recoveryId,
     reason: body.reason,
     userId,

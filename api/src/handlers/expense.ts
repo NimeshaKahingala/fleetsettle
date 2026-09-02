@@ -17,6 +17,7 @@ import {
   type ExpenseFilters,
 } from "../queries/expense.js";
 import { findIncidentForBusiness } from "../queries/incident.js";
+import { findBusinessMemberUserId } from "../queries/partner.js";
 import { findTripForBusiness } from "../queries/trip.js";
 import { findVehicleForBusiness } from "../queries/vehicle.js";
 import type {
@@ -27,6 +28,7 @@ import type {
   voidExpenseRoute,
 } from "../route-defs/expense.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
 export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
@@ -36,6 +38,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   const body = c.req.valid("json");
   const reader = c.get("reader");
   const spentOn = asBusinessDate(body.spentOn);
+  assertNotFutureBusinessDate(c, spentOn, "spentOn");
 
   if (body.vehicleId !== undefined) {
     const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
@@ -61,6 +64,15 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     if (!customer) throw new NotFoundError("No such customer in this business");
   }
 
+  // GAP-207/NM-5: paidByUserId names whose pocket the cash came from
+  // (W-48's paid_by half) and was trusted from the request body outright —
+  // the same class of hole GAP-93 already closed for a payment's own
+  // partner party.
+  if (body.paidByUserId !== undefined) {
+    const member = await findBusinessMemberUserId(reader, businessId, body.paidByUserId);
+    if (!member) throw new NotFoundError("No such active member in this business");
+  }
+
   const resolved =
     body.borneBy !== undefined
       ? {
@@ -84,6 +96,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     spentOn,
     ...resolved,
     paidByUserId: body.paidByUserId ?? userId,
+    actorUserId: userId,
     ...(body.litres !== undefined ? { litres: body.litres } : {}),
     ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
     ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),

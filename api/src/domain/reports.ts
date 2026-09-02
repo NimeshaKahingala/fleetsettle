@@ -33,6 +33,7 @@ import {
   sumGoodwillGiven,
   sumOverheadsForDateRange,
   sumOverheadsForPeriod,
+  sumPartnerPayoutsForBusiness,
   sumVehicleCostsForDateRangeBulk,
   sumVehicleCostsForPeriodBulk,
   sumVehicleEarnedForDateRange,
@@ -466,11 +467,13 @@ export async function getAgeingReport(
 /**
  * UC-75/DM §15: what each partner holds, plus deposits held shown *beside*
  * it — never netted in (§6.13). GAP-70 adds `banked` and `driverAdvances` —
- * the same two subtrahends `heldMinor` already nets out, given their own
- * rows so a reader can see *where* the missing money went, not only that it
- * is missing. Kept arithmetically consistent with `heldMinor`'s own
- * simplification (queries/reports.ts's own doc comments), not a corrected
- * version of it.
+ * two of `heldMinor`'s own subtrahends (the third, `direction: 'paid'`
+ * payments, has no breakdown row of its own here — a UI addition, not a
+ * correctness gap, since `heldMinor` itself already nets it out), given
+ * their own rows so a reader can see *where* the missing money went, not
+ * only that it is missing. Kept arithmetically consistent with `heldMinor`'s
+ * own simplification (queries/reports.ts's own doc comments), not a
+ * corrected version of it.
  */
 export async function getCashPositionReport(
   db: ReadDb,
@@ -492,9 +495,10 @@ export async function getCashPositionReport(
 
 /**
  * GAP-186/UC-109, W-70. `cash on hand and in bank` is *not* the same total
- * `getCashPositionReport` renders — that total is `sum(received payments) −
- * sum(advanced) − sum(banked)`'s complement (every partner's `heldMinor`
- * plus every `banked` destination), and `takeDriverDeposit`/
+ * `getCashPositionReport` renders — that total is every partner's own
+ * `heldMinor` (`listPartnerCashPositions`: received minus paid minus banked
+ * minus advanced) plus every `banked` destination, less what has already
+ * left the business as a `partner_payout` (below), and `takeDriverDeposit`/
  * `takeCustomerDepositTx` (`domain/deposit.ts`) never write a `payment` row
  * — only `deposit`/`deposit_movement` ones. So a deposit still physically
  * sits in that same cash, but is invisible to the payment-based total until
@@ -509,6 +513,21 @@ export async function getCashPositionReport(
  * whether or not either was ever a `payment` row. Loan instalments due is
  * `sumInstalmentsDueForBusiness`'s own figure — overdue plus the next one
  * falling due (Q-5).
+ *
+ * **NH-1/GAP-201, 30 Aug 2026**: `cashOnHandMinor` used to stop at
+ * `partners' heldMinor + banked + deposits` — every payment ever received,
+ * never reduced by a cent actually paid back out. A `partner_payout` (an
+ * ordinary distribution, a W-52 current-account settlement, or the business
+ * paying a lender on a named owner's behalf) is real cash leaving the
+ * business, so `sumPartnerPayoutsForBusiness` is subtracted here, once,
+ * business-wide — deliberately **not** inside `listPartnerCashPositions`'s
+ * own `heldMinor`, which UC-67 states as a separate line from "Taken out"
+ * and which the existing partner-summary test already locks a payout out of
+ * touching. Before this fix, the figure UC-109 calls "the single most
+ * expensive wrong number… because someone acts on it by moving money out of
+ * the business" was unmoved by the exact action it exists to gate — an
+ * owner could be shown the same "safe to take out" amount immediately after
+ * taking it out.
  *
  * **Degrades to "not available", never zero (W-56)** — the single most
  * expensive wrong number here, because someone acts on it by moving money
@@ -526,16 +545,19 @@ export async function getDistributableCashReport(
   loanInstalmentsDueMinor: Minor | null;
   distributableMinor: Minor | null;
 }> {
-  const [partners, banked, depositsHeldMinor, loanInstalmentsDueMinor] = await Promise.all([
-    listPartnerCashPositions(db, businessId),
-    listBankedByDestination(db, businessId),
-    sumDepositsHeld(db, businessId),
-    sumInstalmentsDueForBusiness(db, businessId, today),
-  ]);
+  const [partners, banked, depositsHeldMinor, payoutsMinor, loanInstalmentsDueMinor] =
+    await Promise.all([
+      listPartnerCashPositions(db, businessId),
+      listBankedByDestination(db, businessId),
+      sumDepositsHeld(db, businessId),
+      sumPartnerPayoutsForBusiness(db, businessId),
+      sumInstalmentsDueForBusiness(db, businessId, today),
+    ]);
 
   const cashOnHandMinor = (partners.reduce((sum, p) => sum + p.heldMinor, 0n) +
     banked.reduce((sum, b) => sum + b.heldMinor, 0n) +
-    (depositsHeldMinor as Minor)) as Minor;
+    (depositsHeldMinor as Minor) -
+    payoutsMinor) as Minor;
 
   const distributableMinor =
     loanInstalmentsDueMinor === null

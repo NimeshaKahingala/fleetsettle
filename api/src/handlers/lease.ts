@@ -35,6 +35,7 @@ import type {
   startLeaseRoute,
 } from "../route-defs/lease.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 
 function toResponse(row: LeaseRow) {
   return {
@@ -235,6 +236,7 @@ export const listLeaseObligationsHandler: RouteHandler<
       amountMinor: toWire(row.amountMinor as Minor),
       settledMinor: toWire(row.settledMinor as Minor),
       waivedMinor: toWire(row.waivedMinor as Minor),
+      writtenOffMinor: toWire(row.writtenOffMinor as Minor),
       status: row.status as "pending" | "part_paid" | "paid" | "waived" | "written_off",
     })),
     200,
@@ -252,6 +254,8 @@ export const closeLeaseHandler: RouteHandler<typeof closeLeaseRoute, Env> = asyn
 
   const existing = await findLeaseForBusiness(c.get("reader"), businessId, id);
   if (!existing) throw new NotFoundError();
+
+  assertNotFutureBusinessDate(c, body.closingDate, "closingDate");
 
   const { finalPeriod } = await closeLease(c.get("writer"), {
     businessId,

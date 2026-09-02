@@ -1,6 +1,6 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
-import { isPeriodClosedViolation } from "../db/pg-error.js";
+import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import { findFirstPeriodStatus, resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   findDepositForBusiness,
@@ -9,6 +9,8 @@ import {
   insertDepositMovement,
   insertDepositMovements,
   insertDeposits,
+  sumDepositMovements,
+  updateDepositStatus,
   voidAdvanceById,
   type NewAdvance,
   type NewDeposit,
@@ -21,6 +23,7 @@ import {
 } from "../queries/obligation.js";
 import { insertPayments, markPaymentReversed, type NewPayment } from "../queries/payment.js";
 import {
+  DriverAlreadyHoldingDepositError,
   NotFoundError,
   OpeningBalanceLockedError,
   PeriodClosedError,
@@ -244,7 +247,29 @@ async function materializeOpeningBalanceEntries(
   }
 
   await insertObligations(tx, obligationRows);
-  await insertDeposits(tx, depositRows);
+  // M-10, 1 September 2026: the other way into 0038's index, and the one the
+  // sibling fix in `reverseOpeningBalancePostings` does not cover. That one
+  // handles this batch's *own* earlier deposit; this handles a deposit the
+  // driver already had from `takeDriverDeposit` before the opening balance
+  // ever named him. Reproduced: take a deposit (201), save a `deposit_held`
+  // entry for the same driver (200), confirm → 23505 out of `insertDeposits`,
+  // an unhandled 500 on the owner's go-live screen.
+  //
+  // `takeDriverDeposit` already gives this violation a name; the same name
+  // belongs here, for the same reason (CLAUDE.md → Writes: idempotency lives
+  // in the constraint, application code only makes it legible). Before 0038
+  // this silently produced the two-deposits-one-driver state that migration's
+  // own repair exists to undo, so the 409 is the fix, not a regression.
+  try {
+    await insertDeposits(tx, depositRows);
+  } catch (err) {
+    if (isUniqueViolation(err, "deposit_one_held_per_driver")) {
+      throw new DriverAlreadyHoldingDepositError(
+        "This driver already has a deposit held, so it cannot also be entered as an opening balance — remove that entry, or record the difference as a top-up instead",
+      );
+    }
+    throw err;
+  }
   await insertDepositMovements(tx, depositMovementRows);
   await insertAdvances(tx, advanceRows);
   await insertPayments(tx, paymentRows);
@@ -262,9 +287,15 @@ async function materializeOpeningBalanceEntries(
  * `advance` half). `payment` reverses by flipping `status`, which
  * `listPartnerCashPositions` already filters on — never routed through
  * `payment_correction`, which unwinds real allocations this row never has.
- * `deposit_movement` has no such filter anywhere (`sumDepositMovements`
- * sums every row regardless of `voided_at`), so its only correct reversal
- * is a real offsetting entry for the same amount, not a flag.
+ * `deposit_movement` is different, and not for the reason once written
+ * here: `sumDepositMovements` (queries/driver-money.ts) does filter
+ * `voided_at`, and `voidDepositMovementRow` is a real, working void path
+ * used elsewhere. This reversal still writes a real offsetting `refunded`
+ * movement rather than voiding the original — because a correction here is
+ * not "this entry was wrong," it is "money that genuinely existed is now
+ * being handed back," the identical fact a top-up followed by an ordinary
+ * refund already represents. Voiding would say the original `taken` never
+ * happened; it did, and the deposit's own history should keep saying so.
  */
 async function reverseOpeningBalancePostings(
   tx: Tx,
@@ -316,6 +347,46 @@ async function reverseOpeningBalancePostings(
             ? { belongsToPeriodId: depositLinkage.belongsToPeriodId }
             : {}),
         });
+        // M-10 follow-up, 1 September 2026: move the deposit off `held` once
+        // the refund above has actually emptied it.
+        //
+        // This is what migration 0038 was repairing the absence of.
+        // `insertDepositMovement` is the query layer; only
+        // `recordDepositMovement`'s TERMINAL map (`refunded` → `released`)
+        // maintains the status, and this path does not go through it. So a
+        // correction left the old deposit fully refunded but still `held`,
+        // `materializeOpeningBalanceEntries` then inserted a fresh `held`
+        // deposit for the same driver, and the driver owned two — which is
+        // exactly the shape QA was in: six `deposit_held` postings for one
+        // driver off a committed batch, the five reversed ones all stuck at
+        // `held`. Not test-data residue, ordinary use of "correct a
+        // committed opening balance" five times.
+        //
+        // Without it, 0038's unique index turns that sixth correction into an
+        // unhandled 23505 — a 500 on a flow that used to work. The constraint
+        // and the writer that has to respect it ship together.
+        //
+        // Conditional, not unconditional (Copilot's review of this PR, and it
+        // was right): the refund covers `findDepositMovementAmount`, the
+        // *original posting's* amount, not the deposit's current balance. A
+        // deposit taken at 20,000 through the opening balance and later topped
+        // up by 10,000 still holds 10,000 after this refund. `sumDepositsHeld`
+        // filters `status IN ('held','hold_window')`, so releasing it there
+        // would drop real money out of the cash position and
+        // `recordDepositMovement` would then refuse to touch it at all —
+        // a silent understatement, the one failure mode this system exists to
+        // prevent.
+        //
+        // A deposit still holding something therefore stays `held`, and the
+        // correction is then refused by the sibling guard below with
+        // DRIVER_ALREADY_HOLDING_DEPOSIT rather than going through. That is
+        // the honest outcome: the money in that deposit is real, so silently
+        // hiding it or silently stacking a second deposit beside it are both
+        // worse than telling the owner to record the difference as a top-up.
+        const remainingMinor = await sumDepositMovements(tx, posting.depositId);
+        if (remainingMinor <= 0n) {
+          await updateDepositStatus(tx, posting.depositId, "released");
+        }
         break;
       }
     }

@@ -161,6 +161,7 @@ async function unwindAllocations(
         obligationRow.amountMinor,
         newSettled,
         obligationRow.waivedMinor,
+        obligationRow.writtenOffMinor,
       );
       await updateObligationSettled(tx, businessId, obligationRow.id, {
         settledMinor: newSettled,

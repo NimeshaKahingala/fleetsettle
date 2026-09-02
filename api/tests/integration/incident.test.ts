@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import {
@@ -6,6 +6,7 @@ import {
   incidentRecovery,
   lease as leaseTable,
   obligation,
+  payment,
 } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
@@ -32,6 +33,187 @@ async function getIncidentExpenses(token: string, id: string) {
 
 async function postExpense(token: string, body: unknown) {
   return post("/api/expense", token, body);
+}
+
+/**
+ * A business with a vehicle, a customer, an active lease between them, and
+ * a manager's own token — the fixture GAP-202's own credit-forward test
+ * needs before it can do anything specific.
+ */
+async function setupBusinessWithCustomerLease(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const [vehicleId, customerId] = await Promise.all([
+    ctx.createVehicle(businessId),
+    ctx.createCustomer(businessId),
+  ]);
+  const [leaseId, owner] = await Promise.all([
+    ctx.createLease(businessId, vehicleId, customerId),
+    mintUser(db, ctx, businessId, "manager"),
+  ]);
+  const token = await signAccessToken(owner.asgardeoSub);
+  return { businessId, vehicleId, customerId, leaseId, token };
+}
+
+/**
+ * An incident on a customer's lease with a contribution already agreed —
+ * everything both step-4 money tests need before they diverge. Extracted 1
+ * September 2026: M-10's own test repeated this block verbatim and SonarCloud
+ * read the file as 33.8% duplicated new code, which it was.
+ *
+ * `role` is a parameter rather than a constant because it is the one thing
+ * that genuinely differs: a waiver above the business's threshold needs
+ * `writeOffOrWaiveAboveThreshold` (owners), and the default threshold is 0,
+ * so any waiver at all does.
+ */
+async function setupAgreedContribution(
+  ctx: TestContext,
+  db: ReturnType<typeof writer>,
+  role: "owner" | "manager",
+  contribution: { agreedAmountMinor: string; agreedOn: string; note?: string },
+): Promise<{
+  customerId: string;
+  incidentId: string;
+  token: string;
+  agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string };
+}> {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
+  const actor = await mintUser(db, ctx, businessId, role);
+  const token = await signAccessToken(actor.asgardeoSub);
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  const agreed = await post(
+    `/api/incident/${incidentId}/customer-contribution`,
+    token,
+    contribution,
+  );
+  expect(agreed.status).toBe(201);
+  const agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string } =
+    await agreed.json();
+
+  return { customerId, incidentId, token, agreedBody };
+}
+
+/**
+ * GAP-204: shared by every 'credit_days' off-road test (the happy path and
+ * the repeat-refusal test both need the identical billing-period/obligation
+ * fixture) — SonarCloud flagged the two as duplicated new code once the
+ * second existed, so this is that setup named once rather than repeated.
+ */
+async function setupCreditDaysIncident(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  const periodId = await ctx.createOpenPeriod(businessId, {
+    periodStart: "2026-07-01",
+    periodEnd: "2026-07-31",
+  });
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+    status: "active",
+    rentAmountMinor: 31_000n,
+  });
+  const billingPeriodId = await ctx.createBillingPeriod(leaseId, {
+    periodStart: "2026-07-01",
+    periodEnd: "2026-07-31",
+    rentAmountMinor: 31_000n,
+  });
+  // Minted before the obligation it will later be `created_by` on —
+  // `ctx.cleanup()` unwinds most-recently-tracked first, so the user's own
+  // teardown must be registered before anything that will reference it via
+  // a FK, or its DELETE runs first and violates that FK.
+  const owner = await mintUser(db, ctx, businessId, "manager");
+  const token = await signAccessToken(owner.asgardeoSub);
+  const obligationId = await ctx.createObligation(businessId, periodId, {
+    direction: "owed_to_us",
+    partyType: "customer",
+    customerId,
+    // GAP-196: a real billing_period obligation is always kind "rent"
+    // (domain/billing-period.ts's own insertObligation call) — this
+    // fixture omitted it and fell through to the factory's generic
+    // "other" default, which findObligationBySource now correctly
+    // refuses to match once it requires kind/direction rather than
+    // source alone. The fixture was unrealistic, not the new check.
+    kind: "rent",
+    amountMinor: 31_000n,
+    dueOn: "2026-07-01",
+    sourceType: "billing_period",
+    sourceId: billingPeriodId,
+  });
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  return { obligationId, incidentId, token };
+}
+
+/**
+ * GAP-204: an incident whose lease has a real end date to push — every
+ * 'extend' off-road test needs it, and so does 'continue' (the two share
+ * the identical fixture; only the rentTreatment each submits differs), same
+ * reasoning as `setupCreditDaysIncident` above.
+ */
+async function setupExtendIncident(ctx: TestContext, db: ReturnType<typeof writer>) {
+  const businessId = await ctx.createBusiness();
+  await ctx.createOpenPeriod(businessId);
+  const vehicleId = await ctx.createVehicle(businessId);
+  await ctx.setVehicleArrangement(vehicleId, "A");
+  const customerId = await ctx.createCustomer(businessId);
+  const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
+    status: "active",
+    endDate: "2026-12-31",
+  });
+  const owner = await mintUser(db, ctx, businessId, "manager");
+  const token = await signAccessToken(owner.asgardeoSub);
+
+  const opened = await post("/api/incident", token, {
+    vehicleId,
+    leaseId,
+    occurredOn: "2026-07-08",
+  });
+  const { id: incidentId }: { id: string } = await opened.json();
+  ctx.trackCreatedIncident(incidentId);
+
+  return { leaseId, incidentId, token };
+}
+
+/**
+ * GAP-204/H-2/D3's own shape, shared by the `credit_days` and `extend`
+ * cases: the first treatment lands, the second against the same incident is
+ * refused with the same code. Extracted 31 Aug 2026 because writing it out
+ * once per treatment is duplication SonarCloud reads as such — and it is,
+ * the two blocks differed only in the payload. Each test still asserts its
+ * own "applied once, not twice" fact afterwards, which is the part that
+ * genuinely differs between them.
+ */
+async function expectSecondTreatmentRefused(
+  token: string,
+  incidentId: string,
+  body: { offRoadFrom: string; offRoadTo: string; rentTreatment: "credit_days" | "extend" },
+): Promise<void> {
+  const first = await post(`/api/incident/${incidentId}/off-road`, token, body);
+  expect(first.status).toBe(200);
+
+  const second = await post(`/api/incident/${incidentId}/off-road`, token, body);
+  expect(second.status).toBe(409);
+  const secondBody: { code: string } = await second.json();
+  expect(secondBody).toMatchObject({ code: "OFF_ROAD_TREATMENT_ALREADY_RECORDED" });
 }
 
 /** F-3.4/UC-12/W-9/W-10/W-11 test matrix, and §7.2's golden fixture (G-2). */
@@ -129,25 +311,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   describe("record off-road and rent treatment (step 2/W-9)", () => {
     it("'continue' — the default, safe path: no lease touched", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        endDate: "2026-12-31",
-      });
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
 
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
         offRoadFrom: "2026-07-08",
@@ -168,53 +332,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("'credit_days' — a pro-rata rent discount against the billing period's own obligation", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      const periodId = await ctx.createOpenPeriod(businessId, {
-        periodStart: "2026-07-01",
-        periodEnd: "2026-07-31",
-      });
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        rentAmountMinor: 31_000n,
-      });
-      const billingPeriodId = await ctx.createBillingPeriod(leaseId, {
-        periodStart: "2026-07-01",
-        periodEnd: "2026-07-31",
-        rentAmountMinor: 31_000n,
-      });
-      // Minted before the obligation it will later be `created_by` on —
-      // `ctx.cleanup()` unwinds most-recently-tracked first, so the user's
-      // own teardown must be registered before anything that will reference
-      // it via a FK, or its DELETE runs first and violates that FK.
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-      const obligationId = await ctx.createObligation(businessId, periodId, {
-        direction: "owed_to_us",
-        partyType: "customer",
-        customerId,
-        // GAP-196: a real billing_period obligation is always kind "rent"
-        // (domain/billing-period.ts's own insertObligation call) — this
-        // fixture omitted it and fell through to the factory's generic
-        // "other" default, which findObligationBySource now correctly
-        // refuses to match once it requires kind/direction rather than
-        // source alone. The fixture was unrealistic, not the new check.
-        kind: "rent",
-        amountMinor: 31_000n,
-        dueOn: "2026-07-01",
-        sourceType: "billing_period",
-        sourceId: billingPeriodId,
-      });
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { obligationId, incidentId, token } = await setupCreditDaysIncident(ctx, db);
 
       // 10 off-road days of a 31-day July: 31,000 * 10/31 = 10,000 (largest-remainder).
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
@@ -237,25 +355,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     it("'extend' — pushes the lease's end date out and records why (D-7)", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      await ctx.setVehicleArrangement(vehicleId, "A");
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId, {
-        status: "active",
-        endDate: "2026-12-31",
-      });
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
 
       const res = await post(`/api/incident/${incidentId}/off-road`, token, {
         offRoadFrom: "2026-07-08",
@@ -266,6 +366,44 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const body: { leaseExtensionId?: string } = await res.json();
       expect(body.leaseExtensionId).toBeDefined();
 
+      const [leaseRow] = await db.select().from(leaseTable).where(eq(leaseTable.id, leaseId));
+      expect(leaseRow?.endDate).toBe("2027-01-12");
+
+      await ctx.cleanup();
+    });
+
+    it("409 — GAP-204/H-2/D3: a second 'credit_days' against the same incident is refused, not double-applied", async () => {
+      const ctx = new TestContext(db);
+      const { obligationId, incidentId, token } = await setupCreditDaysIncident(ctx, db);
+
+      await expectSecondTreatmentRefused(token, incidentId, {
+        offRoadFrom: "2026-07-01",
+        offRoadTo: "2026-07-10",
+        rentTreatment: "credit_days",
+      });
+
+      // Credited once (10,000), not twice (20,000) — the obligation still
+      // reads 21,000, exactly as the single-application test asserts.
+      const obligationRows = await db
+        .select()
+        .from(obligation)
+        .where(eq(obligation.id, obligationId));
+      expect(obligationRows[0]?.amountMinor).toBe(21_000n);
+
+      await ctx.cleanup();
+    });
+
+    it("409 — GAP-204/H-2/D3: a second 'extend' against the same incident is refused, not double-applied", async () => {
+      const ctx = new TestContext(db);
+      const { leaseId, incidentId, token } = await setupExtendIncident(ctx, db);
+
+      await expectSecondTreatmentRefused(token, incidentId, {
+        offRoadFrom: "2026-07-08",
+        offRoadTo: "2026-07-19",
+        rentTreatment: "extend",
+      });
+
+      // Pushed once (12 days, to 2027-01-12), not twice (24 days).
       const [leaseRow] = await db.select().from(leaseTable).where(eq(leaseTable.id, leaseId));
       expect(leaseRow?.endDate).toBe("2027-01-12");
 
@@ -332,32 +470,77 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   });
 
   describe("customer contribution (step 4/W-10)", () => {
-    it("happy path — agreed opens a payable obligation, then received settles it (D-9/GAP-10)", async () => {
+    it("M-10: a waived contribution, then received, reads as settled rather than part_paid", async () => {
       const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      const customerId = await ctx.createCustomer(businessId);
-      const leaseId = await ctx.createLease(businessId, vehicleId, customerId);
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        leaseId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
-
-      const agreed = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
+      const { incidentId, token, agreedBody } = await setupAgreedContribution(ctx, db, "owner", {
         agreedAmountMinor: "20000",
         agreedOn: "2026-07-20",
-        note: "Agreed after repair estimate",
       });
-      expect(agreed.status).toBe(201);
-      const agreedBody: { id: string; agreedAmountMinor: string; receivedAmountMinor: string } =
-        await agreed.json();
+
+      const [ob] = await db
+        .select({ id: obligation.id })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+
+      // 5,000 of the 20,000 waived as goodwill. Nothing in `applyAdjustment`
+      // filters by obligation kind, so a recovery's obligation is as
+      // adjustable as any other — which is what made the old computation,
+      // reading the recovery's own `agreedAmountMinor` with waived assumed
+      // zero, wrong on two counts at once.
+      const waiver = await post("/api/adjustment", token, {
+        obligationId: ob?.id,
+        adjustmentType: "waiver",
+        amountMinor: "5000",
+        sign: -1,
+        reason: "Goodwill on part of the contribution",
+        occurredOn: "2026-07-22",
+      });
+      expect(waiver.status).toBe(201);
+
+      // The customer pays the 15,000 that is actually left.
+      const received = await post(
+        `/api/incident/${incidentId}/recovery/${agreedBody.id}/receive`,
+        token,
+        { receivedAmountMinor: "15000", receivedOn: "2026-07-25" },
+      );
+      expect(received.status).toBe(200);
+
+      // 15,000 received + 5,000 waived is the whole 20,000: nothing is still
+      // owed. This read `part_paid` before the fix, so a customer who had
+      // paid everything outstanding went on showing as owing it.
+      const after = await db
+        .select({
+          amountMinor: obligation.amountMinor,
+          settledMinor: obligation.settledMinor,
+          waivedMinor: obligation.waivedMinor,
+          status: obligation.status,
+        })
+        .from(obligation)
+        .where(eq(obligation.sourceId, agreedBody.id));
+      expect(after).toEqual([
+        {
+          amountMinor: 20000n,
+          settledMinor: 15000n,
+          waivedMinor: 5000n,
+          status: "waived",
+        },
+      ]);
+
+      await ctx.cleanup();
+    });
+
+    it("happy path — agreed opens a payable obligation, then received settles it (D-9/GAP-10)", async () => {
+      const ctx = new TestContext(db);
+      const { customerId, incidentId, token, agreedBody } = await setupAgreedContribution(
+        ctx,
+        db,
+        "manager",
+        {
+          agreedAmountMinor: "20000",
+          agreedOn: "2026-07-20",
+          note: "Agreed after repair estimate",
+        },
+      );
       expect(agreedBody).toMatchObject({ agreedAmountMinor: "20000", receivedAmountMinor: "0" });
 
       const obligationsAfterAgree = await db
@@ -561,6 +744,107 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
       await ctx.cleanup();
     });
+
+    it("GAP-202/PR-2 — correcting a recovery amount for a customer carrying credit-forward leaves the older, unrelated payment active", async () => {
+      const ctx = new TestContext(db);
+      const { vehicleId, customerId, leaseId, token } = await setupBusinessWithCustomerLease(
+        ctx,
+        db,
+      );
+
+      // A 500,000 surplus, held as unapplied credit (GAP-5b/DM §10.2) — big
+      // enough to fund both contributions below with room to spare.
+      const paymentARes = await post("/api/payment", token, {
+        partyType: "customer",
+        partyId: customerId,
+        amountMinor: "500000",
+        occurredOn: "2026-08-01",
+      });
+      expect(paymentARes.status).toBe(201);
+      const paymentA: { id: string } = await paymentARes.json();
+
+      const opened1 = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-08-05",
+      });
+      const { id: incident1Id }: { id: string } = await opened1.json();
+
+      // Agreeing draws 100,000 straight from paymentA's credit (GAP-5b) —
+      // the obligation is already settled before `receive` is ever called.
+      const agreed1 = await post(`/api/incident/${incident1Id}/customer-contribution`, token, {
+        agreedAmountMinor: "100000",
+        agreedOn: "2026-08-06",
+      });
+      expect(agreed1.status).toBe(201);
+      const contribution1: { id: string } = await agreed1.json();
+
+      // Re-recording the same amount exercises the reverse-then-repost path
+      // (GAP-12/W-61) against the allocation credit-forward already made.
+      // The bug this closes: the old code called `markPaymentReversed` on
+      // paymentA itself — the allocation's *parent* payment — not just the
+      // one allocation. paymentA still carries 400,000 of untouched credit
+      // that has nothing to do with this correction.
+      const corrected = await post(
+        `/api/incident/${incident1Id}/recovery/${contribution1.id}/receive`,
+        token,
+        { receivedAmountMinor: "100000", receivedOn: "2026-08-07" },
+      );
+      expect(corrected.status).toBe(200);
+
+      const [paymentARow] = await db
+        .select({ status: payment.status })
+        .from(payment)
+        .where(eq(payment.id, paymentA.id));
+      expect(paymentARow?.status).not.toBe("reversed");
+
+      // Proof by consequence, not just by reading the flag: a second,
+      // unrelated contribution must still be able to draw on paymentA's
+      // remaining credit. `applyCreditForward`'s own candidate query filters
+      // `status <> 'reversed'` (GAP-201/PR-1) — if paymentA had been wrongly
+      // reversed, this would settle to "pending" instead of "paid".
+      const opened2 = await post("/api/incident", token, {
+        vehicleId,
+        leaseId,
+        occurredOn: "2026-08-08",
+      });
+      const { id: incident2Id }: { id: string } = await opened2.json();
+
+      const agreed2 = await post(`/api/incident/${incident2Id}/customer-contribution`, token, {
+        agreedAmountMinor: "50000",
+        agreedOn: "2026-08-09",
+      });
+      expect(agreed2.status).toBe(201);
+      const contribution2: { id: string } = await agreed2.json();
+
+      const [ob2] = await db
+        .select({ settledMinor: obligation.settledMinor, status: obligation.status })
+        .from(obligation)
+        .where(eq(obligation.sourceId, contribution2.id));
+      expect(ob2).toEqual({ settledMinor: 50000n, status: "paid" });
+
+      // The correction above minted a fresh payment (the "repost" half of
+      // reverse-then-repost) — found by shape, since the handler never
+      // returns its id.
+      const [paymentBRow] = await db
+        .select({ id: payment.id })
+        .from(payment)
+        .where(and(eq(payment.partyCustomerId, customerId), eq(payment.amountMinor, 100000n)));
+      expect(paymentBRow?.id).toBeDefined();
+
+      // paymentA is shared across both incidents' credit-forward draws, so
+      // its own allocations (and the row itself) are unwound once, before
+      // either incident's teardown looks for allocations against its own
+      // obligations. Registered after both incidents, so payments unwind
+      // first (the same ordering `trackCreatedPayment`'s own doc comment
+      // requires).
+      ctx.trackCreatedIncident(incident1Id);
+      ctx.trackCreatedIncident(incident2Id);
+      ctx.trackCreatedPayment(paymentA.id);
+      if (paymentBRow) ctx.trackCreatedPayment(paymentBRow.id);
+
+      await ctx.cleanup();
+    });
   });
 
   describe("insurance claim (step 5/W-11)", () => {
@@ -574,7 +858,11 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
       const opened = await post("/api/incident", token, {
         vehicleId,
-        occurredOn: "2026-07-08",
+        // M-9, 31 Aug 2026: kept safely in the first half of the year — the
+        // original July/September pair crossed into a real future date once
+        // wall-clock time reached late August, which the new future-date
+        // guard now correctly refuses.
+        occurredOn: "2026-01-08",
       });
       const { id: incidentId }: { id: string } = await opened.json();
       ctx.trackCreatedIncident(incidentId);
@@ -582,7 +870,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const submitted = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
         claimedAmountMinor: "75000",
         excessBorneMinor: "15000",
-        claimedOn: "2026-07-10",
+        claimedOn: "2026-01-10",
       });
       expect(submitted.status).toBe(201);
       const submittedBody: { id: string; status: string } = await submitted.json();
@@ -591,7 +879,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       const settled = await post(
         `/api/incident/${incidentId}/insurance-claim/${submittedBody.id}/settle`,
         token,
-        { receivedAmountMinor: "60000", receivedOn: "2026-09-15" },
+        { receivedAmountMinor: "60000", receivedOn: "2026-03-15" },
       );
       expect(settled.status).toBe(200);
       const settledBody: {
@@ -667,30 +955,30 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     const owner = await mintUser(db, ctx, businessId, "manager");
     const token = await signAccessToken(owner.asgardeoSub);
 
-    // July: the accident, the extension, the first repair invoice, and the
-    // insurance claim — all submitted while July is still open.
-    const julyPeriodId = await ctx.createOpenPeriod(businessId, {
-      periodStart: "2026-07-01",
-      periodEnd: "2026-07-31",
+    // April: the accident, the extension, the first repair invoice, and the
+    // insurance claim — all submitted while April is still open.
+    const aprilPeriodId = await ctx.createOpenPeriod(businessId, {
+      periodStart: "2026-04-01",
+      periodEnd: "2026-04-30",
     });
 
     const opened = await post("/api/incident", token, {
       vehicleId,
       leaseId,
-      occurredOn: "2026-07-08",
-      description: "Accident on 8 July",
+      occurredOn: "2026-04-08",
+      description: "Accident on 8 April",
     });
     expect(opened.status).toBe(201);
     const { id: incidentId }: { id: string } = await opened.json();
-    // Tracked at the end, not here — August and September are created
+    // Tracked at the end, not here — May and June are created
     // later in this test, after this point, so their own cleanup entries
     // would otherwise be registered (and so unwound) before this one,
     // trying to delete a period `insurance_claim.received_period_id` still
     // points to. Registering last means unwinding first.
 
     const offRoad = await post(`/api/incident/${incidentId}/off-road`, token, {
-      offRoadFrom: "2026-07-08",
-      offRoadTo: "2026-07-19",
+      offRoadFrom: "2026-04-08",
+      offRoadTo: "2026-04-19",
       rentTreatment: "extend",
     });
     expect(offRoad.status).toBe(200);
@@ -702,7 +990,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       incidentId,
       category: "repairs",
       amountMinor: "70000",
-      spentOn: "2026-07-28",
+      spentOn: "2026-04-28",
       borneBy: "us",
     });
     expect(bodyWork.status).toBe(201);
@@ -723,7 +1011,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       incidentId,
       category: "repairs",
       amountMinor: "700000",
-      spentOn: "2026-07-28",
+      spentOn: "2026-04-28",
       borneBy: "us",
     });
     expect(mistypedQuote.status).toBe(201);
@@ -736,23 +1024,23 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     const claim = await post(`/api/incident/${incidentId}/insurance-claim`, token, {
       claimedAmountMinor: "75000",
       excessBorneMinor: "15000",
-      claimedOn: "2026-07-10",
+      claimedOn: "2026-04-10",
     });
     expect(claim.status).toBe(201);
     const claimBody: { id: string } = await claim.json();
 
-    await ctx.closePeriod(julyPeriodId);
+    await ctx.closePeriod(aprilPeriodId);
 
-    // August: the second repair invoice (parts), and the customer's
+    // May: the second repair invoice (parts), and the customer's
     // contribution — agreed and paid in the same month.
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-08-01", periodEnd: "2026-08-31" });
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-05-01", periodEnd: "2026-05-31" });
 
     const parts = await post("/api/expense", token, {
       vehicleId,
       incidentId,
       category: "repairs",
       amountMinor: "25000",
-      spentOn: "2026-08-05",
+      spentOn: "2026-05-05",
       borneBy: "us",
     });
     expect(parts.status).toBe(201);
@@ -761,7 +1049,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
 
     const contribution = await post(`/api/incident/${incidentId}/customer-contribution`, token, {
       agreedAmountMinor: "20000",
-      agreedOn: "2026-08-20",
+      agreedOn: "2026-05-20",
       note: "Agreed once the repair cost was known",
     });
     expect(contribution.status).toBe(201);
@@ -770,17 +1058,16 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     const contributionReceived = await post(
       `/api/incident/${incidentId}/recovery/${contributionBody.id}/receive`,
       token,
-      { receivedAmountMinor: "20000", receivedOn: "2026-08-20" },
+      { receivedAmountMinor: "20000", receivedOn: "2026-05-20" },
     );
     expect(contributionReceived.status).toBe(200);
 
-    // Bottom line as of August: 95,000 spent, 20,000 recovered, 60,000 still
+    // Bottom line as of May: 95,000 spent, 20,000 recovered, 60,000 still
     // pending (the insurer's, not yet settled) — the same visibly-temporary
     // reading §7.2 describes.
-    const detailAfterAugust = await get(`/api/incident/${incidentId}`, token);
-    const detailAfterAugustBody: { bottomLine: Record<string, string> } =
-      await detailAfterAugust.json();
-    expect(detailAfterAugustBody.bottomLine).toEqual({
+    const detailAfterMay = await get(`/api/incident/${incidentId}`, token);
+    const detailAfterMayBody: { bottomLine: Record<string, string> } = await detailAfterMay.json();
+    expect(detailAfterMayBody.bottomLine).toEqual({
       totalRepairCostMinor: "95000",
       totalRecoveredMinor: "20000",
       pendingRecoveryMinor: "60000",
@@ -791,16 +1078,16 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       .select()
       .from(accountingPeriod)
       .where(eq(accountingPeriod.businessId, businessId));
-    const augustPeriodId = periodsSoFar.find((p) => p.periodStart === "2026-08-01")!.id;
-    await ctx.closePeriod(augustPeriodId);
+    const mayPeriodId = periodsSoFar.find((p) => p.periodStart === "2026-05-01")!.id;
+    await ctx.closePeriod(mayPeriodId);
 
-    // September: the insurer settles.
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-09-01", periodEnd: "2026-09-30" });
+    // June: the insurer settles.
+    await ctx.createOpenPeriod(businessId, { periodStart: "2026-06-01", periodEnd: "2026-06-30" });
 
     const settle = await post(
       `/api/incident/${incidentId}/insurance-claim/${claimBody.id}/settle`,
       token,
-      { receivedAmountMinor: "60000", receivedOn: "2026-09-15" },
+      { receivedAmountMinor: "60000", receivedOn: "2026-06-15" },
     );
     expect(settle.status).toBe(200);
 
@@ -831,17 +1118,17 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       .select()
       .from(accountingPeriod)
       .where(eq(accountingPeriod.businessId, businessId));
-    const septemberPeriodId = allPeriods.find((p) => p.periodStart === "2026-09-01")!.id;
+    const junePeriodId = allPeriods.find((p) => p.periodStart === "2026-06-01")!.id;
 
     const insurerRow = recoveryRows.find((r) => r.source === "insurer")!;
-    expect(insurerRow.postedPeriodId).toBe(julyPeriodId);
-    expect(insurerRow.receivedPeriodId).toBe(septemberPeriodId);
+    expect(insurerRow.postedPeriodId).toBe(aprilPeriodId);
+    expect(insurerRow.receivedPeriodId).toBe(junePeriodId);
     expect(insurerRow.agreedAmountMinor).toBe(60_000n);
     expect(insurerRow.receivedAmountMinor).toBe(60_000n);
 
     const customerRow = recoveryRows.find((r) => r.source === "customer")!;
-    expect(customerRow.postedPeriodId).toBe(augustPeriodId);
-    expect(customerRow.receivedPeriodId).toBe(augustPeriodId);
+    expect(customerRow.postedPeriodId).toBe(mayPeriodId);
+    expect(customerRow.receivedPeriodId).toBe(mayPeriodId);
 
     // GAP-59: expense.incident_id now carries a real composite FK, so the
     // two repair expenses must be tracked (and so unwound) after the
@@ -853,8 +1140,8 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     ctx.trackCreatedExpense(partsBody.id);
     ctx.trackCreatedExpense(mistypedQuoteBody.id); // GAP-181's voided row
     await ctx.cleanup();
-    // GAP-181: G-2 walks the real period lifecycle (open July, write, close,
-    // open August, …) across ~20 round trips against a live Neon branch, and
+    // GAP-181: G-2 walks the real period lifecycle (open April, write, close,
+    // open May, …) across ~20 round trips against a live Neon branch, and
     // the voided-row seed added two more, tipping it past the suite's 20s
     // default. Raised rather than trimmed — writing into a closed period has
     // no shortcut, which is exactly what makes this fixture worth having.

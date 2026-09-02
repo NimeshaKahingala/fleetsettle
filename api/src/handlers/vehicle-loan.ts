@@ -31,6 +31,7 @@ import type {
   voidLoanPaymentRoute,
 } from "../route-defs/vehicle-loan.js";
 import type { Env } from "../types.js";
+import { assertNotFutureBusinessDate } from "../validation.js";
 import type { VehicleLoanWithFigures } from "../domain/vehicle-loan.js";
 
 // W-52/UC-107: a down payment names exactly one owner, and a named loan
@@ -107,6 +108,8 @@ export const recordVehicleLoanHandler: RouteHandler<typeof recordVehicleLoanRout
     assertIsPartner(member);
   }
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.startedOn), "startedOn");
+
   const { loanId } = await recordVehicleLoan(c.get("writer"), {
     businessId,
     vehicleId: body.vehicleId,
@@ -160,6 +163,8 @@ export const recordLoanPaymentHandler: RouteHandler<typeof recordLoanPaymentRout
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
 
+  assertNotFutureBusinessDate(c, asBusinessDate(body.paidOn), "paidOn");
+
   // No pre-fetch here — recordLoanPayment locks and re-checks the loan
   // itself, inside its own transaction (Gitar review, PR #130). A read
   // here first would only add a second, unlocked, already-stale view.
@@ -202,7 +207,7 @@ export const listLoanPaymentsHandler: RouteHandler<typeof listLoanPaymentsRoute,
   const loanRow = await findVehicleLoanForBusiness(reader, businessId, id);
   if (!loanRow) throw new NotFoundError("No such loan in this business");
 
-  const rows = await listLoanPaymentsForLoan(reader, id);
+  const rows = await listLoanPaymentsForLoan(reader, businessId, id);
   return c.json(rows.map(paymentToResponse), 200);
 };
 
@@ -216,6 +221,8 @@ export const settleVehicleLoanHandler: RouteHandler<typeof settleVehicleLoanRout
   const { id } = c.req.valid("param");
   const body = c.req.valid("json");
   const reader = c.get("reader");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.settledOn), "settledOn");
 
   // No pre-fetch here, same reasoning as recordLoanPaymentHandler
   // (Gitar review, PR #130) — settleVehicleLoan locks and re-checks the

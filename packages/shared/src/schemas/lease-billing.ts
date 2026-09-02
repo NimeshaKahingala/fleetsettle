@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { businessDateSchema, moneyWireSchema, uuidSchema } from "./common.js";
+import {
+  businessDateSchema,
+  moneyWireSchema,
+  positiveMoneyWireSchema,
+  uuidSchema,
+} from "./common.js";
 
 /** F-2.1/F-2.3: how an odometer figure was obtained is part of the reading (INV-19, W-18). */
 export const odometerSourceSchema = z.enum(["photo", "in_person", "reported", "at_return"]);
@@ -68,9 +73,17 @@ export type MileageAssessmentResponse = z.infer<typeof mileageAssessmentResponse
  * F-2.5/UC-17: same customer, new agreed amount from a date. Old periods
  * keep their old figure (it is frozen onto `billing_period` at generation
  * time) — this only changes what the *next* generated period picks up.
+ *
+ * NM-6, 31 Aug 2026: `rentAmountMinor` is `positiveMoneyWireSchema`, not
+ * bare `moneyWireSchema` — the same GAP-177/B21 choice `startLeaseRequestSchema`
+ * already made for this identical field. A charter given away free is
+ * still a real rent figure entered with an explicit waiver (F-2.4), so it
+ * reaches UC-77's own "goodwill given" total; renewing at `0` would have
+ * bypassed that report the same way starting one at `0` would have, and
+ * `renewLease` had drifted from its own sibling's fix.
  */
 export const renewLeaseRequestSchema = z.object({
-  rentAmountMinor: moneyWireSchema,
+  rentAmountMinor: positiveMoneyWireSchema,
   // eslint-disable-next-line no-restricted-syntax -- kilometres, not money
   mileageDailyLimitKm: z.number().int().positive().optional(),
   mileageExcessRateMinor: moneyWireSchema.optional(),
@@ -169,6 +182,16 @@ export const leaseObligationRowSchema = z.object({
   amountMinor: z.string(),
   settledMinor: z.string(),
   waivedMinor: z.string(),
+  /**
+   * GAP-203/H-1/D2. On the wire because outstanding is
+   * `amount − settled − waived − writtenOff`, and every screen that computes
+   * that figure prefills a write-off or a payment amount from it. Omitted (as
+   * it was until 31 Aug 2026), a partly-written-off due reads at its full
+   * face value and prefills a follow-up write-off that the API's own
+   * "exceeds what remains outstanding" guard then rejects — the second
+   * partial write-off this field exists to allow, refused at its own default.
+   */
+  writtenOffMinor: z.string(),
   status: z.enum(["pending", "part_paid", "paid", "waived", "written_off"]),
 });
 export type LeaseObligationRow = z.infer<typeof leaseObligationRowSchema>;
