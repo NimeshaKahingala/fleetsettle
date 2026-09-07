@@ -256,6 +256,105 @@ test("GAP-31: overriding paid-by to another member reaches the request", async (
   );
 });
 
+test("GAP-216: an odometer reading and its source reach the request together", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+    />,
+    { post, get },
+  );
+
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Servicing" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "45200");
+  await user.click(screen.getByRole("button", { name: "In person" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ odometerReadingKm: 45200, odometerSource: "in_person" }),
+    ),
+  );
+});
+
+test("GAP-216: neither odometer key is sent when the reading is left blank", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+    />,
+    { post, get },
+  );
+
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Servicing" }));
+  await user.click(screen.getByRole("button", { name: "Record expense" }));
+
+  await vi.waitFor(() => expect(post).toHaveBeenCalled());
+  const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
+  expect("odometerReadingKm" in body).toBe(false);
+  expect("odometerSource" in body).toBe(false);
+});
+
+test("GAP-216: a reading with no source picked blocks save, and says why", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+    />,
+    { post, get },
+  );
+
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Servicing" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "45200");
+
+  expect(screen.getByRole("button", { name: "Record expense" })).toBeDisabled();
+  expect(screen.getByText("Choose how this reading was taken")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("GAP-216: the odometer field is absent from the overhead-cost path (no vehicle chosen)", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ ...created, vehicleId: null });
+  const get = vi.fn().mockResolvedValue([]);
+  renderWithProviders(
+    <RecordExpenseSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
+    { post, get },
+  );
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+
+  expect(screen.queryByLabelText("Odometer reading (km) (optional)")).not.toBeInTheDocument();
+});
+
 test("a photo captured before Save uploads after the expense exists, tagged with its own id (UI §6.3: the record saves first)", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);

@@ -111,6 +111,55 @@ test("litres, when given, reaches the request as a plain number, never money", a
   );
 });
 
+test("GAP-216: an odometer reading and its source reach the request together", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(vehicles);
+  const post = vi.fn().mockResolvedValue(created);
+  renderWithProviders(
+    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
+    { get, post },
+  );
+
+  await screen.findByRole("button", { name: "Vehicle: NC-1234" });
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  await user.click(screen.getByRole("button", { name: "5" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "80500");
+  await user.click(screen.getByRole("button", { name: "Photo" }));
+  await user.click(screen.getByRole("button", { name: "Log fuel fill" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/expense",
+      expect.objectContaining({ odometerReadingKm: 80500, odometerSource: "photo" }),
+    ),
+  );
+});
+
+test("GAP-216: a reading with no source picked blocks save, and says why", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(vehicles);
+  const post = vi.fn().mockResolvedValue(created);
+  renderWithProviders(
+    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
+    { get, post },
+  );
+
+  await screen.findByRole("button", { name: "Vehicle: NC-1234" });
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  await user.click(screen.getByRole("button", { name: "5" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "80500");
+
+  expect(screen.getByRole("button", { name: "Log fuel fill" })).toBeDisabled();
+  expect(screen.getByText("Choose how this reading was taken")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("a photo captured before Save uploads after the expense exists, tagged with its own id (UI §6.3: the record saves first)", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);

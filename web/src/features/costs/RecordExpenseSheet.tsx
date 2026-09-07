@@ -2,6 +2,7 @@ import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type {
   BusinessMemberResponse,
   ExpenseResponse,
+  OdometerSource,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,16 +15,40 @@ import { PhotoCapture } from "../../components/PhotoCapture.js";
 import { ReasonPicker } from "../../components/ReasonPicker.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
+import { Field } from "../../design/primitives/Field.js";
+import { Input } from "../../design/primitives/Input.js";
+import { Label } from "../../design/primitives/Label.js";
 import { NoteField } from "../../design/primitives/NoteField.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
+import { cn } from "../../lib/cn.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
+
+// F-3.5/GAP-216: only the readings an expense can plausibly carry — never
+// `at_return`, which is "read when the vehicle came back at lease end" and
+// means nothing on a cost record. Kept local rather than promoted to a
+// shared primitive, matching `ReadOdometerSheet`'s own precedent (that
+// duplication is a separate, later cleanup, not this fix's job).
+const ODOMETER_SOURCE_OPTIONS: { value: OdometerSource; label: string }[] = [
+  { value: "photo", label: "Photo" },
+  { value: "in_person", label: "In person" },
+  { value: "reported", label: "Reported" },
+];
+
+function chipClass(selected: boolean): string {
+  return cn(
+    "min-h-tap rounded-sm border px-3 text-body",
+    selected
+      ? "border-brand bg-brand-wash text-brand-ink"
+      : "border-transparent bg-surface-sunken text-ink-primary",
+  );
+}
 
 // GAP-185/F-12.2: 'finance' is generated server-side by a loan payment's
 // own split (domain/vehicle-loan.ts) — never a category a person picks here.
@@ -45,9 +70,12 @@ export interface RecordExpenseSheetProps {
 }
 
 /**
- * F-3.1/F-3.2, UC-60/UC-66. Level 1: amount, category, vehicle (optional —
- * blank is a real overhead cost, never an error), date (defaulted to
- * today). Level 2: `BorneByPaidBy`, note, photo. Per UI §7.10's own line
+ * F-3.1/F-3.2/F-3.5, UC-60/UC-66. Level 1: amount, category, vehicle (optional
+ * — blank is a real overhead cost, never an error), date (defaulted to
+ * today). Level 2: `BorneByPaidBy`, note, an optional odometer reading
+ * (GAP-216 — shown only once a vehicle is set, the schema's own
+ * both-or-neither pair with its source, feeding the service-interval
+ * prompt on `category: 'servicing'`, F-3.5), photo. Per UI §7.10's own line
  * ("`BorneByPaidBy` at level 2, both pre-filled") — but this form cannot
  * actually show the server's own §6.7-matrix default without asking the
  * server first, and CLAUDE.md/the Web-P8b trap list are explicit that the
@@ -80,6 +108,10 @@ export function RecordExpenseSheet({
   const [borneByUs, setBorneByUs] = useState(false);
   const [paidBy, setPaidBy] = useState<EntityOption>({ id: "you", label: "You" });
   const [moreOpen, setMoreOpen] = useState(false);
+  // F-3.5/GAP-216: string, parsed at submit — the odometer idiom every other
+  // sheet in this client uses (`ReadOdometerSheet`, `StartLeaseScreen`).
+  const [odometerReadingKm, setOdometerReadingKm] = useState("");
+  const [odometerSource, setOdometerSource] = useState<OdometerSource | null>(null);
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const effectiveVehicleId = vehicleId ?? selectedVehicle?.id;
@@ -110,6 +142,8 @@ export function RecordExpenseSheet({
       setBorneByUs(false);
       setPaidBy({ id: "you", label: "You" });
       setMoreOpen(false);
+      setOdometerReadingKm("");
+      setOdometerSource(null);
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
@@ -131,6 +165,9 @@ export function RecordExpenseSheet({
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
+        ...(odometerReadingKm.trim() !== "" && odometerSource !== null
+          ? { odometerReadingKm: Number.parseInt(odometerReadingKm, 10), odometerSource }
+          : {}),
       });
     },
     onSuccess: (expense) => {
@@ -173,7 +210,14 @@ export function RecordExpenseSheet({
     })),
   ];
 
-  const canSave = amountMinor !== null && amountMinor > 0n && category !== null;
+  // F-3.5/GAP-216: the pair is all-or-nothing at the schema (both-or-neither
+  // refine) — a typed km with no source picked would 400, so this blocks
+  // save rather than silently dropping what was entered (`CloseLeaseScreen`
+  // does the latter for its own odometer field; `StartLeaseScreen` gates
+  // instead, and that's the precedent worth following here).
+  const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
+  const canSave =
+    amountMinor !== null && amountMinor > 0n && category !== null && !odometerSourceMissing;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Record expense">
@@ -223,7 +267,11 @@ export function RecordExpenseSheet({
 
         <DateField label="Date" value={spentOn} today={today} onChange={setSpentOn} />
 
-        <Disclosure sectionName="Paid by, borne by and note" onOpenChange={setMoreOpen}>
+        <Disclosure
+          sectionName="Paid by, borne by, note and odometer"
+          onOpenChange={setMoreOpen}
+          forceOpen={odometerSourceMissing}
+        >
           <div className="flex flex-col gap-4">
             <BorneByPaidBy
               paidBy={paidBy}
@@ -253,6 +301,41 @@ export function RecordExpenseSheet({
               />
             ) : null}
             <NoteField label="Note" value={note} onChange={setNote} />
+            {effectiveVehicleId !== undefined ? (
+              <div className="flex flex-col gap-3">
+                <Field label="Odometer reading (km)" htmlFor="expense-odometer-reading" optional>
+                  <Input
+                    id="expense-odometer-reading"
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={odometerReadingKm}
+                    onChange={(e) => setOdometerReadingKm(e.target.value)}
+                  />
+                </Field>
+                <div className="flex flex-col gap-2">
+                  <Label>Reading source</Label>
+                  <div className="flex flex-wrap gap-2">
+                    {ODOMETER_SOURCE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={odometerSource === option.value}
+                        onClick={() => setOdometerSource(option.value)}
+                        className={chipClass(odometerSource === option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {odometerSourceMissing ? (
+                    <p className="text-body-sm text-critical-ink">
+                      Choose how this reading was taken
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Photo</span>
               <PhotoCapture

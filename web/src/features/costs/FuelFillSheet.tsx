@@ -1,5 +1,5 @@
 import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type { ExpenseResponse, OdometerSource, VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
@@ -8,11 +8,13 @@ import { PhotoCapture } from "../../components/PhotoCapture.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
+import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
+import { cn } from "../../lib/cn.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 
 export interface FuelFillSheetProps {
@@ -22,21 +24,43 @@ export interface FuelFillSheetProps {
   onRecorded: (expense: ExpenseResponse) => void;
 }
 
+// GAP-216: same restricted set `RecordExpenseSheet` offers, and the same
+// reason — `at_return` describes a lease handover, not a fuel stop.
+const ODOMETER_SOURCE_OPTIONS: { value: OdometerSource; label: string }[] = [
+  { value: "photo", label: "Photo" },
+  { value: "in_person", label: "In person" },
+  { value: "reported", label: "Reported" },
+];
+
+function chipClass(selected: boolean): string {
+  return cn(
+    "min-h-tap rounded-sm border px-3 text-body",
+    selected
+      ? "border-brand bg-brand-wash text-brand-ink"
+      : "border-transparent bg-surface-sunken text-ink-primary",
+  );
+}
+
 /**
  * F-3.3/UC-34/W-20, UI §7.3 — "the ten-second flow": reached from `＋` →
- * Fuel. Level 1 is vehicle (pre-filled, U-3) and amount; litres and
- * borne-by are level 2 and litres must stay optional (W-20 — a daily-lease
- * driver buys his own fuel and has no reason to report it, and a report
- * built on a field nobody fills is an empty report). "Pre-filled with the
- * one that has something pending" degrades to "first in the vehicle list"
- * — the same simplification `HomeScreen`'s own "most-recently-used" already
- * made (Web-P3), since nothing in this schema tracks which vehicle a
- * manager last touched. **Odometer and trip-link are not built this
- * pass**: `expense.odometer_reading_id` has no domain/query wiring
- * anywhere yet (unlike `trip.opening_odometer_id`, wired in P6) and adding
- * it is real, separate backend work, disproportionate to an optional
- * level-2 field — recorded rather than half-built, the same convention
- * every other deliberately-skipped field in this codebase already uses.
+ * Fuel. Level 1 is vehicle (pre-filled, U-3) and amount; litres, borne-by
+ * and an optional odometer reading are level 2, and litres must stay
+ * optional (W-20 — a daily-lease driver buys his own fuel and has no reason
+ * to report it, and a report built on a field nobody fills is an empty
+ * report). "Pre-filled with the one that has something pending" degrades to
+ * "first in the vehicle list" — the same simplification `HomeScreen`'s own
+ * "most-recently-used" already made (Web-P3), since nothing in this schema
+ * tracks which vehicle a manager last touched.
+ *
+ * **Odometer, added GAP-216.** This doc comment previously said odometer
+ * had no domain/query wiring at all — stale since GAP-30 closed 14 Aug
+ * 2026; `createExpense` has written a real `odometer_reading` row for every
+ * expense category, this one included, since then. A fuel fill is the one
+ * frequent, low-friction moment most vehicles get a reading at all — a
+ * daily-lease bus or a charter van with no lease-boundary readings has no
+ * other route to the "later reading" side of GAP-68's service-interval
+ * comparison, so without this the prompt only ever updates at the next
+ * service. Trip-link stays out; nothing in this sheet's own flow implies one.
  */
 export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFillSheetProps) {
   const api = useApi();
@@ -45,6 +69,9 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
   const [amountMinor, setAmountMinor] = useState<Minor | null>(null);
   const [litresText, setLitresText] = useState("");
   const [borneByUs, setBorneByUs] = useState(false);
+  // GAP-216: string, parsed at submit — the same idiom as `RecordExpenseSheet`.
+  const [odometerReadingKm, setOdometerReadingKm] = useState("");
+  const [odometerSource, setOdometerSource] = useState<OdometerSource | null>(null);
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const vehiclesQuery = useQuery({
@@ -64,6 +91,8 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       setLitresText("");
       setBorneByUs(false);
       setSelectedVehicle(null);
+      setOdometerReadingKm("");
+      setOdometerSource(null);
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
@@ -98,6 +127,9 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
         spentOn: today,
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(litres !== undefined ? { litres } : {}),
+        ...(odometerReadingKm.trim() !== "" && odometerSource !== null
+          ? { odometerReadingKm: Number.parseInt(odometerReadingKm, 10), odometerSource }
+          : {}),
       });
     },
     onSuccess: (expense) => {
@@ -112,8 +144,15 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
     },
   });
 
+  // GAP-216: same both-or-neither gate as `RecordExpenseSheet` — a typed km
+  // with no source picked would 400 against the schema's own refine.
+  const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
   const canSave =
-    selectedVehicle !== null && amountMinor !== null && amountMinor > 0n && litresValid;
+    selectedVehicle !== null &&
+    amountMinor !== null &&
+    amountMinor > 0n &&
+    litresValid &&
+    !odometerSourceMissing;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Log a fuel fill">
@@ -133,7 +172,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
         />
         <MoneyField label="Amount" valueMinor={amountMinor} onChange={setAmountMinor} />
 
-        <Disclosure sectionName="Litres, borne by and photo">
+        <Disclosure
+          sectionName="Litres, borne by, odometer and photo"
+          forceOpen={odometerSourceMissing}
+        >
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <Label htmlFor="fuel-litres">Litres</Label>
@@ -150,6 +192,40 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
                   Enter a positive number, or leave blank
                 </p>
               ) : null}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <Field label="Odometer reading (km)" htmlFor="fuel-odometer-reading" optional>
+                <Input
+                  id="fuel-odometer-reading"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={odometerReadingKm}
+                  onChange={(e) => setOdometerReadingKm(e.target.value)}
+                />
+              </Field>
+              <div className="flex flex-col gap-2">
+                <Label>Reading source</Label>
+                <div className="flex flex-wrap gap-2">
+                  {ODOMETER_SOURCE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={odometerSource === option.value}
+                      onClick={() => setOdometerSource(option.value)}
+                      className={chipClass(odometerSource === option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {odometerSourceMissing ? (
+                  <p className="text-body-sm text-critical-ink">
+                    Choose how this reading was taken
+                  </p>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex flex-col gap-1">
