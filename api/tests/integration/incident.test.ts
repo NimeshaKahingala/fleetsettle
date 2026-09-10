@@ -1199,6 +1199,67 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       await ctx.cleanup();
     });
 
+    it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const owner = await mintUser(db, ctx, businessId, "manager");
+      const token = await signAccessToken(owner.asgardeoSub);
+
+      const opened = await post("/api/incident", token, {
+        vehicleId,
+        occurredOn: "2026-07-08",
+      });
+      const { id: incidentId }: { id: string } = await opened.json();
+      ctx.trackCreatedIncident(incidentId);
+
+      const original = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "70000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+      });
+      const originalBody: { id: string } = await original.json();
+      ctx.trackCreatedExpense(originalBody.id);
+
+      const voided = await post(`/api/expense/${originalBody.id}/void`, token, {
+        reason: "wrong invoice",
+      });
+      expect(voided.status).toBe(200);
+
+      const replacement = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "75000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+        replacesId: originalBody.id,
+      });
+      expect(replacement.status).toBe(201);
+      const replacementBody: { id: string } = await replacement.json();
+      ctx.trackCreatedExpense(replacementBody.id);
+
+      const res = await getIncidentExpenses(token, incidentId);
+      const body: Array<{
+        id: string;
+        replacesId: string | null;
+        odometerReadingId: string | null;
+      }> = await res.json();
+      const originalRow = body.find((r) => r.id === originalBody.id);
+      const replacementRow = body.find((r) => r.id === replacementBody.id);
+      // The bug: this route declares `listExpensesResponseSchema` (which
+      // requires both fields) but the handler never projected them.
+      expect(replacementRow).toMatchObject({ replacesId: originalBody.id });
+      expect(originalRow).toMatchObject({ replacesId: null });
+      expect(originalRow?.odometerReadingId).toBeNull();
+
+      await ctx.cleanup();
+    });
+
     it("401 — missing Authorization header", async () => {
       const res = await request(`/api/incident/${crypto.randomUUID()}/expense`);
       expect(res.status).toBe(401);

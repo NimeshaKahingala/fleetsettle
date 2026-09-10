@@ -4,6 +4,7 @@ import {
   createExpenseHandler,
   expensePrefillVehicleHandler,
   listExpensesHandler,
+  replaceExpenseHandler,
   resolveBorneByHandler,
   voidExpenseHandler,
 } from "../handlers/expense.js";
@@ -11,6 +12,7 @@ import {
   createExpenseRoute,
   expensePrefillVehicleRoute,
   listExpensesRoute,
+  replaceExpenseRoute,
   resolveBorneByRoute,
   voidExpenseRoute,
 } from "../route-defs/expense.js";
@@ -21,5 +23,6 @@ export const expense = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(createExpenseRoute, createExpenseHandler)
   .openapi(listExpensesRoute, listExpensesHandler)
   .openapi(voidExpenseRoute, voidExpenseHandler)
+  .openapi(replaceExpenseRoute, replaceExpenseHandler)
   .openapi(resolveBorneByRoute, resolveBorneByHandler)
   .openapi(expensePrefillVehicleRoute, expensePrefillVehicleHandler);

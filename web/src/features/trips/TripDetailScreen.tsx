@@ -335,6 +335,7 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
             expenses={expenses}
             formatDate={formatShortDate}
             invalidateKeys={[["trip", tripId, "expense"]]}
+            today={today}
           />
 
           <CloseTripSheet

@@ -104,6 +104,46 @@ export async function listAttachmentsForSubject(
   return rows;
 }
 
+export interface LiveAttachmentForCopy {
+  kind: string;
+  r2Key: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+/**
+ * GAP-219: the same live-row shape `listAttachmentsForSubject` returns,
+ * plus `r2Key` — never added to that one directly, since its rows go
+ * straight into `listAttachmentsHandler`'s response and `r2Key` is an
+ * internal storage reference, not something the client is ever given
+ * (downloads go through their own signed-read path). Domain-only, for
+ * `replaceExpense`'s own receipt-copying: same R2 object, a new attachment
+ * row pointing at the new expense.
+ */
+export async function listLiveAttachmentsForCopy(
+  db: ReadDb,
+  businessId: string,
+  subjectType: string,
+  subjectId: string,
+): Promise<LiveAttachmentForCopy[]> {
+  return db
+    .select({
+      kind: attachment.kind,
+      r2Key: attachment.r2Key,
+      contentType: attachment.contentType,
+      sizeBytes: attachment.sizeBytes,
+    })
+    .from(attachment)
+    .where(
+      and(
+        eq(attachment.businessId, businessId),
+        eq(attachment.subjectType, subjectType),
+        eq(attachment.subjectId, subjectId),
+        isNull(attachment.voidedAt),
+      ),
+    );
+}
+
 /**
  * W-50: void, never delete — the object stays in R2 (A7's plan, decision 3);
  * this only marks the row.

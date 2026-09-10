@@ -6,7 +6,13 @@ import {
   requireCapability,
   requireUserId,
 } from "../auth/context.js";
-import { createExpense, resolveBorneByDefault, voidExpense } from "../domain/expense.js";
+import type { Reader } from "../db/client.js";
+import {
+  createExpense,
+  replaceExpense,
+  resolveBorneByDefault,
+  voidExpense,
+} from "../domain/expense.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
 import { findVehicleWithOldestUnconfirmedDay } from "../queries/day-record.js";
@@ -24,22 +30,35 @@ import type {
   createExpenseRoute,
   expensePrefillVehicleRoute,
   listExpensesRoute,
+  replaceExpenseRoute,
   resolveBorneByRoute,
   voidExpenseRoute,
 } from "../route-defs/expense.js";
 import type { Env } from "../types.js";
 import { assertNotFutureBusinessDate } from "../validation.js";
 
-/** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
-export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
-  requireCapability(c, "dailyOperations");
-  const businessId = requireBusinessId(c);
-  const userId = requireUserId(c);
-  const body = c.req.valid("json");
-  const reader = c.get("reader");
-  const spentOn = asBusinessDate(body.spentOn);
-  assertNotFutureBusinessDate(c, spentOn, "spentOn");
+/**
+ * `createExpenseRequestSchema` and `replaceExpenseRequestSchema` share this
+ * whole field set (GAP-219 keeps the two schemas separate rather than one
+ * deriving the other, since `.refine()` closes over the object shape, but
+ * the tenancy checks below don't care which request shape they came from —
+ * a "wrong vehicle" edit needs the new vehicle validated exactly as a
+ * fresh create would).
+ */
+interface ExpensePartyFields {
+  vehicleId?: string | undefined;
+  tripId?: string | undefined;
+  incidentId?: string | undefined;
+  borneByDriverId?: string | undefined;
+  borneByCustomerId?: string | undefined;
+  paidByUserId?: string | undefined;
+}
 
+async function assertExpensePartiesExist(
+  reader: Reader,
+  businessId: string,
+  body: ExpensePartyFields,
+): Promise<void> {
   if (body.vehicleId !== undefined) {
     const vehicle = await findVehicleForBusiness(reader, businessId, body.vehicleId);
     if (!vehicle) throw new NotFoundError("No such vehicle in this business");
@@ -72,6 +91,19 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     const member = await findBusinessMemberUserId(reader, businessId, body.paidByUserId);
     if (!member) throw new NotFoundError("No such active member in this business");
   }
+}
+
+/** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
+export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const body = c.req.valid("json");
+  const reader = c.get("reader");
+  const spentOn = asBusinessDate(body.spentOn);
+  assertNotFutureBusinessDate(c, spentOn, "spentOn");
+
+  await assertExpensePartiesExist(reader, businessId, body);
 
   const resolved =
     body.borneBy !== undefined
@@ -142,6 +174,79 @@ export const voidExpenseHandler: RouteHandler<typeof voidExpenseRoute, Env> = as
   });
 
   return c.json(result, 200);
+};
+
+/**
+ * GAP-219/F-8.5. "Edit" on the client — void-and-replace underneath, one
+ * request, `dailyOperations` (STAFF) same as create/void. Rejects a target
+ * that's already voided (`ExpenseAlreadyVoidedError`, 409) — that row's
+ * correction already happened; a second edit on it would replace the
+ * replacement without a caller ever seeing which row is actually live.
+ */
+export const replaceExpenseHandler: RouteHandler<typeof replaceExpenseRoute, Env> = async (c) => {
+  requireCapability(c, "dailyOperations");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+  const reader = c.get("reader");
+  const spentOn = asBusinessDate(body.spentOn);
+  assertNotFutureBusinessDate(c, spentOn, "spentOn");
+
+  await assertExpensePartiesExist(reader, businessId, body);
+
+  const resolved =
+    body.borneBy !== undefined
+      ? {
+          borneBy: body.borneBy,
+          ...(body.borneByDriverId !== undefined ? { borneByDriverId: body.borneByDriverId } : {}),
+          ...(body.borneByCustomerId !== undefined
+            ? { borneByCustomerId: body.borneByCustomerId }
+            : {}),
+        }
+      : body.vehicleId !== undefined
+        ? await resolveBorneByDefault(reader, body.vehicleId, body.category, spentOn)
+        : { borneBy: "us" as const };
+
+  const { id: newExpenseId, odometerReadingId } = await replaceExpense(c.get("writer"), c.env.R2, {
+    businessId,
+    expenseId: id,
+    ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
+    ...(body.tripId !== undefined ? { tripId: body.tripId } : {}),
+    ...(body.incidentId !== undefined ? { incidentId: body.incidentId } : {}),
+    category: body.category,
+    amountMinor: body.amountMinor,
+    spentOn,
+    ...resolved,
+    paidByUserId: body.paidByUserId ?? userId,
+    actorUserId: userId,
+    ...(body.litres !== undefined ? { litres: body.litres } : {}),
+    ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
+    ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
+    ...(body.note !== undefined ? { note: body.note } : {}),
+    reason: body.reason,
+  });
+
+  return c.json(
+    {
+      id: newExpenseId,
+      vehicleId: body.vehicleId ?? null,
+      tripId: body.tripId ?? null,
+      incidentId: body.incidentId ?? null,
+      category: body.category,
+      amountMinor: toWire(body.amountMinor),
+      spentOn: body.spentOn,
+      borneBy: resolved.borneBy,
+      borneByDriverId: resolved.borneByDriverId ?? null,
+      borneByCustomerId: resolved.borneByCustomerId ?? null,
+      paidByUserId: body.paidByUserId ?? userId,
+      litres: body.litres ?? null,
+      odometerReadingId,
+      note: body.note ?? null,
+      replacesId: id,
+    },
+    201,
+  );
 };
 
 function toListRow(row: BusinessExpenseRow) {

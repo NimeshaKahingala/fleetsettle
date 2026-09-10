@@ -2459,6 +2459,71 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     await ctx.cleanup();
   });
 
+  it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const trip = await postTrip(token, {
+      vehicleId,
+      startDate: "2026-03-01",
+      endDate: "2026-03-03",
+    });
+    const tripBody: { id: string } = await trip.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const original = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "2200000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+    });
+    const originalBody: { id: string } = await original.json();
+    ctx.trackCreatedExpense(originalBody.id);
+
+    const voided = await request(`/api/expense/${originalBody.id}/void`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: "wrong amount" }),
+    });
+    expect(voided.status).toBe(200);
+
+    const replacement = await postExpense(token, {
+      vehicleId,
+      tripId: tripBody.id,
+      category: "fuel",
+      amountMinor: "2500000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+      replacesId: originalBody.id,
+    });
+    expect(replacement.status).toBe(201);
+    const replacementBody: { id: string } = await replacement.json();
+    ctx.trackCreatedExpense(replacementBody.id);
+
+    const res = await getTripExpenses(token, tripBody.id);
+    const body: Array<{ id: string; replacesId: string | null; odometerReadingId: string | null }> =
+      await res.json();
+    const originalRow = body.find((r) => r.id === originalBody.id);
+    const replacementRow = body.find((r) => r.id === replacementBody.id);
+    // The bug: this route declares `listExpensesResponseSchema` (which
+    // requires both fields) but the handler never projected them, so a
+    // client reading `replacesId` off this list got `undefined` — not `null`,
+    // not the real id, simply absent — with nothing catching it because
+    // zod-openapi doesn't validate responses.
+    expect(replacementRow).toMatchObject({ replacesId: originalBody.id });
+    expect(originalRow).toMatchObject({ replacesId: null });
+    expect(originalRow?.odometerReadingId).toBeNull();
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request(`/api/trip/${crypto.randomUUID()}/expense`);
     expect(res.status).toBe(401);

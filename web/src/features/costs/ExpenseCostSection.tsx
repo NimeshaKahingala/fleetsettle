@@ -1,4 +1,4 @@
-import { add, parse, ZERO } from "@fleetsettle/shared";
+import { add, parse, ZERO, type BusinessDate } from "@fleetsettle/shared";
 import type { ExpenseListRow } from "@fleetsettle/shared/schemas";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
@@ -13,6 +13,8 @@ export interface ExpenseCostSectionProps {
   formatDate: (spentOn: string) => string;
   /** Every query key whose list includes these rows — forwarded to each `ExpenseCostRow`'s void sheet unchanged. */
   invalidateKeys: readonly unknown[][];
+  /** GAP-219: forwarded to each row's own edit sheet (`RecordExpenseSheet` needs it regardless of mode). */
+  today: BusinessDate;
 }
 
 /**
@@ -39,6 +41,7 @@ export function ExpenseCostSection({
   expenses,
   formatDate,
   invalidateKeys,
+  today,
 }: ExpenseCostSectionProps) {
   const [showVoided, setShowVoided] = useState(false);
 
@@ -61,6 +64,7 @@ export function ExpenseCostSection({
             expense={expense}
             formattedDate={formatDate(expense.spentOn)}
             invalidateKeys={invalidateKeys}
+            today={today}
           />
         ))}
       />

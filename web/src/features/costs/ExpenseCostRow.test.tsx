@@ -1,3 +1,4 @@
+import { asBusinessDate } from "@fleetsettle/shared";
 import type {
   AttachmentResponse,
   ExpenseListRow,
@@ -8,6 +9,8 @@ import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { ExpenseCostRow } from "./ExpenseCostRow.js";
+
+const today = asBusinessDate("2026-08-08");
 
 const liveExpense: ExpenseListRow = {
   id: "e1",
@@ -29,20 +32,58 @@ const liveExpense: ExpenseListRow = {
   replacesId: null,
 };
 
-test("a live row is tappable and opens the void sheet", async () => {
+test("a live row is tappable and offers Edit and Void (GAP-219)", async () => {
   const user = userEvent.setup();
   renderWithProviders(
     <ExpenseCostRow
       expense={liveExpense}
       formattedDate="8 Aug 2026"
       invalidateKeys={[["vehicle", "v1", "expense"]]}
+      today={today}
     />,
   );
 
   expect(screen.queryByLabelText("Reason")).toBeNull();
   await user.click(screen.getByRole("button", { name: /Repairs/ }));
 
+  expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Void" })).toBeInTheDocument();
+});
+
+test("choosing Void from the action sheet opens the void sheet (GAP-219)", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <ExpenseCostRow
+      expense={liveExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[["vehicle", "v1", "expense"]]}
+      today={today}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: /Repairs/ }));
+  await user.click(screen.getByRole("button", { name: "Void" }));
+
   expect(screen.getByLabelText("Reason")).toBeInTheDocument();
+});
+
+test("choosing Edit from the action sheet opens the sheet pre-filled, with a required reason (GAP-219)", async () => {
+  const user = userEvent.setup();
+  renderWithProviders(
+    <ExpenseCostRow
+      expense={liveExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[["vehicle", "v1", "expense"]]}
+      today={today}
+    />,
+  );
+
+  await user.click(screen.getByRole("button", { name: /Repairs/ }));
+  await user.click(screen.getByRole("button", { name: "Edit" }));
+
+  expect(await screen.findByText("Edit expense")).toBeInTheDocument();
+  expect(screen.getByLabelText("Reason for the change")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
 });
 
 test("a voided row is not tappable — INV-21: it stays visible, struck through, and cannot be voided twice", () => {
@@ -52,7 +93,12 @@ test("a voided row is not tappable — INV-21: it stays visible, struck through,
     voidedReason: "Wrong vehicle",
   };
   renderWithProviders(
-    <ExpenseCostRow expense={voided} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={voided}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
   );
 
   expect(screen.queryByRole("button")).toBeNull();
@@ -67,7 +113,12 @@ test("the voided badge and reason use the critical token, not muted text (UI-LF-
     voidedReason: "Wrong vehicle",
   };
   renderWithProviders(
-    <ExpenseCostRow expense={voided} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={voided}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
   );
 
   expect(screen.getByText("Voided").className).toContain("bg-critical/15");
@@ -77,7 +128,12 @@ test("the voided badge and reason use the critical token, not muted text (UI-LF-
 test("shows litres when present, unconditionally on every caller", () => {
   const fuelExpense: ExpenseListRow = { ...liveExpense, category: "fuel", litres: 42 };
   renderWithProviders(
-    <ExpenseCostRow expense={fuelExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={fuelExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
   );
 
   expect(screen.getByText(/42ℓ/)).toBeInTheDocument();
@@ -91,12 +147,14 @@ test("passes the caller's own invalidateKeys through to the void mutation's succ
       expense={liveExpense}
       formattedDate="8 Aug 2026"
       invalidateKeys={[["trip", "t1", "expense"]]}
+      today={today}
     />,
     { post },
   );
   const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
   await user.click(screen.getByRole("button", { name: /Repairs/ }));
+  await user.click(screen.getByRole("button", { name: "Void" }));
   await user.type(screen.getByLabelText("Reason"), "Wrong trip");
   await user.click(screen.getByRole("button", { name: "Void expense" }));
 
@@ -108,7 +166,12 @@ test("passes the caller's own invalidateKeys through to the void mutation's succ
 test("no receipt indicator when the expense has no attachments", async () => {
   const get = vi.fn().mockResolvedValue([] satisfies ListAttachmentsResponse);
   renderWithProviders(
-    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={liveExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
     { get },
   );
 
@@ -125,7 +188,12 @@ test("no receipt indicator when the expense has no attachments", async () => {
 test("GAP-130: shows a pending notice rather than silently no receipt indicator while the read is in flight", async () => {
   const get = vi.fn().mockImplementation(() => new Promise<never>(() => {}));
   renderWithProviders(
-    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={liveExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
     { get },
   );
 
@@ -150,7 +218,12 @@ test("a receipt indicator shows the count and opens the receipt sheet — GAP-16
     contentType: "image/jpeg",
   });
   renderWithProviders(
-    <ExpenseCostRow expense={liveExpense} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={liveExpense}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
     { get, getBlob },
   );
 
@@ -180,7 +253,12 @@ test("a voided expense's receipts stay visible — they are evidence of what was
   };
   const get = vi.fn().mockResolvedValue([receipt] satisfies ListAttachmentsResponse);
   renderWithProviders(
-    <ExpenseCostRow expense={voided} formattedDate="8 Aug 2026" invalidateKeys={[]} />,
+    <ExpenseCostRow
+      expense={voided}
+      formattedDate="8 Aug 2026"
+      invalidateKeys={[]}
+      today={today}
+    />,
     { get },
   );
 

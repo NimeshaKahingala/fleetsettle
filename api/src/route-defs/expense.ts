@@ -5,6 +5,7 @@ import {
   expenseResponseSchema,
   listExpensesQuerySchema,
   listExpensesResponseSchema,
+  replaceExpenseRequestSchema,
   resolveBorneByQuerySchema,
   resolveBorneByResponseSchema,
   voidedExpenseResponseSchema,
@@ -77,6 +78,39 @@ export const voidExpenseRoute = createRoute({
     403: { description: "This role cannot void an expense" },
     404: { description: "No such expense in this business" },
     409: { description: "This expense has already been voided, or PERIOD_CLOSED (GAP-35)" },
+  },
+});
+
+/**
+ * GAP-219/F-8.5: "Edit" — void-and-replace underneath, one request. The
+ * client never calls void directly for this; it PATCHes here with the
+ * corrected fields and a reason, and the server does both writes in one
+ * transaction (domain/expense.ts) so a dropped connection can never leave
+ * the mistake voided with nothing replacing it.
+ */
+export const replaceExpenseRoute = createRoute({
+  method: "patch",
+  path: "/{id}",
+  request: {
+    params: expenseIdParams,
+    body: { content: { "application/json": { schema: replaceExpenseRequestSchema } } },
+  },
+  responses: {
+    201: {
+      content: { "application/json": { schema: expenseResponseSchema } },
+      description: "The replacement expense; the original is now voided",
+    },
+    400: {
+      description:
+        "borne-by names a party with no matching id, or odometerReadingKm is given without a vehicleId (GAP-30)",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot edit an expense" },
+    404: { description: "No such expense in this business" },
+    409: {
+      description:
+        "This expense is already voided (edit it through its own replacement instead), that accounting period is closed, or a concurrent edit already replaced it",
+    },
   },
 });
 

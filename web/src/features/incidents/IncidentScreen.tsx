@@ -388,6 +388,7 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               ["incident", incidentId, "expense"],
               ["incident", incidentId],
             ]}
+            today={today}
           />
 
           <OffRoadSheet

@@ -185,3 +185,54 @@ export const voidedExpenseResponseSchema = z.object({
   voidedAt: z.string(),
 });
 export type VoidedExpenseResponse = z.infer<typeof voidedExpenseResponseSchema>;
+
+/**
+ * GAP-219/F-8.5: "Edit" on the client, void-and-replace underneath — the
+ * wire shape is one request either way (`PATCH /api/expense/{id}`), and the
+ * word "void" never reaches the manager. Same field set and refinements as
+ * `createExpenseRequestSchema` (kept as a separate object rather than
+ * derived from it, since `.refine()` closes over the object shape and this
+ * one adds a field), plus `reason`, required — a money correction never
+ * has an optional one (F-8.5's own Accept clause; migration 0025's
+ * `replaces_id` unique index is the constraint half, this is the input
+ * half). `replacesId` has no place here: the server sets it to the id in
+ * the path, the same way `void`'s own reason doesn't let the caller name a
+ * different target than the URL.
+ */
+export const replaceExpenseRequestSchema = z
+  .object({
+    vehicleId: uuidSchema.optional(),
+    tripId: uuidSchema.optional(),
+    incidentId: uuidSchema.optional(),
+    category: expenseCategorySchema,
+    amountMinor: positiveMoneyWireSchema,
+    spentOn: businessDateSchema,
+    borneBy: borneBySchema.optional(),
+    borneByDriverId: uuidSchema.optional(),
+    borneByCustomerId: uuidSchema.optional(),
+    paidByUserId: uuidSchema.optional(),
+    // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money (UC-72)
+    litres: z.number().positive().optional(),
+    // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+    odometerReadingKm: z.number().int().nonnegative().optional(),
+    odometerSource: odometerSourceSchema.optional(),
+    note: z.string().trim().max(500).optional(),
+    reason: z.string().trim().min(1).max(500),
+  })
+  .refine((v) => v.borneBy !== "driver" || v.borneByDriverId !== undefined, {
+    message: "borneByDriverId is required when borneBy is 'driver'",
+    path: ["borneByDriverId"],
+  })
+  .refine((v) => v.borneBy !== "customer" || v.borneByCustomerId !== undefined, {
+    message: "borneByCustomerId is required when borneBy is 'customer'",
+    path: ["borneByCustomerId"],
+  })
+  .refine((v) => (v.odometerReadingKm === undefined) === (v.odometerSource === undefined), {
+    message: "odometerReadingKm and odometerSource must be given together",
+    path: ["odometerSource"],
+  })
+  .refine((v) => v.odometerReadingKm === undefined || v.vehicleId !== undefined, {
+    message: "vehicleId is required to record an odometer reading",
+    path: ["vehicleId"],
+  });
+export type ReplaceExpenseRequest = z.infer<typeof replaceExpenseRequestSchema>;

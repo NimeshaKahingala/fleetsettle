@@ -553,6 +553,21 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     const voided = await postVoidExpense(token, olderBody.id, { reason: "wrong vehicle" });
     expect(voided.status).toBe(200);
 
+    // GAP-60/D-16: the corrected replacement, linked back via `replacesId`.
+    // Dated after both existing rows so the newest-first order stays
+    // unambiguous — `listExpensesForVehicle` orders by `spentOn` alone,
+    // with no tie-break, so a same-date row's position would be undefined.
+    const replacement = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "600000",
+      spentOn: "2026-07-25",
+      replacesId: olderBody.id,
+    });
+    expect(replacement.status).toBe(201);
+    const replacementBody: { id: string } = await replacement.json();
+    ctx.trackCreatedExpense(replacementBody.id);
+
     const res = await listVehicleExpenses(token, vehicleId);
     expect(res.status).toBe(200);
     const body: Array<{
@@ -560,11 +575,20 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
       category: string;
       voidedAt: string | null;
       voidedReason: string | null;
+      replacesId: string | null;
+      odometerReadingId: string | null;
     }> = await res.json();
-    expect(body.map((e) => e.id)).toEqual([newerBody.id, olderBody.id]);
-    expect(body[1]).toMatchObject({ voidedReason: "wrong vehicle" });
-    expect(body[1]?.voidedAt).not.toBeNull();
-    expect(body[0]).toMatchObject({ voidedAt: null, voidedReason: null });
+    expect(body.map((e) => e.id)).toEqual([replacementBody.id, newerBody.id, olderBody.id]);
+    expect(body[2]).toMatchObject({ voidedReason: "wrong vehicle" });
+    expect(body[2]?.voidedAt).not.toBeNull();
+    expect(body[1]).toMatchObject({ voidedAt: null, voidedReason: null });
+    // GAP-218: the route declares `listExpensesResponseSchema` (which has
+    // required both fields since GAP-30/GAP-60), but the handler never
+    // projected them — a client reading `replacesId` off this list got
+    // `undefined`, not the real id, with nothing catching the mismatch
+    // because zod-openapi doesn't validate responses.
+    expect(body[0]).toMatchObject({ replacesId: olderBody.id });
+    expect(body[2]).toMatchObject({ replacesId: null, odometerReadingId: null });
 
     await ctx.cleanup();
   });

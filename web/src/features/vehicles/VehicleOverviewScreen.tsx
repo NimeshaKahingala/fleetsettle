@@ -467,6 +467,7 @@ export function VehicleOverviewScreen({
             expenses={expenses}
             formatDate={formatShortDate}
             invalidateKeys={[["vehicle", vehicleId, "expense"]]}
+            today={today}
           />
 
           {incidentsState.kind === "error" ? (

@@ -1,6 +1,7 @@
-import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { asBusinessDate, parse, toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type {
   BusinessMemberResponse,
+  ExpenseListRow,
   ExpenseResponse,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
@@ -42,6 +43,15 @@ export interface RecordExpenseSheetProps {
   /** GAP-172: set when opened from an incident's own action menu — folds this cost into UC-12's bottom line. Always given together with `vehicleId` by its one caller, for the same reason as `tripId`. */
   incidentId?: string;
   onRecorded: (expense: ExpenseResponse) => void;
+  /**
+   * GAP-219/F-8.5: set to correct this row instead of recording a new one.
+   * Wire is one request either way (`PATCH /api/expense/{id}`) — void-and-
+   * replace happens underneath (domain/expense.ts), so the word "void"
+   * never reaches this sheet. Only a *live* row is ever handed here
+   * (`ExpenseCostRow` only offers Edit on one) — a voided row's correction
+   * already happened; see it through its own replacement instead.
+   */
+  editing?: ExpenseListRow;
 }
 
 /**
@@ -59,6 +69,17 @@ export interface RecordExpenseSheetProps {
  * read: choosing "You" omits `paidByUserId` so the server keeps its
  * original "whoever is entering" default, while choosing another member
  * sends that member's `userId` explicitly.
+ *
+ * GAP-219/F-8.5: `editing` turns this into the same sheet with the fields
+ * pre-filled from the row being corrected, plus a required "Reason for the
+ * change" — "Edit" is what the manager sees; void-and-replace happens
+ * underneath in one PATCH request (domain/expense.ts), never a second call
+ * from here. **A known limit of this pass**: the vehicle a cost is filed
+ * against can't be reassigned through this sheet — every caller that opens
+ * it for editing already locks `vehicleId` from its own screen context, the
+ * same way create does, so F-8.5's own "wrong vehicle" example needs a
+ * vehicle-reassignment picker this sheet doesn't yet offer, even though the
+ * backend (`replaceExpenseRequestSchema`) already accepts a different one.
  */
 export function RecordExpenseSheet({
   open,
@@ -68,6 +89,7 @@ export function RecordExpenseSheet({
   tripId,
   incidentId,
   onRecorded,
+  editing,
 }: RecordExpenseSheetProps) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -80,6 +102,10 @@ export function RecordExpenseSheet({
   const [borneByUs, setBorneByUs] = useState(false);
   const [paidBy, setPaidBy] = useState<EntityOption>({ id: "you", label: "You" });
   const [moreOpen, setMoreOpen] = useState(false);
+  // F-8.5: required for a money correction (never optional, unlike a plain
+  // create) — migration 0025's `replaces_id` unique index is the
+  // constraint half; this is the input half.
+  const [reason, setReason] = useState("");
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const effectiveVehicleId = vehicleId ?? selectedVehicle?.id;
@@ -92,7 +118,12 @@ export function RecordExpenseSheet({
   const membersQuery = useQuery({
     queryKey: ["business-member"],
     queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),
-    enabled: open && moreOpen,
+    // GAP-219: fetched eagerly in edit mode, not gated on `moreOpen` — the
+    // picker's initial selection has to resolve `editing.paidByUserId` to
+    // a real name before the manager ever opens the disclosure, or Save
+    // would silently keep whatever "You" defaults to (the current actor),
+    // not the party the original record actually named.
+    enabled: open && (moreOpen || editing !== undefined),
   });
   // GAP-101: a failed vehicle-list read must fail the picker in place, not
   // silently render as "you have no vehicles" (`?? []`) — the rest of the
@@ -102,26 +133,57 @@ export function RecordExpenseSheet({
 
   useEffect(() => {
     if (open) {
-      setAmountMinor(null);
-      setCategory(null);
-      setSelectedVehicle(null);
-      setSpentOn(today);
-      setNote("");
-      setBorneByUs(false);
-      setPaidBy({ id: "you", label: "You" });
+      if (editing !== undefined) {
+        setAmountMinor(parse(editing.amountMinor));
+        setCategory(editing.category);
+        setSpentOn(asBusinessDate(editing.spentOn));
+        setNote(editing.note ?? "");
+        setBorneByUs(editing.borneBy === "us");
+        // Resolved to a real name below, once membersQuery loads — "You"
+        // is a placeholder for this one render, not an assumption that the
+        // original record was actually paid by whoever opened Edit.
+        setPaidBy(
+          editing.paidByUserId === null ? { id: "you", label: "You" } : { id: "you", label: "…" },
+        );
+      } else {
+        setAmountMinor(null);
+        setCategory(null);
+        setSelectedVehicle(null);
+        setSpentOn(today);
+        setNote("");
+        setBorneByUs(false);
+        setPaidBy({ id: "you", label: "You" });
+      }
       setMoreOpen(false);
+      setReason("");
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync-on-open only
   }, [open]);
 
+  // GAP-219: resolves `editing.paidByUserId` to a real name once the member
+  // list arrives — cannot happen in the sync-on-open effect above, which
+  // fires before this query has ever had a chance to load.
+  useEffect(() => {
+    if (open && editing !== undefined && editing.paidByUserId !== null && membersQuery.data) {
+      const match = membersQuery.data.find((m) => m.userId === editing.paidByUserId);
+      if (match) {
+        setPaidBy({
+          id: match.userId,
+          label: match.displayName ?? "Unnamed member",
+          sublabel: BUSINESS_MEMBER_ROLE_LABEL[match.role],
+        });
+      }
+    }
+  }, [open, editing, membersQuery.data]);
+
   const mutation = useMutation({
     mutationFn: () => {
       if (amountMinor === null || category === null) {
         throw new Error("Amount and category are required");
       }
-      return api.post<ExpenseResponse>("/api/expense", {
+      const fields = {
         ...(effectiveVehicleId !== undefined ? { vehicleId: effectiveVehicleId } : {}),
         ...(tripId !== undefined ? { tripId } : {}),
         ...(incidentId !== undefined ? { incidentId } : {}),
@@ -131,7 +193,20 @@ export function RecordExpenseSheet({
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
-      });
+      };
+      // GAP-219: "Edit" is one request either way — void-and-replace
+      // happens inside this one PATCH (domain/expense.ts), never a second
+      // call from here. A reason is required for a money correction
+      // (F-8.5's own Accept clause), never optional the way a plain
+      // create's own note is.
+      if (editing !== undefined) {
+        if (reason.trim() === "") throw new Error("A reason is required to edit an expense");
+        return api.patch<ExpenseResponse>(`/api/expense/${editing.id}`, {
+          ...fields,
+          reason: reason.trim(),
+        });
+      }
+      return api.post<ExpenseResponse>("/api/expense", fields);
     },
     onSuccess: (expense) => {
       void queryClient.invalidateQueries({ queryKey: ["expenses"] });
@@ -155,6 +230,9 @@ export function RecordExpenseSheet({
       }
       // The record saves first and the photos follow it (UI §6.3) — any
       // photo captured before Save was only ever held locally until now.
+      // On an edit, `expense.id` is the *replacement*'s id — a photo
+      // captured during this edit belongs to the corrected record, not the
+      // one just voided underneath it.
       photoUpload.flush(expense.id);
       onRecorded(expense);
     },
@@ -173,10 +251,18 @@ export function RecordExpenseSheet({
     })),
   ];
 
-  const canSave = amountMinor !== null && amountMinor > 0n && category !== null;
+  const canSave =
+    amountMinor !== null &&
+    amountMinor > 0n &&
+    category !== null &&
+    (editing === undefined || reason.trim() !== "");
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange} title="Record expense">
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      title={editing !== undefined ? "Edit expense" : "Record expense"}
+    >
       <div className="flex flex-col gap-4">
         <MoneyField label="Amount" valueMinor={amountMinor} onChange={setAmountMinor} />
 
@@ -222,6 +308,13 @@ export function RecordExpenseSheet({
         ) : null}
 
         <DateField label="Date" value={spentOn} today={today} onChange={setSpentOn} />
+
+        {editing !== undefined ? (
+          // F-8.5: required, not level-2 — a money correction always
+          // carries a reason (migration 0025's `replaces_id` unique index
+          // is the constraint half; this is the input half).
+          <NoteField label="Reason for the change" value={reason} onChange={setReason} />
+        ) : null}
 
         <Disclosure sectionName="Paid by, borne by and note" onOpenChange={setMoreOpen}>
           <div className="flex flex-col gap-4">
@@ -272,7 +365,7 @@ export function RecordExpenseSheet({
           disabled={!canSave || mutation.isPending}
           onClick={() => mutation.mutate()}
         >
-          Record expense
+          {editing !== undefined ? "Save changes" : "Record expense"}
         </Button>
       </div>
 

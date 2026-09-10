@@ -444,6 +444,7 @@ test("GAP-191: voiding a repair cost refreshes the incident's own bottom line, n
   await waitFor(() => expect(within(bottomLine).getAllByText("Rs 500")).toHaveLength(2));
 
   await user.click(await screen.findByText("Repairs"));
+  await user.click(await screen.findByRole("button", { name: "Void" }));
   await user.type(await screen.findByLabelText("Reason"), "test");
   await user.click(await screen.findByRole("button", { name: "Void expense" }));
 
