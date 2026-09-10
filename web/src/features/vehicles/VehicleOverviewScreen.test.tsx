@@ -139,6 +139,47 @@ test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sh
   );
 });
 
+test("GAP-225: Mark unavailable, via the Vehicle actions menu, opens F-1.10's sheet without a trip to the calendar screen first", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "u1",
+    vehicleId: "v1",
+    reason: "service",
+    unavailableFrom: "2026-08-08",
+    unavailableTo: null,
+    note: null,
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  // The action-sheet menu item and the opened sheet's own submit button
+  // share the exact label ("Mark unavailable") — findAllByRole below picks
+  // the second, once the menu has closed and only the sheet's own button
+  // remains.
+  await user.click(await screen.findByRole("button", { name: "Mark unavailable" }));
+  const submitButtons = await screen.findAllByRole("button", { name: "Mark unavailable" });
+  await user.click(submitButtons[submitButtons.length - 1] as HTMLElement);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/vehicle/v1/unavailability",
+      expect.objectContaining({ reason: "service" }),
+    ),
+  );
+});
+
 test("GAP-146: Archive vehicle posts from the vehicle's own actions", async () => {
   const user = userEvent.setup();
   const get = baseGet();
@@ -537,7 +578,7 @@ test("GAP-102: tapping an existing paperwork row opens it prefilled for renewal"
   );
 });
 
-test("a voided expense stays in the costs list, struck through, with its reason (W-50)", async () => {
+test("a voided expense is hidden by default behind a labelled toggle, then shows struck through with its reason (W-50/GAP-222)", async () => {
   const expenses: ExpenseListRow[] = [
     {
       id: "e1",
@@ -592,15 +633,24 @@ test("a voided expense stays in the costs list, struck through, with its reason 
     { get },
   );
 
-  expect(await screen.findByText("Costs · 2")).toBeInTheDocument();
+  // GAP-221: the heading's count and total now describe the same rows —
+  // one live expense, Rs 5,000 — rather than a count of two beside a total
+  // that only ever summed one of them.
+  expect(await screen.findByText("Costs · 1")).toBeInTheDocument();
   expect(screen.getByText("Fuel")).toBeInTheDocument();
-  const voidedCategory = screen.getByText("Repairs");
+  // GAP-222: the voided row is hidden by default, named only by the toggle.
+  expect(screen.queryByText("Repairs")).not.toBeInTheDocument();
+  expect(screen.queryByText("Voided")).not.toBeInTheDocument();
+  const showVoided = screen.getByRole("button", { name: "1 voided · Show" });
+
+  await userEvent.setup().click(showVoided);
+
+  const voidedCategory = await screen.findByText("Repairs");
   expect(voidedCategory).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong vehicle")).toBeInTheDocument();
-  // GAP-96: the scoped total beside the heading excludes the voided row —
-  // 5,000 (fuel) alone, not 17,000. Appears twice: the heading's own total
-  // and the one live row that contributes to it.
+  expect(screen.getByRole("button", { name: "1 voided · Hide" })).toBeInTheDocument();
+  // The heading total is unaffected by expanding — still the one live row.
   expect(screen.getAllByText("Rs 5,000")).toHaveLength(2);
 });
 

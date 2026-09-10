@@ -408,6 +408,8 @@ export const listVehicleExpensesHandler: RouteHandler<
       note: row.note,
       voidedAt: row.voidedAt,
       voidedReason: row.voidedReason,
+      odometerReadingId: row.odometerReadingId,
+      replacesId: row.replacesId,
     })),
     200,
   );

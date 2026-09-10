@@ -20,7 +20,7 @@ import { Section } from "../../design/primitives/Section.js";
 import { StatTile } from "../../design/primitives/StatTile.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
-import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { ExpenseCostSection } from "../costs/ExpenseCostSection.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { CustomerContributionSheet } from "./CustomerContributionSheet.js";
 import { InsuranceClaimSheet } from "./InsuranceClaimSheet.js";
@@ -380,23 +380,16 @@ export function IncidentScreen({ incidentId, today, onBack }: IncidentScreenProp
               of="repair costs"
             />
           ) : null}
-          {expenses.length > 0 ? (
-            <Section
-              title="Repair costs"
-              count={expenses.length}
-              items={expenses.map((expense) => (
-                <ExpenseCostRow
-                  key={expense.id}
-                  expense={expense}
-                  formattedDate={formatShortDate(expense.spentOn)}
-                  invalidateKeys={[
-                    ["incident", incidentId, "expense"],
-                    ["incident", incidentId],
-                  ]}
-                />
-              ))}
-            />
-          ) : null}
+          <ExpenseCostSection
+            title="Repair costs"
+            expenses={expenses}
+            formatDate={formatShortDate}
+            invalidateKeys={[
+              ["incident", incidentId, "expense"],
+              ["incident", incidentId],
+            ]}
+            today={today}
+          />
 
           <OffRoadSheet
             open={offRoadOpen}

@@ -3,10 +3,16 @@ import type { BorneBy, ExpenseCategory, OdometerSource } from "@fleetsettle/shar
 import type { Reader, Writer } from "../db/client.js";
 import { findActiveLeaseForVehicle } from "../queries/lease.js";
 import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
-import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
+import { resolvePeriodLinkage, type PeriodLinkage } from "../queries/accounting-period.js";
+import {
+  findExpenseForBusiness,
+  insertExpense,
+  voidExpenseRow,
+  type NewExpense,
+} from "../queries/expense.js";
 import { insertOdometerReading } from "../queries/odometer-reading.js";
 import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
+import { insertAttachment, listLiveAttachmentsForCopy } from "../queries/attachment.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   ExpenseAlreadyVoidedError,
@@ -134,6 +140,61 @@ export interface CreatedExpense {
  * is what `listUsBoughtFuelFills` (queries/reports.ts, UC-72) has been
  * reading with nothing ever writing it.
  */
+/**
+ * `createExpense` and `replaceExpense` both build the identical `NewExpense`
+ * values, differing only in the new row's own id and its `replacesId` (from
+ * the body on create, optional; always the corrected row's own id on
+ * replace) — extracted so the field list can't drift between the two
+ * insert sites the way a hand-maintained list elsewhere in this schema
+ * already has once (CLAUDE.md → Writes).
+ */
+function buildNewExpenseValues(
+  id: string,
+  input: {
+    businessId: string;
+    vehicleId?: string;
+    tripId?: string;
+    incidentId?: string;
+    category: ExpenseCategory;
+    amountMinor: Minor;
+    spentOn: BusinessDate;
+    borneBy: BorneBy;
+    borneByDriverId?: string;
+    borneByCustomerId?: string;
+    paidByUserId: string;
+    litres?: number;
+    note?: string;
+    actorUserId: string;
+  },
+  linkage: PeriodLinkage,
+  odometerReadingId: string | undefined,
+  replacesId: string | undefined,
+): NewExpense {
+  return {
+    id,
+    businessId: input.businessId,
+    ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+    ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
+    ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
+    category: input.category,
+    amountMinor: input.amountMinor,
+    spentOn: input.spentOn,
+    borneBy: input.borneBy,
+    ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
+    ...(input.borneByCustomerId !== undefined
+      ? { borneByCustomerId: input.borneByCustomerId }
+      : {}),
+    paidByUserId: input.paidByUserId,
+    ...(input.litres !== undefined ? { litres: input.litres } : {}),
+    ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
+    ...(input.note !== undefined ? { note: input.note } : {}),
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+    createdBy: input.actorUserId,
+    ...(replacesId !== undefined ? { replacesId } : {}),
+  };
+}
+
 export async function createExpense(
   writer: Writer,
   input: CreateExpenseInput,
@@ -176,31 +237,10 @@ export async function createExpense(
         });
       }
 
-      await insertExpense(tx, {
-        id: expenseId,
-        businessId: input.businessId,
-        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
-        ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
-        ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
-        category: input.category,
-        amountMinor: input.amountMinor,
-        spentOn: input.spentOn,
-        borneBy: input.borneBy,
-        ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
-        ...(input.borneByCustomerId !== undefined
-          ? { borneByCustomerId: input.borneByCustomerId }
-          : {}),
-        paidByUserId: input.paidByUserId,
-        ...(input.litres !== undefined ? { litres: input.litres } : {}),
-        ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
-        ...(input.note !== undefined ? { note: input.note } : {}),
-        postedPeriodId: linkage.postedPeriodId,
-        ...(linkage.belongsToPeriodId !== null
-          ? { belongsToPeriodId: linkage.belongsToPeriodId }
-          : {}),
-        createdBy: input.actorUserId,
-        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      });
+      await insertExpense(
+        tx,
+        buildNewExpenseValues(expenseId, input, linkage, odometerReadingId, input.replacesId),
+      );
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -260,4 +300,182 @@ export async function voidExpense(writer: Writer, input: VoidExpenseInput): Prom
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
     throw err;
   }
+}
+
+export interface ReplaceExpenseInput {
+  businessId: string;
+  /** The mistake — voided by this same write, never a separate call (INV-36/W-61). */
+  expenseId: string;
+  vehicleId?: string;
+  tripId?: string;
+  incidentId?: string;
+  category: ExpenseCategory;
+  amountMinor: Minor;
+  spentOn: BusinessDate;
+  borneBy: BorneBy;
+  borneByDriverId?: string;
+  borneByCustomerId?: string;
+  paidByUserId: string;
+  actorUserId: string;
+  litres?: number;
+  odometerReadingKm?: number;
+  odometerSource?: OdometerSource;
+  note?: string;
+  reason: string;
+}
+
+export interface ReplacedExpense {
+  id: string;
+  odometerReadingId: string | null;
+}
+
+/**
+ * GAP-224/F-8.5: "Edit" on the client, void-and-replace underneath, one
+ * transaction. Two callers driving this same mechanism separately (void,
+ * wait for 200, then POST the replacement) is a reachable half-done state
+ * — the second call fails on a dropped connection and the money is simply
+ * gone, voided with nothing standing in its place. This closes that gap by
+ * construction: `resolvePeriodLinkage` guards the whole transaction, so
+ * editing a closed month's expense fails exactly the same way voiding one
+ * already does (`PERIOD_CLOSED`), before anything is written on either
+ * side. `voidExpenseRow`'s own `WHERE voided_at IS NULL` still guards a
+ * concurrent double-edit racing this one; migration 0025's
+ * `expense_replaces_id_key` still guards two edits racing each other to
+ * replace the same row.
+ *
+ * Receipts (INV-32/W-50): a photo already attached to the mistake is
+ * evidence of what was originally claimed and stays there, on the now-void
+ * row (`ExpenseCostRow` already keeps a voided row's receipts visible for
+ * exactly this reason). This copies each *live* attachment onto the new
+ * row too, so the corrected record carries its own copy of what was
+ * already proven rather than starting empty and asking the manager to
+ * re-attach every receipt in the middle of fixing a typo. `r2_key` is
+ * `UNIQUE` (migration 0001) — two attachment rows can never point at the
+ * same object, so this is a real R2 copy (read the original bytes, write
+ * them under a fresh key), not a second row aliasing the first's key. The
+ * copy happens *before* the transaction opens (R2 has no part in the
+ * database's atomicity, and `uploadAttachment`'s own shape is R2 write
+ * first, then insert) — a copy that fails to insert (the transaction
+ * rejects the edit, e.g. `PERIOD_CLOSED`) is cleaned up in the `catch`
+ * below rather than left as an object nothing will ever reference, the
+ * same diligence `uploadAttachment` already applies to its own failed
+ * inserts.
+ */
+export async function replaceExpense(
+  writer: Writer,
+  bucket: R2Bucket,
+  input: ReplaceExpenseInput,
+): Promise<ReplacedExpense> {
+  const existing = await findExpenseForBusiness(writer, input.businessId, input.expenseId);
+  if (!existing) throw new NotFoundError("No such expense in this business");
+  if (existing.voidedAt !== null) throw new ExpenseAlreadyVoidedError();
+
+  const liveReceipts = await listLiveAttachmentsForCopy(
+    writer,
+    input.businessId,
+    "expense",
+    input.expenseId,
+  );
+  const copiedReceipts: {
+    r2Key: string;
+    kind: string;
+    contentType: string;
+    sizeBytes: number;
+  }[] = [];
+  try {
+    for (const receipt of liveReceipts) {
+      const object = await bucket.get(receipt.r2Key);
+      // Defensive only — every live attachment row's object should exist
+      // (nothing in this codebase deletes a live R2 object). Skips rather
+      // than fails the whole edit: a missing receipt copy is a lost
+      // convenience, not a money bug, and the original stays attached to
+      // the voided row regardless.
+      if (!object) continue;
+      const bytes = await object.arrayBuffer();
+      const newR2Key = crypto.randomUUID();
+      await bucket.put(newR2Key, bytes, { httpMetadata: { contentType: receipt.contentType } });
+      copiedReceipts.push({
+        r2Key: newR2Key,
+        kind: receipt.kind,
+        contentType: receipt.contentType,
+        sizeBytes: receipt.sizeBytes,
+      });
+    }
+  } catch (err) {
+    // Copilot review, PR #181: a `bucket.put` failing partway through
+    // (receipt 3 of 5, say) used to leave receipts 1–2's already-written
+    // objects orphaned — this loop had no cleanup of its own, only the
+    // transaction below did. Every object copied before the failure is
+    // cleaned up here too, the identical diligence the transaction's own
+    // `catch` already applies one step later.
+    await Promise.all(copiedReceipts.map((receipt) => bucket.delete(receipt.r2Key)));
+    throw err;
+  }
+
+  const newExpenseId = newId();
+  let odometerReadingId: string | undefined;
+  try {
+    await writer.transaction(async (tx) => {
+      // GAP-178/B5's own reasoning: resolved inside the transaction that
+      // writes against it, not before — the period can close between a
+      // pre-check and the insert.
+      const linkage = await resolvePeriodLinkage(tx, input.businessId, input.spentOn);
+      if (!linkage)
+        throw new PeriodClosedError("No accounting period covers this business date yet");
+
+      // GAP-190/N2's guard: a concurrent void (or a second edit) racing
+      // this one loses here, not silently.
+      const voided = await voidExpenseRow(tx, input.expenseId, {
+        voidedReason: input.reason,
+        voidedBy: input.actorUserId,
+      });
+      if (!voided) throw new ExpenseAlreadyVoidedError();
+
+      if (
+        input.odometerReadingKm !== undefined &&
+        input.odometerSource !== undefined &&
+        input.vehicleId !== undefined
+      ) {
+        odometerReadingId = newId();
+        await insertOdometerReading(tx, {
+          id: odometerReadingId,
+          businessId: input.businessId,
+          vehicleId: input.vehicleId,
+          readingKm: input.odometerReadingKm,
+          readOn: input.spentOn,
+          source: input.odometerSource,
+        });
+      }
+
+      await insertExpense(
+        tx,
+        buildNewExpenseValues(newExpenseId, input, linkage, odometerReadingId, input.expenseId),
+      );
+
+      for (const receipt of copiedReceipts) {
+        await insertAttachment(tx, {
+          id: newId(),
+          businessId: input.businessId,
+          kind: receipt.kind,
+          r2Key: receipt.r2Key,
+          contentType: receipt.contentType,
+          sizeBytes: receipt.sizeBytes,
+          subjectType: "expense",
+          subjectId: newExpenseId,
+          uploadedBy: input.actorUserId,
+        });
+      }
+    });
+  } catch (err) {
+    // The transaction never committed — every object copied above would
+    // otherwise be an orphan nothing ever references.
+    await Promise.all(copiedReceipts.map((receipt) => bucket.delete(receipt.r2Key)));
+    if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
+    if (isUniqueViolation(err, "expense_replaces_id_key")) {
+      throw new ReplacesTargetAlreadyReplacedError();
+    }
+    throw err;
+  }
+
+  return { id: newExpenseId, odometerReadingId: odometerReadingId ?? null };
 }

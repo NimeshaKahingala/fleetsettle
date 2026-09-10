@@ -1148,7 +1148,13 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   }, 60_000);
 
   describe("an incident's costs so far (Web-P8a, GET /{id}/expense)", () => {
-    it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {
+    /** Both tests below start from the identical shape — a business, an open period, a vehicle, a manager's token, and an open incident. */
+    async function setupIncidentCostsFixture(): Promise<{
+      ctx: TestContext;
+      token: string;
+      vehicleId: string;
+      incidentId: string;
+    }> {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       await ctx.createOpenPeriod(businessId);
@@ -1162,6 +1168,12 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       });
       const { id: incidentId }: { id: string } = await opened.json();
       ctx.trackCreatedIncident(incidentId);
+
+      return { ctx, token, vehicleId, incidentId };
+    }
+
+    it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {
+      const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
 
       const bodyWork = await postExpense(token, {
         vehicleId,
@@ -1195,6 +1207,55 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       expect(body.map((r) => r.id)).toEqual([partsBody.id, bodyWorkBody.id]);
       expect(body[0]).toMatchObject({ category: "repairs", amountMinor: "25000" });
       expect(body[1]).toMatchObject({ category: "repairs", amountMinor: "70000" });
+
+      await ctx.cleanup();
+    });
+
+    it("GAP-223 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+      const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
+
+      const original = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "70000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+      });
+      const originalBody: { id: string } = await original.json();
+      ctx.trackCreatedExpense(originalBody.id);
+
+      const voided = await post(`/api/expense/${originalBody.id}/void`, token, {
+        reason: "wrong invoice",
+      });
+      expect(voided.status).toBe(200);
+
+      const replacement = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "75000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+        replacesId: originalBody.id,
+      });
+      expect(replacement.status).toBe(201);
+      const replacementBody: { id: string } = await replacement.json();
+      ctx.trackCreatedExpense(replacementBody.id);
+
+      const res = await getIncidentExpenses(token, incidentId);
+      const body: Array<{
+        id: string;
+        replacesId: string | null;
+        odometerReadingId: string | null;
+      }> = await res.json();
+      const originalRow = body.find((r) => r.id === originalBody.id);
+      const replacementRow = body.find((r) => r.id === replacementBody.id);
+      // The bug: this route declares `listExpensesResponseSchema` (which
+      // requires both fields) but the handler never projected them.
+      expect(replacementRow).toMatchObject({ replacesId: originalBody.id });
+      expect(originalRow).toMatchObject({ replacesId: null });
+      expect(originalRow?.odometerReadingId).toBeNull();
 
       await ctx.cleanup();
     });

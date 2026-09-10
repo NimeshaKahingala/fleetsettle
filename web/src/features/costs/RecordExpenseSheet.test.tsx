@@ -1,6 +1,7 @@
 import { asBusinessDate } from "@fleetsettle/shared";
 import type {
   BusinessMemberResponse,
+  ExpenseListRow,
   ExpenseResponse,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
@@ -366,4 +367,83 @@ test("a photo captured before Save uploads after the expense exists, tagged with
   expect(path).toContain(`subjectId=${created.id}`);
   expect(contentType).toBe("image/jpeg");
   expect(blob).toBeInstanceOf(Blob);
+});
+
+const editingPaidByOther: ExpenseListRow = {
+  id: "e2",
+  vehicleId: "v1",
+  tripId: null,
+  incidentId: null,
+  category: "fuel",
+  amountMinor: "50000",
+  spentOn: "2026-08-04",
+  borneBy: "us",
+  borneByDriverId: null,
+  borneByCustomerId: null,
+  paidByUserId: "u2",
+  litres: null,
+  note: null,
+  odometerReadingId: null,
+  replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
+};
+
+/**
+ * Copilot review, PR #181/GAP-224: `paidBy` opens edit mode at its "…"
+ * placeholder whenever the row being corrected named someone other than
+ * "You" — real only once `membersQuery` resolves it. Saving in that
+ * window would hit the mutation's own `paidBy.id !== "you"` check, omit
+ * `paidByUserId` from the PATCH, and let the server default it to
+ * whoever is editing now — silently reassigning who the expense is
+ * recorded as paid by (W-48). A never-resolving `get` keeps the query
+ * pending for the whole assertion window, the same technique
+ * `ExpenseCostRow.test.tsx`'s GAP-130 case already uses.
+ */
+test("GAP-224/Copilot review: Save is blocked while the original payer is still resolving, not silently defaulted to the current actor", async () => {
+  const get = vi.fn().mockImplementation(() => new Promise<never>(() => {}));
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingPaidByOther}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByRole("button", { name: "Paid by: …" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+});
+
+test("GAP-224/Copilot review: Save unblocks once the original payer resolves to their real name", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(members);
+  const patch = vi.fn().mockResolvedValue({ ...created, id: "e3", paidByUserId: "u2" });
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingPaidByOther}
+    />,
+    { get, patch },
+  );
+
+  expect(await screen.findByRole("button", { name: "Paid by: Nimal" })).toBeInTheDocument();
+  await user.type(screen.getByLabelText("Reason for the change"), "wrong amount");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+  // Confirms the fix end to end: the resolved payer, not an omitted
+  // paidByUserId defaulting server-side to whoever is editing now.
+  await vi.waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(
+      "/api/expense/e2",
+      expect.objectContaining({ paidByUserId: "u2" }),
+    ),
+  );
 });

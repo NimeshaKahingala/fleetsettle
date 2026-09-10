@@ -15,14 +15,13 @@ import { Badge } from "../../design/primitives/Badge.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
-import { Section } from "../../design/primitives/Section.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import {
   OBLIGATION_STATUS_LABEL,
   OPEN_OBLIGATION_STATUSES,
 } from "../../lib/obligationStatusLabel.js";
-import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { ExpenseCostSection } from "../costs/ExpenseCostSection.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { CollectPaymentSheet } from "../leases/CollectPaymentSheet.js";
 import { PostClosureChargeSheet } from "../leases/PostClosureChargeSheet.js";
@@ -331,20 +330,13 @@ export function TripDetailScreen({ tripId, today, onBack }: TripDetailScreenProp
               of="this trip's costs"
             />
           ) : null}
-          {expenses.length > 0 ? (
-            <Section
-              title="Costs"
-              count={expenses.length}
-              items={expenses.map((expense) => (
-                <ExpenseCostRow
-                  key={expense.id}
-                  expense={expense}
-                  formattedDate={formatShortDate(expense.spentOn)}
-                  invalidateKeys={[["trip", tripId, "expense"]]}
-                />
-              ))}
-            />
-          ) : null}
+          <ExpenseCostSection
+            title="Costs"
+            expenses={expenses}
+            formatDate={formatShortDate}
+            invalidateKeys={[["trip", tripId, "expense"]]}
+            today={today}
+          />
 
           <CloseTripSheet
             open={closeOpen}
