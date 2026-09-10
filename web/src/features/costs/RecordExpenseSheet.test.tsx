@@ -50,6 +50,13 @@ async function fillAmount(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
+/** The three GAP-216 odometer tests below all reach the odometer field the same way — servicing is arbitrary, just a category the field is offered on. */
+async function fillAmountAndChooseServicing(user: ReturnType<typeof userEvent.setup>) {
+  await fillAmount(user);
+  await user.click(screen.getByRole("button", { name: "Choose category" }));
+  await user.click(screen.getByRole("button", { name: "Servicing" }));
+}
+
 /**
  * Every test below renders the same sheet, open, against vehicle v1 —
  * differing only in which optional props (`tripId`/`incidentId`, or
@@ -247,9 +254,7 @@ test("GAP-216: an odometer reading and its source reach the request together", a
   const get = vi.fn().mockResolvedValue([]);
   renderSheet({}, { post, get });
 
-  await fillAmount(user);
-  await user.click(screen.getByRole("button", { name: "Choose category" }));
-  await user.click(screen.getByRole("button", { name: "Servicing" }));
+  await fillAmountAndChooseServicing(user);
 
   await user.click(screen.getByRole("button", { name: "More" }));
   await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "45200");
@@ -270,9 +275,7 @@ test("GAP-216: neither odometer key is sent when the reading is left blank", asy
   const get = vi.fn().mockResolvedValue([]);
   renderSheet({}, { post, get });
 
-  await fillAmount(user);
-  await user.click(screen.getByRole("button", { name: "Choose category" }));
-  await user.click(screen.getByRole("button", { name: "Servicing" }));
+  await fillAmountAndChooseServicing(user);
   await user.click(screen.getByRole("button", { name: "Record expense" }));
 
   await vi.waitFor(() => expect(post).toHaveBeenCalled());
@@ -287,9 +290,7 @@ test("GAP-216: a reading with no source picked blocks save, and says why", async
   const get = vi.fn().mockResolvedValue([]);
   renderSheet({}, { post, get });
 
-  await fillAmount(user);
-  await user.click(screen.getByRole("button", { name: "Choose category" }));
-  await user.click(screen.getByRole("button", { name: "Servicing" }));
+  await fillAmountAndChooseServicing(user);
 
   await user.click(screen.getByRole("button", { name: "More" }));
   await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "45200");
