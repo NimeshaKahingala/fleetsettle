@@ -382,23 +382,34 @@ export async function replaceExpense(
     contentType: string;
     sizeBytes: number;
   }[] = [];
-  for (const receipt of liveReceipts) {
-    const object = await bucket.get(receipt.r2Key);
-    // Defensive only — every live attachment row's object should exist
-    // (nothing in this codebase deletes a live R2 object). Skips rather
-    // than fails the whole edit: a missing receipt copy is a lost
-    // convenience, not a money bug, and the original stays attached to
-    // the voided row regardless.
-    if (!object) continue;
-    const bytes = await object.arrayBuffer();
-    const newR2Key = crypto.randomUUID();
-    await bucket.put(newR2Key, bytes, { httpMetadata: { contentType: receipt.contentType } });
-    copiedReceipts.push({
-      r2Key: newR2Key,
-      kind: receipt.kind,
-      contentType: receipt.contentType,
-      sizeBytes: receipt.sizeBytes,
-    });
+  try {
+    for (const receipt of liveReceipts) {
+      const object = await bucket.get(receipt.r2Key);
+      // Defensive only — every live attachment row's object should exist
+      // (nothing in this codebase deletes a live R2 object). Skips rather
+      // than fails the whole edit: a missing receipt copy is a lost
+      // convenience, not a money bug, and the original stays attached to
+      // the voided row regardless.
+      if (!object) continue;
+      const bytes = await object.arrayBuffer();
+      const newR2Key = crypto.randomUUID();
+      await bucket.put(newR2Key, bytes, { httpMetadata: { contentType: receipt.contentType } });
+      copiedReceipts.push({
+        r2Key: newR2Key,
+        kind: receipt.kind,
+        contentType: receipt.contentType,
+        sizeBytes: receipt.sizeBytes,
+      });
+    }
+  } catch (err) {
+    // Copilot review, PR #181: a `bucket.put` failing partway through
+    // (receipt 3 of 5, say) used to leave receipts 1–2's already-written
+    // objects orphaned — this loop had no cleanup of its own, only the
+    // transaction below did. Every object copied before the failure is
+    // cleaned up here too, the identical diligence the transaction's own
+    // `catch` already applies one step later.
+    await Promise.all(copiedReceipts.map((receipt) => bucket.delete(receipt.r2Key)));
+    throw err;
   }
 
   const newExpenseId = newId();

@@ -117,8 +117,10 @@ export interface LiveAttachmentForCopy {
  * straight into `listAttachmentsHandler`'s response and `r2Key` is an
  * internal storage reference, not something the client is ever given
  * (downloads go through their own signed-read path). Domain-only, for
- * `replaceExpense`'s own receipt-copying: same R2 object, a new attachment
- * row pointing at the new expense.
+ * `replaceExpense`'s own receipt-copying: `r2_key` is `UNIQUE` (migration
+ * 0001), so this feeds a real byte copy under a fresh key, not a second
+ * attachment row aliasing the original object — see `replaceExpense`'s
+ * own doc comment for the exact sequence.
  */
 export async function listLiveAttachmentsForCopy(
   db: ReadDb,

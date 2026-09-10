@@ -251,11 +251,22 @@ export function RecordExpenseSheet({
     })),
   ];
 
+  // Copilot review, PR #181: `paidBy` sits at its "…" placeholder (never
+  // "You", which is the label a real, resolved default or an explicit pick
+  // both use) for the whole window before `membersQuery` resolves — saving
+  // during it would hit the mutation's own `paidBy.id !== "you"` check,
+  // omit `paidByUserId` from the PATCH, and let the server default it to
+  // whoever is editing now, silently reassigning who the expense is
+  // recorded as paid by (W-48). Blocked until the query resolves it for
+  // real or the manager overrides it by hand — either one moves the label
+  // off "…" for good.
+  const paidByUnresolved = editing !== undefined && paidBy.label === "…";
   const canSave =
     amountMinor !== null &&
     amountMinor > 0n &&
     category !== null &&
-    (editing === undefined || reason.trim() !== "");
+    (editing === undefined || reason.trim() !== "") &&
+    !paidByUnresolved;
 
   return (
     <Sheet
@@ -316,7 +327,11 @@ export function RecordExpenseSheet({
           <NoteField label="Reason for the change" value={reason} onChange={setReason} />
         ) : null}
 
-        <Disclosure sectionName="Paid by, borne by and note" onOpenChange={setMoreOpen}>
+        <Disclosure
+          sectionName="Paid by, borne by and note"
+          onOpenChange={setMoreOpen}
+          forceOpen={paidByUnresolved}
+        >
           <div className="flex flex-col gap-4">
             <BorneByPaidBy
               paidBy={paidBy}
