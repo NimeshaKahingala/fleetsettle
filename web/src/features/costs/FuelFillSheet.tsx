@@ -8,37 +8,19 @@ import { PhotoCapture } from "../../components/PhotoCapture.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Disclosure } from "../../design/primitives/Disclosure.js";
-import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
-import { cn } from "../../lib/cn.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { OdometerReadingField } from "./OdometerReadingField.js";
 
 export interface FuelFillSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   today: BusinessDate;
   onRecorded: (expense: ExpenseResponse) => void;
-}
-
-// GAP-216: same restricted set `RecordExpenseSheet` offers, and the same
-// reason — `at_return` describes a lease handover, not a fuel stop.
-const ODOMETER_SOURCE_OPTIONS: { value: OdometerSource; label: string }[] = [
-  { value: "photo", label: "Photo" },
-  { value: "in_person", label: "In person" },
-  { value: "reported", label: "Reported" },
-];
-
-function chipClass(selected: boolean): string {
-  return cn(
-    "min-h-tap rounded-sm border px-3 text-body",
-    selected
-      ? "border-brand bg-brand-wash text-brand-ink"
-      : "border-transparent bg-surface-sunken text-ink-primary",
-  );
 }
 
 /**
@@ -194,39 +176,14 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
               ) : null}
             </div>
 
-            <div className="flex flex-col gap-3">
-              <Field label="Odometer reading (km)" htmlFor="fuel-odometer-reading" optional>
-                <Input
-                  id="fuel-odometer-reading"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  value={odometerReadingKm}
-                  onChange={(e) => setOdometerReadingKm(e.target.value)}
-                />
-              </Field>
-              <div className="flex flex-col gap-2">
-                <Label>Reading source</Label>
-                <div className="flex flex-wrap gap-2">
-                  {ODOMETER_SOURCE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={odometerSource === option.value}
-                      onClick={() => setOdometerSource(option.value)}
-                      className={chipClass(odometerSource === option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {odometerSourceMissing ? (
-                  <p className="text-body-sm text-critical-ink">
-                    Choose how this reading was taken
-                  </p>
-                ) : null}
-              </div>
-            </div>
+            <OdometerReadingField
+              idPrefix="fuel"
+              readingKm={odometerReadingKm}
+              onReadingKmChange={setOdometerReadingKm}
+              source={odometerSource}
+              onSourceChange={setOdometerSource}
+              sourceMissing={odometerSourceMissing}
+            />
 
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Borne by</span>
