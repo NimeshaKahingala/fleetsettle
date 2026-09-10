@@ -38,8 +38,14 @@ export function SetServiceIntervalSheet({
   }, [open]);
 
   const mutation = useMutation({
+    // GAP-217: the route is PATCH-only (route-defs/vehicle.ts) — `api.post`
+    // 404'd against the real API, so the interval could never actually be
+    // saved and the service reminder was dead for this reason as well as
+    // GAP-216's own missing odometer field. Unit tests alone couldn't catch
+    // this: they mock `ApiClient` method-by-method, so a call to the wrong
+    // one is invisible unless the test itself is checked against the verb.
     mutationFn: (serviceIntervalKm: number | null) =>
-      api.post<VehicleResponse>(`/api/vehicle/${vehicleId}/service-interval`, {
+      api.patch<VehicleResponse>(`/api/vehicle/${vehicleId}/service-interval`, {
         serviceIntervalKm,
       }),
     onSuccess: () => {
