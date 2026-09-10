@@ -3,6 +3,7 @@ import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schem
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import type { ApiClient } from "../../lib/api.js";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
 import { FuelFillSheet } from "./FuelFillSheet.js";
@@ -46,15 +47,26 @@ const created: ExpenseResponse = {
   replacesId: null,
 };
 
+/**
+ * Every test below renders the same sheet, open, with nothing but its own
+ * mocks differing — extracted once all six call sites turned out to be
+ * otherwise identical (SonarCloud's new-code duplication gate, the same
+ * setupDriverFixture/setupClosableLease precedent this repo already uses
+ * for a test file's own repeated setup).
+ */
+function renderSheet(onRecorded: (expense: ExpenseResponse) => void, api: Partial<ApiClient>) {
+  return renderWithProviders(
+    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={onRecorded} />,
+    api,
+  );
+}
+
 test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone — litres stays optional (W-20)", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);
   const post = vi.fn().mockResolvedValue(created);
   const onRecorded = vi.fn();
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={onRecorded} />,
-    { get, post },
-  );
+  renderSheet(onRecorded, { get, post });
 
   expect(await screen.findByRole("button", { name: "Vehicle: NC-1234" })).toBeInTheDocument();
 
@@ -77,10 +89,7 @@ test("pre-fills the first vehicle (U-3) and saves with vehicle + amount alone �
 test("GAP-101: a failed vehicle-list read shows a notice on the ten-second flow, never a blank picker with no explanation", async () => {
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
   const post = vi.fn().mockResolvedValue(created);
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { get, post },
-  );
+  renderSheet(vi.fn(), { get, post });
 
   expect(
     await screen.findByText("Something went wrong loading the vehicle list."),
@@ -92,10 +101,7 @@ test("litres, when given, reaches the request as a plain number, never money", a
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);
   const post = vi.fn().mockResolvedValue(created);
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { get, post },
-  );
+  renderSheet(vi.fn(), { get, post });
 
   await screen.findByRole("button", { name: "Vehicle: NC-1234" });
   await user.click(screen.getByRole("button", { name: "Enter amount" }));
@@ -115,10 +121,7 @@ test("GAP-216: an odometer reading and its source reach the request together", a
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);
   const post = vi.fn().mockResolvedValue(created);
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { get, post },
-  );
+  renderSheet(vi.fn(), { get, post });
 
   await screen.findByRole("button", { name: "Vehicle: NC-1234" });
   await user.click(screen.getByRole("button", { name: "Enter amount" }));
@@ -142,10 +145,7 @@ test("GAP-216: a reading with no source picked blocks save, and says why", async
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);
   const post = vi.fn().mockResolvedValue(created);
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { get, post },
-  );
+  renderSheet(vi.fn(), { get, post });
 
   await screen.findByRole("button", { name: "Vehicle: NC-1234" });
   await user.click(screen.getByRole("button", { name: "Enter amount" }));
@@ -165,10 +165,7 @@ test("a photo captured before Save uploads after the expense exists, tagged with
   const get = vi.fn().mockResolvedValue(vehicles);
   const post = vi.fn().mockResolvedValue(created);
   const postBinary = vi.fn().mockResolvedValue({ id: "att-1" });
-  renderWithProviders(
-    <FuelFillSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { get, post, postBinary },
-  );
+  renderSheet(vi.fn(), { get, post, postBinary });
 
   await screen.findByRole("button", { name: "Vehicle: NC-1234" });
   await user.click(screen.getByRole("button", { name: "More" }));

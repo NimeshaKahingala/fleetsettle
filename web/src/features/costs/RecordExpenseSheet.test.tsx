@@ -7,9 +7,10 @@ import type {
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
+import type { ApiClient } from "../../lib/api.js";
 import { ApiError } from "../../lib/api.js";
 import { renderWithProviders } from "../../test/renderWithProviders.js";
-import { RecordExpenseSheet } from "./RecordExpenseSheet.js";
+import { RecordExpenseSheet, type RecordExpenseSheetProps } from "./RecordExpenseSheet.js";
 
 // PhotoCapture's own boundary mock (PhotoCapture.test.tsx) — createImageBitmap/
 // OffscreenCanvas/Worker don't exist under jsdom.
@@ -49,20 +50,48 @@ async function fillAmount(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByRole("button", { name: "Save" }));
 }
 
+/**
+ * Every test below renders the same sheet, open, against vehicle v1 —
+ * differing only in which optional props (`tripId`/`incidentId`, or
+ * `vehicleId` omitted for the overhead-cost path) and which API mocks it
+ * needs. Extracted once all twelve call sites turned out to share this
+ * exact shape (SonarCloud's new-code duplication gate, the same
+ * setupDriverFixture/setupClosableLease precedent this repo already uses
+ * for a test file's own repeated setup).
+ */
+interface SheetOverrides {
+  // `| undefined` explicitly, unlike the component's own optional prop —
+  // a couple of tests below pass `vehicleId: undefined` on purpose (the
+  // overhead-cost path, INV-24), distinguished below from the key being
+  // absent (which means "use the default v1") by `"vehicleId" in props`
+  // rather than a destructuring default, which can't tell the two apart.
+  vehicleId?: string | undefined;
+  tripId?: RecordExpenseSheetProps["tripId"];
+  incidentId?: RecordExpenseSheetProps["incidentId"];
+  onRecorded?: RecordExpenseSheetProps["onRecorded"];
+}
+
+function renderSheet(props: SheetOverrides = {}, api: Partial<ApiClient> = {}) {
+  const vehicleId = "vehicleId" in props ? props.vehicleId : "v1";
+  return renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      today={today}
+      onRecorded={props.onRecorded ?? vi.fn()}
+      {...(vehicleId !== undefined ? { vehicleId } : {})}
+      {...(props.tripId !== undefined ? { tripId: props.tripId } : {})}
+      {...(props.incidentId !== undefined ? { incidentId: props.incidentId } : {})}
+    />,
+    api,
+  );
+}
+
 test("saves with amount, category and a vehicle alone — U-2's level-1 fields, no borneBy or note sent", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
   const onRecorded = vi.fn();
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={onRecorded}
-    />,
-    { post },
-  );
+  renderSheet({ onRecorded }, { post });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -83,17 +112,7 @@ test("saves with amount, category and a vehicle alone — U-2's level-1 fields, 
 test("GAP-172: a tripId prop reaches the request alongside the vehicle, and invalidates the trip's own expense list", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, tripId: "t1" });
-  const { queryClient } = renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      tripId="t1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post },
-  );
+  const { queryClient } = renderSheet({ tripId: "t1" }, { post });
   const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
   await fillAmount(user);
@@ -113,17 +132,7 @@ test("GAP-172: a tripId prop reaches the request alongside the vehicle, and inva
 test("GAP-172/Gitar review, PR 128: an incidentId prop reaches the request alongside the vehicle, and invalidates both the incident's expense list and its own detail query (the bottom line's home)", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, incidentId: "i1" });
-  const { queryClient } = renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      incidentId="i1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post },
-  );
+  const { queryClient } = renderSheet({ incidentId: "i1" }, { post });
   const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
   await fillAmount(user);
@@ -155,10 +164,7 @@ test("no vehicleId prop shows a vehicle picker, and leaving it blank is a valid 
     },
   ];
   const get = vi.fn().mockResolvedValue(vehicles);
-  renderWithProviders(
-    <RecordExpenseSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { post, get },
-  );
+  renderSheet({ vehicleId: undefined }, { post, get });
 
   expect(
     screen.getByText("Optional — leave blank for a cost with no vehicle (UC-66)"),
@@ -178,10 +184,7 @@ test("GAP-101: a failed vehicle-list read shows a notice, and amount/category st
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, vehicleId: null });
   const get = vi.fn().mockRejectedValue(new ApiError(500, "INTERNAL_ERROR", "boom", "req-1"));
-  renderWithProviders(
-    <RecordExpenseSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { post, get },
-  );
+  renderSheet({ vehicleId: undefined }, { post, get });
 
   expect(
     await screen.findByText("Something went wrong loading the vehicle list."),
@@ -199,16 +202,7 @@ test("overriding borne-by to Us reaches the request", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
   const get = vi.fn().mockResolvedValue([]);
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get },
-  );
+  renderSheet({}, { post, get });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -228,16 +222,7 @@ test("GAP-31: overriding paid-by to another member reaches the request", async (
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, paidByUserId: "u2" });
   const get = vi.fn().mockResolvedValue(members);
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get },
-  );
+  renderSheet({}, { post, get });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -260,16 +245,7 @@ test("GAP-216: an odometer reading and its source reach the request together", a
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
   const get = vi.fn().mockResolvedValue([]);
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get },
-  );
+  renderSheet({}, { post, get });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -292,16 +268,7 @@ test("GAP-216: neither odometer key is sent when the reading is left blank", asy
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
   const get = vi.fn().mockResolvedValue([]);
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get },
-  );
+  renderSheet({}, { post, get });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -318,16 +285,7 @@ test("GAP-216: a reading with no source picked blocks save, and says why", async
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue(created);
   const get = vi.fn().mockResolvedValue([]);
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get },
-  );
+  renderSheet({}, { post, get });
 
   await fillAmount(user);
   await user.click(screen.getByRole("button", { name: "Choose category" }));
@@ -345,10 +303,7 @@ test("GAP-216: the odometer field is absent from the overhead-cost path (no vehi
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, vehicleId: null });
   const get = vi.fn().mockResolvedValue([]);
-  renderWithProviders(
-    <RecordExpenseSheet open onOpenChange={() => {}} today={today} onRecorded={vi.fn()} />,
-    { post, get },
-  );
+  renderSheet({ vehicleId: undefined }, { post, get });
 
   await user.click(screen.getByRole("button", { name: "More" }));
 
@@ -360,16 +315,7 @@ test("a photo captured before Save uploads after the expense exists, tagged with
   const post = vi.fn().mockResolvedValue(created);
   const get = vi.fn().mockResolvedValue([]);
   const postBinary = vi.fn().mockResolvedValue({ id: "att-1" });
-  renderWithProviders(
-    <RecordExpenseSheet
-      open
-      onOpenChange={() => {}}
-      vehicleId="v1"
-      today={today}
-      onRecorded={vi.fn()}
-    />,
-    { post, get, postBinary },
-  );
+  renderSheet({}, { post, get, postBinary });
 
   await user.click(screen.getByRole("button", { name: "More" }));
   await user.upload(
