@@ -13,10 +13,16 @@ const changed: VehicleResponse = {
   serviceIntervalKm: 5000,
 };
 
-/** F-3.5/UC-13/GAP-68: "editable on the vehicle's own page, never required to save the vehicle" (U-2). */
+/**
+ * F-3.5/UC-13/GAP-68: "editable on the vehicle's own page, never required to
+ * save the vehicle" (U-2). GAP-217: this must assert `patch`, not `post` —
+ * the route is PATCH-only (route-defs/vehicle.ts), and the previous version
+ * of this test mocked and asserted on `post`, which let a real 404 against
+ * the live API pass silently here.
+ */
 test("sets a new interval", async () => {
   const user = userEvent.setup();
-  const post = vi.fn().mockResolvedValue(changed);
+  const patch = vi.fn().mockResolvedValue(changed);
   renderWithProviders(
     <SetServiceIntervalSheet
       open
@@ -24,14 +30,14 @@ test("sets a new interval", async () => {
       vehicleId="v1"
       currentServiceIntervalKm={null}
     />,
-    { post },
+    { patch },
   );
 
   await user.type(screen.getByLabelText("Kilometres between services (optional)"), "5000");
   await user.click(screen.getByRole("button", { name: "Save service interval" }));
 
   await vi.waitFor(() =>
-    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
+    expect(patch).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
       serviceIntervalKm: 5000,
     }),
   );
@@ -40,7 +46,7 @@ test("sets a new interval", async () => {
 /** Blank clears it — how the prompt turns back off, per the same flow's own decision text. */
 test("leaving it blank clears a previously-set interval", async () => {
   const user = userEvent.setup();
-  const post = vi.fn().mockResolvedValue({ ...changed, serviceIntervalKm: null });
+  const patch = vi.fn().mockResolvedValue({ ...changed, serviceIntervalKm: null });
   renderWithProviders(
     <SetServiceIntervalSheet
       open
@@ -48,7 +54,7 @@ test("leaving it blank clears a previously-set interval", async () => {
       vehicleId="v1"
       currentServiceIntervalKm={5000}
     />,
-    { post },
+    { patch },
   );
 
   const field = screen.getByLabelText("Kilometres between services (optional)");
@@ -57,7 +63,7 @@ test("leaving it blank clears a previously-set interval", async () => {
   await user.click(screen.getByRole("button", { name: "Save service interval" }));
 
   await vi.waitFor(() =>
-    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
+    expect(patch).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
       serviceIntervalKm: null,
     }),
   );

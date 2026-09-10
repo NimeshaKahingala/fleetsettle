@@ -3,6 +3,7 @@ import type {
   BusinessMemberResponse,
   ExpenseListRow,
   ExpenseResponse,
+  OdometerSource,
   VehicleResponse,
 } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -23,6 +24,11 @@ import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import {
+  isValidOdometerReadingKm,
+  OdometerReadingField,
+  parseOdometerReadingKm,
+} from "./OdometerReadingField.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
 
@@ -55,9 +61,12 @@ export interface RecordExpenseSheetProps {
 }
 
 /**
- * F-3.1/F-3.2, UC-60/UC-66. Level 1: amount, category, vehicle (optional —
- * blank is a real overhead cost, never an error), date (defaulted to
- * today). Level 2: `BorneByPaidBy`, note, photo. Per UI §7.10's own line
+ * F-3.1/F-3.2/F-3.5, UC-60/UC-66. Level 1: amount, category, vehicle (optional
+ * — blank is a real overhead cost, never an error), date (defaulted to
+ * today). Level 2: `BorneByPaidBy`, note, an optional odometer reading
+ * (GAP-216 — shown only once a vehicle is set, the schema's own
+ * both-or-neither pair with its source, feeding the service-interval
+ * prompt on `category: 'servicing'`, F-3.5), photo. Per UI §7.10's own line
  * ("`BorneByPaidBy` at level 2, both pre-filled") — but this form cannot
  * actually show the server's own §6.7-matrix default without asking the
  * server first, and CLAUDE.md/the Web-P8b trap list are explicit that the
@@ -106,6 +115,10 @@ export function RecordExpenseSheet({
   // create) — migration 0025's `replaces_id` unique index is the
   // constraint half; this is the input half.
   const [reason, setReason] = useState("");
+  // F-3.5/GAP-216: string, parsed at submit — the odometer idiom every other
+  // sheet in this client uses (`ReadOdometerSheet`, `StartLeaseScreen`).
+  const [odometerReadingKm, setOdometerReadingKm] = useState("");
+  const [odometerSource, setOdometerSource] = useState<OdometerSource | null>(null);
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const effectiveVehicleId = vehicleId ?? selectedVehicle?.id;
@@ -156,6 +169,8 @@ export function RecordExpenseSheet({
       }
       setMoreOpen(false);
       setReason("");
+      setOdometerReadingKm("");
+      setOdometerSource(null);
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
@@ -183,6 +198,10 @@ export function RecordExpenseSheet({
       if (amountMinor === null || category === null) {
         throw new Error("Amount and category are required");
       }
+      // Copilot review, PR #180: `canSave` already blocks a malformed
+      // reading from reaching here — re-checked rather than trusted, the
+      // same defence-in-depth this codebase's other guarded mutations use.
+      const parsedReading = parseOdometerReadingKm(odometerReadingKm);
       const fields = {
         ...(effectiveVehicleId !== undefined ? { vehicleId: effectiveVehicleId } : {}),
         ...(tripId !== undefined ? { tripId } : {}),
@@ -193,6 +212,9 @@ export function RecordExpenseSheet({
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
+        ...(parsedReading !== undefined && odometerSource !== null
+          ? { odometerReadingKm: parsedReading, odometerSource }
+          : {}),
       };
       // GAP-224: "Edit" is one request either way — void-and-replace
       // happens inside this one PATCH (domain/expense.ts), never a second
@@ -261,12 +283,25 @@ export function RecordExpenseSheet({
   // real or the manager overrides it by hand — either one moves the label
   // off "…" for good.
   const paidByUnresolved = editing !== undefined && paidBy.label === "…";
+  // F-3.5/GAP-216: the pair is all-or-nothing at the schema (both-or-neither
+  // refine) — a typed km with no source picked would 400, so this blocks
+  // save rather than silently dropping what was entered (`CloseLeaseScreen`
+  // does the latter for its own odometer field; `StartLeaseScreen` gates
+  // instead, and that's the precedent worth following here).
+  const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
+  // Copilot review, PR #180: a non-integer or partial reading ("45200.5",
+  // "45200km") must block save the same way a missing source does, rather
+  // than reach `Number.parseInt` and silently store a truncated figure.
+  const odometerReadingInvalid =
+    odometerReadingKm.trim() !== "" && !isValidOdometerReadingKm(odometerReadingKm);
   const canSave =
     amountMinor !== null &&
     amountMinor > 0n &&
     category !== null &&
     (editing === undefined || reason.trim() !== "") &&
-    !paidByUnresolved;
+    !paidByUnresolved &&
+    !odometerSourceMissing &&
+    !odometerReadingInvalid;
 
   return (
     <Sheet
@@ -328,9 +363,9 @@ export function RecordExpenseSheet({
         ) : null}
 
         <Disclosure
-          sectionName="Paid by, borne by and note"
+          sectionName="Paid by, borne by, note and odometer"
           onOpenChange={setMoreOpen}
-          forceOpen={paidByUnresolved}
+          forceOpen={paidByUnresolved || odometerSourceMissing || odometerReadingInvalid}
         >
           <div className="flex flex-col gap-4">
             <BorneByPaidBy
@@ -361,6 +396,16 @@ export function RecordExpenseSheet({
               />
             ) : null}
             <NoteField label="Note" value={note} onChange={setNote} />
+            {effectiveVehicleId !== undefined ? (
+              <OdometerReadingField
+                idPrefix="expense"
+                readingKm={odometerReadingKm}
+                onReadingKmChange={setOdometerReadingKm}
+                source={odometerSource}
+                onSourceChange={setOdometerSource}
+                sourceMissing={odometerSourceMissing}
+              />
+            ) : null}
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Photo</span>
               <PhotoCapture

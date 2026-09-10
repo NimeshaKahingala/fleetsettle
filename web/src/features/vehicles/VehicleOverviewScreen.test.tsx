@@ -105,10 +105,15 @@ test("F-3.5/GAP-68: no prompt when not due, even with an interval set", async ()
   expect(screen.queryByText(/Due for servicing/)).toBeNull();
 });
 
+/**
+ * GAP-217: asserts `patch`, not `post` — the route is PATCH-only
+ * (route-defs/vehicle.ts), and the previous version of this test mocked and
+ * asserted on `post`, which let a real 404 against the live API pass here.
+ */
 test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sheet and saves", async () => {
   const user = userEvent.setup();
   const get = baseGet();
-  const post = vi.fn().mockResolvedValue({ ...baseVehicle, serviceIntervalKm: 8000 });
+  const patch = vi.fn().mockResolvedValue({ ...baseVehicle, serviceIntervalKm: 8000 });
   renderWithProviders(
     <VehicleOverviewScreen
       vehicleId="v1"
@@ -119,7 +124,7 @@ test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sh
       onStartDailyLease={() => undefined}
       onBookTrip={() => undefined}
     />,
-    { get, post },
+    { get, patch },
   );
 
   await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
@@ -128,7 +133,7 @@ test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sh
   await user.click(screen.getByRole("button", { name: "Save service interval" }));
 
   await vi.waitFor(() =>
-    expect(post).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
+    expect(patch).toHaveBeenCalledWith("/api/vehicle/v1/service-interval", {
       serviceIntervalKm: 8000,
     }),
   );
