@@ -160,6 +160,33 @@ test("GAP-216: a reading with no source picked blocks save, and says why", async
   expect(post).not.toHaveBeenCalled();
 });
 
+/**
+ * Copilot review, PR #180: `Number.parseInt("80500.5", 10)` returns `80500`
+ * with no error — silently storing a reading different from what was
+ * actually typed, since the wire schema only checks the parsed result is a
+ * nonnegative integer, which a truncated value already is. Blocked locally
+ * instead, before it ever reaches `parseInt`.
+ */
+test("GAP-216/Copilot review: a non-integer reading blocks save rather than silently truncating", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue(vehicles);
+  const post = vi.fn().mockResolvedValue(created);
+  renderSheet(vi.fn(), { get, post });
+
+  await screen.findByRole("button", { name: "Vehicle: NC-1234" });
+  await user.click(screen.getByRole("button", { name: "Enter amount" }));
+  await user.click(screen.getByRole("button", { name: "5" }));
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "80500.5");
+  await user.click(screen.getByRole("button", { name: "Photo" }));
+
+  expect(screen.getByRole("button", { name: "Log fuel fill" })).toBeDisabled();
+  expect(screen.getByText("Enter a whole number of kilometres")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("a photo captured before Save uploads after the expense exists, tagged with its own id (UI §6.3: the record saves first)", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue(vehicles);

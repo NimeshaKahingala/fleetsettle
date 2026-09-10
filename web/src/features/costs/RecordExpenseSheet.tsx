@@ -23,7 +23,11 @@ import { BUSINESS_MEMBER_ROLE_LABEL } from "../../lib/businessMemberRoleLabel.js
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 import { useQueryState } from "../../lib/useQueryState.js";
-import { OdometerReadingField } from "./OdometerReadingField.js";
+import {
+  isValidOdometerReadingKm,
+  OdometerReadingField,
+  parseOdometerReadingKm,
+} from "./OdometerReadingField.js";
 
 const US: EntityOption = { id: "us", label: "Us (the business)" };
 
@@ -132,6 +136,10 @@ export function RecordExpenseSheet({
       if (amountMinor === null || category === null) {
         throw new Error("Amount and category are required");
       }
+      // Copilot review, PR #180: `canSave` already blocks a malformed
+      // reading from reaching here — re-checked rather than trusted, the
+      // same defence-in-depth this codebase's other guarded mutations use.
+      const parsedReading = parseOdometerReadingKm(odometerReadingKm);
       return api.post<ExpenseResponse>("/api/expense", {
         ...(effectiveVehicleId !== undefined ? { vehicleId: effectiveVehicleId } : {}),
         ...(tripId !== undefined ? { tripId } : {}),
@@ -142,8 +150,8 @@ export function RecordExpenseSheet({
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
-        ...(odometerReadingKm.trim() !== "" && odometerSource !== null
-          ? { odometerReadingKm: Number.parseInt(odometerReadingKm, 10), odometerSource }
+        ...(parsedReading !== undefined && odometerSource !== null
+          ? { odometerReadingKm: parsedReading, odometerSource }
           : {}),
       });
     },
@@ -193,8 +201,17 @@ export function RecordExpenseSheet({
   // does the latter for its own odometer field; `StartLeaseScreen` gates
   // instead, and that's the precedent worth following here).
   const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
+  // Copilot review, PR #180: a non-integer or partial reading ("45200.5",
+  // "45200km") must block save the same way a missing source does, rather
+  // than reach `Number.parseInt` and silently store a truncated figure.
+  const odometerReadingInvalid =
+    odometerReadingKm.trim() !== "" && !isValidOdometerReadingKm(odometerReadingKm);
   const canSave =
-    amountMinor !== null && amountMinor > 0n && category !== null && !odometerSourceMissing;
+    amountMinor !== null &&
+    amountMinor > 0n &&
+    category !== null &&
+    !odometerSourceMissing &&
+    !odometerReadingInvalid;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Record expense">
@@ -247,7 +264,7 @@ export function RecordExpenseSheet({
         <Disclosure
           sectionName="Paid by, borne by, note and odometer"
           onOpenChange={setMoreOpen}
-          forceOpen={odometerSourceMissing}
+          forceOpen={odometerSourceMissing || odometerReadingInvalid}
         >
           <div className="flex flex-col gap-4">
             <BorneByPaidBy

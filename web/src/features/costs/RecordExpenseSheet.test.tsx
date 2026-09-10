@@ -300,6 +300,30 @@ test("GAP-216: a reading with no source picked blocks save, and says why", async
   expect(post).not.toHaveBeenCalled();
 });
 
+/**
+ * Copilot review, PR #180: `Number.parseInt("45200.5", 10)` returns `45200`
+ * with no error — silently storing a reading eight-tenths of a kilometre
+ * off from what was actually typed, since the wire schema only checks the
+ * parsed result is a nonnegative integer, which a truncated value already
+ * is. Blocked locally instead, before it ever reaches `parseInt`.
+ */
+test("GAP-216/Copilot review: a non-integer reading blocks save rather than silently truncating", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue(created);
+  const get = vi.fn().mockResolvedValue([]);
+  renderSheet({}, { post, get });
+
+  await fillAmountAndChooseServicing(user);
+
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText("Odometer reading (km) (optional)"), "45200.5");
+  await user.click(screen.getByRole("button", { name: "In person" }));
+
+  expect(screen.getByRole("button", { name: "Record expense" })).toBeDisabled();
+  expect(screen.getByText("Enter a whole number of kilometres")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("GAP-216: the odometer field is absent from the overhead-cost path (no vehicle chosen)", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ ...created, vehicleId: null });

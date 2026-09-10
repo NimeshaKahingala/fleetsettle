@@ -3,6 +3,7 @@ import { Field } from "../../design/primitives/Field.js";
 import { Input } from "../../design/primitives/Input.js";
 import { Label } from "../../design/primitives/Label.js";
 import { cn } from "../../lib/cn.js";
+import { fieldErrorId } from "../../lib/fieldErrorId.js";
 
 // GAP-216: only the readings an expense can plausibly carry — never
 // `at_return`, which is "read when the vehicle came back at lease end" and
@@ -22,6 +23,24 @@ function chipClass(selected: boolean): string {
       ? "border-brand bg-brand-wash text-brand-ink"
       : "border-transparent bg-surface-sunken text-ink-primary",
   );
+}
+
+/**
+ * Copilot review, PR #180: both callers fed the raw typed string straight
+ * to `Number.parseInt(value, 10)`, which silently truncates a non-integer
+ * ("45200.5" → 45200) and accepts a leading-digits-then-garbage string
+ * ("45200km" → 45200) — the wire schema requires a nonnegative integer, so
+ * neither malformed input would 400; it would just store a reading the
+ * manager never typed. Digits-only, checked before parsing rather than
+ * left to whatever `parseInt` happens to tolerate.
+ */
+export function isValidOdometerReadingKm(value: string): boolean {
+  return /^\d+$/.test(value.trim());
+}
+
+/** `undefined` for anything `isValidOdometerReadingKm` would reject — never a silently truncated number. */
+export function parseOdometerReadingKm(value: string): number | undefined {
+  return isValidOdometerReadingKm(value) ? Number.parseInt(value, 10) : undefined;
 }
 
 export interface OdometerReadingFieldProps {
@@ -52,16 +71,25 @@ export function OdometerReadingField({
   onSourceChange,
   sourceMissing,
 }: OdometerReadingFieldProps) {
+  const readingInvalid = readingKm.trim() !== "" && !isValidOdometerReadingKm(readingKm);
+  const readingId = `${idPrefix}-odometer-reading`;
   return (
     <div className="flex flex-col gap-3">
-      <Field label="Odometer reading (km)" htmlFor={`${idPrefix}-odometer-reading`} optional>
+      <Field
+        label="Odometer reading (km)"
+        htmlFor={readingId}
+        optional
+        error={readingInvalid ? "Enter a whole number of kilometres" : undefined}
+      >
         <Input
-          id={`${idPrefix}-odometer-reading`}
+          id={readingId}
           type="number"
           inputMode="numeric"
           min={0}
           value={readingKm}
           onChange={(e) => onReadingKmChange(e.target.value)}
+          aria-invalid={readingInvalid}
+          aria-describedby={fieldErrorId(readingId)}
         />
       </Field>
       <div className="flex flex-col gap-2">

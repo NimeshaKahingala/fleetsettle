@@ -14,7 +14,11 @@ import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { useQueryState } from "../../lib/useQueryState.js";
-import { OdometerReadingField } from "./OdometerReadingField.js";
+import {
+  isValidOdometerReadingKm,
+  OdometerReadingField,
+  parseOdometerReadingKm,
+} from "./OdometerReadingField.js";
 
 export interface FuelFillSheetProps {
   open: boolean;
@@ -102,6 +106,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       if (amountMinor === null || selectedVehicle === null) {
         throw new Error("Vehicle and amount are required");
       }
+      // Copilot review, PR #180: `canSave` already blocks a malformed
+      // reading from reaching here — re-checked rather than trusted, the
+      // same defence-in-depth this codebase's other guarded mutations use.
+      const parsedReading = parseOdometerReadingKm(odometerReadingKm);
       return api.post<ExpenseResponse>("/api/expense", {
         vehicleId: selectedVehicle.id,
         category: "fuel" as const,
@@ -109,8 +117,8 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
         spentOn: today,
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(litres !== undefined ? { litres } : {}),
-        ...(odometerReadingKm.trim() !== "" && odometerSource !== null
-          ? { odometerReadingKm: Number.parseInt(odometerReadingKm, 10), odometerSource }
+        ...(parsedReading !== undefined && odometerSource !== null
+          ? { odometerReadingKm: parsedReading, odometerSource }
           : {}),
       });
     },
@@ -129,12 +137,18 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
   // GAP-216: same both-or-neither gate as `RecordExpenseSheet` — a typed km
   // with no source picked would 400 against the schema's own refine.
   const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
+  // Copilot review, PR #180: a non-integer or partial reading ("80500.5",
+  // "80500km") must block save the same way a missing source does, rather
+  // than reach `Number.parseInt` and silently store a truncated figure.
+  const odometerReadingInvalid =
+    odometerReadingKm.trim() !== "" && !isValidOdometerReadingKm(odometerReadingKm);
   const canSave =
     selectedVehicle !== null &&
     amountMinor !== null &&
     amountMinor > 0n &&
     litresValid &&
-    !odometerSourceMissing;
+    !odometerSourceMissing &&
+    !odometerReadingInvalid;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Log a fuel fill">
@@ -156,7 +170,7 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
 
         <Disclosure
           sectionName="Litres, borne by, odometer and photo"
-          forceOpen={odometerSourceMissing}
+          forceOpen={odometerSourceMissing || odometerReadingInvalid}
         >
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
