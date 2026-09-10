@@ -2471,7 +2471,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     await ctx.cleanup();
   });
 
-  it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+  it("GAP-223 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
     const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
 
     const original = await postExpense(token, {

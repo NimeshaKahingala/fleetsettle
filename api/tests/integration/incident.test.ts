@@ -1211,7 +1211,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       await ctx.cleanup();
     });
 
-    it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+    it("GAP-223 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
       const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
 
       const original = await postExpense(token, {

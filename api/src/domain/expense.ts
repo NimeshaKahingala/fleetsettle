@@ -330,7 +330,7 @@ export interface ReplacedExpense {
 }
 
 /**
- * GAP-219/F-8.5: "Edit" on the client, void-and-replace underneath, one
+ * GAP-224/F-8.5: "Edit" on the client, void-and-replace underneath, one
  * transaction. Two callers driving this same mechanism separately (void,
  * wait for 200, then POST the replacement) is a reachable half-done state
  * — the second call fails on a dropped connection and the money is simply

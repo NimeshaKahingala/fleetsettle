@@ -582,7 +582,7 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     expect(body[2]).toMatchObject({ voidedReason: "wrong vehicle" });
     expect(body[2]?.voidedAt).not.toBeNull();
     expect(body[1]).toMatchObject({ voidedAt: null, voidedReason: null });
-    // GAP-218: the route declares `listExpensesResponseSchema` (which has
+    // GAP-223: the route declares `listExpensesResponseSchema` (which has
     // required both fields since GAP-30/GAP-60), but the handler never
     // projected them — a client reading `replacesId` off this list got
     // `undefined`, not the real id, with nothing catching the mismatch

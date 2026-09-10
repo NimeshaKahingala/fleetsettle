@@ -29,7 +29,7 @@ export interface ExpenseCostRowProps {
  * `TripDetailScreen` and `IncidentScreen` each rendered inline, identically
  * — pulled out so voiding wires into all three at once rather than three
  * times. A voided row stays in place, struck through, its reason appended
- * (INV-21). Tapping a live row now opens a two-action sheet (GAP-219) —
+ * (INV-21). Tapping a live row now opens a two-action sheet (GAP-224) —
  * Edit and Void — rather than jumping straight to Void the way this row
  * did before: with Edit doing the same correction in one step, "delete
  * this and start over" is no longer the only tap a mistake ever offered.

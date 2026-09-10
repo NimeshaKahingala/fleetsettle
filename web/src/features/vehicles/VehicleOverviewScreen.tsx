@@ -331,7 +331,7 @@ export function VehicleOverviewScreen({
       icon: TriangleAlert,
       onSelect: () => setReportIncidentOpen(true),
     },
-    // GAP-220: this and "Record expense" above were the two actions a
+    // GAP-225: this and "Record expense" above were the two actions a
     // repair-cost entry actually needs — F-1.10's own mechanism already
     // existed (built 15 Aug 2026, GAP-26) but was reachable only from the
     // calendar screen, one navigation away from where a repair is normally

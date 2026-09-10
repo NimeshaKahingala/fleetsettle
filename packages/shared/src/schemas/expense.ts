@@ -36,7 +36,7 @@ export type BorneBy = z.infer<typeof borneBySchema>;
  * "whoever is entering") and both overridable here — W-48/INV-27 keeps them
  * two separate questions, never derived from one another.
  *
- * GAP-219: the field set create and replace share — `createExpenseRequestSchema`
+ * GAP-224: the field set create and replace share — `createExpenseRequestSchema`
  * adds `replacesId` (GAP-60/D-16), `replaceExpenseRequestSchema` adds `reason`
  * (F-8.5) — split out once both existed, so the shared fields and their
  * comments live in one place rather than two copies drifting the way
@@ -210,7 +210,7 @@ export const voidedExpenseResponseSchema = z.object({
 export type VoidedExpenseResponse = z.infer<typeof voidedExpenseResponseSchema>;
 
 /**
- * GAP-219/F-8.5: "Edit" on the client, void-and-replace underneath — the
+ * GAP-224/F-8.5: "Edit" on the client, void-and-replace underneath — the
  * wire shape is one request either way (`PATCH /api/expense/{id}`), and the
  * word "void" never reaches the manager. Same shared field set as
  * `createExpenseRequestSchema`, plus `reason`, required — a money

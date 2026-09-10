@@ -44,7 +44,7 @@ export interface RecordExpenseSheetProps {
   incidentId?: string;
   onRecorded: (expense: ExpenseResponse) => void;
   /**
-   * GAP-219/F-8.5: set to correct this row instead of recording a new one.
+   * GAP-224/F-8.5: set to correct this row instead of recording a new one.
    * Wire is one request either way (`PATCH /api/expense/{id}`) — void-and-
    * replace happens underneath (domain/expense.ts), so the word "void"
    * never reaches this sheet. Only a *live* row is ever handed here
@@ -70,7 +70,7 @@ export interface RecordExpenseSheetProps {
  * original "whoever is entering" default, while choosing another member
  * sends that member's `userId` explicitly.
  *
- * GAP-219/F-8.5: `editing` turns this into the same sheet with the fields
+ * GAP-224/F-8.5: `editing` turns this into the same sheet with the fields
  * pre-filled from the row being corrected, plus a required "Reason for the
  * change" — "Edit" is what the manager sees; void-and-replace happens
  * underneath in one PATCH request (domain/expense.ts), never a second call
@@ -118,7 +118,7 @@ export function RecordExpenseSheet({
   const membersQuery = useQuery({
     queryKey: ["business-member"],
     queryFn: () => api.get<BusinessMemberResponse[]>("/api/business-member"),
-    // GAP-219: fetched eagerly in edit mode, not gated on `moreOpen` — the
+    // GAP-224: fetched eagerly in edit mode, not gated on `moreOpen` — the
     // picker's initial selection has to resolve `editing.paidByUserId` to
     // a real name before the manager ever opens the disclosure, or Save
     // would silently keep whatever "You" defaults to (the current actor),
@@ -162,7 +162,7 @@ export function RecordExpenseSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync-on-open only
   }, [open]);
 
-  // GAP-219: resolves `editing.paidByUserId` to a real name once the member
+  // GAP-224: resolves `editing.paidByUserId` to a real name once the member
   // list arrives — cannot happen in the sync-on-open effect above, which
   // fires before this query has ever had a chance to load.
   useEffect(() => {
@@ -194,7 +194,7 @@ export function RecordExpenseSheet({
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
       };
-      // GAP-219: "Edit" is one request either way — void-and-replace
+      // GAP-224: "Edit" is one request either way — void-and-replace
       // happens inside this one PATCH (domain/expense.ts), never a second
       // call from here. A reason is required for a money correction
       // (F-8.5's own Accept clause), never optional the way a plain

@@ -143,16 +143,16 @@ test("renders the trip's agreed amount, costs so far (voided excluded), and driv
   expect(screen.getAllByText("Rs 60,000")).toHaveLength(2);
   // Costs so far excludes the voided toll — fuel (22,000) alone. Appears
   // three times: "Costs so far", the Costs section's own heading total
-  // (GAP-216 — it now shows one, matching the count beside it), and the
+  // (GAP-221 — it now shows one, matching the count beside it), and the
   // one live row that contributes to it.
   expect(screen.getAllByText("Rs 22,000")).toHaveLength(3);
   expect(await screen.findByText(/Sunil Perera/)).toHaveTextContent("Sunil Perera · fee Rs 9,000");
 
-  // GAP-216: the heading count now matches its total — one live row, not
+  // GAP-221: the heading count now matches its total — one live row, not
   // two including the voided one.
   expect(screen.getByText("Costs · 1")).toBeInTheDocument();
   expect(screen.getByText("Fuel")).toBeInTheDocument();
-  // GAP-217: the voided toll is hidden by default, named only by the toggle.
+  // GAP-222: the voided toll is hidden by default, named only by the toggle.
   expect(screen.queryByText("Tolls")).not.toBeInTheDocument();
   await userEvent.setup().click(screen.getByRole("button", { name: "1 voided · Show" }));
 

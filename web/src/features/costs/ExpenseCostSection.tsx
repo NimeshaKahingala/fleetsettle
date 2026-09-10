@@ -13,12 +13,12 @@ export interface ExpenseCostSectionProps {
   formatDate: (spentOn: string) => string;
   /** Every query key whose list includes these rows — forwarded to each `ExpenseCostRow`'s void sheet unchanged. */
   invalidateKeys: readonly unknown[][];
-  /** GAP-219: forwarded to each row's own edit sheet (`RecordExpenseSheet` needs it regardless of mode). */
+  /** GAP-224: forwarded to each row's own edit sheet (`RecordExpenseSheet` needs it regardless of mode). */
   today: BusinessDate;
 }
 
 /**
- * GAP-216/217. `VehicleOverviewScreen`, `TripDetailScreen` and
+ * GAP-221/217. `VehicleOverviewScreen`, `TripDetailScreen` and
  * `IncidentScreen` each built this block inline and each got the same thing
  * wrong: `Section`'s `count` was `expenses.length` (every row, voided
  * included) while the money beside it — this screen's own `costsTotal`, or
@@ -29,7 +29,7 @@ export interface ExpenseCostSectionProps {
  * here now read the same rows, always.
  *
  * Voided rows are hidden by default rather than filtered out — INV-21/W-50
- * still requires a void never leave the list a screen renders, GAP-217 only
+ * still requires a void never leave the list a screen renders, GAP-222 only
  * asks it not be the default view. The toggle names its own count
  * (`"N voided · Show"`) so nothing is silently hidden; expanding it falls
  * back to `expenses`' own order (newest first) rather than appending voided

@@ -82,7 +82,7 @@ export const voidExpenseRoute = createRoute({
 });
 
 /**
- * GAP-219/F-8.5: "Edit" — void-and-replace underneath, one request. The
+ * GAP-224/F-8.5: "Edit" — void-and-replace underneath, one request. The
  * client never calls void directly for this; it PATCHes here with the
  * corrected fields and a reason, and the server does both writes in one
  * transaction (domain/expense.ts) so a dropped connection can never leave

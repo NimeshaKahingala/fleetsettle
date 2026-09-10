@@ -965,13 +965,13 @@ describe("replace a voided expense (GAP-60/D-16)", () => {
 });
 
 /**
- * GAP-219/F-8.5: "Edit" as one request — `PATCH /api/expense/{id}` voids
+ * GAP-224/F-8.5: "Edit" as one request — `PATCH /api/expense/{id}` voids
  * the original and inserts the replacement in a single transaction, rather
  * than a client driving void-then-create as two separate calls (the
  * two-call trap: a dropped connection between them leaves the mistake
  * voided with nothing standing in its place).
  */
-describe("edit an expense (GAP-219/F-8.5)", () => {
+describe("edit an expense (GAP-224/F-8.5)", () => {
   const db = writer(TEST_DATABASE_URL);
   afterAll(async () => {
     await db.$client.end();

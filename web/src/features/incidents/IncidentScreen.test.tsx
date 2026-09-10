@@ -326,7 +326,7 @@ test("once a claim exists, Submit insurance claim is no longer offered", async (
   expect(screen.queryByRole("button", { name: "Submit insurance claim" })).not.toBeInTheDocument();
 });
 
-test("repair costs list hides a voided one by default, then shows it struck through (W-50/GAP-217)", async () => {
+test("repair costs list hides a voided one by default, then shows it struck through (W-50/GAP-222)", async () => {
   const expenses: ExpenseListRow[] = [
     {
       id: "e1",
@@ -372,10 +372,10 @@ test("repair costs list hides a voided one by default, then shows it struck thro
     get,
   });
 
-  // GAP-216: the heading count now matches its total — one live row.
+  // GAP-221: the heading count now matches its total — one live row.
   expect(await screen.findByText("Repair costs · 1")).toBeInTheDocument();
   expect(screen.getAllByText("Repairs")).toHaveLength(1);
-  // GAP-217: the voided one is hidden by default, named only by the toggle.
+  // GAP-222: the voided one is hidden by default, named only by the toggle.
   expect(screen.queryByText("Voided")).not.toBeInTheDocument();
   await userEvent.setup().click(screen.getByRole("button", { name: "1 voided · Show" }));
 

@@ -112,7 +112,7 @@ export interface LiveAttachmentForCopy {
 }
 
 /**
- * GAP-219: the same live-row shape `listAttachmentsForSubject` returns,
+ * GAP-224: the same live-row shape `listAttachmentsForSubject` returns,
  * plus `r2Key` — never added to that one directly, since its rows go
  * straight into `listAttachmentsHandler`'s response and `r2Key` is an
  * internal storage reference, not something the client is ever given

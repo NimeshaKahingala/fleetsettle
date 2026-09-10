@@ -47,7 +47,7 @@ import { assertNotFutureBusinessDate } from "../validation.js";
 
 /**
  * `createExpenseRequestSchema` and `replaceExpenseRequestSchema` share this
- * whole field set (GAP-219 keeps the two schemas separate rather than one
+ * whole field set (GAP-224 keeps the two schemas separate rather than one
  * deriving the other, since `.refine()` closes over the object shape, but
  * the tenancy checks below don't care which request shape they came from —
  * a "wrong vehicle" edit needs the new vehicle validated exactly as a
@@ -270,7 +270,7 @@ export const voidExpenseHandler: RouteHandler<typeof voidExpenseRoute, Env> = as
 };
 
 /**
- * GAP-219/F-8.5. "Edit" on the client — void-and-replace underneath, one
+ * GAP-224/F-8.5. "Edit" on the client — void-and-replace underneath, one
  * request, `dailyOperations` (STAFF) same as create/void. Rejects a target
  * that's already voided (`ExpenseAlreadyVoidedError`, 409) — that row's
  * correction already happened; a second edit on it would replace the

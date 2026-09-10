@@ -32,7 +32,7 @@ const liveExpense: ExpenseListRow = {
   replacesId: null,
 };
 
-test("a live row is tappable and offers Edit and Void (GAP-219)", async () => {
+test("a live row is tappable and offers Edit and Void (GAP-224)", async () => {
   const user = userEvent.setup();
   renderWithProviders(
     <ExpenseCostRow
@@ -50,7 +50,7 @@ test("a live row is tappable and offers Edit and Void (GAP-219)", async () => {
   expect(screen.getByRole("button", { name: "Void" })).toBeInTheDocument();
 });
 
-test("choosing Void from the action sheet opens the void sheet (GAP-219)", async () => {
+test("choosing Void from the action sheet opens the void sheet (GAP-224)", async () => {
   const user = userEvent.setup();
   renderWithProviders(
     <ExpenseCostRow
@@ -67,7 +67,7 @@ test("choosing Void from the action sheet opens the void sheet (GAP-219)", async
   expect(screen.getByLabelText("Reason")).toBeInTheDocument();
 });
 
-test("choosing Edit from the action sheet opens the sheet pre-filled, with a required reason (GAP-219)", async () => {
+test("choosing Edit from the action sheet opens the sheet pre-filled, with a required reason (GAP-224)", async () => {
   const user = userEvent.setup();
   renderWithProviders(
     <ExpenseCostRow
