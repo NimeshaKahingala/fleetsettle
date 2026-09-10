@@ -55,6 +55,7 @@ import { ChangeVehicleArrangementSheet } from "./ChangeVehicleArrangementSheet.j
 import { ChangeDailyLeaseDriverSheet } from "./ChangeDailyLeaseDriverSheet.js";
 import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
 import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
+import { MarkVehicleUnavailableSheet } from "./MarkVehicleUnavailableSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
 import { SkipDailyLeaseDaySheet } from "./SkipDailyLeaseDaySheet.js";
@@ -161,6 +162,7 @@ export function VehicleOverviewScreen({
   const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
   const [voidLeaseDayExceptionOpen, setVoidLeaseDayExceptionOpen] = useState(false);
   const [serviceIntervalOpen, setServiceIntervalOpen] = useState(false);
+  const [markUnavailableOpen, setMarkUnavailableOpen] = useState(false);
   const [archiveVehicleOpen, setArchiveVehicleOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const [selectedLeaseDayException, setSelectedLeaseDayException] =
@@ -328,6 +330,18 @@ export function VehicleOverviewScreen({
       label: "Report incident",
       icon: TriangleAlert,
       onSelect: () => setReportIncidentOpen(true),
+    },
+    // GAP-220: this and "Record expense" above were the two actions a
+    // repair-cost entry actually needs — F-1.10's own mechanism already
+    // existed (built 15 Aug 2026, GAP-26) but was reachable only from the
+    // calendar screen, one navigation away from where a repair is normally
+    // logged. A peer entry here, matching how "Record off-road days"
+    // already sits beside "Record repair cost" on the incident screen.
+    {
+      key: "mark-unavailable",
+      label: "Mark unavailable",
+      icon: CalendarOff,
+      onSelect: () => setMarkUnavailableOpen(true),
     },
     ...(vehicle?.lifecycle === "active"
       ? [
@@ -651,6 +665,12 @@ export function VehicleOverviewScreen({
             onOpenChange={setServiceIntervalOpen}
             vehicleId={vehicleId}
             currentServiceIntervalKm={vehicle.serviceIntervalKm}
+          />
+          <MarkVehicleUnavailableSheet
+            open={markUnavailableOpen}
+            onOpenChange={setMarkUnavailableOpen}
+            vehicleId={vehicleId}
+            today={today}
           />
           <Sheet
             open={archiveVehicleOpen}

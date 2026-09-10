@@ -134,6 +134,47 @@ test("F-3.5/GAP-68: Service interval, via the Vehicle actions menu, opens the sh
   );
 });
 
+test("GAP-220: Mark unavailable, via the Vehicle actions menu, opens F-1.10's sheet without a trip to the calendar screen first", async () => {
+  const user = userEvent.setup();
+  const get = baseGet();
+  const post = vi.fn().mockResolvedValue({
+    id: "u1",
+    vehicleId: "v1",
+    reason: "service",
+    unavailableFrom: "2026-08-08",
+    unavailableTo: null,
+    note: null,
+  });
+  renderWithProviders(
+    <VehicleOverviewScreen
+      vehicleId="v1"
+      onBack={() => {}}
+      onViewCalendar={() => {}}
+      onSelectLease={() => {}}
+      onSelectIncident={() => {}}
+      onStartDailyLease={() => undefined}
+      onBookTrip={() => undefined}
+    />,
+    { get, post },
+  );
+
+  await user.click(await screen.findByRole("button", { name: "Vehicle actions" }));
+  // The action-sheet menu item and the opened sheet's own submit button
+  // share the exact label ("Mark unavailable") — findAllByRole below picks
+  // the second, once the menu has closed and only the sheet's own button
+  // remains.
+  await user.click(await screen.findByRole("button", { name: "Mark unavailable" }));
+  const submitButtons = await screen.findAllByRole("button", { name: "Mark unavailable" });
+  await user.click(submitButtons[submitButtons.length - 1] as HTMLElement);
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      "/api/vehicle/v1/unavailability",
+      expect.objectContaining({ reason: "service" }),
+    ),
+  );
+});
+
 test("GAP-146: Archive vehicle posts from the vehicle's own actions", async () => {
   const user = userEvent.setup();
   const get = baseGet();
