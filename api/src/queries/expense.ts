@@ -120,7 +120,7 @@ export interface VehicleExpenseRow {
   voidedReason: string | null;
 }
 
-/** Vehicle overview's costs tab (Web-P5): every expense logged against this vehicle, voided ones included and struck through by the caller (W-50) — never filtered out, since "what did we spend" must still show what was later corrected. Newest first. */
+/** Vehicle overview's costs tab (Web-P5): every expense logged against this vehicle, voided ones included (W-50) — the caller (`ExpenseCostSection`, GAP-217) hides them behind a labelled "N voided · Show" toggle rather than this query filtering them out, since "what did we spend" must still show what was later corrected on request. Newest first. */
 export async function listExpensesForVehicle(
   db: ReadDb,
   businessId: string,

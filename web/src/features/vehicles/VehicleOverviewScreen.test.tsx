@@ -532,7 +532,7 @@ test("GAP-102: tapping an existing paperwork row opens it prefilled for renewal"
   );
 });
 
-test("a voided expense stays in the costs list, struck through, with its reason (W-50)", async () => {
+test("a voided expense is hidden by default behind a labelled toggle, then shows struck through with its reason (W-50/GAP-217)", async () => {
   const expenses: ExpenseListRow[] = [
     {
       id: "e1",
@@ -587,15 +587,24 @@ test("a voided expense stays in the costs list, struck through, with its reason 
     { get },
   );
 
-  expect(await screen.findByText("Costs · 2")).toBeInTheDocument();
+  // GAP-216: the heading's count and total now describe the same rows —
+  // one live expense, Rs 5,000 — rather than a count of two beside a total
+  // that only ever summed one of them.
+  expect(await screen.findByText("Costs · 1")).toBeInTheDocument();
   expect(screen.getByText("Fuel")).toBeInTheDocument();
-  const voidedCategory = screen.getByText("Repairs");
+  // GAP-217: the voided row is hidden by default, named only by the toggle.
+  expect(screen.queryByText("Repairs")).not.toBeInTheDocument();
+  expect(screen.queryByText("Voided")).not.toBeInTheDocument();
+  const showVoided = screen.getByRole("button", { name: "1 voided · Show" });
+
+  await userEvent.setup().click(showVoided);
+
+  const voidedCategory = await screen.findByText("Repairs");
   expect(voidedCategory).toHaveClass("line-through");
   expect(screen.getByText("Voided")).toBeInTheDocument();
   expect(screen.getByText("wrong vehicle")).toBeInTheDocument();
-  // GAP-96: the scoped total beside the heading excludes the voided row —
-  // 5,000 (fuel) alone, not 17,000. Appears twice: the heading's own total
-  // and the one live row that contributes to it.
+  expect(screen.getByRole("button", { name: "1 voided · Hide" })).toBeInTheDocument();
+  // The heading total is unaffected by expanding — still the one live row.
   expect(screen.getAllByText("Rs 5,000")).toHaveLength(2);
 });
 

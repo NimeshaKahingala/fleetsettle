@@ -13,12 +13,6 @@ function closestButton(element: HTMLElement): HTMLElement {
   return button;
 }
 
-function nth<T>(items: T[], index: number): T {
-  const item = items[index];
-  if (item === undefined) throw new Error(`index ${index.toString()} out of bounds`);
-  return item;
-}
-
 const today = asBusinessDate("2026-07-28");
 
 const openIncident: IncidentDetailResponse = {
@@ -332,7 +326,7 @@ test("once a claim exists, Submit insurance claim is no longer offered", async (
   expect(screen.queryByRole("button", { name: "Submit insurance claim" })).not.toBeInTheDocument();
 });
 
-test("repair costs list, and a voided one stays struck through (W-50)", async () => {
+test("repair costs list hides a voided one by default, then shows it struck through (W-50/GAP-217)", async () => {
   const expenses: ExpenseListRow[] = [
     {
       id: "e1",
@@ -378,10 +372,18 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
     get,
   });
 
-  expect(await screen.findByText("Repair costs · 2")).toBeInTheDocument();
-  const voidedRow = nth(screen.getAllByText("Repairs"), 1);
-  expect(voidedRow).toHaveClass("line-through");
-  expect(screen.getByText("Voided")).toBeInTheDocument();
+  // GAP-216: the heading count now matches its total — one live row.
+  expect(await screen.findByText("Repair costs · 1")).toBeInTheDocument();
+  expect(screen.getAllByText("Repairs")).toHaveLength(1);
+  // GAP-217: the voided one is hidden by default, named only by the toggle.
+  expect(screen.queryByText("Voided")).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole("button", { name: "1 voided · Show" }));
+
+  await screen.findByText("Voided");
+  const repairRows = screen.getAllByText("Repairs");
+  expect(repairRows).toHaveLength(2);
+  const voidedRow = repairRows.find((row) => row.classList.contains("line-through"));
+  expect(voidedRow).toBeDefined();
   expect(screen.getByText("wrong invoice")).toBeInTheDocument();
 });
 
