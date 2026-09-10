@@ -1,5 +1,12 @@
-import { asBusinessDate, businessToday, toWire, type Minor } from "@fleetsettle/shared";
+import {
+  asBusinessDate,
+  businessToday,
+  toWire,
+  type BusinessDate,
+  type Minor,
+} from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
+import type { BorneBy, ExpenseCategory } from "@fleetsettle/shared/schemas";
 import {
   requireBusinessId,
   requireBusinessTimezone,
@@ -12,6 +19,7 @@ import {
   replaceExpense,
   resolveBorneByDefault,
   voidExpense,
+  type ResolvedBorneBy,
 } from "../domain/expense.js";
 import { NotFoundError } from "../errors/app-error.js";
 import { findCustomerForBusiness } from "../queries/customer.js";
@@ -93,6 +101,85 @@ async function assertExpensePartiesExist(
   }
 }
 
+/**
+ * The borne-by-resolution ternary `createExpenseHandler` and
+ * `replaceExpenseHandler` both ran verbatim: an explicit override wins,
+ * otherwise a vehicle defaults through §6.7's matrix, otherwise `us`
+ * (INV-24's overhead case). `category`/`vehicleId` typed narrowly rather
+ * than against either full request type — both request shapes carry them
+ * identically (`expenseCommonFieldsSchema`, packages/shared), and this
+ * helper doesn't care which one called it.
+ */
+async function resolveExpenseBorneBy(
+  reader: Reader,
+  body: {
+    borneBy?: BorneBy | undefined;
+    borneByDriverId?: string | undefined;
+    borneByCustomerId?: string | undefined;
+    vehicleId?: string | undefined;
+    category: ExpenseCategory;
+  },
+  spentOn: BusinessDate,
+): Promise<ResolvedBorneBy> {
+  if (body.borneBy !== undefined) {
+    return {
+      borneBy: body.borneBy,
+      ...(body.borneByDriverId !== undefined ? { borneByDriverId: body.borneByDriverId } : {}),
+      ...(body.borneByCustomerId !== undefined
+        ? { borneByCustomerId: body.borneByCustomerId }
+        : {}),
+    };
+  }
+  if (body.vehicleId !== undefined) {
+    return resolveBorneByDefault(reader, body.vehicleId, body.category, spentOn);
+  }
+  return { borneBy: "us" };
+}
+
+/**
+ * The response shape `createExpenseHandler` and `replaceExpenseHandler`
+ * both build — identical field for field except `id` (the new row) and
+ * `replacesId` (optional/from the body on create; always the path id on
+ * replace), which the two callers pass in rather than this function
+ * guessing which case it's in.
+ */
+function buildExpenseResponseBody(
+  id: string,
+  body: {
+    vehicleId?: string | undefined;
+    tripId?: string | undefined;
+    incidentId?: string | undefined;
+    category: ExpenseCategory;
+    amountMinor: Minor;
+    spentOn: string;
+    paidByUserId?: string | undefined;
+    litres?: number | undefined;
+    note?: string | undefined;
+  },
+  resolved: ResolvedBorneBy,
+  odometerReadingId: string | null,
+  userId: string,
+  replacesId: string | null,
+) {
+  return {
+    id,
+    vehicleId: body.vehicleId ?? null,
+    tripId: body.tripId ?? null,
+    incidentId: body.incidentId ?? null,
+    category: body.category,
+    amountMinor: toWire(body.amountMinor),
+    spentOn: body.spentOn,
+    borneBy: resolved.borneBy,
+    borneByDriverId: resolved.borneByDriverId ?? null,
+    borneByCustomerId: resolved.borneByCustomerId ?? null,
+    paidByUserId: body.paidByUserId ?? userId,
+    litres: body.litres ?? null,
+    odometerReadingId,
+    note: body.note ?? null,
+    replacesId,
+  } as const;
+}
+
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
 export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
   requireCapability(c, "dailyOperations");
@@ -104,19 +191,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   assertNotFutureBusinessDate(c, spentOn, "spentOn");
 
   await assertExpensePartiesExist(reader, businessId, body);
-
-  const resolved =
-    body.borneBy !== undefined
-      ? {
-          borneBy: body.borneBy,
-          ...(body.borneByDriverId !== undefined ? { borneByDriverId: body.borneByDriverId } : {}),
-          ...(body.borneByCustomerId !== undefined
-            ? { borneByCustomerId: body.borneByCustomerId }
-            : {}),
-        }
-      : body.vehicleId !== undefined
-        ? await resolveBorneByDefault(reader, body.vehicleId, body.category, spentOn)
-        : { borneBy: "us" as const };
+  const resolved = await resolveExpenseBorneBy(reader, body, spentOn);
 
   const { expenseId, odometerReadingId } = await createExpense(c.get("writer"), {
     ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
@@ -137,23 +212,14 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
   });
 
   return c.json(
-    {
-      id: expenseId,
-      vehicleId: body.vehicleId ?? null,
-      tripId: body.tripId ?? null,
-      incidentId: body.incidentId ?? null,
-      category: body.category,
-      amountMinor: toWire(body.amountMinor),
-      spentOn: body.spentOn,
-      borneBy: resolved.borneBy,
-      borneByDriverId: resolved.borneByDriverId ?? null,
-      borneByCustomerId: resolved.borneByCustomerId ?? null,
-      paidByUserId: body.paidByUserId ?? userId,
-      litres: body.litres ?? null,
+    buildExpenseResponseBody(
+      expenseId,
+      body,
+      resolved,
       odometerReadingId,
-      note: body.note ?? null,
-      replacesId: body.replacesId ?? null,
-    },
+      userId,
+      body.replacesId ?? null,
+    ),
     201,
   );
 };
@@ -194,19 +260,7 @@ export const replaceExpenseHandler: RouteHandler<typeof replaceExpenseRoute, Env
   assertNotFutureBusinessDate(c, spentOn, "spentOn");
 
   await assertExpensePartiesExist(reader, businessId, body);
-
-  const resolved =
-    body.borneBy !== undefined
-      ? {
-          borneBy: body.borneBy,
-          ...(body.borneByDriverId !== undefined ? { borneByDriverId: body.borneByDriverId } : {}),
-          ...(body.borneByCustomerId !== undefined
-            ? { borneByCustomerId: body.borneByCustomerId }
-            : {}),
-        }
-      : body.vehicleId !== undefined
-        ? await resolveBorneByDefault(reader, body.vehicleId, body.category, spentOn)
-        : { borneBy: "us" as const };
+  const resolved = await resolveExpenseBorneBy(reader, body, spentOn);
 
   const { id: newExpenseId, odometerReadingId } = await replaceExpense(c.get("writer"), c.env.R2, {
     businessId,
@@ -228,23 +282,7 @@ export const replaceExpenseHandler: RouteHandler<typeof replaceExpenseRoute, Env
   });
 
   return c.json(
-    {
-      id: newExpenseId,
-      vehicleId: body.vehicleId ?? null,
-      tripId: body.tripId ?? null,
-      incidentId: body.incidentId ?? null,
-      category: body.category,
-      amountMinor: toWire(body.amountMinor),
-      spentOn: body.spentOn,
-      borneBy: resolved.borneBy,
-      borneByDriverId: resolved.borneByDriverId ?? null,
-      borneByCustomerId: resolved.borneByCustomerId ?? null,
-      paidByUserId: body.paidByUserId ?? userId,
-      litres: body.litres ?? null,
-      odometerReadingId,
-      note: body.note ?? null,
-      replacesId: id,
-    },
+    buildExpenseResponseBody(newExpenseId, body, resolved, odometerReadingId, userId, id),
     201,
   );
 };

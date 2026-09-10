@@ -1148,7 +1148,13 @@ describe("incident (P8, F-3.4/UC-12)", () => {
   }, 60_000);
 
   describe("an incident's costs so far (Web-P8a, GET /{id}/expense)", () => {
-    it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {
+    /** Both tests below start from the identical shape — a business, an open period, a vehicle, a manager's token, and an open incident. */
+    async function setupIncidentCostsFixture(): Promise<{
+      ctx: TestContext;
+      token: string;
+      vehicleId: string;
+      incidentId: string;
+    }> {
       const ctx = new TestContext(db);
       const businessId = await ctx.createBusiness();
       await ctx.createOpenPeriod(businessId);
@@ -1162,6 +1168,12 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       });
       const { id: incidentId }: { id: string } = await opened.json();
       ctx.trackCreatedIncident(incidentId);
+
+      return { ctx, token, vehicleId, incidentId };
+    }
+
+    it("happy path — every repair cost against this incident, newest first, voided ones included", async () => {
+      const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
 
       const bodyWork = await postExpense(token, {
         vehicleId,
@@ -1200,19 +1212,7 @@ describe("incident (P8, F-3.4/UC-12)", () => {
     });
 
     it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
-      const ctx = new TestContext(db);
-      const businessId = await ctx.createBusiness();
-      await ctx.createOpenPeriod(businessId);
-      const vehicleId = await ctx.createVehicle(businessId);
-      const owner = await mintUser(db, ctx, businessId, "manager");
-      const token = await signAccessToken(owner.asgardeoSub);
-
-      const opened = await post("/api/incident", token, {
-        vehicleId,
-        occurredOn: "2026-07-08",
-      });
-      const { id: incidentId }: { id: string } = await opened.json();
-      ctx.trackCreatedIncident(incidentId);
+      const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
 
       const original = await postExpense(token, {
         vehicleId,

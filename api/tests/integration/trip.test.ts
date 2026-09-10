@@ -2405,7 +2405,13 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     await db.$client.end();
   });
 
-  it("happy path — every cost against this trip, newest first, voided ones included", async () => {
+  /** Both tests below start from the identical shape — a business, an open period, an arrangement-C vehicle, an owner's token, and a booked trip. */
+  async function setupTripCostsFixture(): Promise<{
+    ctx: TestContext;
+    token: string;
+    vehicleId: string;
+    tripId: string;
+  }> {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
@@ -2422,9 +2428,15 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const tripBody: { id: string } = await trip.json();
     ctx.trackCreatedTrip(tripBody.id);
 
+    return { ctx, token, vehicleId, tripId: tripBody.id };
+  }
+
+  it("happy path — every cost against this trip, newest first, voided ones included", async () => {
+    const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
+
     const fuel = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "fuel",
       amountMinor: "2200000",
       spentOn: "2026-03-01",
@@ -2437,7 +2449,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
 
     const tolls = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "tolls",
       amountMinor: "300000",
       spentOn: "2026-03-02",
@@ -2447,7 +2459,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const tollsBody: { id: string } = await tolls.json();
     ctx.trackCreatedExpense(tollsBody.id);
 
-    const res = await getTripExpenses(token, tripBody.id);
+    const res = await getTripExpenses(token, tripId);
     expect(res.status).toBe(200);
     const body: Array<{ id: string; category: string; amountMinor: string; spentOn: string }> =
       await res.json();
@@ -2460,25 +2472,11 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
   });
 
   it("GAP-218 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    await ctx.setVehicleArrangement(vehicleId, "C");
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const trip = await postTrip(token, {
-      vehicleId,
-      startDate: "2026-03-01",
-      endDate: "2026-03-03",
-    });
-    const tripBody: { id: string } = await trip.json();
-    ctx.trackCreatedTrip(tripBody.id);
+    const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
 
     const original = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "fuel",
       amountMinor: "2200000",
       spentOn: "2026-03-01",
@@ -2496,7 +2494,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
 
     const replacement = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "fuel",
       amountMinor: "2500000",
       spentOn: "2026-03-01",
@@ -2507,7 +2505,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const replacementBody: { id: string } = await replacement.json();
     ctx.trackCreatedExpense(replacementBody.id);
 
-    const res = await getTripExpenses(token, tripBody.id);
+    const res = await getTripExpenses(token, tripId);
     const body: Array<{ id: string; replacesId: string | null; odometerReadingId: string | null }> =
       await res.json();
     const originalRow = body.find((r) => r.id === originalBody.id);

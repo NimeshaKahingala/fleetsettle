@@ -3,8 +3,13 @@ import type { BorneBy, ExpenseCategory, OdometerSource } from "@fleetsettle/shar
 import type { Reader, Writer } from "../db/client.js";
 import { findActiveLeaseForVehicle } from "../queries/lease.js";
 import { findCurrentDailyLeaseForVehicle } from "../queries/dailyLease.js";
-import { resolvePeriodLinkage } from "../queries/accounting-period.js";
-import { findExpenseForBusiness, insertExpense, voidExpenseRow } from "../queries/expense.js";
+import { resolvePeriodLinkage, type PeriodLinkage } from "../queries/accounting-period.js";
+import {
+  findExpenseForBusiness,
+  insertExpense,
+  voidExpenseRow,
+  type NewExpense,
+} from "../queries/expense.js";
 import { insertOdometerReading } from "../queries/odometer-reading.js";
 import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
 import { insertAttachment, listLiveAttachmentsForCopy } from "../queries/attachment.js";
@@ -135,6 +140,61 @@ export interface CreatedExpense {
  * is what `listUsBoughtFuelFills` (queries/reports.ts, UC-72) has been
  * reading with nothing ever writing it.
  */
+/**
+ * `createExpense` and `replaceExpense` both build the identical `NewExpense`
+ * values, differing only in the new row's own id and its `replacesId` (from
+ * the body on create, optional; always the corrected row's own id on
+ * replace) — extracted so the field list can't drift between the two
+ * insert sites the way a hand-maintained list elsewhere in this schema
+ * already has once (CLAUDE.md → Writes).
+ */
+function buildNewExpenseValues(
+  id: string,
+  input: {
+    businessId: string;
+    vehicleId?: string;
+    tripId?: string;
+    incidentId?: string;
+    category: ExpenseCategory;
+    amountMinor: Minor;
+    spentOn: BusinessDate;
+    borneBy: BorneBy;
+    borneByDriverId?: string;
+    borneByCustomerId?: string;
+    paidByUserId: string;
+    litres?: number;
+    note?: string;
+    actorUserId: string;
+  },
+  linkage: PeriodLinkage,
+  odometerReadingId: string | undefined,
+  replacesId: string | undefined,
+): NewExpense {
+  return {
+    id,
+    businessId: input.businessId,
+    ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
+    ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
+    ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
+    category: input.category,
+    amountMinor: input.amountMinor,
+    spentOn: input.spentOn,
+    borneBy: input.borneBy,
+    ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
+    ...(input.borneByCustomerId !== undefined
+      ? { borneByCustomerId: input.borneByCustomerId }
+      : {}),
+    paidByUserId: input.paidByUserId,
+    ...(input.litres !== undefined ? { litres: input.litres } : {}),
+    ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
+    ...(input.note !== undefined ? { note: input.note } : {}),
+    postedPeriodId: linkage.postedPeriodId,
+    ...(linkage.belongsToPeriodId !== null ? { belongsToPeriodId: linkage.belongsToPeriodId } : {}),
+    createdBy: input.actorUserId,
+    ...(replacesId !== undefined ? { replacesId } : {}),
+  };
+}
+
 export async function createExpense(
   writer: Writer,
   input: CreateExpenseInput,
@@ -177,31 +237,10 @@ export async function createExpense(
         });
       }
 
-      await insertExpense(tx, {
-        id: expenseId,
-        businessId: input.businessId,
-        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
-        ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
-        ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
-        category: input.category,
-        amountMinor: input.amountMinor,
-        spentOn: input.spentOn,
-        borneBy: input.borneBy,
-        ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
-        ...(input.borneByCustomerId !== undefined
-          ? { borneByCustomerId: input.borneByCustomerId }
-          : {}),
-        paidByUserId: input.paidByUserId,
-        ...(input.litres !== undefined ? { litres: input.litres } : {}),
-        ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
-        ...(input.note !== undefined ? { note: input.note } : {}),
-        postedPeriodId: linkage.postedPeriodId,
-        ...(linkage.belongsToPeriodId !== null
-          ? { belongsToPeriodId: linkage.belongsToPeriodId }
-          : {}),
-        createdBy: input.actorUserId,
-        ...(input.replacesId !== undefined ? { replacesId: input.replacesId } : {}),
-      });
+      await insertExpense(
+        tx,
+        buildNewExpenseValues(expenseId, input, linkage, odometerReadingId, input.replacesId),
+      );
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -397,31 +436,10 @@ export async function replaceExpense(
         });
       }
 
-      await insertExpense(tx, {
-        id: newExpenseId,
-        businessId: input.businessId,
-        ...(input.vehicleId !== undefined ? { vehicleId: input.vehicleId } : {}),
-        ...(input.tripId !== undefined ? { tripId: input.tripId } : {}),
-        ...(input.incidentId !== undefined ? { incidentId: input.incidentId } : {}),
-        category: input.category,
-        amountMinor: input.amountMinor,
-        spentOn: input.spentOn,
-        borneBy: input.borneBy,
-        ...(input.borneByDriverId !== undefined ? { borneByDriverId: input.borneByDriverId } : {}),
-        ...(input.borneByCustomerId !== undefined
-          ? { borneByCustomerId: input.borneByCustomerId }
-          : {}),
-        paidByUserId: input.paidByUserId,
-        ...(input.litres !== undefined ? { litres: input.litres } : {}),
-        ...(odometerReadingId !== undefined ? { odometerReadingId } : {}),
-        ...(input.note !== undefined ? { note: input.note } : {}),
-        postedPeriodId: linkage.postedPeriodId,
-        ...(linkage.belongsToPeriodId !== null
-          ? { belongsToPeriodId: linkage.belongsToPeriodId }
-          : {}),
-        createdBy: input.actorUserId,
-        replacesId: input.expenseId,
-      });
+      await insertExpense(
+        tx,
+        buildNewExpenseValues(newExpenseId, input, linkage, odometerReadingId, input.expenseId),
+      );
 
       for (const receipt of copiedReceipts) {
         await insertAttachment(tx, {
