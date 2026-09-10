@@ -6,7 +6,7 @@ import {
   type Minor,
 } from "@fleetsettle/shared";
 import type { RouteHandler } from "@hono/zod-openapi";
-import type { BorneBy, ExpenseCategory } from "@fleetsettle/shared/schemas";
+import type { BorneBy, ExpenseCategory, OdometerSource } from "@fleetsettle/shared/schemas";
 import {
   requireBusinessId,
   requireBusinessTimezone,
@@ -180,6 +180,42 @@ function buildExpenseResponseBody(
   } as const;
 }
 
+/**
+ * The write-input fields `createExpense`/`replaceExpense` both need beyond
+ * their own distinct shape (vehicle/trip/incident linkage plus
+ * `businessId`/`replacesId` on create, `businessId`/`expenseId`/`reason` on
+ * replace) — `category` through `note`, resolved borne-by included. The two
+ * callers each spread this alongside their own remaining fields rather
+ * than repeating it.
+ */
+function buildExpenseWriteFields(
+  body: {
+    category: ExpenseCategory;
+    amountMinor: Minor;
+    paidByUserId?: string | undefined;
+    litres?: number | undefined;
+    odometerReadingKm?: number | undefined;
+    odometerSource?: OdometerSource | undefined;
+    note?: string | undefined;
+  },
+  resolved: ResolvedBorneBy,
+  spentOn: BusinessDate,
+  userId: string,
+) {
+  return {
+    category: body.category,
+    amountMinor: body.amountMinor,
+    spentOn,
+    ...resolved,
+    paidByUserId: body.paidByUserId ?? userId,
+    actorUserId: userId,
+    ...(body.litres !== undefined ? { litres: body.litres } : {}),
+    ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
+    ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
+    ...(body.note !== undefined ? { note: body.note } : {}),
+  };
+}
+
 /** F-3.1/F-3.2/F-3.3. `dailyOperations` (STAFF) — the same capability expenses are already grouped under (`auth/policy.ts`). */
 export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> = async (c) => {
   requireCapability(c, "dailyOperations");
@@ -198,16 +234,7 @@ export const createExpenseHandler: RouteHandler<typeof createExpenseRoute, Env> 
     ...(body.tripId !== undefined ? { tripId: body.tripId } : {}),
     ...(body.incidentId !== undefined ? { incidentId: body.incidentId } : {}),
     businessId,
-    category: body.category,
-    amountMinor: body.amountMinor,
-    spentOn,
-    ...resolved,
-    paidByUserId: body.paidByUserId ?? userId,
-    actorUserId: userId,
-    ...(body.litres !== undefined ? { litres: body.litres } : {}),
-    ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
-    ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
-    ...(body.note !== undefined ? { note: body.note } : {}),
+    ...buildExpenseWriteFields(body, resolved, spentOn, userId),
     ...(body.replacesId !== undefined ? { replacesId: body.replacesId } : {}),
   });
 
@@ -268,16 +295,7 @@ export const replaceExpenseHandler: RouteHandler<typeof replaceExpenseRoute, Env
     ...(body.vehicleId !== undefined ? { vehicleId: body.vehicleId } : {}),
     ...(body.tripId !== undefined ? { tripId: body.tripId } : {}),
     ...(body.incidentId !== undefined ? { incidentId: body.incidentId } : {}),
-    category: body.category,
-    amountMinor: body.amountMinor,
-    spentOn,
-    ...resolved,
-    paidByUserId: body.paidByUserId ?? userId,
-    actorUserId: userId,
-    ...(body.litres !== undefined ? { litres: body.litres } : {}),
-    ...(body.odometerReadingKm !== undefined ? { odometerReadingKm: body.odometerReadingKm } : {}),
-    ...(body.odometerSource !== undefined ? { odometerSource: body.odometerSource } : {}),
-    ...(body.note !== undefined ? { note: body.note } : {}),
+    ...buildExpenseWriteFields(body, resolved, spentOn, userId),
     reason: body.reason,
   });
 
