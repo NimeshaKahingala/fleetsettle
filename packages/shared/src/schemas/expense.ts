@@ -130,6 +130,14 @@ export const expenseResponseSchema = z.object({
   // `listUsBoughtFuelFills` (queries/reports.ts) is what dereferences this
   // into a km/l figure for the fuel-efficiency report.
   odometerReadingId: z.string().uuid().nullable(),
+  // Copilot review, PR #182: the reading itself, not just its id — GAP-224's
+  // edit sheet needs the actual km/source to prefill (and re-preserve) a
+  // servicing expense's reading rather than silently dropping it on an
+  // unrelated correction (`findLastMaintenanceOdometerKm` inner-joins this,
+  // so a replacement with no reading vanishes from the maintenance prompt).
+  // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+  odometerReadingKm: z.number().int().nonnegative().nullable(),
+  odometerReadingSource: odometerSourceSchema.nullable(),
   note: z.string().nullable(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record
   // itself rather than only from a global log.

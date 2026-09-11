@@ -45,6 +45,15 @@ export function ExpenseCostRow({
   const [voidOpen, setVoidOpen] = useState(false);
   const [receiptsOpen, setReceiptsOpen] = useState(false);
   const voided = expense.voidedAt !== null;
+  // Copilot review, PR #182: `finance` is generated server-side by a loan
+  // payment's own split (GAP-185/F-12.2) — only `voidLoanPayment` knows how
+  // to cascade a correction to it (the linked expense, the linked partner
+  // payout, and the payment itself, together). Neither Edit nor Void offers
+  // that here, so neither is offered at all; the domain guard
+  // (`assertExpenseNotFinanceLinked`) is the real defence, this is just not
+  // dangling a dead-end action in front of it.
+  const financeLinked = expense.category === "finance";
+  const correctable = !voided && !financeLinked;
   const api = useApi();
 
   const actions: ActionSheetAction[] = [
@@ -120,12 +129,12 @@ export function ExpenseCostRow({
 
   return (
     <Card accent={voided ? "critical" : undefined} className="flex flex-col gap-2">
-      {voided ? (
-        content
-      ) : (
+      {correctable ? (
         <button type="button" onClick={() => setActionsOpen(true)} className="text-left">
           {content}
         </button>
+      ) : (
+        content
       )}
       {attachmentsState.kind === "error" ? (
         <p className="text-caption text-ink-muted">Receipts couldn't be checked</p>
@@ -148,7 +157,7 @@ export function ExpenseCostRow({
         // shape GAP-126/127/128/129 already fixed elsewhere.
         <p className="text-caption text-ink-muted">Checking receipts…</p>
       ) : null}
-      {!voided ? (
+      {correctable ? (
         <>
           <ActionSheet
             open={actionsOpen}

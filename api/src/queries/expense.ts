@@ -126,6 +126,11 @@ export interface VehicleExpenseRow {
   // is UC-72's own fuel-efficiency link; `replacesId` is what GAP-224's edit
   // (void-and-replace) needs to render "replaced by" on a voided row.
   odometerReadingId: string | null;
+  // Copilot review, PR #182: the reading itself, left-joined in below — the
+  // edit sheet needs the actual km/source to prefill (and re-preserve) a
+  // servicing expense's reading, not just its id.
+  odometerReadingKm: number | null;
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
   replacesId: string | null;
 }
 
@@ -152,9 +157,12 @@ export async function listExpensesForVehicle(
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
       odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
       replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(and(eq(expense.businessId, businessId), eq(expense.vehicleId, vehicleId)))
     .orderBy(desc(expense.spentOn));
   return rows as VehicleExpenseRow[];
@@ -216,6 +224,8 @@ export interface BusinessExpenseRow {
   paidByUserId: string | null;
   litres: number | null;
   odometerReadingId: string | null;
+  odometerReadingKm: number | null;
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
@@ -259,12 +269,15 @@ export async function listExpensesForBusiness(
       paidByUserId: expense.paidByUserId,
       litres: expense.litres,
       odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
       replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(
       and(
         eq(expense.businessId, businessId),
@@ -362,6 +375,8 @@ export interface TripExpenseRow {
   voidedAt: string | null;
   voidedReason: string | null;
   odometerReadingId: string | null; // GAP-223 — see VehicleExpenseRow's own comment
+  odometerReadingKm: number | null; // Copilot review, PR #182 — see VehicleExpenseRow's own comment
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
   replacesId: string | null;
 }
 
@@ -393,9 +408,12 @@ export async function listExpensesForTrip(db: ReadDb, tripId: string): Promise<T
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
       odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
       replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(eq(expense.tripId, tripId))
     .orderBy(desc(expense.spentOn));
   return rows as TripExpenseRow[];
@@ -432,6 +450,8 @@ export interface IncidentExpenseRow {
   voidedAt: string | null;
   voidedReason: string | null;
   odometerReadingId: string | null; // GAP-223 — see VehicleExpenseRow's own comment
+  odometerReadingKm: number | null; // Copilot review, PR #182 — see VehicleExpenseRow's own comment
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
   replacesId: string | null;
 }
 
@@ -468,9 +488,12 @@ export async function listExpensesForIncident(
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
       odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
       replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(eq(expense.incidentId, incidentId))
     .orderBy(desc(expense.spentOn));
   return rows as IncidentExpenseRow[];

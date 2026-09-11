@@ -597,6 +597,8 @@ test("a voided expense is hidden by default behind a labelled toggle, then shows
       voidedAt: null,
       voidedReason: null,
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
     {
@@ -616,6 +618,8 @@ test("a voided expense is hidden by default behind a labelled toggle, then shows
       voidedAt: "2026-07-11T00:00:00Z",
       voidedReason: "wrong vehicle",
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
   ];

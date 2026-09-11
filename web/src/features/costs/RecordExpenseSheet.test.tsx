@@ -38,6 +38,8 @@ const created: ExpenseResponse = {
   litres: null,
   note: null,
   odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
   replacesId: null,
 };
 
@@ -384,6 +386,8 @@ const editingPaidByOther: ExpenseListRow = {
   litres: null,
   note: null,
   odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
   replacesId: null,
   voidedAt: null,
   voidedReason: null,
@@ -444,6 +448,229 @@ test("GAP-224/Copilot review: Save unblocks once the original payer resolves to 
     expect(patch).toHaveBeenCalledWith(
       "/api/expense/e2",
       expect.objectContaining({ paidByUserId: "u2" }),
+    ),
+  );
+});
+
+const editingNoVehicle: ExpenseListRow = {
+  id: "e4",
+  vehicleId: null,
+  tripId: null,
+  incidentId: null,
+  category: "office",
+  amountMinor: "20000",
+  spentOn: "2026-08-04",
+  borneBy: "us",
+  borneByDriverId: null,
+  borneByCustomerId: null,
+  paidByUserId: null,
+  litres: null,
+  note: null,
+  odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
+  replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
+};
+
+/**
+ * Copilot review, PR #182: `ExpenseCostRow` omits the `vehicleId` prop
+ * entirely for a row with no vehicle (INV-24's overhead case) — the same
+ * `undefined` a blank `vehicleId` prop has in create mode, which is when
+ * this sheet shows a vehicle picker. Editing must never show it (this
+ * sheet can't reassign the vehicle a cost is filed against), regardless of
+ * whether `vehicleId` was omitted because there was none to lock, or
+ * because there never was one at all.
+ */
+test("Copilot review, PR 182: editing an overhead (no-vehicle) expense never shows the vehicle picker", async () => {
+  const get = vi.fn().mockResolvedValue([]);
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingNoVehicle}
+    />,
+    { get },
+  );
+
+  expect(await screen.findByLabelText("Reason for the change")).toBeInTheDocument();
+  expect(
+    screen.queryByText("Optional — leave blank for a cost with no vehicle (UC-66)"),
+  ).not.toBeInTheDocument();
+  expect(get).not.toHaveBeenCalledWith("/api/vehicle");
+});
+
+const editingDriverBorne: ExpenseListRow = {
+  id: "e5",
+  vehicleId: "v1",
+  tripId: null,
+  incidentId: null,
+  category: "fuel",
+  amountMinor: "50000",
+  spentOn: "2026-08-04",
+  borneBy: "driver",
+  borneByDriverId: "d1",
+  borneByCustomerId: null,
+  paidByUserId: null,
+  litres: null,
+  note: null,
+  odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
+  replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
+};
+
+/**
+ * Copilot review, PR #182: omitting `borneBy` here let the server
+ * recompute its *current* default, which can differ from the original
+ * fact (W-48) — correcting an unrelated field (here, nothing about
+ * borne-by at all) must not silently reassign who a cost is borne by.
+ */
+test("Copilot review, PR 182: editing a driver-borne expense preserves the original borne-by unless overridden", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([]);
+  const patch = vi.fn().mockResolvedValue({ ...created, id: "e6" });
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingDriverBorne}
+    />,
+    { get, patch },
+  );
+
+  await user.type(await screen.findByLabelText("Reason for the change"), "wrong amount");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await vi.waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(
+      "/api/expense/e5",
+      expect.objectContaining({ borneBy: "driver", borneByDriverId: "d1" }),
+    ),
+  );
+  const [, body] = patch.mock.calls[0] as [string, Record<string, unknown>];
+  expect(body).not.toHaveProperty("borneByCustomerId");
+});
+
+const editingFuelWithLitres: ExpenseListRow = {
+  id: "e7",
+  vehicleId: "v1",
+  tripId: null,
+  incidentId: null,
+  category: "fuel",
+  amountMinor: "50000",
+  spentOn: "2026-08-04",
+  borneBy: "us",
+  borneByDriverId: null,
+  borneByCustomerId: null,
+  paidByUserId: null,
+  litres: 12.5,
+  note: null,
+  odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
+  replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
+};
+
+/**
+ * Copilot review, PR #182: this sheet has no litres input at all (fuel
+ * litres are only ever captured by `FuelFillSheet`) — without preserving
+ * it explicitly, editing any field on a fuel expense silently dropped its
+ * litres, since the domain stores whatever the PATCH omits as null.
+ */
+test("Copilot review, PR 182: editing a fuel expense preserves its litres even though this sheet has no litres field", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([]);
+  const patch = vi.fn().mockResolvedValue({ ...created, id: "e8" });
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingFuelWithLitres}
+    />,
+    { get, patch },
+  );
+
+  await user.type(await screen.findByLabelText("Reason for the change"), "wrong amount");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await vi.waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(
+      "/api/expense/e7",
+      expect.objectContaining({ litres: 12.5 }),
+    ),
+  );
+});
+
+const editingServicingWithReading: ExpenseListRow = {
+  id: "e9",
+  vehicleId: "v1",
+  tripId: null,
+  incidentId: null,
+  category: "servicing",
+  amountMinor: "50000",
+  spentOn: "2026-08-04",
+  borneBy: "us",
+  borneByDriverId: null,
+  borneByCustomerId: null,
+  paidByUserId: null,
+  litres: null,
+  note: null,
+  odometerReadingId: "or1",
+  odometerReadingKm: 45200,
+  odometerReadingSource: "photo",
+  replacesId: null,
+  voidedAt: null,
+  voidedReason: null,
+};
+
+/**
+ * Copilot review, PR #182: always resetting the odometer fields to blank
+ * on open silently dropped a servicing expense's reading on any unrelated
+ * correction — `findLastMaintenanceOdometerKm` inner-joins
+ * `odometer_reading`, so a replacement with no reading vanished from the
+ * maintenance prompt. Prefilled from the row being corrected instead.
+ */
+test("Copilot review, PR 182: editing a servicing expense preserves its odometer reading unless changed", async () => {
+  const user = userEvent.setup();
+  const get = vi.fn().mockResolvedValue([]);
+  const patch = vi.fn().mockResolvedValue({ ...created, id: "e10" });
+  renderWithProviders(
+    <RecordExpenseSheet
+      open
+      onOpenChange={() => {}}
+      vehicleId="v1"
+      today={today}
+      onRecorded={vi.fn()}
+      editing={editingServicingWithReading}
+    />,
+    { get, patch },
+  );
+
+  await user.type(await screen.findByLabelText("Reason for the change"), "wrong amount");
+  await user.click(screen.getByRole("button", { name: "More" }));
+  expect(screen.getByLabelText("Odometer reading (km) (optional)")).toHaveValue(45200);
+  expect(screen.getByRole("button", { name: "Photo" })).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+  await vi.waitFor(() =>
+    expect(patch).toHaveBeenCalledWith(
+      "/api/expense/e9",
+      expect.objectContaining({ odometerReadingKm: 45200, odometerSource: "photo" }),
     ),
   );
 });

@@ -44,6 +44,8 @@ const created: ExpenseResponse = {
   litres: null,
   note: null,
   odometerReadingId: null,
+  odometerReadingKm: null,
+  odometerReadingSource: null,
   replacesId: null,
 };
 

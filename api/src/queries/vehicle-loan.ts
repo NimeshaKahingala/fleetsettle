@@ -200,6 +200,35 @@ export async function findLoanPaymentForBusiness(
 }
 
 /**
+ * `domain/expense.ts`'s own guard against correcting/voiding a `finance`
+ * expense through the generic path — only `voidLoanPayment` knows how to
+ * cascade a correction here (the linked expense and, when set, the linked
+ * partner payout, together with the payment itself). `voided_at IS NULL` is
+ * defensive, not load-bearing: `voidLoanPayment` always voids its linked
+ * expense in the same transaction, so a still-live expense can only be
+ * referenced by a still-live payment — matching the "live" naming/filtering
+ * precedent of `findLiveSettlementsForAdvance` (`queries/driver-money.ts`).
+ */
+export async function findLiveLoanPaymentByExpenseId(
+  db: ReadDb,
+  businessId: string,
+  expenseId: string,
+): Promise<{ id: string; loanId: string } | undefined> {
+  const rows = await db
+    .select({ id: loanPayment.id, loanId: loanPayment.loanId })
+    .from(loanPayment)
+    .where(
+      and(
+        eq(loanPayment.expenseId, expenseId),
+        eq(loanPayment.businessId, businessId),
+        isNull(loanPayment.voidedAt),
+      ),
+    )
+    .limit(1);
+  return rows[0];
+}
+
+/**
  * F-12.2/F-12.4: every live payment against this loan, oldest first —
  * "remaining to pay" and "behind by" are both derived from this sum, never
  * stored (DM §4.4).
