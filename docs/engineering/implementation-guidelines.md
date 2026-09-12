@@ -4,7 +4,7 @@
 
 **v1.7** — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
 **v1.6.1** — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
-**Date:** 10 August 2026
+**Date:** 23 August 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
