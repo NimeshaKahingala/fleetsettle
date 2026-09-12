@@ -938,73 +938,50 @@ describe("confirm a week in one pass (P3, F-4.6/UC-38, GAP-2)", () => {
    * test that only needs the derivation exercised sets the columns
    * directly rather than going through `createDriverRequestSchema`'s own
    * validation (covered separately in driver.test.ts).
+   *
+   * Parameterized rather than two near-identical blocks (Sonar flagged the
+   * duplication on PR #185, correctly) — the confirmed date and the
+   * expected `effectiveDueOn` are the only things that differ between "on
+   * or after" and "on".
    */
-  it("a Friday settler's Wednesday day is due the following Friday, not the day itself (GAP-135)", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const driverId = await ctx.createDriver(businessId, {
-      settlementRhythm: "weekly",
-      settlementWeekday: 5,
-    });
-    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
-      dailyLeaseAmountMinor: 5_000_00n,
-    });
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const res = await confirmDay(token, {
-      dailyLeaseId,
-      businessDate: "2026-07-15",
-      action: "paid_in_full",
-    });
-    expect(res.status).toBe(201);
-    const body: { id: string } = await res.json();
-    ctx.trackCreatedDayRecord(body.id);
-
-    const [obRow] = await db
-      .select()
-      .from(obligation)
-      .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, body.id)));
-    expect(obRow).toMatchObject({ dueOn: "2026-07-15", effectiveDueOn: "2026-07-17" });
-
-    await ctx.cleanup();
-  });
-
-  it("a Friday settler confirmed on Friday itself is due that same day — on or after, not strictly after (GAP-135)", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const driverId = await ctx.createDriver(businessId, {
-      settlementRhythm: "weekly",
-      settlementWeekday: 5,
-    });
-    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
-      dailyLeaseAmountMinor: 5_000_00n,
-    });
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    // 2026-07-17 is the Friday the test above already derives independently.
-    const res = await confirmDay(token, {
-      dailyLeaseId,
+  it.each([
+    { label: "a Wednesday", businessDate: "2026-07-15", expectedEffectiveDueOn: "2026-07-17" },
+    {
+      label: "the Friday itself",
       businessDate: "2026-07-17",
-      action: "paid_in_full",
-    });
-    expect(res.status).toBe(201);
-    const body: { id: string } = await res.json();
-    ctx.trackCreatedDayRecord(body.id);
+      expectedEffectiveDueOn: "2026-07-17",
+    },
+  ])(
+    "a Friday settler confirmed on $label is due $expectedEffectiveDueOn (GAP-135)",
+    async ({ businessDate, expectedEffectiveDueOn }) => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId, {
+        settlementRhythm: "weekly",
+        settlementWeekday: 5,
+      });
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+        dailyLeaseAmountMinor: 5_000_00n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
 
-    const [obRow] = await db
-      .select()
-      .from(obligation)
-      .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, body.id)));
-    expect(obRow).toMatchObject({ dueOn: "2026-07-17", effectiveDueOn: "2026-07-17" });
+      const res = await confirmDay(token, { dailyLeaseId, businessDate, action: "paid_in_full" });
+      expect(res.status).toBe(201);
+      const body: { id: string } = await res.json();
+      ctx.trackCreatedDayRecord(body.id);
 
-    await ctx.cleanup();
-  });
+      const [obRow] = await db
+        .select()
+        .from(obligation)
+        .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, body.id)));
+      expect(obRow).toMatchObject({ dueOn: businessDate, effectiveDueOn: expectedEffectiveDueOn });
+
+      await ctx.cleanup();
+    },
+  );
 
   it("the bulk week-confirm derives the same way, resolved once for the whole batch (GAP-135)", async () => {
     const ctx = new TestContext(db);

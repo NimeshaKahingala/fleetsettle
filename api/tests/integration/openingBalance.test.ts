@@ -534,52 +534,64 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
    * written. `findOwnDriverIds`/`findOwnCustomerIds` (the handler's own
    * tenancy check, above) only prove the party belongs to this business —
    * `voided_at` is a separate fact, checked nowhere else on this path.
+   *
+   * Parameterized over the two party types rather than two near-identical
+   * blocks (Sonar flagged the duplication on PR #185, correctly) — only
+   * the table, the entry kind and the entry's own party field differ.
    */
-  it("409 PARTY_ARCHIVED — a driver_arrears entry names an already-archived driver, refused at save (GAP-187)", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    const driverId = await ctx.createDriver(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    await db
-      .update(driver)
-      .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: owner.userId })
-      .where(eq(driver.id, driverId));
-    const token = await signAccessToken(owner.asgardeoSub);
+  it.each([
+    {
+      partyKind: "driver_arrears" as const,
+      createParty: (ctx: TestContext, businessId: string) => ctx.createDriver(businessId),
+      archive: (partyId: string, userId: string) =>
+        db
+          .update(driver)
+          .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: userId })
+          .where(eq(driver.id, partyId)),
+      entry: (partyId: string) => ({
+        kind: "driver_arrears",
+        partyDriverId: partyId,
+        amountMinor: "100",
+      }),
+    },
+    {
+      partyKind: "customer_due" as const,
+      createParty: (ctx: TestContext, businessId: string) => ctx.createCustomer(businessId),
+      archive: (partyId: string, userId: string) =>
+        db
+          .update(customer)
+          .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: userId })
+          .where(eq(customer.id, partyId)),
+      entry: (partyId: string) => ({
+        kind: "customer_due",
+        partyCustomerId: partyId,
+        amountMinor: "100",
+      }),
+    },
+  ])(
+    "409 PARTY_ARCHIVED — a $partyKind entry names an already-archived party, refused at save (GAP-187)",
+    async ({ createParty, archive, entry }) => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      const partyId = await createParty(ctx, businessId);
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      await archive(partyId, owner.userId);
+      const token = await signAccessToken(owner.asgardeoSub);
 
-    const res = await putOpeningBalance(token, {
-      goLiveDate: "2026-01-01",
-      entries: [{ kind: "driver_arrears", partyDriverId: driverId, amountMinor: "100" }],
-    });
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "PARTY_ARCHIVED" });
+      const res = await putOpeningBalance(token, {
+        goLiveDate: "2026-01-01",
+        entries: [entry(partyId)],
+      });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toMatchObject({ code: "PARTY_ARCHIVED" });
 
-    // Refused, not half-written: no batch, no entry, from this call.
-    const getRes = await getOpeningBalance(token);
-    expect(getRes.status).toBe(404);
+      // Refused, not half-written: no batch, no entry, from this call.
+      const getRes = await getOpeningBalance(token);
+      expect(getRes.status).toBe(404);
 
-    await ctx.cleanup();
-  });
-
-  it("409 PARTY_ARCHIVED — a customer_due entry names an already-archived customer, refused at save (GAP-187)", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    const customerId = await ctx.createCustomer(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    await db
-      .update(customer)
-      .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: owner.userId })
-      .where(eq(customer.id, customerId));
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const res = await putOpeningBalance(token, {
-      goLiveDate: "2026-01-01",
-      entries: [{ kind: "customer_due", partyCustomerId: customerId, amountMinor: "100" }],
-    });
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "PARTY_ARCHIVED" });
-
-    await ctx.cleanup();
-  });
+      await ctx.cleanup();
+    },
+  );
 
   it("404 — a driver_arrears entry names a driver in another business", async () => {
     const ctx = new TestContext(db);
