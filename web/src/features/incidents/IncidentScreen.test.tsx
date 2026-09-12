@@ -110,6 +110,8 @@ test("GAP-172: Record repair cost is always offered, opens with the incident's o
     litres: null,
     note: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   });
   renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
@@ -345,6 +347,8 @@ test("repair costs list hides a voided one by default, then shows it struck thro
       voidedAt: null,
       voidedReason: null,
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
     {
@@ -364,6 +368,8 @@ test("repair costs list hides a voided one by default, then shows it struck thro
       voidedAt: "2026-08-06T00:00:00.000Z",
       voidedReason: "wrong invoice",
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
   ];
@@ -406,6 +412,8 @@ test("GAP-191: voiding a repair cost refreshes the incident's own bottom line, n
     voidedAt: null,
     voidedReason: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   };
   let incidentCallCount = 0;

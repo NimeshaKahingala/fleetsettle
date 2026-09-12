@@ -235,6 +235,8 @@ export const listIncidentExpensesHandler: RouteHandler<
       voidedAt: row.voidedAt,
       voidedReason: row.voidedReason,
       odometerReadingId: row.odometerReadingId,
+      odometerReadingKm: row.odometerReadingKm,
+      odometerReadingSource: row.odometerReadingSource,
       replacesId: row.replacesId,
     })),
     200,

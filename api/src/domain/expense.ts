@@ -13,6 +13,7 @@ import {
 import { insertOdometerReading } from "../queries/odometer-reading.js";
 import { findVehicleArrangementAsOf } from "../queries/vehicle.js";
 import { insertAttachment, listLiveAttachmentsForCopy } from "../queries/attachment.js";
+import { findLiveLoanPaymentByExpenseId } from "../queries/vehicle-loan.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import {
   ExpenseAlreadyVoidedError,
@@ -20,6 +21,7 @@ import {
   PeriodClosedError,
   ReplacesTargetAlreadyReplacedError,
   ReplacesTargetNotVoidedError,
+  VoidBlockedError,
 } from "../errors/app-error.js";
 
 /**
@@ -266,6 +268,35 @@ export interface VoidedExpense {
 }
 
 /**
+ * Copilot review, PR #182: `voidExpense`/`replaceExpense` are the generic
+ * paths a manager reaches from any cost row — but a `finance` expense is
+ * `recordLoanPayment`/`settleVehicleLoan`'s own split (domain/vehicle-loan.ts),
+ * and only `voidLoanPayment` knows how to cascade a correction to it (the
+ * linked expense, the linked partner payout, and the payment itself,
+ * together). Going through either generic path instead leaves
+ * `loan_payment.expense_id` pointing at a dead row with no cascade and, on
+ * a replace, a replacement invisible to loan reporting. Checked as a
+ * pre-check on a Reader, the same shape `existing` above already uses —
+ * safe because a loan payment's `expense_id` is set once, at its own
+ * creation, never attached to a pre-existing expense afterwards, so there
+ * is no race to win between this check and the transaction it guards.
+ */
+async function assertExpenseNotFinanceLinked(
+  writer: Writer,
+  businessId: string,
+  expenseId: string,
+): Promise<void> {
+  const payment = await findLiveLoanPaymentByExpenseId(writer, businessId, expenseId);
+  if (payment) {
+    throw new VoidBlockedError(
+      "Cannot correct here — this expense is a loan payment's own finance charge. " +
+        "Void or correct the loan payment instead.",
+      [{ kind: "loan_payment", id: payment.id }],
+    );
+  }
+}
+
+/**
  * F-8.5/UC-96/W-50: "wrong vehicle... fuel logged against the wrong trip" —
  * void it, with a reason, then record the corrected version through the
  * ordinary create endpoint. Void, never delete, and `posted_period_id`
@@ -280,6 +311,7 @@ export async function voidExpense(writer: Writer, input: VoidExpenseInput): Prom
   const existing = await findExpenseForBusiness(writer, input.businessId, input.expenseId);
   if (!existing) throw new NotFoundError("No such expense in this business");
   if (existing.voidedAt !== null) throw new ExpenseAlreadyVoidedError();
+  await assertExpenseNotFinanceLinked(writer, input.businessId, input.expenseId);
 
   try {
     // See createExpense's own comment — withActor only attributes writes
@@ -369,6 +401,7 @@ export async function replaceExpense(
   const existing = await findExpenseForBusiness(writer, input.businessId, input.expenseId);
   if (!existing) throw new NotFoundError("No such expense in this business");
   if (existing.voidedAt !== null) throw new ExpenseAlreadyVoidedError();
+  await assertExpenseNotFinanceLinked(writer, input.businessId, input.expenseId);
 
   const liveReceipts = await listLiveAttachmentsForCopy(
     writer,

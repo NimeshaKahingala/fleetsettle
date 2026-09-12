@@ -154,6 +154,8 @@ function buildExpenseResponseBody(
     spentOn: string;
     paidByUserId?: string | undefined;
     litres?: number | undefined;
+    odometerReadingKm?: number | undefined;
+    odometerSource?: OdometerSource | undefined;
     note?: string | undefined;
   },
   resolved: ResolvedBorneBy,
@@ -175,6 +177,11 @@ function buildExpenseResponseBody(
     paidByUserId: body.paidByUserId ?? userId,
     litres: body.litres ?? null,
     odometerReadingId,
+    // Copilot review, PR #182: echoed straight from the request that just
+    // wrote them — no query needed, unlike the list reads above, which are
+    // reconstructing a historical row rather than echoing one just written.
+    odometerReadingKm: body.odometerReadingKm ?? null,
+    odometerReadingSource: body.odometerSource ?? null,
     note: body.note ?? null,
     replacesId,
   } as const;
@@ -320,6 +327,8 @@ function toListRow(row: BusinessExpenseRow) {
     paidByUserId: row.paidByUserId,
     litres: row.litres,
     odometerReadingId: row.odometerReadingId,
+    odometerReadingKm: row.odometerReadingKm,
+    odometerReadingSource: row.odometerReadingSource,
     note: row.note,
     voidedAt: row.voidedAt,
     voidedReason: row.voidedReason,

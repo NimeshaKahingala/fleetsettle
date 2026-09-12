@@ -122,11 +122,18 @@ export function RecordExpenseSheet({
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const effectiveVehicleId = vehicleId ?? selectedVehicle?.id;
+  // Copilot review, PR #182: `ExpenseCostRow` locks `vehicleId` from the row
+  // it's correcting, but omits the prop entirely for a row with no vehicle
+  // (INV-24's overhead case) — the same `undefined` a blank `vehicleId`
+  // prop has in create mode. Gating on `editing` too keeps this the one
+  // place that distinguishes "unset, pick one" from "locked to none",
+  // rather than trusting every caller to never hit the ambiguity.
+  const showVehiclePicker = vehicleId === undefined && editing === undefined;
 
   const vehiclesQuery = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => api.get<VehicleResponse[]>("/api/vehicle"),
-    enabled: open && vehicleId === undefined,
+    enabled: open && showVehiclePicker,
   });
   const membersQuery = useQuery({
     queryKey: ["business-member"],
@@ -169,8 +176,17 @@ export function RecordExpenseSheet({
       }
       setMoreOpen(false);
       setReason("");
-      setOdometerReadingKm("");
-      setOdometerSource(null);
+      // Copilot review, PR #182: always resetting to blank silently dropped
+      // a servicing expense's reading on any unrelated correction —
+      // `findLastMaintenanceOdometerKm` inner-joins `odometer_reading`, so a
+      // replacement with no reading vanished from the maintenance prompt.
+      // Prefilled from the row being corrected; still cleared for create.
+      setOdometerReadingKm(
+        editing !== undefined && editing.odometerReadingKm !== null
+          ? String(editing.odometerReadingKm)
+          : "",
+      );
+      setOdometerSource(editing !== undefined ? editing.odometerReadingSource : null);
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
@@ -209,9 +225,37 @@ export function RecordExpenseSheet({
         category,
         amountMinor: toWire(amountMinor),
         spentOn,
-        ...(borneByUs ? { borneBy: "us" as const } : {}),
+        // Copilot review, PR #182: omitting `borneBy` here let the server
+        // recompute its *current* default, which can differ from the
+        // original fact — silently reassigning who bore a driver/customer
+        // cost just from correcting its amount or note. `borneByUs` can
+        // only ever move false→true through this form (`borneByOptions`
+        // collapses to a single already-selected `[US]` once true, with no
+        // way back to "automatic" in the same session), so `!borneByUs`
+        // during an edit always means the original was never "us" — the
+        // original party is preserved unless explicitly overridden to Us,
+        // the one override this form offers (same documented limit as the
+        // vehicle it's filed against).
+        ...(borneByUs
+          ? { borneBy: "us" as const }
+          : editing !== undefined
+            ? {
+                borneBy: editing.borneBy,
+                ...(editing.borneByDriverId !== null
+                  ? { borneByDriverId: editing.borneByDriverId }
+                  : {}),
+                ...(editing.borneByCustomerId !== null
+                  ? { borneByCustomerId: editing.borneByCustomerId }
+                  : {}),
+              }
+            : {}),
         ...(paidBy.id !== "you" ? { paidByUserId: paidBy.id } : {}),
         ...(note.trim() !== "" ? { note: note.trim() } : {}),
+        // Copilot review, PR #182: this sheet has no litres input at all
+        // (fuel litres are only ever captured by `FuelFillSheet`) — without
+        // this, editing any field on a fuel expense silently dropped its
+        // litres, since the domain stores whatever this omits as null.
+        ...(editing !== undefined && editing.litres !== null ? { litres: editing.litres } : {}),
         ...(parsedReading !== undefined && odometerSource !== null
           ? { odometerReadingKm: parsedReading, odometerSource }
           : {}),
@@ -332,7 +376,7 @@ export function RecordExpenseSheet({
           </button>
         </div>
 
-        {vehicleId === undefined ? (
+        {showVehiclePicker ? (
           <div className="flex flex-col gap-1">
             {vehiclesState.kind === "error" ? (
               <QueryStateFailure

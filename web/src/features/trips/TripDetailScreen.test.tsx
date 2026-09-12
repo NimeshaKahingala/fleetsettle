@@ -83,6 +83,8 @@ const expenses: ExpenseListRow[] = [
     voidedAt: null,
     voidedReason: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   },
   {
@@ -102,6 +104,8 @@ const expenses: ExpenseListRow[] = [
     voidedAt: "2026-07-13T00:00:00.000Z",
     voidedReason: "wrong trip",
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   },
 ];
@@ -180,6 +184,8 @@ test("GAP-172: Record cost opens with the trip's own vehicle and this trip pre-f
     litres: null,
     note: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   });
   renderWithProviders(<TripDetailScreen tripId="t1" today={today} onBack={() => {}} />, {
