@@ -2,6 +2,8 @@ import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
 import { findFirstPeriodStatus, resolvePeriodLinkage } from "../queries/accounting-period.js";
+import { lockCustomerForShare } from "../queries/customer.js";
+import { lockDriverForShare } from "../queries/driver.js";
 import {
   findDepositForBusiness,
   findDepositMovementAmount,
@@ -26,6 +28,7 @@ import {
   DriverAlreadyHoldingDepositError,
   NotFoundError,
   OpeningBalanceLockedError,
+  PartyArchivedError,
   PeriodClosedError,
 } from "../errors/app-error.js";
 import {
@@ -419,6 +422,51 @@ async function reverseOpeningBalancePostings(
  * business could reach a closed first period yet; P9's period close is what
  * makes it reachable.
  */
+/**
+ * GAP-187. `opening_balance_entry` names a party but carries no
+ * `posted_period_id` — migration 0031's own drift view structurally
+ * cannot see it, so no archive-guard trigger attaches here the way one
+ * does on `obligation`/`deposit`/`advance`/`payment`. A *committed*
+ * correction is still safe without this: `materializeOpeningBalanceEntries`
+ * inserts into exactly those trigger-guarded tables, so an archived party
+ * is refused there regardless. What was missing is feedback on an
+ * ordinary **draft** save, which writes only `opening_balance_entry` and
+ * touches no guarded table at all — a manager could save a draft naming an
+ * archived driver and hear nothing until the eventual commit, arbitrarily
+ * later, fails with no indication which entry was the problem.
+ *
+ * `FOR SHARE`, deduplicated per party — the same lock strength (and the
+ * same "don't block ordinary readers of each other, only the archiver"
+ * reasoning) `lockDriverForShare`/`lockCustomerForShare` document at their
+ * own definitions. Run inside `saveOpeningBalance`'s own transaction,
+ * before any row is written, so a refusal here leaves nothing half-done.
+ */
+async function assertOpeningBalancePartiesNotArchived(
+  tx: Tx,
+  entries: OpeningBalanceEntryInput[],
+): Promise<void> {
+  const driverIds = new Set<string>();
+  const customerIds = new Set<string>();
+  for (const entry of entries) {
+    if (entry.partyDriverId !== undefined) driverIds.add(entry.partyDriverId);
+    if (entry.partyCustomerId !== undefined) customerIds.add(entry.partyCustomerId);
+  }
+  // A `string` is a real `voided_at` timestamp; `null` is a live row;
+  // `undefined` is "no such row", which is not this check's job to flag —
+  // the handler has already proven every party named here belongs to this
+  // business (this function's own doc comment).
+  for (const driverId of driverIds) {
+    if (typeof (await lockDriverForShare(tx, driverId)) === "string") {
+      throw new PartyArchivedError();
+    }
+  }
+  for (const customerId of customerIds) {
+    if (typeof (await lockCustomerForShare(tx, customerId)) === "string") {
+      throw new PartyArchivedError();
+    }
+  }
+}
+
 export async function saveOpeningBalance(
   writer: Writer,
   input: SaveOpeningBalanceInput,
@@ -426,6 +474,7 @@ export async function saveOpeningBalance(
   return await writer.transaction(async (tx) => {
     const firstPeriod = await findFirstPeriodStatus(tx, input.businessId);
     if (firstPeriod?.status === "closed") throw new OpeningBalanceLockedError();
+    await assertOpeningBalancePartiesNotArchived(tx, input.entries);
 
     const existing = await findBatchForBusiness(tx, input.businessId);
     const batchId = existing?.id ?? newId();

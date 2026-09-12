@@ -134,6 +134,19 @@ export function weekdayOf(date: BusinessDate): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }
 
+/**
+ * GAP-135/UC-78: the next date on or after `date` that falls on `weekday`
+ * (0=Sunday..6=Saturday, `weekdayOf`'s own convention — the same one
+ * `daily_lease_pattern.pattern_weekdays` already uses, migration 0001).
+ * **On or after**, not strictly after: a driver who settles Fridays and is
+ * confirmed on a Friday is due that same day, not seven days later — UC-78's
+ * ageing query already treats the due date itself as `current`, not late.
+ */
+export function nextOccurrenceOfWeekday(date: BusinessDate, weekday: number): BusinessDate {
+  const diff = (weekday - weekdayOf(date) + 7) % 7;
+  return addDays(date, diff);
+}
+
 /** The first day of `date`'s calendar month (UC-08: the period a new business opens into). */
 export function monthStart(date: BusinessDate): BusinessDate {
   return `${date.slice(0, 7)}-01` as BusinessDate;

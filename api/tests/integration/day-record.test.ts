@@ -1,6 +1,8 @@
-import { addDays, businessToday } from "@fleetsettle/shared";
+import { addDays, businessToday, nextOccurrenceOfWeekday } from "@fleetsettle/shared";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
+import { obligation } from "../../src/db/schema.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -924,75 +926,106 @@ describe("confirm a week in one pass (P3, F-4.6/UC-38, GAP-2)", () => {
   });
 
   /**
-   * GAP-135/DM D-5/F-4.5. `effective_due_on` is meant to be derived from the
-   * driver's agreed settlement rhythm — "a weekly settler is not in arrears
-   * on Thursday" — and that derivation was never built: every write path sets
-   * `effective_due_on = due_on`. Rather than record a due date it knows reads
-   * as overdue when it is not, the confirm path refuses.
+   * GAP-135/DM D-5/F-4.5/UC-78. `effective_due_on` is derived from the
+   * driver's agreed settlement rhythm — "a weekly settler is not in
+   * arrears on Thursday" — as the next occurrence of his settlement
+   * weekday on or after `due_on` (`nextOccurrenceOfWeekday`,
+   * packages/shared/src/dates.ts). 2026-07-15 is a Wednesday; a Friday
+   * (5) settler's day confirmed that Wednesday is due the *following*
+   * Friday, 2026-07-17, not the Wednesday itself.
    *
-   * No endpoint writes `settlement_rhythm`, so these tests set it directly.
-   * That is the point: the column can only reach `'weekly'` out of band today,
-   * and the guard is what stops that state from silently producing a wrong
-   * number rather than an admitted one (W-56 applied to a write).
+   * No driver-edit endpoint exists (any field, not only this one), so a
+   * test that only needs the derivation exercised sets the columns
+   * directly rather than going through `createDriverRequestSchema`'s own
+   * validation (covered separately in driver.test.ts).
+   *
+   * Parameterized rather than two near-identical blocks (Sonar flagged the
+   * duplication on PR #185, correctly) — the confirmed date and the
+   * expected `effectiveDueOn` are the only things that differ between "on
+   * or after" and "on".
    */
-  it("409 — a weekly settler's day is refused rather than given a due date that reads as overdue (GAP-135)", async () => {
-    const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId);
-    const vehicleId = await ctx.createVehicle(businessId);
-    const driverId = await ctx.createDriver(businessId, { settlementRhythm: "weekly" });
-    const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
-      dailyLeaseAmountMinor: 5_000_00n,
-    });
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
+  it.each([
+    { label: "a Wednesday", businessDate: "2026-07-15", expectedEffectiveDueOn: "2026-07-17" },
+    {
+      label: "the Friday itself",
+      businessDate: "2026-07-17",
+      expectedEffectiveDueOn: "2026-07-17",
+    },
+  ])(
+    "a Friday settler confirmed on $label is due $expectedEffectiveDueOn (GAP-135)",
+    async ({ businessDate, expectedEffectiveDueOn }) => {
+      const ctx = new TestContext(db);
+      const businessId = await ctx.createBusiness();
+      await ctx.createOpenPeriod(businessId);
+      const vehicleId = await ctx.createVehicle(businessId);
+      const driverId = await ctx.createDriver(businessId, {
+        settlementRhythm: "weekly",
+        settlementWeekday: 5,
+      });
+      const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
+        dailyLeaseAmountMinor: 5_000_00n,
+      });
+      const owner = await mintUser(db, ctx, businessId, "owner");
+      const token = await signAccessToken(owner.asgardeoSub);
 
-    const res = await confirmDay(token, {
-      dailyLeaseId,
-      businessDate: "2026-07-15",
-      action: "paid_in_full",
-    });
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "SETTLEMENT_RHYTHM_UNSUPPORTED" });
+      const res = await confirmDay(token, { dailyLeaseId, businessDate, action: "paid_in_full" });
+      expect(res.status).toBe(201);
+      const body: { id: string } = await res.json();
+      ctx.trackCreatedDayRecord(body.id);
 
-    // Refused, not half-written: the four inserts F-4.2 makes are one
-    // transaction, and none of them landed.
-    const after = await getDayRecord(token, dailyLeaseId, "2026-07-15");
-    expect(after.status).toBe(404);
+      const [obRow] = await db
+        .select()
+        .from(obligation)
+        .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, body.id)));
+      expect(obRow).toMatchObject({ dueOn: businessDate, effectiveDueOn: expectedEffectiveDueOn });
 
-    await ctx.cleanup();
-  });
+      await ctx.cleanup();
+    },
+  );
 
-  it("409 — the bulk week-confirm refuses the same way, checked once for the batch (GAP-135)", async () => {
+  it("the bulk week-confirm derives the same way, resolved once for the whole batch (GAP-135)", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId);
     const vehicleId = await ctx.createVehicle(businessId);
-    const driverId = await ctx.createDriver(businessId, { settlementRhythm: "weekly" });
+    const driverId = await ctx.createDriver(businessId, {
+      settlementRhythm: "weekly",
+      settlementWeekday: 5,
+    });
     const dailyLeaseId = await ctx.createDailyLease(businessId, vehicleId, driverId, {
       dailyLeaseAmountMinor: 5_000_00n,
     });
     const today = businessToday();
+    const backlogDate = addDays(today, -3);
     const openId = await ctx.createDayRecord(
       businessId,
       periodId,
       dailyLeaseId,
       vehicleId,
       driverId,
-      addDays(today, -3),
+      backlogDate,
     );
 
     const owner = await mintUser(db, ctx, businessId, "owner");
     const token = await signAccessToken(owner.asgardeoSub);
 
     const res = await postConfirmWeek(token, dailyLeaseId);
-    expect(res.status).toBe(409);
-    expect(await res.json()).toMatchObject({ code: "SETTLEMENT_RHYTHM_UNSUPPORTED" });
+    expect(res.status).toBe(200);
+    // The obligation this confirm wrote references driverId — cleaned up
+    // ahead of ctx.trackCreatedDriver's own teardown (LIFO), the same
+    // ordering the single-day tests above get from confirmDay's response.
+    ctx.trackCreatedDayRecord(openId);
 
-    // The backlog day is untouched — still `open`, not partially confirmed.
-    const stillOpen = await getDayRecord(token, dailyLeaseId, addDays(today, -3));
-    const stillOpenBody: { id: string; state: string } = await stillOpen.json();
-    expect(stillOpenBody).toMatchObject({ id: openId, state: "open" });
+    const [obRow] = await db
+      .select()
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "day_record"), eq(obligation.sourceId, openId)));
+    expect(obRow?.dueOn).toBe(backlogDate);
+    expect(obRow?.effectiveDueOn).toBe(nextOccurrenceOfWeekday(backlogDate, 5));
+
+    const confirmed = await getDayRecord(token, dailyLeaseId, backlogDate);
+    const confirmedBody: { id: string; state: string } = await confirmed.json();
+    expect(confirmedBody).toMatchObject({ id: openId, state: "ran_paid_full" });
 
     await ctx.cleanup();
   });

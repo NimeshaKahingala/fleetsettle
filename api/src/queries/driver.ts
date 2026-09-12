@@ -13,6 +13,11 @@ export interface NewDriver {
   driverDayFeeMinor?: bigint;
   driverTripFeeMinor?: bigint;
   licenceExpiry?: string;
+  // GAP-135: both omitted defaults to 'daily'/NULL, the column's own
+  // DEFAULT — createDriverRequestSchema's paired refine is what makes
+  // 'weekly' + undefined unreachable by the time this runs.
+  settlementRhythm?: string;
+  settlementWeekday?: number;
 }
 
 export async function insertDriver(db: WriteDb, values: NewDriver): Promise<void> {
@@ -26,6 +31,8 @@ export interface DriverRow {
   driverDayFeeMinor: bigint | null;
   driverTripFeeMinor: bigint | null;
   licenceExpiry: string | null;
+  settlementRhythm: string;
+  settlementWeekday: number | null;
   voidedAt: string | null;
 }
 
@@ -36,6 +43,8 @@ const COLUMNS = {
   driverDayFeeMinor: driver.driverDayFeeMinor,
   driverTripFeeMinor: driver.driverTripFeeMinor,
   licenceExpiry: driver.licenceExpiry,
+  settlementRhythm: driver.settlementRhythm,
+  settlementWeekday: driver.settlementWeekday,
   voidedAt: driver.voidedAt,
 };
 
@@ -75,23 +84,54 @@ export async function listDriversForBusiness(db: ReadDb, businessId: string): Pr
 }
 
 /**
- * GAP-135/DM D-5. Read on its own rather than added to `COLUMNS`: that set
- * feeds `DriverRow` into every driver response, and this column is an
- * internal guard input, not something the client has any use for. Returns
- * `undefined` for a driver that does not exist — the caller is always inside
- * a flow that has already proven the id, so it treats that as nothing to
- * check rather than as a not-found of its own.
+ * GAP-187. `FOR SHARE`, not `FOR UPDATE` — mirrors migration 0034/0037's own
+ * DB-side triggers (`assert_party_not_archived`/`assert_adjustment_party_not_archived`),
+ * which already take `FOR SHARE` on this row before reading `voided_at`.
+ * Matching that lock strength here is what makes two ordinary
+ * `saveOpeningBalance` calls against different drivers never block each
+ * other, while either one still conflicts with `archiveDriver`'s own
+ * `FOR UPDATE` — the same race `assertArchivable` closes for every other
+ * money write in this schema, applied to a table (`opening_balance_entry`)
+ * migration 0031's own view structurally cannot see (no `posted_period_id`
+ * of its own; the money it eventually produces lives in tables that already
+ * carry the trigger). Returns `undefined` for a driver that does not exist
+ * — the caller's own business-scoped existence check has already run.
  */
-export async function findDriverSettlementRhythm(
+export async function lockDriverForShare(
+  db: Tx,
+  driverId: string,
+): Promise<string | null | undefined> {
+  const rows = await db
+    .select({ voidedAt: driver.voidedAt })
+    .from(driver)
+    .where(eq(driver.id, driverId))
+    .for("share");
+  return rows[0]?.voidedAt;
+}
+
+export interface DriverSettlementConfig {
+  rhythm: string;
+  weekday: number | null;
+}
+
+/**
+ * GAP-135/DM D-5. Read on its own rather than through `COLUMNS` — this is
+ * `confirmDay`'s own derivation input, called with only a `driverId` that a
+ * day-record/daily-lease chain has already proven belongs to this business,
+ * not a business-scoped read. Returns `undefined` for a driver that does
+ * not exist — the caller treats that as nothing to derive against rather
+ * than as a not-found of its own.
+ */
+export async function findDriverSettlementConfig(
   db: ReadDb,
   driverId: string,
-): Promise<string | undefined> {
+): Promise<DriverSettlementConfig | undefined> {
   const rows = await db
-    .select({ settlementRhythm: driver.settlementRhythm })
+    .select({ rhythm: driver.settlementRhythm, weekday: driver.settlementWeekday })
     .from(driver)
     .where(eq(driver.id, driverId))
     .limit(1);
-  return rows[0]?.settlementRhythm;
+  return rows[0];
 }
 
 /**

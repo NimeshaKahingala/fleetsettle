@@ -71,6 +71,45 @@ test("GAP-76: a blank name shows field-specific copy, never the generic zod fall
   expect(post).not.toHaveBeenCalled();
 });
 
+test("GAP-135: choosing Weekly without a settlement day is refused, and Daily is never sent (U-2)", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });
+  renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
+
+  await user.type(screen.getByLabelText("Name"), "Sunil Perera");
+  await user.click(screen.getByRole("button", { name: "More" }));
+
+  // Daily is the default and needs no interaction at all — the column's own
+  // DEFAULT, never sent on the wire (checked by the earlier U-2 test's exact
+  // request body already omitting it).
+  await user.click(screen.getByRole("button", { name: "Weekly" }));
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+
+  expect(await screen.findByText("Choose which day he settles")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("GAP-135: a weekly settler's chosen day reaches the request alongside the rhythm", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });
+  renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
+
+  await user.type(screen.getByLabelText("Name"), "Sunil Perera");
+  await user.click(screen.getByRole("button", { name: "More" }));
+
+  await user.click(screen.getByRole("button", { name: "Weekly" }));
+  await user.selectOptions(screen.getByLabelText("Settlement day"), "Friday");
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+
+  await vi.waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/api/driver", {
+      name: "Sunil Perera",
+      settlementRhythm: "weekly",
+      settlementWeekday: 5,
+    }),
+  );
+});
+
 test("a trip fee entered via MoneyField reaches the request as a wire string, independent of the day fee", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });

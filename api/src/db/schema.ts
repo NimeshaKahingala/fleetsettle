@@ -199,6 +199,10 @@ export const driver = pgTable("driver", {
   optedInAt: timestamp("opted_in_at", { withTimezone: true, mode: "string" }),
   numberVerifiedAt: timestamp("number_verified_at", { withTimezone: true, mode: "string" }),
   settlementRhythm: text("settlement_rhythm").notNull().default("daily"),
+  // GAP-135/migration 0040: 0=Sunday..6=Saturday, required exactly when
+  // settlementRhythm is 'weekly' — the DB CHECK is the truth; this column
+  // just needs to exist for Drizzle to read and write it.
+  settlementWeekday: smallint("settlement_weekday"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).notNull().defaultNow(),
   // GAP-36/W-58, migration 0023. No endpoint writes these yet (Wave 5/A9b).
   voidedAt: timestamp("voided_at", { withTimezone: true, mode: "string" }),
