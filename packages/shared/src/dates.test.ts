@@ -7,6 +7,7 @@ import {
   inclusiveDays,
   monthEnd,
   monthStart,
+  nextOccurrenceOfWeekday,
   weekdayOf,
 } from "./dates.js";
 
@@ -130,6 +131,27 @@ describe("weekdayOf — matches Postgres's own EXTRACT(dow) (UC-76/UC-79)", () =
       weekdayOf(addDays(asBusinessDate("2026-08-02"), n)),
     );
     expect(week).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  });
+});
+
+describe("nextOccurrenceOfWeekday — GAP-135/UC-78's Friday-settler acceptance criteria", () => {
+  // 2026-08-02 is a Sunday (weekdayOf === 0, per the block above), so this
+  // week runs Sun 2 .. Sat 8. Friday is weekday 5.
+  it("Thursday maps to the same week's Friday", () => {
+    expect(nextOccurrenceOfWeekday(asBusinessDate("2026-08-06"), 5)).toBe("2026-08-07");
+  });
+
+  it("Friday stays Friday — on or after, not strictly after", () => {
+    expect(nextOccurrenceOfWeekday(asBusinessDate("2026-08-07"), 5)).toBe("2026-08-07");
+  });
+
+  it("Saturday maps to the following Friday, not the one just passed", () => {
+    expect(nextOccurrenceOfWeekday(asBusinessDate("2026-08-08"), 5)).toBe("2026-08-14");
+  });
+
+  it("agrees with weekdayOf on the date it returns", () => {
+    const result = nextOccurrenceOfWeekday(asBusinessDate("2026-08-02"), 3);
+    expect(weekdayOf(asBusinessDate(result))).toBe(3);
   });
 });
 

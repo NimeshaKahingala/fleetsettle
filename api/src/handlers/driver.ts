@@ -37,6 +37,8 @@ function toResponse(row: DriverRow) {
     driverTripFeeMinor:
       row.driverTripFeeMinor !== null ? toWire(row.driverTripFeeMinor as Minor) : null,
     licenceExpiry: row.licenceExpiry,
+    settlementRhythm: row.settlementRhythm,
+    settlementWeekday: row.settlementWeekday,
     archivedAt: row.voidedAt,
   };
 }
@@ -59,6 +61,8 @@ export const createDriverHandler: RouteHandler<typeof createDriverRoute, Env> = 
       ? { driverTripFeeMinor: body.driverTripFeeMinor }
       : {}),
     ...(body.licenceExpiry !== undefined ? { licenceExpiry: body.licenceExpiry } : {}),
+    ...(body.settlementRhythm !== undefined ? { settlementRhythm: body.settlementRhythm } : {}),
+    ...(body.settlementWeekday !== undefined ? { settlementWeekday: body.settlementWeekday } : {}),
   });
 
   return c.json(
@@ -71,6 +75,10 @@ export const createDriverHandler: RouteHandler<typeof createDriverRoute, Env> = 
       driverTripFeeMinor:
         body.driverTripFeeMinor !== undefined ? toWire(body.driverTripFeeMinor) : null,
       licenceExpiry: body.licenceExpiry ?? null,
+      // The column's own DEFAULT — matches what a read-back would show for
+      // a row created with the field omitted, rather than echoing `undefined`.
+      settlementRhythm: body.settlementRhythm ?? "daily",
+      settlementWeekday: body.settlementWeekday ?? null,
       archivedAt: null,
     },
     201,

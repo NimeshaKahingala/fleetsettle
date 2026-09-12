@@ -67,6 +67,19 @@ export async function findCustomerForBusiness(
   return rows[0] as CustomerRow | undefined;
 }
 
+/** GAP-187 — see `lockDriverForShare`'s own comment (queries/driver.ts) for why `FOR SHARE`, not `FOR UPDATE`. */
+export async function lockCustomerForShare(
+  db: Tx,
+  customerId: string,
+): Promise<string | null | undefined> {
+  const rows = await db
+    .select({ voidedAt: customer.voidedAt })
+    .from(customer)
+    .where(eq(customer.id, customerId))
+    .for("share");
+  return rows[0]?.voidedAt;
+}
+
 /**
  * F-1.11/GAP-36: archive, never delete (W-58) — the same `voided_*` trio
  * migration 0023 gave this table, so a closed month that names this customer

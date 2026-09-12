@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { deposit } from "../../src/db/schema.js";
+import { customer, deposit, driver } from "../../src/db/schema.js";
 import {
   insertBatch,
   insertEntries,
@@ -519,6 +519,64 @@ describe("go live mid-stream — opening balances (P2, F-0.2/UC-09)", () => {
       entries: [{ kind: "customer_due", partyCustomerId: otherCustomerId, amountMinor: "100" }],
     });
     expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * GAP-187. `opening_balance_entry` carries no `posted_period_id`, so
+   * migration 0031's archive-guard triggers cannot attach to it the way
+   * they do on `obligation`/`deposit`/`advance`/`payment` — a *draft* save
+   * writes only this table, so nothing guarded fires until the eventual
+   * commit, arbitrarily later. `assertOpeningBalancePartiesNotArchived`
+   * (domain/opening-balance.ts) closes that gap at save time instead: a
+   * `FOR SHARE` lock on the named party's row, checked before any row is
+   * written. `findOwnDriverIds`/`findOwnCustomerIds` (the handler's own
+   * tenancy check, above) only prove the party belongs to this business —
+   * `voided_at` is a separate fact, checked nowhere else on this path.
+   */
+  it("409 PARTY_ARCHIVED — a driver_arrears entry names an already-archived driver, refused at save (GAP-187)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const driverId = await ctx.createDriver(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    await db
+      .update(driver)
+      .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: owner.userId })
+      .where(eq(driver.id, driverId));
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "driver_arrears", partyDriverId: driverId, amountMinor: "100" }],
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "PARTY_ARCHIVED" });
+
+    // Refused, not half-written: no batch, no entry, from this call.
+    const getRes = await getOpeningBalance(token);
+    expect(getRes.status).toBe(404);
+
+    await ctx.cleanup();
+  });
+
+  it("409 PARTY_ARCHIVED — a customer_due entry names an already-archived customer, refused at save (GAP-187)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const customerId = await ctx.createCustomer(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    await db
+      .update(customer)
+      .set({ voidedAt: sql`now()`, voidedReason: "test archive", voidedBy: owner.userId })
+      .where(eq(customer.id, customerId));
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await putOpeningBalance(token, {
+      goLiveDate: "2026-01-01",
+      entries: [{ kind: "customer_due", partyCustomerId: customerId, amountMinor: "100" }],
+    });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ code: "PARTY_ARCHIVED" });
 
     await ctx.cleanup();
   });

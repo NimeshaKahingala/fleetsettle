@@ -64,10 +64,10 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.16 | 30 Aug 2026 |
-| user-flows | v1.1.20 | 30 Aug 2026 |
-| data-model | v1.1.18 | 30 Aug 2026 |
-| tech-stack | v1.4 | 18 Aug 2026 |
+| use-cases | v1.2.18 | 12 Sept 2026 |
+| user-flows | v1.1.21 | 12 Sept 2026 |
+| data-model | v1.1.20 | 12 Sept 2026 |
+| tech-stack | v1.5 | 12 Sept 2026 |
 | implementation-guidelines | v1.8 | 23 Aug 2026 |
 | ui-ux-guidelines | v1.10 | 28 Aug 2026 |
 | brand-guidelines | v1.1.1 | 22 Aug 2026 |
@@ -76,15 +76,16 @@ Three rules that have already earned their place:
 
 **A platform tier above the business, and multi-business membership, absorbed 18 Aug 2026.** All seven affected documents above carry the same date. Settles `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` (decisions 1-29, three independent validation passes) and its companion implementation plan — both retired as standalone notes now that their content lives here, per decision 29. Nothing here is a money-table change; the golden fixtures (**134,000**, **15,000**, **7,500**) are untouched. What ships next, in order: Phase 1 (multi-membership plumbing — the schema and middleware this pass specifies), Phase 2 (the platform tier's tables and panel), Phase 3 (the client switcher) — `TRACKER.md`/`Plan.md` own the build state from here.
 
-**Three acceptance criteria are deliberately unmet, recorded 17 August 2026.** Nothing here is an open *question* — each was decided — but the suite now states which of its promises are built, so this index does not read as claiming more than the product delivers:
+**Two acceptance criteria remain deliberately unmet, recorded 17 August 2026 — a third, F-4.5, closed 12 September 2026 and is removed from this table.** Nothing here is an open *question* — each was decided — but the suite now states which of its promises are built, so this index does not read as claiming more than the product delivers:
 
 | Criterion | Status | Why |
 |---|---|---|
 | **FL F-6.6** — shareable without a login | **corrected 27 Aug 2026 — the printed slip half is built.** GAP-170 (PR #143) shipped `DriverStatementScreen` and print CSS, closing the gap this row flagged 22 Aug (no printed slip existed anywhere for any role); the **share link half stays deferred, phase 2, GAP-65** | The share link would be the first route outside the login, carrying a full financial position (UC-57). The slip now covers an unlinked driver or customer's own reachability, which is what made deferring the link acceptable in the first place |
-| **FL F-9.3** — a statement to PDF | CSV built; **PDF deferred** | No renderer has a home in this runtime, `TS §8` (UC-99) |
-| **FL F-4.5** — a weekly settler is not in arrears on Thursday | **unbuilt, and refused rather than mis-served** | `effective_due_on` is never derived from `settlement_rhythm`; the write path errors instead of recording a wrong date (`DM §17` D-5) |
+| **FL F-9.3** — a statement to PDF | CSV built; **PDF deferred, reasoning re-recorded 12 Sept 2026** | Its original ground — no PDF renderer has a home in this runtime, `TS §7` (not §8, a stale citation corrected the same pass) — no longer settles the question by itself, now that `TS §7` also records an off-Worker rendering option. The deferral now rests on its always-stronger reason instead: nothing has asked for a document, and the spreadsheet already gets the numbers out (UC-99) |
 
-All three criteria stand as written — they are right, and are not withdrawn. **`TRACKER.md` carries each one's gap id and owns when they get built; this table only records that they are not built yet.**
+**FL F-4.5 — a weekly settler is not in arrears on Thursday — closed 12 Sept 2026 (GAP-135).** `driver.settlement_weekday` (migration `0040`) now derives `effective_due_on` from the agreed settlement day; `SETTLEMENT_RHYTHM_UNSUPPORTED` retires. `DM §17` D-5 and `user-flows.md` F-4.5 carry the full account.
+
+Both remaining criteria stand as written — they are right, and are not withdrawn. **`TRACKER.md` carries each one's gap id and owns when they get built; this table only records that they are not built yet.**
 
 **Two owner decisions of 31 July 2026 that changed sequencing rather than behaviour:**
 
