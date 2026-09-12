@@ -4,7 +4,7 @@
 
 **v1.4** — **the `email` scope added (§2.1), and self-registration's activation moved from an Asgardeo-console gate to the platform tier's own approval queue.** The `email` scope shipped 18 Aug 2026 (Track A, PR #70) — `middleware/auth.ts` has always read `payload.email`/`payload.name` off the access token; the client had simply never asked for it. Self-registration itself stays off pending the platform tier (`use-cases.md` Group L, W-63/W-64) — enabling it at the console before that queue exists would let anyone create a business with no approval step at all. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 28.
 **v1.3** — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
-**Date:** 5 August 2026
+**Date:** 12 September 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
 This document exists for one reason beyond inventory: **four platform constraints change the data model**, and they are listed in §7. Read that section before reviewing the schema.

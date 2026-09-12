@@ -37,7 +37,12 @@ export type OpeningBalanceEntryRequest = z.infer<typeof openingBalanceEntryReque
  */
 export const commitOpeningBalanceBatchRequestSchema = z.object({
   goLiveDate: businessDateSchema,
-  entries: z.array(openingBalanceEntryRequestSchema),
+  // A real batch is one row per vehicle/driver/customer this business has —
+  // a bus and two cars' worth, not thousands. The bound exists so an
+  // unbounded request can't turn `saveOpeningBalance`'s archived-party check
+  // (api/CLAUDE.md: "never a loop issuing one query per row") into
+  // unbounded transaction time regardless of how that check is implemented.
+  entries: z.array(openingBalanceEntryRequestSchema).max(500),
 });
 export type CommitOpeningBalanceBatchRequest = z.infer<
   typeof commitOpeningBalanceBatchRequestSchema

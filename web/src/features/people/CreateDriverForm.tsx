@@ -127,7 +127,7 @@ export function CreateDriverForm({ onCreated }: CreateDriverFormProps) {
         />
       </Field>
 
-      <Disclosure sectionName="Fees and mobile">
+      <Disclosure sectionName="Fees and mobile" forceOpen={errors.settlementWeekday !== undefined}>
         <div className="flex flex-col gap-4">
           <Field label="Mobile" htmlFor="mobile" optional error={errors.mobile?.message}>
             <Input

@@ -802,6 +802,144 @@ function checkPlatformQueryImports(paths) {
   return findings;
 }
 
+/**
+ * TRACKER.md's own 16 Aug entry named the class: a number a person has to
+ * remember drifts even when the person is looking right at it. docs/README.md
+ * §"Status" is the index every doc-change is supposed to update alongside the
+ * document's own `**Status:**`/`**Date:**` lines — and by PR #186 (12 Sept
+ * 2026) five of the seven had drifted, one of them (`implementation-guidelines`)
+ * since before that PR even started. Six manual correction passes were the
+ * prior fix. This is the seventh, made structural.
+ *
+ * Deliberately not gated behind `explicit.length` the way `checkRequired()`
+ * is — it must fire from the PostToolUse hook on a single edited doc, not
+ * only on a full `npm run guard`. The path filter below keeps it cheap on
+ * every other file: it only does any work when `paths` touches
+ * `docs/README.md` or one of the seven docs it indexes.
+ */
+const DOC_INDEX_FILES = {
+  "use-cases": "docs/product/use-cases.md",
+  "user-flows": "docs/product/user-flows.md",
+  "data-model": "docs/engineering/data-model.md",
+  "tech-stack": "docs/engineering/tech-stack.md",
+  "implementation-guidelines": "docs/engineering/implementation-guidelines.md",
+  "ui-ux-guidelines": "docs/design/ui-ux-guidelines.md",
+  "brand-guidelines": "docs/design/brand-guidelines.md",
+};
+const DOC_README_PATH = "docs/README.md";
+
+const MONTH_NUMBER = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+
+/** "12 Sept 2026" and "12 September 2026" must compare equal — only the index abbreviates. */
+function parseDocDate(raw) {
+  const m = /^\s*(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})\s*$/.exec(raw);
+  if (!m) return null;
+  const word = m[2].toLowerCase();
+  // "Sept"/"September" share a 4-letter prefix; "Aug"/"August" don't
+  // ("Augu" isn't a key) — the 3-letter fallback catches that pair and
+  // every other short-form month besides.
+  const resolved = MONTH_NUMBER[word.slice(0, 4)] ?? MONTH_NUMBER[word.slice(0, 3)];
+  if (!resolved) return null;
+  return `${m[3]}-${String(resolved).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+
+function readDocIndexRows(readmeText) {
+  const rows = new Map();
+  for (const line of readmeText.split("\n")) {
+    const m = /^\|\s*([a-z-]+)\s*\|\s*v([0-9.]+)\s*\|\s*([^|]+?)\s*\|$/.exec(line);
+    if (m && DOC_INDEX_FILES[m[1]]) rows.set(m[1], { version: m[2], date: m[3] });
+  }
+  return rows;
+}
+
+function checkDocStatusIndex(paths) {
+  const findings = [];
+  const readmeAbs = resolve(ROOT, DOC_README_PATH);
+  const touchesIndexedDoc =
+    paths.includes(DOC_README_PATH) ||
+    paths.some((p) => Object.values(DOC_INDEX_FILES).includes(p));
+  if (!touchesIndexedDoc || !existsSync(readmeAbs)) return findings;
+
+  let readmeText;
+  try {
+    readmeText = readText(readmeAbs);
+  } catch {
+    return findings;
+  }
+  const indexRows = readDocIndexRows(readmeText);
+
+  for (const [name, docPath] of Object.entries(DOC_INDEX_FILES)) {
+    const docAbs = resolve(ROOT, docPath);
+    if (!existsSync(docAbs)) continue;
+    let docText;
+    try {
+      docText = readText(docAbs);
+    } catch {
+      continue;
+    }
+    const row = indexRows.get(name);
+    if (!row) continue; // docs/README.md's own table is missing this doc — a separate, pre-existing problem
+    findings.push(...compareDocAgainstIndexRow(name, docPath, docText, row));
+  }
+  return findings;
+}
+
+/**
+ * The pure half of {@link checkDocStatusIndex} — no filesystem, so this is
+ * what the self-test below exercises directly rather than through fixture
+ * files standing in for docs/README.md and a real doc.
+ */
+function compareDocAgainstIndexRow(name, docPath, docText, row) {
+  const findings = [];
+  const statusMatch = /^\*\*Status:\*\*\s*v([0-9.]+)/m.exec(docText);
+  const dateMatch = /^\*\*Date:\*\*\s*(.+)$/m.exec(docText);
+  const docVersion = statusMatch?.[1];
+  const docDate = dateMatch?.[1];
+  const indexDateParsed = parseDocDate(row.date);
+  const docDateParsed = docDate ? parseDocDate(docDate) : null;
+
+  if (docVersion !== undefined && docVersion !== row.version) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-version-drift",
+      match: `${docVersion} vs README's ${row.version}`,
+      message:
+        `${docPath}'s own **Status:** (v${docVersion}) disagrees with docs/README.md's ` +
+        `Status table (v${row.version}) for "${name}". Bump whichever one is stale — both ` +
+        "must name the same version (CLAUDE.md → Documents travel together).",
+    });
+  }
+  if (docDateParsed !== null && indexDateParsed !== null && docDateParsed !== indexDateParsed) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-date-drift",
+      match: `${docDate} vs README's ${row.date}`,
+      message:
+        `${docPath}'s own **Date:** (${docDate}) disagrees with docs/README.md's Status ` +
+        `table (${row.date}) for "${name}". A doc-change bumps both together, never one alone.`,
+    });
+  }
+  return findings;
+}
+
 /** Positive assertions — things that must be present, not absent. */
 function checkRequired() {
   const findings = [];
@@ -892,6 +1030,61 @@ function selfTest() {
     }
   }
 
+  // parseDocDate: the abbreviated index form and the doc's own full-word form
+  // must resolve to the same value, or every doc would fail this check the
+  // moment it was written (docs/README.md abbreviates, the docs don't).
+  const dateCases = [
+    [["12 Sept 2026", "12 September 2026"], true],
+    [["23 Aug 2026", "23 August 2026"], true],
+    [["12 Sept 2026", "13 Sept 2026"], false],
+    [["12 Sept 2026", "12 Sept 2027"], false],
+  ];
+  for (const [[a, b], expectEqual] of dateCases) {
+    const gotEqual = parseDocDate(a) === parseDocDate(b) && parseDocDate(a) !== null;
+    if (gotEqual !== expectEqual) {
+      failures.push(
+        `parseDocDate(${JSON.stringify(a)}) === parseDocDate(${JSON.stringify(b)}) -> ${gotEqual}, expected ${expectEqual}`,
+      );
+    }
+  }
+
+  // compareDocAgainstIndexRow: the pure comparison checkDocStatusIndex is
+  // built on — exercised directly with fixture strings rather than through
+  // real files standing in for docs/README.md and a doc.
+  const matching = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (matching.length !== 0) {
+    failures.push(
+      `compareDocAgainstIndexRow flagged a doc that agrees with its index row: ${JSON.stringify(matching)}`,
+    );
+  }
+
+  const dateDrift = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** 3 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!dateDrift.some((f) => f.id === "docs/status-date-drift")) {
+    failures.push("compareDocAgainstIndexRow did not flag a Date disagreeing with its index row");
+  }
+
+  const versionDrift = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.1 — fixture\n**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!versionDrift.some((f) => f.id === "docs/status-version-drift")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a Status version disagreeing with its index row",
+    );
+  }
+
   if (failures.length) {
     console.error("check-forbidden.mjs self-test FAILED:");
     for (const f of failures) console.error(`  - ${f}`);
@@ -912,6 +1105,7 @@ const findings = [
   ...checkVoidTableFilter(scanTargets),
   ...checkEnumLabelUsage(scanTargets),
   ...checkPlatformQueryImports(scanTargets),
+  ...checkDocStatusIndex(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
 
