@@ -83,8 +83,10 @@ interface DriverOverrides {
   name?: string;
   dailyFeeMinor?: bigint;
   licenceExpiry?: string;
-  /** GAP-135: no endpoint writes this column, so a test that needs a non-`'daily'` driver has to set it here — which is exactly the state the confirm guard exists to refuse. */
+  /** GAP-135: createDriverRequestSchema accepts both, but a test that only needs the derivation exercised (not the create endpoint's own validation) sets these directly. */
   settlementRhythm?: "daily" | "weekly";
+  /** 0=Sunday..6=Saturday (`weekdayOf`'s convention) — required by migration 0040's CHECK whenever `settlementRhythm` is `'weekly'`. */
+  settlementWeekday?: number;
 }
 
 interface CustomerOverrides {
@@ -277,6 +279,9 @@ export class TestContext {
       licenceExpiry: overrides.licenceExpiry,
       ...(overrides.settlementRhythm !== undefined
         ? { settlementRhythm: overrides.settlementRhythm }
+        : {}),
+      ...(overrides.settlementWeekday !== undefined
+        ? { settlementWeekday: overrides.settlementWeekday }
         : {}),
     });
     this.track(async () => {

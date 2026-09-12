@@ -121,6 +121,73 @@ describe("driver CRUD (P2, F-1.6/UC-04)", () => {
     await ctx.cleanup();
   });
 
+  it("happy path — settlementRhythm 'daily' is the default when omitted (U-2)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDriver(token, { name: "Kamal Silva" });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    expect(body).toMatchObject({ settlementRhythm: "daily", settlementWeekday: null });
+    ctx.trackCreatedDriver(body.id);
+
+    const getRes = await getDriver(token, body.id);
+    expect(await getRes.json()).toMatchObject({
+      settlementRhythm: "daily",
+      settlementWeekday: null,
+    });
+
+    await ctx.cleanup();
+  });
+
+  it("happy path — a weekly settler round-trips with the weekday that settles him (GAP-135)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDriver(token, {
+      name: "Friday Settler",
+      settlementRhythm: "weekly",
+      settlementWeekday: 5,
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string } = await res.json();
+    expect(body).toMatchObject({ settlementRhythm: "weekly", settlementWeekday: 5 });
+    ctx.trackCreatedDriver(body.id);
+
+    const getRes = await getDriver(token, body.id);
+    expect(await getRes.json()).toMatchObject({ settlementRhythm: "weekly", settlementWeekday: 5 });
+
+    await ctx.cleanup();
+  });
+
+  it("400 — settlementRhythm 'weekly' with no settlementWeekday (GAP-135)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDriver(token, { name: "Incomplete Weekly", settlementRhythm: "weekly" });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — settlementWeekday given while settlementRhythm stays 'daily' (GAP-135)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postDriver(token, { name: "Stray Weekday", settlementWeekday: 3 });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await request("/api/driver", {
       method: "POST",

@@ -1,11 +1,7 @@
-import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
+import { newId, nextOccurrenceOfWeekday, type BusinessDate, type Minor } from "@fleetsettle/shared";
 import type { Tx, Writer } from "../db/client.js";
 import { isPeriodClosedViolation, isUniqueViolation } from "../db/pg-error.js";
-import {
-  DayRecordVoidedError,
-  PeriodClosedError,
-  SettlementRhythmUnsupportedError,
-} from "../errors/app-error.js";
+import { DayRecordVoidedError, PeriodClosedError } from "../errors/app-error.js";
 import { resolvePeriodLinkage } from "../queries/accounting-period.js";
 import {
   confirmOpenDayRecord,
@@ -14,7 +10,7 @@ import {
   listOpenDayRecordsForLeaseBeforeDate,
   type DayRecordRow,
 } from "../queries/day-record.js";
-import { findDriverSettlementRhythm } from "../queries/driver.js";
+import { findDriverSettlementConfig, type DriverSettlementConfig } from "../queries/driver.js";
 import { findDayRecordObligation, insertObligation } from "../queries/obligation.js";
 import { insertPayment, insertPaymentAllocation } from "../queries/payment.js";
 import { applyCreditForward } from "./credit-forward.js";
@@ -47,21 +43,40 @@ export interface ConfirmDayResult {
 
 /** Reads back the row a lost race just wrote — used by both the genuinely-already-confirmed path and the 0-rows-affected UPDATE path below. */
 /**
- * GAP-135/DM D-5/F-4.5. Refuses a confirm for any driver whose settlement
- * rhythm this build cannot compute an `effective_due_on` for.
+ * GAP-135/DM D-5/F-4.5/UC-78. "A weekly settler is not in arrears on
+ * Thursday" — the daily-amount obligation this driver owes us is due on
+ * the next occurrence of his agreed settlement weekday on or after
+ * `dueOn`, not on `dueOn` itself. Rhythm governs this direction only
+ * (`owed_to_us`): what we owe *him* (`driver_fee`, `trip.ts`) is our
+ * obligation to pay, not his rhythm to settle, and stays due on the date
+ * it was earned.
  *
- * Called **once per confirm call, not once per day** — `confirmDaysBulk`
- * carries a single `driverId` for the whole batch, so checking inside
- * `confirmDayInTx` would issue one read per day for an answer that cannot
+ * A driver with no config yet (never resolved, or created before this
+ * existed) derives as `'daily'` — the column's own DEFAULT, and the same
+ * fallback `dueOn` already was before this derivation existed.
+ *
+ * Fetched **once per confirm call, not once per day**: `confirmDaysBulk`
+ * carries a single `driverId` for the whole batch, so resolving inside
+ * `confirmDayInTx` would issue one read per day for a config that cannot
  * change between them (the same N+1 shape GAP-132 removed from the archive
- * check). Placed here rather than at the obligation insert for the same
- * reason: the fact being checked belongs to the call, not to the row.
+ * check).
  */
-async function assertSettlementRhythmSupported(tx: Tx, driverId: string): Promise<void> {
-  const rhythm = await findDriverSettlementRhythm(tx, driverId);
-  if (rhythm !== undefined && rhythm !== "daily") {
-    throw new SettlementRhythmUnsupportedError(rhythm);
+async function resolveDriverSettlementConfig(
+  tx: Tx,
+  driverId: string,
+): Promise<DriverSettlementConfig> {
+  const config = await findDriverSettlementConfig(tx, driverId);
+  return config ?? { rhythm: "daily", weekday: null };
+}
+
+function deriveEffectiveDueOn(
+  dueOn: BusinessDate,
+  settlement: DriverSettlementConfig,
+): BusinessDate {
+  if (settlement.rhythm === "weekly" && settlement.weekday !== null) {
+    return nextOccurrenceOfWeekday(dueOn, settlement.weekday);
   }
+  return dueOn;
 }
 
 async function asNoOpResult(
@@ -113,7 +128,11 @@ async function asNoOpResult(
  * holds across the whole batch. `confirmDay` below is just this plus the
  * single-call transaction wrapper and its own race-recovery catch.
  */
-async function confirmDayInTx(tx: Tx, input: ConfirmDayInput): Promise<ConfirmDayResult> {
+async function confirmDayInTx(
+  tx: Tx,
+  input: ConfirmDayInput,
+  settlement: DriverSettlementConfig,
+): Promise<ConfirmDayResult> {
   const existing = await findDayRecordByLeaseAndDate(tx, input.dailyLeaseId, input.businessDate);
 
   // GAP-118: a driver/arrangement change voids a stale future card
@@ -256,7 +275,7 @@ async function confirmDayInTx(tx: Tx, input: ConfirmDayInput): Promise<ConfirmDa
     settledMinor: receivedMinor,
     waivedMinor: 0n,
     dueOn: input.businessDate,
-    effectiveDueOn: input.businessDate,
+    effectiveDueOn: deriveEffectiveDueOn(input.businessDate, settlement),
     status: obligationStatus,
     ...periodFields,
   });
@@ -328,8 +347,8 @@ export async function confirmDay(
 ): Promise<ConfirmDayResult> {
   try {
     return await writer.transaction(async (tx) => {
-      await assertSettlementRhythmSupported(tx, input.driverId);
-      return await confirmDayInTx(tx, input);
+      const settlement = await resolveDriverSettlementConfig(tx, input.driverId);
+      return await confirmDayInTx(tx, input, settlement);
     });
   } catch (err) {
     if (isPeriodClosedViolation(err)) throw new PeriodClosedError();
@@ -390,7 +409,7 @@ export async function confirmDaysBulk(
 ): Promise<ConfirmDaysBulkResult> {
   try {
     return await writer.transaction(async (tx) => {
-      await assertSettlementRhythmSupported(tx, input.driverId);
+      const settlement = await resolveDriverSettlementConfig(tx, input.driverId);
 
       const openDays = await listOpenDayRecordsForLeaseBeforeDate(
         tx,
@@ -401,16 +420,20 @@ export async function confirmDaysBulk(
       const confirmed: ConfirmDayResult[] = [];
       for (const day of openDays) {
         confirmed.push(
-          await confirmDayInTx(tx, {
-            businessId: input.businessId,
-            dailyLeaseId: input.dailyLeaseId,
-            vehicleId: input.vehicleId,
-            driverId: input.driverId,
-            businessDate: day.businessDate as BusinessDate,
-            expectedMinor: day.expectedMinor as Minor,
-            userId: input.userId,
-            action: { kind: "paid_in_full" },
-          }),
+          await confirmDayInTx(
+            tx,
+            {
+              businessId: input.businessId,
+              dailyLeaseId: input.dailyLeaseId,
+              vehicleId: input.vehicleId,
+              driverId: input.driverId,
+              businessDate: day.businessDate as BusinessDate,
+              expectedMinor: day.expectedMinor as Minor,
+              userId: input.userId,
+              action: { kind: "paid_in_full" },
+            },
+            settlement,
+          ),
         );
       }
       return { confirmed };

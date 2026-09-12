@@ -1,6 +1,8 @@
 # Tech Stack
 
-**Status:** v1.4 — **the `email` scope added (§2.1), and self-registration's activation moved from an Asgardeo-console gate to the platform tier's own approval queue.** The `email` scope shipped 18 Aug 2026 (Track A, PR #70) — `middleware/auth.ts` has always read `payload.email`/`payload.name` off the access token; the client had simply never asked for it. Self-registration itself stays off pending the platform tier (`use-cases.md` Group L, W-63/W-64) — enabling it at the console before that queue exists would let anyone create a business with no approval step at all. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 28.
+**Status:** v1.5 — **§7 gains a note on Cloudflare Browser Rendering (12 Sept 2026)**, available since this document's last full pass and referenced by `use-cases.md` UC-99's re-recorded PDF deferral (GAP-136) — a stack fact belongs here, cited by the product documents rather than restated in them.
+
+**v1.4** — **the `email` scope added (§2.1), and self-registration's activation moved from an Asgardeo-console gate to the platform tier's own approval queue.** The `email` scope shipped 18 Aug 2026 (Track A, PR #70) — `middleware/auth.ts` has always read `payload.email`/`payload.name` off the access token; the client had simply never asked for it. Self-registration itself stays off pending the platform tier (`use-cases.md` Group L, W-63/W-64) — enabling it at the console before that queue exists would let anyone create a business with no approval step at all. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 28.
 **v1.3** — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
 **Date:** 5 August 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
@@ -160,6 +162,8 @@ The four that mattered, each with its consequence in `data-model.md`:
 | **No filesystem** | Photos go to R2; the database stores only the object key, content type and size (`attachment`) |
 
 One more that is a *choice* rather than a constraint: **Postgres does the enforcing.** Exclusion constraints, partial unique indexes, deferred checks and triggers are all used deliberately, because a rule enforced in a Worker is a rule enforced in one code path and forgotten in the next.
+
+**Cloudflare Browser Rendering, noted 12 Sept 2026, not adopted.** `env.BROWSER.quickAction()` exposes a `/pdf` Quick Action — HTML in, a rendered PDF out, off-Worker, so neither "no filesystem" nor the CPU ceiling above applies to it. Recorded here because `use-cases.md` UC-99's PDF deferral (`user-flows.md` F-9.3, GAP-136) argued from those two constraints, and the argument stopped being sound the moment this existed as an option; the deferral itself still stands, on the separate, stronger ground that nothing has asked for a document yet. Adopting it would still mean trusting Cloudflare with every figure on a statement — the same vendor already running this Worker and holding every `attachment` in R2, so a smaller trust extension than a new third party, but a real one, not yet made.
 
 ---
 
