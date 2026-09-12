@@ -41,7 +41,21 @@ export interface ConfirmDayResult {
   created: boolean;
 }
 
-/** Reads back the row a lost race just wrote — used by both the genuinely-already-confirmed path and the 0-rows-affected UPDATE path below. */
+/**
+ * GAP-135/PR#186 review. Fetched **once per confirm call, not once per
+ * day**: `confirmDaysBulk` carries a single `driverId` for the whole batch,
+ * so resolving inside `confirmDayInTx` would issue one read per day for a
+ * config that cannot change between them (the same N+1 shape GAP-132
+ * removed from the archive check).
+ */
+async function resolveDriverSettlementConfig(
+  tx: Tx,
+  driverId: string,
+): Promise<DriverSettlementConfig> {
+  const config = await findDriverSettlementConfig(tx, driverId);
+  return config ?? { rhythm: "daily", weekday: null };
+}
+
 /**
  * GAP-135/DM D-5/F-4.5/UC-78. "A weekly settler is not in arrears on
  * Thursday" — the daily-amount obligation this driver owes us is due on
@@ -54,21 +68,7 @@ export interface ConfirmDayResult {
  * A driver with no config yet (never resolved, or created before this
  * existed) derives as `'daily'` — the column's own DEFAULT, and the same
  * fallback `dueOn` already was before this derivation existed.
- *
- * Fetched **once per confirm call, not once per day**: `confirmDaysBulk`
- * carries a single `driverId` for the whole batch, so resolving inside
- * `confirmDayInTx` would issue one read per day for a config that cannot
- * change between them (the same N+1 shape GAP-132 removed from the archive
- * check).
  */
-async function resolveDriverSettlementConfig(
-  tx: Tx,
-  driverId: string,
-): Promise<DriverSettlementConfig> {
-  const config = await findDriverSettlementConfig(tx, driverId);
-  return config ?? { rhythm: "daily", weekday: null };
-}
-
 function deriveEffectiveDueOn(
   dueOn: BusinessDate,
   settlement: DriverSettlementConfig,
@@ -79,6 +79,7 @@ function deriveEffectiveDueOn(
   return dueOn;
 }
 
+/** Reads back the row a lost race just wrote — used by both the genuinely-already-confirmed path and the 0-rows-affected UPDATE path below. */
 async function asNoOpResult(
   tx: Tx,
   dailyLeaseId: string,
