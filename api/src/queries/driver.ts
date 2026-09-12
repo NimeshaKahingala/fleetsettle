@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { driver } from "../db/schema.js";
 
@@ -84,29 +84,34 @@ export async function listDriversForBusiness(db: ReadDb, businessId: string): Pr
 }
 
 /**
- * GAP-187. `FOR SHARE`, not `FOR UPDATE` — mirrors migration 0034/0037's own
- * DB-side triggers (`assert_party_not_archived`/`assert_adjustment_party_not_archived`),
- * which already take `FOR SHARE` on this row before reading `voided_at`.
- * Matching that lock strength here is what makes two ordinary
- * `saveOpeningBalance` calls against different drivers never block each
- * other, while either one still conflicts with `archiveDriver`'s own
- * `FOR UPDATE` — the same race `assertArchivable` closes for every other
- * money write in this schema, applied to a table (`opening_balance_entry`)
- * migration 0031's own view structurally cannot see (no `posted_period_id`
- * of its own; the money it eventually produces lives in tables that already
- * carry the trigger). Returns `undefined` for a driver that does not exist
- * — the caller's own business-scoped existence check has already run.
+ * GAP-187/PR#186 review. `FOR SHARE`, not `FOR UPDATE` — mirrors migration
+ * 0034/0037's own DB-side triggers (`assert_party_not_archived`/
+ * `assert_adjustment_party_not_archived`), which already take `FOR SHARE` on
+ * this row before reading `voided_at`. Matching that lock strength here is
+ * what makes two ordinary `saveOpeningBalance` calls against different
+ * drivers never block each other, while either one still conflicts with
+ * `archiveDriver`'s own `FOR UPDATE` — the same race `assertArchivable`
+ * closes for every other money write in this schema, applied to a table
+ * (`opening_balance_entry`) migration 0031's own view structurally cannot
+ * see (no `posted_period_id` of its own; the money it eventually produces
+ * lives in tables that already carry the trigger).
+ *
+ * Set-based rather than one `SELECT … FOR SHARE` per driver — a bulk
+ * opening-balance save may name several — per api/CLAUDE.md's "never a loop
+ * issuing one query per row"; a missing ID's absence from the returned Map
+ * is the caller's business-scoped existence check to have already ruled out.
  */
-export async function lockDriverForShare(
+export async function lockDriversForShare(
   db: Tx,
-  driverId: string,
-): Promise<string | null | undefined> {
+  driverIds: string[],
+): Promise<Map<string, string | null>> {
+  if (driverIds.length === 0) return new Map();
   const rows = await db
-    .select({ voidedAt: driver.voidedAt })
+    .select({ id: driver.id, voidedAt: driver.voidedAt })
     .from(driver)
-    .where(eq(driver.id, driverId))
+    .where(inArray(driver.id, driverIds))
     .for("share");
-  return rows[0]?.voidedAt;
+  return new Map(rows.map((r) => [r.id, r.voidedAt]));
 }
 
 export interface DriverSettlementConfig {

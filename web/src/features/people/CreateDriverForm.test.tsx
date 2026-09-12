@@ -110,7 +110,7 @@ test("GAP-135: a weekly settler's chosen day reaches the request alongside the r
   );
 });
 
-test("GAP-135/copilot PR#186: collapsing the section after choosing Weekly does not swallow the settlement-day error (§9.2)", async () => {
+test("GAP-135, PR 186 review: collapsing the section after choosing Weekly does not swallow the settlement-day error (§9.2)", async () => {
   const user = userEvent.setup();
   const post = vi.fn();
   renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
