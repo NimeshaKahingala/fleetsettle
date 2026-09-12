@@ -418,6 +418,33 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
     await ctx.cleanup();
   });
 
+  /**
+   * Copilot review, PR #183: without this, the generic create endpoint
+   * would accept a manually supplied `category: "finance"` row unlinked to
+   * any loan payment — `assertExpenseNotFinanceLinked` (domain/expense.ts)
+   * wouldn't catch it (nothing references it), yet `ExpenseCostRow` hides
+   * Edit/Void for every `finance` row regardless of linkage, making such a
+   * row permanently uneditable through the client. GAP-185's own comment
+   * already claimed "never a category a person picks here" — this makes
+   * it true.
+   */
+  it("400 — category 'finance' is refused on the generic create endpoint (GAP-185/GAP-226)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "finance",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("401 — missing Authorization header", async () => {
     const res = await postExpense("", {
       category: "fuel",
@@ -1138,6 +1165,21 @@ describe("edit an expense (GAP-224/F-8.5)", () => {
       amountMinor: "50000",
       spentOn: "2026-07-15",
       borneBy: "driver",
+      reason: "test",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  /** Copilot review, PR #183 — see the identical create-endpoint test's own comment. */
+  it("400 — category 'finance' is refused on the generic edit endpoint (GAP-185/GAP-226)", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+
+    const res = await patchExpense(token, expenseId, {
+      category: "finance",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
       reason: "test",
     });
     expect(res.status).toBe(400);

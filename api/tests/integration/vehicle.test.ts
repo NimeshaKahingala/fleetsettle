@@ -593,6 +593,49 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     await ctx.cleanup();
   });
 
+  /**
+   * Copilot review, PR #183: the assertions above only ever cover the
+   * *absent* case (`odometerReadingId: null`) — nothing in this suite
+   * proved the handler actually projects a real reading through this list,
+   * only that the two id/link fields GAP-223 fixed do. A join or mapping
+   * bug in either new field (`odometerReadingKm`/`odometerReadingSource`,
+   * GAP-226) could silently reintroduce the service-due baseline loss this
+   * change exists to fix, with the web mock tests staying green regardless.
+   */
+  it("expenses — a servicing expense's odometer reading itself, not just its id, reaches this list", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      vehicleId,
+      category: "servicing",
+      amountMinor: "800000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45200,
+      odometerSource: "photo",
+    });
+    const createdBody: { id: string; odometerReadingId: string | null } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id, createdBody.odometerReadingId);
+
+    const res = await listVehicleExpenses(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      odometerReadingId: string | null;
+      odometerReadingKm: number | null;
+      odometerReadingSource: string | null;
+    }> = await res.json();
+    const row = body.find((e) => e.id === createdBody.id);
+    expect(row?.odometerReadingId).not.toBeNull();
+    expect(row).toMatchObject({ odometerReadingKm: 45200, odometerReadingSource: "photo" });
+
+    await ctx.cleanup();
+  });
+
   it("404 — expenses for a vehicle belonging to another business", async () => {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();

@@ -1260,6 +1260,45 @@ describe("incident (P8, F-3.4/UC-12)", () => {
       await ctx.cleanup();
     });
 
+    /**
+     * Copilot review, PR #183: the assertion above only ever covers the
+     * *absent* case (`odometerReadingId: null`) — nothing in this suite
+     * proved this handler actually projects a real reading, only that the
+     * link/id fields GAP-223 fixed do. A join or mapping bug in either new
+     * field (`odometerReadingKm`/`odometerReadingSource`, GAP-226) could
+     * silently reintroduce the service-due baseline loss this change
+     * exists to fix, with the web mock tests staying green regardless.
+     */
+    it("GAP-226 — a repair cost's odometer reading itself, not just its id, reaches this endpoint", async () => {
+      const { ctx, token, vehicleId, incidentId } = await setupIncidentCostsFixture();
+
+      const created = await postExpense(token, {
+        vehicleId,
+        incidentId,
+        category: "repairs",
+        amountMinor: "70000",
+        spentOn: "2026-07-28",
+        borneBy: "us",
+        odometerReadingKm: 45200,
+        odometerSource: "photo",
+      });
+      const createdBody: { id: string; odometerReadingId: string | null } = await created.json();
+      ctx.trackCreatedExpense(createdBody.id, createdBody.odometerReadingId);
+
+      const res = await getIncidentExpenses(token, incidentId);
+      const body: Array<{
+        id: string;
+        odometerReadingId: string | null;
+        odometerReadingKm: number | null;
+        odometerReadingSource: string | null;
+      }> = await res.json();
+      const row = body.find((r) => r.id === createdBody.id);
+      expect(row?.odometerReadingId).not.toBeNull();
+      expect(row).toMatchObject({ odometerReadingKm: 45200, odometerReadingSource: "photo" });
+
+      await ctx.cleanup();
+    });
+
     it("401 — missing Authorization header", async () => {
       const res = await request(`/api/incident/${crypto.randomUUID()}/expense`);
       expect(res.status).toBe(401);
