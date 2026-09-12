@@ -13,12 +13,6 @@ function closestButton(element: HTMLElement): HTMLElement {
   return button;
 }
 
-function nth<T>(items: T[], index: number): T {
-  const item = items[index];
-  if (item === undefined) throw new Error(`index ${index.toString()} out of bounds`);
-  return item;
-}
-
 const today = asBusinessDate("2026-07-28");
 
 const openIncident: IncidentDetailResponse = {
@@ -116,6 +110,8 @@ test("GAP-172: Record repair cost is always offered, opens with the incident's o
     litres: null,
     note: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   });
   renderWithProviders(<IncidentScreen incidentId="inc1" today={today} onBack={() => {}} />, {
@@ -332,7 +328,7 @@ test("once a claim exists, Submit insurance claim is no longer offered", async (
   expect(screen.queryByRole("button", { name: "Submit insurance claim" })).not.toBeInTheDocument();
 });
 
-test("repair costs list, and a voided one stays struck through (W-50)", async () => {
+test("repair costs list hides a voided one by default, then shows it struck through (W-50/GAP-222)", async () => {
   const expenses: ExpenseListRow[] = [
     {
       id: "e1",
@@ -351,6 +347,8 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       voidedAt: null,
       voidedReason: null,
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
     {
@@ -370,6 +368,8 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
       voidedAt: "2026-08-06T00:00:00.000Z",
       voidedReason: "wrong invoice",
       odometerReadingId: null,
+      odometerReadingKm: null,
+      odometerReadingSource: null,
       replacesId: null,
     },
   ];
@@ -378,10 +378,18 @@ test("repair costs list, and a voided one stays struck through (W-50)", async ()
     get,
   });
 
-  expect(await screen.findByText("Repair costs · 2")).toBeInTheDocument();
-  const voidedRow = nth(screen.getAllByText("Repairs"), 1);
-  expect(voidedRow).toHaveClass("line-through");
-  expect(screen.getByText("Voided")).toBeInTheDocument();
+  // GAP-221: the heading count now matches its total — one live row.
+  expect(await screen.findByText("Repair costs · 1")).toBeInTheDocument();
+  expect(screen.getAllByText("Repairs")).toHaveLength(1);
+  // GAP-222: the voided one is hidden by default, named only by the toggle.
+  expect(screen.queryByText("Voided")).not.toBeInTheDocument();
+  await userEvent.setup().click(screen.getByRole("button", { name: "1 voided · Show" }));
+
+  await screen.findByText("Voided");
+  const repairRows = screen.getAllByText("Repairs");
+  expect(repairRows).toHaveLength(2);
+  const voidedRow = repairRows.find((row) => row.classList.contains("line-through"));
+  expect(voidedRow).toBeDefined();
   expect(screen.getByText("wrong invoice")).toBeInTheDocument();
 });
 
@@ -404,6 +412,8 @@ test("GAP-191: voiding a repair cost refreshes the incident's own bottom line, n
     voidedAt: null,
     voidedReason: null,
     odometerReadingId: null,
+    odometerReadingKm: null,
+    odometerReadingSource: null,
     replacesId: null,
   };
   let incidentCallCount = 0;
@@ -442,6 +452,7 @@ test("GAP-191: voiding a repair cost refreshes the incident's own bottom line, n
   await waitFor(() => expect(within(bottomLine).getAllByText("Rs 500")).toHaveLength(2));
 
   await user.click(await screen.findByText("Repairs"));
+  await user.click(await screen.findByRole("button", { name: "Void" }));
   await user.type(await screen.findByLabelText("Reason"), "test");
   await user.click(await screen.findByRole("button", { name: "Void expense" }));
 

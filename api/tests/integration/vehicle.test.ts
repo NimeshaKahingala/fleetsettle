@@ -553,6 +553,21 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
     const voided = await postVoidExpense(token, olderBody.id, { reason: "wrong vehicle" });
     expect(voided.status).toBe(200);
 
+    // GAP-60/D-16: the corrected replacement, linked back via `replacesId`.
+    // Dated after both existing rows so the newest-first order stays
+    // unambiguous — `listExpensesForVehicle` orders by `spentOn` alone,
+    // with no tie-break, so a same-date row's position would be undefined.
+    const replacement = await postExpense(token, {
+      vehicleId,
+      category: "fuel",
+      amountMinor: "600000",
+      spentOn: "2026-07-25",
+      replacesId: olderBody.id,
+    });
+    expect(replacement.status).toBe(201);
+    const replacementBody: { id: string } = await replacement.json();
+    ctx.trackCreatedExpense(replacementBody.id);
+
     const res = await listVehicleExpenses(token, vehicleId);
     expect(res.status).toBe(200);
     const body: Array<{
@@ -560,11 +575,63 @@ describe("vehicle overview's scoped reads (Web-P5)", () => {
       category: string;
       voidedAt: string | null;
       voidedReason: string | null;
+      replacesId: string | null;
+      odometerReadingId: string | null;
     }> = await res.json();
-    expect(body.map((e) => e.id)).toEqual([newerBody.id, olderBody.id]);
-    expect(body[1]).toMatchObject({ voidedReason: "wrong vehicle" });
-    expect(body[1]?.voidedAt).not.toBeNull();
-    expect(body[0]).toMatchObject({ voidedAt: null, voidedReason: null });
+    expect(body.map((e) => e.id)).toEqual([replacementBody.id, newerBody.id, olderBody.id]);
+    expect(body[2]).toMatchObject({ voidedReason: "wrong vehicle" });
+    expect(body[2]?.voidedAt).not.toBeNull();
+    expect(body[1]).toMatchObject({ voidedAt: null, voidedReason: null });
+    // GAP-223: the route declares `listExpensesResponseSchema` (which has
+    // required both fields since GAP-30/GAP-60), but the handler never
+    // projected them — a client reading `replacesId` off this list got
+    // `undefined`, not the real id, with nothing catching the mismatch
+    // because zod-openapi doesn't validate responses.
+    expect(body[0]).toMatchObject({ replacesId: olderBody.id });
+    expect(body[2]).toMatchObject({ replacesId: null, odometerReadingId: null });
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * Copilot review, PR #183: the assertions above only ever cover the
+   * *absent* case (`odometerReadingId: null`) — nothing in this suite
+   * proved the handler actually projects a real reading through this list,
+   * only that the two id/link fields GAP-223 fixed do. A join or mapping
+   * bug in either new field (`odometerReadingKm`/`odometerReadingSource`,
+   * GAP-226) could silently reintroduce the service-due baseline loss this
+   * change exists to fix, with the web mock tests staying green regardless.
+   */
+  it("expenses — a servicing expense's odometer reading itself, not just its id, reaches this list", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      vehicleId,
+      category: "servicing",
+      amountMinor: "800000",
+      spentOn: "2026-07-15",
+      odometerReadingKm: 45200,
+      odometerSource: "photo",
+    });
+    const createdBody: { id: string; odometerReadingId: string | null } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id, createdBody.odometerReadingId);
+
+    const res = await listVehicleExpenses(token, vehicleId);
+    expect(res.status).toBe(200);
+    const body: Array<{
+      id: string;
+      odometerReadingId: string | null;
+      odometerReadingKm: number | null;
+      odometerReadingSource: string | null;
+    }> = await res.json();
+    const row = body.find((e) => e.id === createdBody.id);
+    expect(row?.odometerReadingId).not.toBeNull();
+    expect(row).toMatchObject({ odometerReadingKm: 45200, odometerReadingSource: "photo" });
 
     await ctx.cleanup();
   });

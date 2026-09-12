@@ -118,9 +118,23 @@ export interface VehicleExpenseRow {
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  // GAP-223: both were absent from this row and its two siblings below
+  // (`TripExpenseRow`/`IncidentExpenseRow`) even though all three feed
+  // `listExpensesResponseSchema`, which has required both since GAP-30 and
+  // GAP-60 landed — zod-openapi doesn't validate responses, so nothing
+  // caught a route declaring fields its handler never sent. `odometerReadingId`
+  // is UC-72's own fuel-efficiency link; `replacesId` is what GAP-224's edit
+  // (void-and-replace) needs to render "replaced by" on a voided row.
+  odometerReadingId: string | null;
+  // Copilot review, PR #182: the reading itself, left-joined in below — the
+  // edit sheet needs the actual km/source to prefill (and re-preserve) a
+  // servicing expense's reading, not just its id.
+  odometerReadingKm: number | null;
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
+  replacesId: string | null;
 }
 
-/** Vehicle overview's costs tab (Web-P5): every expense logged against this vehicle, voided ones included and struck through by the caller (W-50) — never filtered out, since "what did we spend" must still show what was later corrected. Newest first. */
+/** Vehicle overview's costs tab (Web-P5): every expense logged against this vehicle, voided ones included (W-50) — the caller (`ExpenseCostSection`, GAP-222) hides them behind a labelled "N voided · Show" toggle rather than this query filtering them out, since "what did we spend" must still show what was later corrected on request. Newest first. */
 export async function listExpensesForVehicle(
   db: ReadDb,
   businessId: string,
@@ -142,8 +156,13 @@ export async function listExpensesForVehicle(
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
+      odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
+      replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(and(eq(expense.businessId, businessId), eq(expense.vehicleId, vehicleId)))
     .orderBy(desc(expense.spentOn));
   return rows as VehicleExpenseRow[];
@@ -205,6 +224,8 @@ export interface BusinessExpenseRow {
   paidByUserId: string | null;
   litres: number | null;
   odometerReadingId: string | null;
+  odometerReadingKm: number | null;
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
@@ -248,12 +269,15 @@ export async function listExpensesForBusiness(
       paidByUserId: expense.paidByUserId,
       litres: expense.litres,
       odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
       replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(
       and(
         eq(expense.businessId, businessId),
@@ -350,6 +374,10 @@ export interface TripExpenseRow {
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  odometerReadingId: string | null; // GAP-223 — see VehicleExpenseRow's own comment
+  odometerReadingKm: number | null; // Copilot review, PR #182 — see VehicleExpenseRow's own comment
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
+  replacesId: string | null;
 }
 
 /**
@@ -379,8 +407,13 @@ export async function listExpensesForTrip(db: ReadDb, tripId: string): Promise<T
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
+      odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
+      replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(eq(expense.tripId, tripId))
     .orderBy(desc(expense.spentOn));
   return rows as TripExpenseRow[];
@@ -416,6 +449,10 @@ export interface IncidentExpenseRow {
   note: string | null;
   voidedAt: string | null;
   voidedReason: string | null;
+  odometerReadingId: string | null; // GAP-223 — see VehicleExpenseRow's own comment
+  odometerReadingKm: number | null; // Copilot review, PR #182 — see VehicleExpenseRow's own comment
+  odometerReadingSource: "photo" | "in_person" | "reported" | "at_return" | null;
+  replacesId: string | null;
 }
 
 /**
@@ -450,8 +487,13 @@ export async function listExpensesForIncident(
       note: expense.note,
       voidedAt: expense.voidedAt,
       voidedReason: expense.voidedReason,
+      odometerReadingId: expense.odometerReadingId,
+      odometerReadingKm: odometerReading.readingKm,
+      odometerReadingSource: odometerReading.source,
+      replacesId: expense.replacesId,
     })
     .from(expense)
+    .leftJoin(odometerReading, eq(odometerReading.id, expense.odometerReadingId))
     .where(eq(expense.incidentId, incidentId))
     .orderBy(desc(expense.spentOn));
   return rows as IncidentExpenseRow[];

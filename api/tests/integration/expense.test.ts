@@ -9,6 +9,30 @@ import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
 
+const JPEG_BYTES = new TextEncoder().encode("fake-jpeg-bytes");
+
+async function postAttachment(token: string, query: Record<string, string>) {
+  return request(`/api/attachment?${new URLSearchParams(query).toString()}`, {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg", Authorization: `Bearer ${token}` },
+    body: JPEG_BYTES,
+  });
+}
+
+async function listAttachments(token: string, subjectType: string, subjectId: string) {
+  return request(`/api/attachment?${new URLSearchParams({ subjectType, subjectId }).toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+async function patchExpense(token: string, id: string, body: unknown) {
+  return request(`/api/expense/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+}
+
 const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
 
 async function postExpense(token: string, body: unknown) {
@@ -388,6 +412,33 @@ describe("record an expense (P4, F-3.1/F-3.2/F-3.3)", () => {
       amountMinor: "50000",
       spentOn: "2026-07-15",
       borneBy: "driver",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * Copilot review, PR #183: without this, the generic create endpoint
+   * would accept a manually supplied `category: "finance"` row unlinked to
+   * any loan payment — `assertExpenseNotFinanceLinked` (domain/expense.ts)
+   * wouldn't catch it (nothing references it), yet `ExpenseCostRow` hides
+   * Edit/Void for every `finance` row regardless of linkage, making such a
+   * row permanently uneditable through the client. GAP-185's own comment
+   * already claimed "never a category a person picks here" — this makes
+   * it true.
+   */
+  it("400 — category 'finance' is refused on the generic create endpoint (GAP-185/GAP-226)", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await postExpense(token, {
+      category: "finance",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
     });
     expect(res.status).toBe(400);
 
@@ -932,6 +983,264 @@ describe("replace a voided expense (GAP-60/D-16)", () => {
       amountMinor: "55000",
       spentOn: "2026-07-15",
       replacesId: otherExpenseBody.id,
+    });
+    expect(res.status).toBe(404);
+
+    await ctx.cleanup();
+    await other.cleanup();
+  });
+});
+
+/**
+ * GAP-224/F-8.5: "Edit" as one request — `PATCH /api/expense/{id}` voids
+ * the original and inserts the replacement in a single transaction, rather
+ * than a client driving void-then-create as two separate calls (the
+ * two-call trap: a dropped connection between them leaves the mistake
+ * voided with nothing standing in its place).
+ */
+describe("edit an expense (GAP-224/F-8.5)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  /**
+   * Every test below starts from the identical shape: a business, an open
+   * period, an owner's token, and one live Rs 500 fuel expense to edit —
+   * extracted the same way `setupDriverFixture`/`setupClosableLease`
+   * already did elsewhere in this suite, for the same reason (SonarCloud's
+   * new-code duplication gate).
+   */
+  async function setupEditableExpenseFixture(
+    periodOverrides?: Parameters<TestContext["createOpenPeriod"]>[1],
+  ): Promise<{ ctx: TestContext; token: string; expenseId: string; periodId: string }> {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId, periodOverrides);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const created = await postExpense(token, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const createdBody: { id: string } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id);
+
+    return { ctx, token, expenseId: createdBody.id, periodId };
+  }
+
+  it("happy path — voids the original, inserts a replacement naming it, and carries its live receipts across", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+
+    const receiptId = crypto.randomUUID();
+    const receiptUpload = await postAttachment(token, {
+      id: receiptId,
+      kind: "expense_receipt",
+      subjectType: "expense",
+      subjectId: expenseId,
+    });
+    expect(receiptUpload.status).toBe(201);
+
+    const res = await patchExpense(token, expenseId, {
+      category: "fuel",
+      amountMinor: "55000",
+      spentOn: "2026-07-15",
+      reason: "amount was wrong",
+    });
+    expect(res.status).toBe(201);
+    const body: { id: string; amountMinor: string; replacesId: string | null } = await res.json();
+    expect(body.replacesId).toBe(expenseId);
+    expect(body.amountMinor).toBe("55000");
+    expect(body.id).not.toBe(expenseId);
+    ctx.trackCreatedExpense(body.id);
+
+    // The original is voided, its own receipt untouched — still evidence
+    // of what was originally claimed (INV-32/W-50, the same reasoning
+    // `ExpenseCostRow` already applies client-side).
+    const original = await getExpenses(token, "?category=fuel");
+    const originalRows: Array<{
+      id: string;
+      voidedAt: string | null;
+      voidedReason: string | null;
+    }> = await original.json();
+    const originalRow = originalRows.find((r) => r.id === expenseId);
+    expect(originalRow?.voidedAt).toBeTruthy();
+    expect(originalRow?.voidedReason).toBe("amount was wrong");
+
+    const originalReceipts = await listAttachments(token, "expense", expenseId);
+    const originalReceiptBody: Array<{ id: string }> = await originalReceipts.json();
+    expect(originalReceiptBody.map((r) => r.id)).toEqual([receiptId]);
+
+    // The replacement carries its own copy of the same receipt — a new
+    // attachment row, not the original re-pointed.
+    const newReceipts = await listAttachments(token, "expense", body.id);
+    const newReceiptBody: Array<{ id: string; kind: string; contentType: string }> =
+      await newReceipts.json();
+    expect(newReceiptBody).toHaveLength(1);
+    expect(newReceiptBody[0]?.id).not.toBe(receiptId);
+    expect(newReceiptBody[0]).toMatchObject({ kind: "expense_receipt", contentType: "image/jpeg" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 — editing an already-voided expense is refused (correct its replacement instead)", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+    await postVoidExpense(token, expenseId, { reason: "already fixed once" });
+
+    const res = await patchExpense(token, expenseId, {
+      category: "fuel",
+      amountMinor: "60000",
+      spentOn: "2026-07-15",
+      reason: "trying again",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "EXPENSE_ALREADY_VOIDED" });
+
+    await ctx.cleanup();
+  });
+
+  it("409 PERIOD_CLOSED — editing after the expense's own period has closed is refused, matching void's own rule", async () => {
+    const { ctx, token, expenseId, periodId } = await setupEditableExpenseFixture({
+      periodStart: "2026-07-01",
+      periodEnd: "2026-07-31",
+    });
+    await ctx.closePeriod(periodId);
+
+    const res = await patchExpense(token, expenseId, {
+      category: "fuel",
+      amountMinor: "60000",
+      spentOn: "2026-07-15",
+      reason: "found after close",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string } = await res.json();
+    expect(body).toMatchObject({ code: "PERIOD_CLOSED" });
+
+    // Neither half landed — the original stays live, unvoided. A partial
+    // write here (original voided, replacement rejected) would be exactly
+    // the two-call trap this endpoint exists to close by construction.
+    const list = await getExpenses(token, "?category=fuel");
+    const rows: Array<{ id: string; voidedAt: string | null }> = await list.json();
+    const row = rows.find((r) => r.id === expenseId);
+    expect(row?.voidedAt).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-190/N2-shaped race — two concurrent edits of the same expense: exactly one wins, the loser is refused rather than both replacing it", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+
+    const [a, b] = await Promise.all([
+      patchExpense(token, expenseId, {
+        category: "fuel",
+        amountMinor: "60000",
+        spentOn: "2026-07-15",
+        reason: "first edit",
+      }),
+      patchExpense(token, expenseId, {
+        category: "fuel",
+        amountMinor: "70000",
+        spentOn: "2026-07-15",
+        reason: "second edit",
+      }),
+    ]);
+    const statuses = [a.status, b.status].sort();
+    expect(statuses).toEqual([201, 409]);
+
+    const winner = a.status === 201 ? a : b;
+    const winnerBody: { id: string } = await winner.json();
+    ctx.trackCreatedExpense(winnerBody.id);
+
+    await ctx.cleanup();
+  });
+
+  it("400 — borneBy 'driver' with no borneByDriverId (W-48/INV-27), same validation as create", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+
+    const res = await patchExpense(token, expenseId, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      borneBy: "driver",
+      reason: "test",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  /** Copilot review, PR #183 — see the identical create-endpoint test's own comment. */
+  it("400 — category 'finance' is refused on the generic edit endpoint (GAP-185/GAP-226)", async () => {
+    const { ctx, token, expenseId } = await setupEditableExpenseFixture();
+
+    const res = await patchExpense(token, expenseId, {
+      category: "finance",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      reason: "test",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
+  it("401 — missing Authorization header", async () => {
+    const res = await patchExpense("", "11111111-1111-4111-8111-111111111111", {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      reason: "x",
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("403 — a linked driver cannot edit an expense", async () => {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const driverId = await ctx.createDriver(businessId);
+    const linked = await mintLinkedDriver(db, ctx, driverId);
+    const token = await signAccessToken(linked.asgardeoSub);
+
+    const res = await patchExpense(token, "11111111-1111-4111-8111-111111111111", {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      reason: "x",
+    });
+    expect(res.status).toBe(403);
+
+    await ctx.cleanup();
+  });
+
+  it("404 — the expense belongs to another business", async () => {
+    const ctx = new TestContext(db);
+    const other = new TestContext(db);
+    const otherBusinessId = await other.createBusiness({ name: "Someone Else's Fleet" });
+    await other.createOpenPeriod(otherBusinessId);
+    const otherOwner = await mintUser(db, other, otherBusinessId, "owner");
+    const otherToken = await signAccessToken(otherOwner.asgardeoSub);
+    const otherExpense = await postExpense(otherToken, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+    });
+    const otherExpenseBody: { id: string } = await otherExpense.json();
+    other.trackCreatedExpense(otherExpenseBody.id);
+
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const res = await patchExpense(token, otherExpenseBody.id, {
+      category: "fuel",
+      amountMinor: "50000",
+      spentOn: "2026-07-15",
+      reason: "x",
     });
     expect(res.status).toBe(404);
 

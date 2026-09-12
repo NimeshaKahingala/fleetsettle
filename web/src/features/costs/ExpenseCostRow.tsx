@@ -1,9 +1,10 @@
-import { parse } from "@fleetsettle/shared";
+import { parse, type BusinessDate } from "@fleetsettle/shared";
 import type { ExpenseListRow, ListAttachmentsResponse } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
-import { Image as ImageIcon } from "lucide-react";
+import { Ban, Image as ImageIcon, Pencil } from "lucide-react";
 import { useState } from "react";
 import { Money } from "../../components/Money.js";
+import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
 import { Badge } from "../../design/primitives/Badge.js";
 import { Card } from "../../design/primitives/Card.js";
 import { useApi } from "../../lib/ApiContext.js";
@@ -13,12 +14,14 @@ import { EXPENSE_CATEGORY_LABEL } from "../../lib/expenseCategoryLabels.js";
 import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
 import { ReceiptSheet } from "./ReceiptSheet.js";
+import { RecordExpenseSheet } from "./RecordExpenseSheet.js";
 import { VoidExpenseSheet } from "./VoidExpenseSheet.js";
 
 export interface ExpenseCostRowProps {
   expense: ExpenseListRow;
   formattedDate: string;
   invalidateKeys: readonly unknown[][];
+  today: BusinessDate;
 }
 
 /**
@@ -26,14 +29,55 @@ export interface ExpenseCostRowProps {
  * `TripDetailScreen` and `IncidentScreen` each rendered inline, identically
  * — pulled out so voiding wires into all three at once rather than three
  * times. A voided row stays in place, struck through, its reason appended
- * (INV-21) — the same "row already tappable, action gated on state" shape
- * `LeaseHubScreen`'s dues use, not an `ActionSheet` for one action.
+ * (INV-21). Tapping a live row now opens a two-action sheet (GAP-224) —
+ * Edit and Void — rather than jumping straight to Void the way this row
+ * did before: with Edit doing the same correction in one step, "delete
+ * this and start over" is no longer the only tap a mistake ever offered.
  */
-export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: ExpenseCostRowProps) {
+export function ExpenseCostRow({
+  expense,
+  formattedDate,
+  invalidateKeys,
+  today,
+}: ExpenseCostRowProps) {
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
   const [receiptsOpen, setReceiptsOpen] = useState(false);
   const voided = expense.voidedAt !== null;
+  // Copilot review, PR #182: `finance` is generated server-side by a loan
+  // payment's own split (GAP-185/F-12.2) — only `voidLoanPayment` knows how
+  // to cascade a correction to it (the linked expense, the linked partner
+  // payout, and the payment itself, together). Neither Edit nor Void offers
+  // that here, so neither is offered at all; the domain guard
+  // (`assertExpenseNotFinanceLinked`) is the real defence, this is just not
+  // dangling a dead-end action in front of it.
+  const financeLinked = expense.category === "finance";
+  const correctable = !voided && !financeLinked;
   const api = useApi();
+
+  const actions: ActionSheetAction[] = [
+    {
+      key: "edit",
+      label: "Edit",
+      icon: Pencil,
+      onSelect: () => {
+        setActionsOpen(false);
+        setEditOpen(true);
+      },
+    },
+    {
+      key: "void",
+      label: "Void",
+      icon: Ban,
+      variant: "destructive",
+      groupStart: true,
+      onSelect: () => {
+        setActionsOpen(false);
+        setVoidOpen(true);
+      },
+    },
+  ];
 
   // A voided expense's receipts stay visible (they are evidence of what was
   // claimed, A7's plan, "Domain and storage") — this query is not gated on
@@ -85,12 +129,12 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
 
   return (
     <Card accent={voided ? "critical" : undefined} className="flex flex-col gap-2">
-      {voided ? (
-        content
-      ) : (
-        <button type="button" onClick={() => setVoidOpen(true)} className="text-left">
+      {correctable ? (
+        <button type="button" onClick={() => setActionsOpen(true)} className="text-left">
           {content}
         </button>
+      ) : (
+        content
       )}
       {attachmentsState.kind === "error" ? (
         <p className="text-caption text-ink-muted">Receipts couldn't be checked</p>
@@ -113,13 +157,36 @@ export function ExpenseCostRow({ expense, formattedDate, invalidateKeys }: Expen
         // shape GAP-126/127/128/129 already fixed elsewhere.
         <p className="text-caption text-ink-muted">Checking receipts…</p>
       ) : null}
-      {!voided ? (
-        <VoidExpenseSheet
-          open={voidOpen}
-          onOpenChange={setVoidOpen}
-          expenseId={expense.id}
-          invalidateKeys={invalidateKeys}
-        />
+      {correctable ? (
+        <>
+          <ActionSheet
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            title={EXPENSE_CATEGORY_LABEL[expense.category] ?? expense.category}
+            actions={actions}
+          />
+          <RecordExpenseSheet
+            open={editOpen}
+            onOpenChange={setEditOpen}
+            today={today}
+            // Locked to the row's own current associations, not left open
+            // to a picker — RecordExpenseSheet only shows a vehicle picker
+            // when `vehicleId` is undefined, and this sheet was never
+            // meant to let an edit drift the vehicle/trip/incident it's
+            // filed against (the "known limit" its own docstring names).
+            {...(expense.vehicleId !== null ? { vehicleId: expense.vehicleId } : {})}
+            {...(expense.tripId !== null ? { tripId: expense.tripId } : {})}
+            {...(expense.incidentId !== null ? { incidentId: expense.incidentId } : {})}
+            editing={expense}
+            onRecorded={() => setEditOpen(false)}
+          />
+          <VoidExpenseSheet
+            open={voidOpen}
+            onOpenChange={setVoidOpen}
+            expenseId={expense.id}
+            invalidateKeys={invalidateKeys}
+          />
+        </>
       ) : null}
       <ReceiptSheet
         open={receiptsOpen}

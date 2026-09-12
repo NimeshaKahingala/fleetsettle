@@ -1,10 +1,11 @@
 import { newId, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
 import {
   advance,
   deposit,
+  expense,
   incidentRecovery,
   obligation,
   offsetAllocation,
@@ -33,6 +34,14 @@ const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}`
 async function post(path: string, token: string, body: unknown) {
   return request(path, {
     method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    body: JSON.stringify(body),
+  });
+}
+
+async function patch(path: string, token: string, body: unknown) {
+  return request(path, {
+    method: "PATCH",
     headers: { "Content-Type": "application/json", ...bearer(token).headers },
     body: JSON.stringify(body),
   });
@@ -2040,6 +2049,105 @@ describe("voidObligationBySource is scoped by business (GAP-178/B14a's class)", 
     // The whole point: drop the business_id predicate and this is the
     // assertion that fails — the other tenant's books stay untouched.
     expect(theirsRow?.voidedAt).toBeNull();
+
+    await ctx.cleanup();
+  });
+});
+
+/**
+ * Copilot review, PR #182: this is the *reverse* direction from every
+ * cascade above — those block voiding a parent while a child is still
+ * live; this blocks voiding/editing the *child* (`expense`) directly,
+ * because a live *parent* (`loan_payment`) needs to do it instead. A
+ * `finance` expense is `recordLoanPayment`'s own split (domain/vehicle-
+ * loan.ts), and only `voidLoanPayment` knows how to cascade a correction to
+ * it (the linked expense, the linked partner payout, and the payment
+ * itself, together) — going through the generic expense endpoints instead
+ * would leave `loan_payment.expense_id` pointing at a dead row with no
+ * cascade.
+ */
+describe("a finance-linked expense refuses the generic void/edit path (Copilot review, PR 182)", () => {
+  const db = writer(TEST_DATABASE_URL);
+  afterAll(async () => {
+    await db.$client.end();
+  });
+
+  async function setupFinanceExpenseFixture(): Promise<{
+    ctx: TestContext;
+    token: string;
+    paymentId: string;
+    financeExpenseId: string;
+  }> {
+    const ctx = new TestContext(db);
+    const businessId = await ctx.createBusiness();
+    await ctx.createOpenPeriod(businessId);
+    const vehicleId = await ctx.createVehicle(businessId);
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    // principal 1,000,000 : finance 500,000 == 2 : 1 — matches
+    // `vehicle-loan.test.ts`'s own fixture for the identical split.
+    const loanRes = await post("/api/vehicle-loan", token, {
+      vehicleId,
+      lender: "Peoples Leasing",
+      principalMinor: "1000000",
+      totalRepayableMinor: "1500000",
+      termMonths: 50,
+      startedOn: "2026-07-05",
+    });
+    const loan: { id: string } = await loanRes.json();
+    ctx.trackCreatedVehicleLoan(loan.id);
+
+    // A 30,000 payment posts a real 10,000 `finance` expense (INV-43).
+    const paymentRes = await post(`/api/vehicle-loan/${loan.id}/payment`, token, {
+      amountMinor: "30000",
+      paidOn: "2026-07-10",
+    });
+    const payment: { id: string } = await paymentRes.json();
+
+    const financeRows = await db
+      .select({ id: expense.id })
+      .from(expense)
+      .where(and(eq(expense.vehicleId, vehicleId), eq(expense.category, "finance")));
+    const financeExpenseId = financeRows[0]?.id;
+    if (financeExpenseId === undefined) throw new Error("finance expense was not created");
+
+    return { ctx, token, paymentId: payment.id, financeExpenseId };
+  }
+
+  it("409 VOID_BLOCKED — voiding it directly through the generic expense endpoint is refused", async () => {
+    const { ctx, token, paymentId, financeExpenseId } = await setupFinanceExpenseFixture();
+
+    const res = await post(`/api/expense/${financeExpenseId}/void`, token, {
+      reason: "trying to void it directly",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string; details?: { blocking?: Array<{ kind: string; id: string }> } } =
+      await res.json();
+    expect(body.code).toBe("VOID_BLOCKED");
+    expect(body.details?.blocking).toEqual([
+      expect.objectContaining({ kind: "loan_payment", id: paymentId }),
+    ]);
+
+    await ctx.cleanup();
+  });
+
+  it("409 VOID_BLOCKED — editing it through the generic expense endpoint is refused", async () => {
+    const { ctx, token, paymentId, financeExpenseId } = await setupFinanceExpenseFixture();
+
+    const res = await patch(`/api/expense/${financeExpenseId}`, token, {
+      category: "finance",
+      amountMinor: "20000",
+      spentOn: "2026-07-10",
+      reason: "trying to edit it directly",
+    });
+    expect(res.status).toBe(409);
+    const body: { code: string; details?: { blocking?: Array<{ kind: string; id: string }> } } =
+      await res.json();
+    expect(body.code).toBe("VOID_BLOCKED");
+    expect(body.details?.blocking).toEqual([
+      expect.objectContaining({ kind: "loan_payment", id: paymentId }),
+    ]);
 
     await ctx.cleanup();
   });

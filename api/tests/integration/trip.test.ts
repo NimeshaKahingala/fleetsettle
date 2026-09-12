@@ -2405,7 +2405,13 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     await db.$client.end();
   });
 
-  it("happy path — every cost against this trip, newest first, voided ones included", async () => {
+  /** Both tests below start from the identical shape — a business, an open period, an arrangement-C vehicle, an owner's token, and a booked trip. */
+  async function setupTripCostsFixture(): Promise<{
+    ctx: TestContext;
+    token: string;
+    vehicleId: string;
+    tripId: string;
+  }> {
     const ctx = new TestContext(db);
     const businessId = await ctx.createBusiness();
     await ctx.createOpenPeriod(businessId);
@@ -2422,9 +2428,15 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const tripBody: { id: string } = await trip.json();
     ctx.trackCreatedTrip(tripBody.id);
 
+    return { ctx, token, vehicleId, tripId: tripBody.id };
+  }
+
+  it("happy path — every cost against this trip, newest first, voided ones included", async () => {
+    const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
+
     const fuel = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "fuel",
       amountMinor: "2200000",
       spentOn: "2026-03-01",
@@ -2437,7 +2449,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
 
     const tolls = await postExpense(token, {
       vehicleId,
-      tripId: tripBody.id,
+      tripId,
       category: "tolls",
       amountMinor: "300000",
       spentOn: "2026-03-02",
@@ -2447,7 +2459,7 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     const tollsBody: { id: string } = await tolls.json();
     ctx.trackCreatedExpense(tollsBody.id);
 
-    const res = await getTripExpenses(token, tripBody.id);
+    const res = await getTripExpenses(token, tripId);
     expect(res.status).toBe(200);
     const body: Array<{ id: string; category: string; amountMinor: string; spentOn: string }> =
       await res.json();
@@ -2455,6 +2467,96 @@ describe("a trip's costs so far (Web-P7, GET /{id}/expense)", () => {
     expect(body.map((r) => r.id)).toEqual([tollsBody.id, fuelBody.id]);
     expect(body[0]).toMatchObject({ category: "tolls", amountMinor: "300000" });
     expect(body[1]).toMatchObject({ category: "fuel", amountMinor: "2200000" });
+
+    await ctx.cleanup();
+  });
+
+  it("GAP-223 — replacesId round-trips through this endpoint, matching the schema it already declared", async () => {
+    const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
+
+    const original = await postExpense(token, {
+      vehicleId,
+      tripId,
+      category: "fuel",
+      amountMinor: "2200000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+    });
+    const originalBody: { id: string } = await original.json();
+    ctx.trackCreatedExpense(originalBody.id);
+
+    const voided = await request(`/api/expense/${originalBody.id}/void`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: "wrong amount" }),
+    });
+    expect(voided.status).toBe(200);
+
+    const replacement = await postExpense(token, {
+      vehicleId,
+      tripId,
+      category: "fuel",
+      amountMinor: "2500000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+      replacesId: originalBody.id,
+    });
+    expect(replacement.status).toBe(201);
+    const replacementBody: { id: string } = await replacement.json();
+    ctx.trackCreatedExpense(replacementBody.id);
+
+    const res = await getTripExpenses(token, tripId);
+    const body: Array<{ id: string; replacesId: string | null; odometerReadingId: string | null }> =
+      await res.json();
+    const originalRow = body.find((r) => r.id === originalBody.id);
+    const replacementRow = body.find((r) => r.id === replacementBody.id);
+    // The bug: this route declares `listExpensesResponseSchema` (which
+    // requires both fields) but the handler never projected them, so a
+    // client reading `replacesId` off this list got `undefined` — not `null`,
+    // not the real id, simply absent — with nothing catching it because
+    // zod-openapi doesn't validate responses.
+    expect(replacementRow).toMatchObject({ replacesId: originalBody.id });
+    expect(originalRow).toMatchObject({ replacesId: null });
+    expect(originalRow?.odometerReadingId).toBeNull();
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * Copilot review, PR #183: the assertion above only ever covers the
+   * *absent* case (`odometerReadingId: null`) — nothing in this suite
+   * proved this handler actually projects a real reading, only that the
+   * link/id fields GAP-223 fixed do. A join or mapping bug in either new
+   * field (`odometerReadingKm`/`odometerReadingSource`, GAP-226) could
+   * silently reintroduce the service-due baseline loss this change exists
+   * to fix, with the web mock tests staying green regardless.
+   */
+  it("GAP-226 — a servicing expense's odometer reading itself, not just its id, reaches this endpoint", async () => {
+    const { ctx, token, vehicleId, tripId } = await setupTripCostsFixture();
+
+    const created = await postExpense(token, {
+      vehicleId,
+      tripId,
+      category: "servicing",
+      amountMinor: "800000",
+      spentOn: "2026-03-01",
+      borneBy: "us",
+      odometerReadingKm: 45200,
+      odometerSource: "photo",
+    });
+    const createdBody: { id: string; odometerReadingId: string | null } = await created.json();
+    ctx.trackCreatedExpense(createdBody.id, createdBody.odometerReadingId);
+
+    const res = await getTripExpenses(token, tripId);
+    const body: Array<{
+      id: string;
+      odometerReadingId: string | null;
+      odometerReadingKm: number | null;
+      odometerReadingSource: string | null;
+    }> = await res.json();
+    const row = body.find((r) => r.id === createdBody.id);
+    expect(row?.odometerReadingId).not.toBeNull();
+    expect(row).toMatchObject({ odometerReadingKm: 45200, odometerReadingSource: "photo" });
 
     await ctx.cleanup();
   });

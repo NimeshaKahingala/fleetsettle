@@ -1,5 +1,5 @@
 import { toWire, type BusinessDate, type Minor } from "@fleetsettle/shared";
-import type { ExpenseResponse, VehicleResponse } from "@fleetsettle/shared/schemas";
+import type { ExpenseResponse, OdometerSource, VehicleResponse } from "@fleetsettle/shared/schemas";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { EntityPicker, type EntityOption } from "../../components/EntityPicker.js";
@@ -14,6 +14,11 @@ import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { usePhotoUpload } from "../../lib/attachmentUploader.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import {
+  isValidOdometerReadingKm,
+  OdometerReadingField,
+  parseOdometerReadingKm,
+} from "./OdometerReadingField.js";
 
 export interface FuelFillSheetProps {
   open: boolean;
@@ -24,19 +29,24 @@ export interface FuelFillSheetProps {
 
 /**
  * F-3.3/UC-34/W-20, UI §7.3 — "the ten-second flow": reached from `＋` →
- * Fuel. Level 1 is vehicle (pre-filled, U-3) and amount; litres and
- * borne-by are level 2 and litres must stay optional (W-20 — a daily-lease
- * driver buys his own fuel and has no reason to report it, and a report
- * built on a field nobody fills is an empty report). "Pre-filled with the
- * one that has something pending" degrades to "first in the vehicle list"
- * — the same simplification `HomeScreen`'s own "most-recently-used" already
- * made (Web-P3), since nothing in this schema tracks which vehicle a
- * manager last touched. **Odometer and trip-link are not built this
- * pass**: `expense.odometer_reading_id` has no domain/query wiring
- * anywhere yet (unlike `trip.opening_odometer_id`, wired in P6) and adding
- * it is real, separate backend work, disproportionate to an optional
- * level-2 field — recorded rather than half-built, the same convention
- * every other deliberately-skipped field in this codebase already uses.
+ * Fuel. Level 1 is vehicle (pre-filled, U-3) and amount; litres, borne-by
+ * and an optional odometer reading are level 2, and litres must stay
+ * optional (W-20 — a daily-lease driver buys his own fuel and has no reason
+ * to report it, and a report built on a field nobody fills is an empty
+ * report). "Pre-filled with the one that has something pending" degrades to
+ * "first in the vehicle list" — the same simplification `HomeScreen`'s own
+ * "most-recently-used" already made (Web-P3), since nothing in this schema
+ * tracks which vehicle a manager last touched.
+ *
+ * **Odometer, added GAP-216.** This doc comment previously said odometer
+ * had no domain/query wiring at all — stale since GAP-30 closed 14 Aug
+ * 2026; `createExpense` has written a real `odometer_reading` row for every
+ * expense category, this one included, since then. A fuel fill is the one
+ * frequent, low-friction moment most vehicles get a reading at all — a
+ * daily-lease bus or a charter van with no lease-boundary readings has no
+ * other route to the "later reading" side of GAP-68's service-interval
+ * comparison, so without this the prompt only ever updates at the next
+ * service. Trip-link stays out; nothing in this sheet's own flow implies one.
  */
 export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFillSheetProps) {
   const api = useApi();
@@ -45,6 +55,9 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
   const [amountMinor, setAmountMinor] = useState<Minor | null>(null);
   const [litresText, setLitresText] = useState("");
   const [borneByUs, setBorneByUs] = useState(false);
+  // GAP-216: string, parsed at submit — the same idiom as `RecordExpenseSheet`.
+  const [odometerReadingKm, setOdometerReadingKm] = useState("");
+  const [odometerSource, setOdometerSource] = useState<OdometerSource | null>(null);
   const photoUpload = usePhotoUpload("expense_receipt", "expense");
 
   const vehiclesQuery = useQuery({
@@ -64,6 +77,8 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       setLitresText("");
       setBorneByUs(false);
       setSelectedVehicle(null);
+      setOdometerReadingKm("");
+      setOdometerSource(null);
       photoUpload.reset();
     }
     // Sync on open, not close — the same reason `CloseTripSheet` does.
@@ -91,6 +106,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
       if (amountMinor === null || selectedVehicle === null) {
         throw new Error("Vehicle and amount are required");
       }
+      // Copilot review, PR #180: `canSave` already blocks a malformed
+      // reading from reaching here — re-checked rather than trusted, the
+      // same defence-in-depth this codebase's other guarded mutations use.
+      const parsedReading = parseOdometerReadingKm(odometerReadingKm);
       return api.post<ExpenseResponse>("/api/expense", {
         vehicleId: selectedVehicle.id,
         category: "fuel" as const,
@@ -98,6 +117,9 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
         spentOn: today,
         ...(borneByUs ? { borneBy: "us" as const } : {}),
         ...(litres !== undefined ? { litres } : {}),
+        ...(parsedReading !== undefined && odometerSource !== null
+          ? { odometerReadingKm: parsedReading, odometerSource }
+          : {}),
       });
     },
     onSuccess: (expense) => {
@@ -112,8 +134,21 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
     },
   });
 
+  // GAP-216: same both-or-neither gate as `RecordExpenseSheet` — a typed km
+  // with no source picked would 400 against the schema's own refine.
+  const odometerSourceMissing = odometerReadingKm.trim() !== "" && odometerSource === null;
+  // Copilot review, PR #180: a non-integer or partial reading ("80500.5",
+  // "80500km") must block save the same way a missing source does, rather
+  // than reach `Number.parseInt` and silently store a truncated figure.
+  const odometerReadingInvalid =
+    odometerReadingKm.trim() !== "" && !isValidOdometerReadingKm(odometerReadingKm);
   const canSave =
-    selectedVehicle !== null && amountMinor !== null && amountMinor > 0n && litresValid;
+    selectedVehicle !== null &&
+    amountMinor !== null &&
+    amountMinor > 0n &&
+    litresValid &&
+    !odometerSourceMissing &&
+    !odometerReadingInvalid;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Log a fuel fill">
@@ -133,7 +168,10 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
         />
         <MoneyField label="Amount" valueMinor={amountMinor} onChange={setAmountMinor} />
 
-        <Disclosure sectionName="Litres, borne by and photo">
+        <Disclosure
+          sectionName="Litres, borne by, odometer and photo"
+          forceOpen={odometerSourceMissing || odometerReadingInvalid}
+        >
           <div className="flex flex-col gap-4">
             <div className="flex flex-col gap-1">
               <Label htmlFor="fuel-litres">Litres</Label>
@@ -151,6 +189,15 @@ export function FuelFillSheet({ open, onOpenChange, today, onRecorded }: FuelFil
                 </p>
               ) : null}
             </div>
+
+            <OdometerReadingField
+              idPrefix="fuel"
+              readingKm={odometerReadingKm}
+              onReadingKmChange={setOdometerReadingKm}
+              source={odometerSource}
+              onSourceChange={setOdometerSource}
+              sourceMissing={odometerSourceMissing}
+            />
 
             <div className="flex flex-col gap-1">
               <span className="text-label font-medium text-ink-secondary">Borne by</span>

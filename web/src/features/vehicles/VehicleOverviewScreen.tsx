@@ -1,4 +1,4 @@
-import { add, businessToday, format, parse, ZERO } from "@fleetsettle/shared";
+import { businessToday, format, parse } from "@fleetsettle/shared";
 import type {
   ExpenseListRow,
   IncidentResponse,
@@ -28,11 +28,10 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { AlertStrip } from "../../components/AlertStrip.js";
-import { Money } from "../../components/Money.js";
 import { NotAvailable } from "../../components/NotAvailable.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Timeline, type TimelineEntry } from "../../components/Timeline.js";
-import { ExpenseCostRow } from "../costs/ExpenseCostRow.js";
+import { ExpenseCostSection } from "../costs/ExpenseCostSection.js";
 import { RecordExpenseSheet } from "../costs/RecordExpenseSheet.js";
 import { ReportIncidentSheet } from "../incidents/ReportIncidentSheet.js";
 import { ActionSheet, type ActionSheetAction } from "../../design/primitives/ActionSheet.js";
@@ -56,6 +55,7 @@ import { ChangeVehicleArrangementSheet } from "./ChangeVehicleArrangementSheet.j
 import { ChangeDailyLeaseDriverSheet } from "./ChangeDailyLeaseDriverSheet.js";
 import { ChangeDailyLeaseRateSheet } from "./ChangeDailyLeaseRateSheet.js";
 import { EndDailyLeaseSheet } from "./EndDailyLeaseSheet.js";
+import { MarkVehicleUnavailableSheet } from "./MarkVehicleUnavailableSheet.js";
 import { RenewVehicleDocumentSheet } from "./RenewVehicleDocumentSheet.js";
 import { SetServiceIntervalSheet } from "./SetServiceIntervalSheet.js";
 import { SkipDailyLeaseDaySheet } from "./SkipDailyLeaseDaySheet.js";
@@ -162,6 +162,7 @@ export function VehicleOverviewScreen({
   const [changeDailyLeaseRateOpen, setChangeDailyLeaseRateOpen] = useState(false);
   const [voidLeaseDayExceptionOpen, setVoidLeaseDayExceptionOpen] = useState(false);
   const [serviceIntervalOpen, setServiceIntervalOpen] = useState(false);
+  const [markUnavailableOpen, setMarkUnavailableOpen] = useState(false);
   const [archiveVehicleOpen, setArchiveVehicleOpen] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<VehicleDocumentResponse | null>(null);
   const [selectedLeaseDayException, setSelectedLeaseDayException] =
@@ -219,13 +220,6 @@ export function VehicleOverviewScreen({
   const expenses = expensesQuery.data ?? [];
   const incidents = incidentsQuery.data ?? [];
   const leaseDayExceptions = leaseDayExceptionsQuery.data ?? [];
-  // GAP-96: a manager voiding a cost row had nothing on this screen to
-  // check the effect against — the row-level void itself was already
-  // correct (GAP-81). Voided rows are excluded, the same rule
-  // `TripDetailScreen`'s "Costs so far" already uses.
-  const costsTotal = expenses
-    .filter((row) => row.voidedAt === null)
-    .reduce((sum, row) => add(sum, parse(row.amountMinor)), ZERO);
   const historyEntries = buildHistoryEntries(
     leaseHistoryQuery.data ?? [],
     dailyLeaseHistoryQuery.data ?? [],
@@ -336,6 +330,18 @@ export function VehicleOverviewScreen({
       label: "Report incident",
       icon: TriangleAlert,
       onSelect: () => setReportIncidentOpen(true),
+    },
+    // GAP-225: this and "Record expense" above were the two actions a
+    // repair-cost entry actually needs — F-1.10's own mechanism already
+    // existed (built 15 Aug 2026, GAP-26) but was reachable only from the
+    // calendar screen, one navigation away from where a repair is normally
+    // logged. A peer entry here, matching how "Record off-road days"
+    // already sits beside "Record repair cost" on the incident screen.
+    {
+      key: "mark-unavailable",
+      label: "Mark unavailable",
+      icon: CalendarOff,
+      onSelect: () => setMarkUnavailableOpen(true),
     },
     ...(vehicle?.lifecycle === "active"
       ? [
@@ -470,21 +476,13 @@ export function VehicleOverviewScreen({
               of="this vehicle's costs"
             />
           ) : null}
-          {expenses.length > 0 ? (
-            <Section
-              title="Costs"
-              count={expenses.length}
-              total={<Money value={costsTotal} />}
-              items={expenses.map((expense) => (
-                <ExpenseCostRow
-                  key={expense.id}
-                  expense={expense}
-                  formattedDate={formatShortDate(expense.spentOn)}
-                  invalidateKeys={[["vehicle", vehicleId, "expense"]]}
-                />
-              ))}
-            />
-          ) : null}
+          <ExpenseCostSection
+            title="Costs"
+            expenses={expenses}
+            formatDate={formatShortDate}
+            invalidateKeys={[["vehicle", vehicleId, "expense"]]}
+            today={today}
+          />
 
           {incidentsState.kind === "error" ? (
             <QueryStateFailure
@@ -667,6 +665,12 @@ export function VehicleOverviewScreen({
             onOpenChange={setServiceIntervalOpen}
             vehicleId={vehicleId}
             currentServiceIntervalKm={vehicle.serviceIntervalKm}
+          />
+          <MarkVehicleUnavailableSheet
+            open={markUnavailableOpen}
+            onOpenChange={setMarkUnavailableOpen}
+            vehicleId={vehicleId}
+            today={today}
           />
           <Sheet
             open={archiveVehicleOpen}

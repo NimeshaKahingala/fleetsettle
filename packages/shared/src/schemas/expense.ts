@@ -35,58 +35,108 @@ export type BorneBy = z.infer<typeof borneBySchema>;
  * `borneBy`/`paidByUserId` are both defaulted server-side (UC §6.7's matrix,
  * "whoever is entering") and both overridable here — W-48/INV-27 keeps them
  * two separate questions, never derived from one another.
+ *
+ * GAP-224: the field set create and replace share — `createExpenseRequestSchema`
+ * adds `replacesId` (GAP-60/D-16), `replaceExpenseRequestSchema` adds `reason`
+ * (F-8.5) — split out once both existed, so the shared fields and their
+ * comments live in one place rather than two copies drifting the way
+ * `assert_period_open()`'s own hand-maintained array already has once
+ * (CLAUDE.md → Writes).
  */
-export const createExpenseRequestSchema = z
-  .object({
-    vehicleId: uuidSchema.optional(),
-    // F-5.2/F-5.4: a cost incurred on a charter, folded into that trip's own
-    // P&L (UC-44) rather than only the vehicle's month — the trip and the
-    // vehicle are not exclusive, so both may be set.
-    tripId: uuidSchema.optional(),
-    // F-3.4/UC-12: a repair cost attached to the incident container — entered
-    // "as invoices arrive over following weeks" against an already-open
-    // incident, not exclusive with tripId or vehicleId.
-    incidentId: uuidSchema.optional(),
-    category: expenseCategorySchema,
-    // GAP-177: a cost of nothing is not a cost. Zero here is a mis-entry.
-    amountMinor: positiveMoneyWireSchema,
-    spentOn: businessDateSchema,
-    borneBy: borneBySchema.optional(),
-    borneByDriverId: uuidSchema.optional(),
-    borneByCustomerId: uuidSchema.optional(),
-    paidByUserId: uuidSchema.optional(),
-    // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money (UC-72)
-    litres: z.number().positive().optional(),
-    // GAP-30/F-3.3: a fuel fill's own odometer reading, written as a real
-    // `odometer_reading` row in the same transaction (INV-19/W-18) — not
-    // stored on the expense alone. Needs a vehicle to belong to, and the two
-    // fields are given together or not at all, same shape as
-    // `bookTripRequestSchema`'s opening reading.
-    // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
-    odometerReadingKm: z.number().int().nonnegative().optional(),
-    odometerSource: odometerSourceSchema.optional(),
-    note: z.string().trim().max(500).optional(),
+const expenseCommonFieldsSchema = z.object({
+  vehicleId: uuidSchema.optional(),
+  // F-5.2/F-5.4: a cost incurred on a charter, folded into that trip's own
+  // P&L (UC-44) rather than only the vehicle's month — the trip and the
+  // vehicle are not exclusive, so both may be set.
+  tripId: uuidSchema.optional(),
+  // F-3.4/UC-12: a repair cost attached to the incident container — entered
+  // "as invoices arrive over following weeks" against an already-open
+  // incident, not exclusive with tripId or vehicleId.
+  incidentId: uuidSchema.optional(),
+  category: expenseCategorySchema,
+  // GAP-177: a cost of nothing is not a cost. Zero here is a mis-entry.
+  amountMinor: positiveMoneyWireSchema,
+  spentOn: businessDateSchema,
+  borneBy: borneBySchema.optional(),
+  borneByDriverId: uuidSchema.optional(),
+  borneByCustomerId: uuidSchema.optional(),
+  paidByUserId: uuidSchema.optional(),
+  // eslint-disable-next-line no-restricted-syntax -- fuel litres, not money (UC-72)
+  litres: z.number().positive().optional(),
+  // GAP-30/F-3.3: a fuel fill's own odometer reading, written as a real
+  // `odometer_reading` row in the same transaction (INV-19/W-18) — not
+  // stored on the expense alone. Needs a vehicle to belong to, and the two
+  // fields are given together or not at all, same shape as
+  // `bookTripRequestSchema`'s opening reading.
+  // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+  odometerReadingKm: z.number().int().nonnegative().optional(),
+  odometerSource: odometerSourceSchema.optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+/**
+ * The four cross-field rules create and replace both enforce — generic over
+ * any schema whose own output at least carries `expenseCommonFieldsSchema`'s
+ * fields, so this applies unchanged to either's own `.extend()`, extra
+ * fields (`replacesId`/`reason`) and all.
+ */
+function withExpenseFieldRules<T extends z.infer<typeof expenseCommonFieldsSchema>>(
+  schema: z.ZodType<T>,
+) {
+  return schema
+    .refine((v) => v.borneBy !== "driver" || v.borneByDriverId !== undefined, {
+      message: "borneByDriverId is required when borneBy is 'driver'",
+      path: ["borneByDriverId"],
+    })
+    .refine((v) => v.borneBy !== "customer" || v.borneByCustomerId !== undefined, {
+      message: "borneByCustomerId is required when borneBy is 'customer'",
+      path: ["borneByCustomerId"],
+    })
+    .refine((v) => (v.odometerReadingKm === undefined) === (v.odometerSource === undefined), {
+      message: "odometerReadingKm and odometerSource must be given together",
+      path: ["odometerSource"],
+    })
+    .refine((v) => v.odometerReadingKm === undefined || v.vehicleId !== undefined, {
+      message: "vehicleId is required to record an odometer reading",
+      path: ["vehicleId"],
+    });
+}
+
+export const createExpenseRequestSchema = withExpenseFieldRules(
+  expenseCommonFieldsSchema.extend({
     // GAP-60/D-16/F-8.5: set when this expense is the corrected replacement
     // for one already voided — the target must belong to this business and
     // already be voided, checked server-side (domain/expense.ts).
     replacesId: uuidSchema.optional(),
-  })
-  .refine((v) => v.borneBy !== "driver" || v.borneByDriverId !== undefined, {
-    message: "borneByDriverId is required when borneBy is 'driver'",
-    path: ["borneByDriverId"],
-  })
-  .refine((v) => v.borneBy !== "customer" || v.borneByCustomerId !== undefined, {
-    message: "borneByCustomerId is required when borneBy is 'customer'",
-    path: ["borneByCustomerId"],
-  })
-  .refine((v) => (v.odometerReadingKm === undefined) === (v.odometerSource === undefined), {
-    message: "odometerReadingKm and odometerSource must be given together",
-    path: ["odometerSource"],
-  })
-  .refine((v) => v.odometerReadingKm === undefined || v.vehicleId !== undefined, {
-    message: "vehicleId is required to record an odometer reading",
-    path: ["vehicleId"],
-  });
+  }),
+).refine((v) => v.category !== "finance", {
+  // Copilot review, PR #183: without this, the generic create endpoint
+  // would happily accept a manually supplied `category: "finance"` row
+  // unlinked to any loan payment — `domain/expense.ts`'s own
+  // `assertExpenseNotFinanceLinked` guard wouldn't catch it (nothing
+  // references it), yet `ExpenseCostRow` hides Edit/Void for every
+  // `finance` row regardless of linkage, making such a row permanently
+  // uneditable through the client. Enforcing the invariant the GAP-185
+  // comment already claimed ("never a category a person picks here")
+  // here, once, is simpler than teaching the client to check the real
+  // loan_payment linkage instead of the category proxy.
+  //
+  // GAP-226 (Copilot review, PR #182): the *replace* schema deliberately
+  // does not repeat this refine. Editing an existing `finance`-linked
+  // expense must surface the more specific 409 VOID_BLOCKED
+  // (`assertExpenseNotFinanceLinked`, domain/expense.ts) naming the loan
+  // payment to correct instead — and a replace payload for that row
+  // necessarily echoes `category: "finance"` back, since it's editing a
+  // row whose category already is that. A schema-level block here can't
+  // tell that apart from the create-time hole above (it has no database
+  // access to ask "is the existing row already finance-linked?"), so the
+  // equivalent "don't let a replace turn an *unlinked* expense into
+  // finance" check lives in `replaceExpense` itself instead, sequenced
+  // after the linkage check so the 409 wins when the target already is
+  // finance-linked.
+  message: "finance is generated by the loan-payment flow, never chosen directly",
+  path: ["category"],
+});
 export type CreateExpenseRequest = z.infer<typeof createExpenseRequestSchema>;
 
 export const expenseResponseSchema = z.object({
@@ -107,6 +157,14 @@ export const expenseResponseSchema = z.object({
   // `listUsBoughtFuelFills` (queries/reports.ts) is what dereferences this
   // into a km/l figure for the fuel-efficiency report.
   odometerReadingId: z.string().uuid().nullable(),
+  // Copilot review, PR #182: the reading itself, not just its id — GAP-224's
+  // edit sheet needs the actual km/source to prefill (and re-preserve) a
+  // servicing expense's reading rather than silently dropping it on an
+  // unrelated correction (`findLastMaintenanceOdometerKm` inner-joins this,
+  // so a replacement with no reading vanishes from the maintenance prompt).
+  // eslint-disable-next-line no-restricted-syntax -- an odometer figure, not money
+  odometerReadingKm: z.number().int().nonnegative().nullable(),
+  odometerReadingSource: odometerSourceSchema.nullable(),
   note: z.string().nullable(),
   // GAP-60/D-16/F-8.6: "what corrected this?", answered from the record
   // itself rather than only from a global log.
@@ -185,3 +243,21 @@ export const voidedExpenseResponseSchema = z.object({
   voidedAt: z.string(),
 });
 export type VoidedExpenseResponse = z.infer<typeof voidedExpenseResponseSchema>;
+
+/**
+ * GAP-224/F-8.5: "Edit" on the client, void-and-replace underneath — the
+ * wire shape is one request either way (`PATCH /api/expense/{id}`), and the
+ * word "void" never reaches the manager. Same shared field set as
+ * `createExpenseRequestSchema`, plus `reason`, required — a money
+ * correction never has an optional one (F-8.5's own Accept clause;
+ * migration 0025's `replaces_id` unique index is the constraint half, this
+ * is the input half). `replacesId` has no place here: the server sets it
+ * to the id in the path, the same way `void`'s own reason doesn't let the
+ * caller name a different target than the URL.
+ */
+export const replaceExpenseRequestSchema = withExpenseFieldRules(
+  expenseCommonFieldsSchema.extend({
+    reason: z.string().trim().min(1).max(500),
+  }),
+);
+export type ReplaceExpenseRequest = z.infer<typeof replaceExpenseRequestSchema>;
