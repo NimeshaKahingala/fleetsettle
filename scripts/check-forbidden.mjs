@@ -802,6 +802,257 @@ function checkPlatformQueryImports(paths) {
   return findings;
 }
 
+/**
+ * TRACKER.md's own 16 Aug entry named the class: a number a person has to
+ * remember drifts even when the person is looking right at it. docs/README.md
+ * §"Status" is the index every doc-change is supposed to update alongside the
+ * document's own `**Status:**`/`**Date:**` lines — and by PR #186 (12 Sept
+ * 2026) five of the seven had drifted, one of them (`implementation-guidelines`)
+ * since before that PR even started. Six manual correction passes were the
+ * prior fix. This is the seventh, made structural.
+ *
+ * Deliberately not gated behind `explicit.length` the way `checkRequired()`
+ * is — it must fire from the PostToolUse hook on a single edited doc, not
+ * only on a full `npm run guard`. The path filter below keeps it cheap on
+ * every other file: it only does any work when `paths` touches
+ * `docs/README.md` or one of the seven docs it indexes.
+ */
+const DOC_INDEX_FILES = {
+  "use-cases": "docs/product/use-cases.md",
+  "user-flows": "docs/product/user-flows.md",
+  "data-model": "docs/engineering/data-model.md",
+  "tech-stack": "docs/engineering/tech-stack.md",
+  "implementation-guidelines": "docs/engineering/implementation-guidelines.md",
+  "ui-ux-guidelines": "docs/design/ui-ux-guidelines.md",
+  "brand-guidelines": "docs/design/brand-guidelines.md",
+};
+const DOC_README_PATH = "docs/README.md";
+
+const MONTH_NUMBER = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12,
+};
+
+/** "12 Sept 2026" and "12 September 2026" must compare equal — only the index abbreviates. */
+function parseDocDate(raw) {
+  const m = /^\s*(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})\s*$/.exec(raw);
+  if (!m) return null;
+  const word = m[2].toLowerCase();
+  // "Sept"/"September" share a 4-letter prefix; "Aug"/"August" don't
+  // ("Augu" isn't a key) — the 3-letter fallback catches that pair and
+  // every other short-form month besides.
+  const resolved = MONTH_NUMBER[word.slice(0, 4)] ?? MONTH_NUMBER[word.slice(0, 3)];
+  if (!resolved) return null;
+  const day = Number(m[1]);
+  const year = Number(m[3]);
+  // Shape-and-lookup alone accepts a calendar-impossible date ("32 Jan",
+  // "29 Feb" in a non-leap year) as a valid parse — harmless if only one
+  // side has the typo (it then just disagrees with the other), but a typo
+  // copied to both docs/README.md's row and the doc's own line would
+  // compare equal and pass silently (PR #189 review). `Date.UTC` silently
+  // rolls an out-of-range day into the next month, so round-tripping
+  // through it and checking nothing moved is the calendar check itself.
+  const asDate = new Date(Date.UTC(year, resolved - 1, day));
+  if (
+    asDate.getUTCFullYear() !== year ||
+    asDate.getUTCMonth() !== resolved - 1 ||
+    asDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return `${m[3]}-${String(resolved).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+
+function readDocIndexRows(readmeText, indexFiles = DOC_INDEX_FILES) {
+  const rows = new Map();
+  for (const line of readmeText.split("\n")) {
+    const m = /^\|\s*([a-z-]+)\s*\|\s*v([0-9.]+)\s*\|\s*([^|]+?)\s*\|$/.exec(line);
+    if (m && indexFiles[m[1]]) rows.set(m[1], { version: m[2], date: m[3] });
+  }
+  return rows;
+}
+
+/**
+ * `readmePath`/`indexFiles` default to the real repo constants; the
+ * self-test overrides both to point at disposable fixture files, since
+ * `DOC_README_PATH` is a `const` and can't be swapped at runtime — that
+ * lets it exercise the README-table regex, the path-relevance filter and
+ * real file reads end to end, not only the pure comparator below.
+ */
+function checkDocStatusIndex(
+  paths,
+  { readmePath = DOC_README_PATH, indexFiles = DOC_INDEX_FILES } = {},
+) {
+  const findings = [];
+  const readmeAbs = resolve(ROOT, readmePath);
+  const touchesIndexedDoc =
+    paths.includes(readmePath) || paths.some((p) => Object.values(indexFiles).includes(p));
+  if (!touchesIndexedDoc || !existsSync(readmeAbs)) return findings;
+
+  let readmeText;
+  try {
+    readmeText = readText(readmeAbs);
+  } catch {
+    return findings;
+  }
+  const indexRows = readDocIndexRows(readmeText, indexFiles);
+
+  for (const [name, docPath] of Object.entries(indexFiles)) {
+    const docAbs = resolve(ROOT, docPath);
+    if (!existsSync(docAbs)) {
+      // A path DOC_INDEX_FILES names, and docs/README.md's table still
+      // indexes, that no longer exists on disk (moved or deleted without
+      // updating either) used to `continue` past it with nothing reported
+      // — the same silent-guard failure as a missing README row, just
+      // from the other side (PR #189 review, which also raised whether a
+      // deletion reaches this at all — verified empirically: a deletion
+      // happens via `rm`, not `Edit`/`Write`, so `.claude/hooks/guard.mjs`
+      // (wired to `Write|Edit` only) never runs for it either way, live-hook
+      // or not; the next full `npm run guard` — CI's own gate — catches it
+      // regardless of which file triggered the scan, since docs/README.md's
+      // own presence already satisfies `touchesIndexedDoc` below without
+      // the deleted path needing to survive into `paths` itself. The same
+      // live/CI split every other check in this file already has).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-missing-doc",
+        match: docPath,
+        message:
+          `docs/README.md's Status table names "${name}" (${docPath}), but that file doesn't ` +
+          "exist — the drift check for it can't run. Update the table, or the path in DOC_INDEX_FILES, to match reality.",
+      });
+      continue;
+    }
+    let docText;
+    try {
+      docText = readText(docAbs);
+    } catch {
+      continue;
+    }
+    const row = indexRows.get(name);
+    if (!row) {
+      // Silent here would defeat the whole check: a row deleted or
+      // mistyped out of docs/README.md's table stops every future drift
+      // in this doc from ever being caught again (PR #188 review).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-missing-row",
+        match: name,
+        message:
+          `docs/README.md's Status table has no row for "${name}" (${docPath}) — the drift ` +
+          "check for this doc can't run without one. Restore the row (CLAUDE.md → Documents travel together).",
+      });
+      continue;
+    }
+    if (parseDocDate(row.date) === null) {
+      // The README's own Date column, not the doc's — mirrors the doc-side
+      // check in compareDocAgainstIndexRow, which this can't delegate to
+      // since a bad *index* date means there is no ground truth to compare
+      // the doc against at all (PR #189 review).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-bad-date",
+        match: row.date,
+        message:
+          `docs/README.md's Status table gives "${name}" a Date ("${row.date}") this check can't ` +
+          `parse as "D Month YYYY" — nothing to compare ${docPath}'s own **Date:** against.`,
+      });
+    }
+    findings.push(...compareDocAgainstIndexRow(name, docPath, docText, row));
+  }
+  return findings;
+}
+
+/**
+ * The pure half of {@link checkDocStatusIndex} — no filesystem, so this is
+ * what the self-test below exercises directly rather than through fixture
+ * files standing in for docs/README.md and a real doc.
+ */
+function compareDocAgainstIndexRow(name, docPath, docText, row) {
+  const findings = [];
+  const statusMatch = /^\*\*Status:\*\*\s*v([0-9.]+)/m.exec(docText);
+  const dateMatch = /^\*\*Date:\*\*\s*(.+)$/m.exec(docText);
+  const docVersion = statusMatch?.[1];
+  const docDate = dateMatch?.[1];
+  const indexDateParsed = parseDocDate(row.date);
+  const docDateParsed = docDate ? parseDocDate(docDate) : null;
+
+  // A missing/reworded Status or Date line, or a Date in a shape
+  // parseDocDate can't read, used to skip both comparisons below with no
+  // finding at all — the exact silent failure this check exists to
+  // prevent, just moved one level up (PR #188 review).
+  if (docVersion === undefined || docDate === undefined) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-metadata-missing",
+      match: docVersion === undefined ? "**Status:** vX.Y.Z" : "**Date:** D Month YYYY",
+      message:
+        `${docPath} has no parseable ${docVersion === undefined ? "**Status:**" : "**Date:**"} ` +
+        `line near the top — docs/README.md's Status table (v${row.version}, ${row.date}) has ` +
+        `nothing to check "${name}" against.`,
+    });
+    return findings;
+  }
+  if (docDateParsed === null) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-metadata-missing",
+      match: docDate,
+      message:
+        `${docPath}'s own **Date:** ("${docDate}") isn't a "D Month YYYY" date this check can ` +
+        `parse, so it can't be compared against docs/README.md's Status table for "${name}".`,
+    });
+  }
+
+  if (docVersion !== row.version) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-version-drift",
+      match: `${docVersion} vs README's ${row.version}`,
+      message:
+        `${docPath}'s own **Status:** (v${docVersion}) disagrees with docs/README.md's ` +
+        `Status table (v${row.version}) for "${name}". Bump whichever one is stale — both ` +
+        "must name the same version (CLAUDE.md → Documents travel together).",
+    });
+  }
+  if (docDateParsed !== null && indexDateParsed !== null && docDateParsed !== indexDateParsed) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-date-drift",
+      match: `${docDate} vs README's ${row.date}`,
+      message:
+        `${docPath}'s own **Date:** (${docDate}) disagrees with docs/README.md's Status ` +
+        `table (${row.date}) for "${name}". A doc-change bumps both together, never one alone.`,
+    });
+  }
+  return findings;
+}
+
 /** Positive assertions — things that must be present, not absent. */
 function checkRequired() {
   const findings = [];
@@ -892,6 +1143,207 @@ function selfTest() {
     }
   }
 
+  // parseDocDate: the abbreviated index form and the doc's own full-word form
+  // must resolve to the same value, or every doc would fail this check the
+  // moment it was written (docs/README.md abbreviates, the docs don't).
+  const dateCases = [
+    [["12 Sept 2026", "12 September 2026"], true],
+    [["23 Aug 2026", "23 August 2026"], true],
+    [["12 Sept 2026", "13 Sept 2026"], false],
+    [["12 Sept 2026", "12 Sept 2027"], false],
+  ];
+  for (const [[a, b], expectEqual] of dateCases) {
+    const gotEqual = parseDocDate(a) === parseDocDate(b) && parseDocDate(a) !== null;
+    if (gotEqual !== expectEqual) {
+      failures.push(
+        `parseDocDate(${JSON.stringify(a)}) === parseDocDate(${JSON.stringify(b)}) -> ${gotEqual}, expected ${expectEqual}`,
+      );
+    }
+  }
+
+  // Shape-and-month-lookup alone would accept a calendar-impossible date;
+  // a typo copied identically into both docs/README.md's row and the doc's
+  // own line would then compare equal and pass with nothing reported
+  // (PR #189 review).
+  const impossibleDates = ["32 Jan 2026", "29 Feb 2026", "31 Apr 2026"];
+  for (const bad of impossibleDates) {
+    if (parseDocDate(bad) !== null) {
+      failures.push(`parseDocDate(${JSON.stringify(bad)}) -> ${parseDocDate(bad)}, expected null`);
+    }
+  }
+
+  // compareDocAgainstIndexRow: the pure comparison checkDocStatusIndex is
+  // built on — exercised directly with fixture strings rather than through
+  // real files standing in for docs/README.md and a doc.
+  const matching = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (matching.length !== 0) {
+    failures.push(
+      `compareDocAgainstIndexRow flagged a doc that agrees with its index row: ${JSON.stringify(matching)}`,
+    );
+  }
+
+  const dateDrift = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** 3 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!dateDrift.some((f) => f.id === "docs/status-date-drift")) {
+    failures.push("compareDocAgainstIndexRow did not flag a Date disagreeing with its index row");
+  }
+
+  const versionDrift = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.1 — fixture\n**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!versionDrift.some((f) => f.id === "docs/status-version-drift")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a Status version disagreeing with its index row",
+    );
+  }
+
+  // A doc's own Status/Date line missing or unparseable used to skip both
+  // comparisons with no finding at all — silently, the exact failure mode
+  // this whole check exists to prevent (PR #188 review).
+  const noStatusLine = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!noStatusLine.some((f) => f.id === "docs/status-metadata-missing")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a doc with no parseable **Status:** line",
+    );
+  }
+
+  const unparseableDate = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** whenever it's convenient\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!unparseableDate.some((f) => f.id === "docs/status-metadata-missing")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a doc whose **Date:** line it can't parse",
+    );
+  }
+
+  // checkDocStatusIndex itself: compareDocAgainstIndexRow above never
+  // touches readDocIndexRows' README-table regex, the path-relevance
+  // filter, or a real file read — a regression in any of those could
+  // leave the guard permanently inactive while this self-test stayed
+  // green. Fixture files stand in for docs/README.md and a doc, passed
+  // in via `checkDocStatusIndex`'s override parameter rather than the
+  // module's real (const) path constants.
+  const fixtureDocRel = `.self-test-doc-${process.pid}.tmp.md`;
+  const fixtureReadmeRel = `.self-test-readme-${process.pid}.tmp.md`;
+  const fixtureDocAbs = resolve(ROOT, fixtureDocRel);
+  const fixtureReadmeAbs = resolve(ROOT, fixtureReadmeRel);
+  try {
+    const indexFiles = { fixture: fixtureDocRel };
+    const overrides = { readmePath: fixtureReadmeRel, indexFiles };
+
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | 1 Jan 2026 |\n", "utf8");
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 1 January 2026\n", "utf8");
+    const clean = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (clean.length !== 0) {
+      failures.push(
+        `checkDocStatusIndex found drift on a matching README/doc fixture pair: ${JSON.stringify(clean)}`,
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 2 January 2026\n", "utf8");
+    const dateDrift = checkDocStatusIndex([fixtureReadmeRel], overrides);
+    if (!dateDrift.some((f) => f.id === "docs/status-date-drift")) {
+      failures.push(
+        "checkDocStatusIndex did not catch a Date drift when triggered via the README's own path",
+      );
+    }
+    const dateDriftViaDoc = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!dateDriftViaDoc.some((f) => f.id === "docs/status-date-drift")) {
+      failures.push(
+        "checkDocStatusIndex did not catch a Date drift when triggered via the doc's own path",
+      );
+    }
+
+    const irrelevant = checkDocStatusIndex(["some/unrelated/file.ts"], overrides);
+    if (irrelevant.length !== 0) {
+      failures.push(
+        "checkDocStatusIndex ran its check on a path that touches neither docs/README.md nor an indexed doc",
+      );
+    }
+
+    // A row deleted or mistyped out of the README's own table used to be a
+    // silent `continue` — no finding, ever again, for that doc.
+    writeFileSync(fixtureReadmeAbs, "| some-other-doc | v1.0 | 1 Jan 2026 |\n", "utf8");
+    const missingRow = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!missingRow.some((f) => f.id === "docs/status-index-missing-row")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc with no row in the README's Status table",
+      );
+    }
+
+    // A path DOC_INDEX_FILES names, and docs/README.md's table still
+    // indexes, that no longer exists on disk — the mirror image of a
+    // missing row. (PR #189 review's own point about this whole block:
+    // the two metadata-missing cases further below were only ever proven
+    // against compareDocAgainstIndexRow directly, not through this
+    // function's own path filter, README parsing and real file reads.)
+    const missingDocRel = `.self-test-missing-doc-${process.pid}.tmp.md`;
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | 1 Jan 2026 |\n", "utf8");
+    const missingDoc = checkDocStatusIndex([fixtureReadmeRel], {
+      readmePath: fixtureReadmeRel,
+      indexFiles: { fixture: missingDocRel },
+    });
+    if (!missingDoc.some((f) => f.id === "docs/status-index-missing-doc")) {
+      failures.push(
+        "checkDocStatusIndex did not flag an indexed doc path that doesn't exist on disk",
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Date:** 1 January 2026\n", "utf8");
+    const noStatusLineE2e = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!noStatusLineE2e.some((f) => f.id === "docs/status-metadata-missing")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc with no parseable **Status:** line, end to end",
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** whenever it's convenient\n", "utf8");
+    const unparseableDateE2e = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!unparseableDateE2e.some((f) => f.id === "docs/status-metadata-missing")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc whose **Date:** line it can't parse, end to end",
+      );
+    }
+
+    // The README's own Date for this doc, not the doc's — the comparison
+    // has no ground truth to check the doc against either way, and used
+    // to skip silently rather than say so.
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | whenever |\n", "utf8");
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 1 January 2026\n", "utf8");
+    const badIndexDate = checkDocStatusIndex([fixtureReadmeRel], overrides);
+    if (!badIndexDate.some((f) => f.id === "docs/status-index-bad-date")) {
+      failures.push("checkDocStatusIndex did not flag a README Date it can't parse");
+    }
+  } finally {
+    for (const f of [fixtureDocAbs, fixtureReadmeAbs]) {
+      try {
+        unlinkSync(f);
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  }
+
   if (failures.length) {
     console.error("check-forbidden.mjs self-test FAILED:");
     for (const f of failures) console.error(`  - ${f}`);
@@ -912,6 +1364,7 @@ const findings = [
   ...checkVoidTableFilter(scanTargets),
   ...checkEnumLabelUsage(scanTargets),
   ...checkPlatformQueryImports(scanTargets),
+  ...checkDocStatusIndex(scanTargets),
   ...(explicit.length ? [] : [...checkMigrationSet(), ...checkRequired()]),
 ];
 

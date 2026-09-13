@@ -1,10 +1,12 @@
 # Implementation Guidelines
 
-**Status:** v1.8 — **§16.1's trigger-drift row sharpened to name both triggers and all three workflows, with a note on the half of it that is routinely under-read.** The two hand-maintained lists (`assert_period_open()`'s array, `write_audit_log()`'s attachment) do each run once and do not re-run — but **neither omission is silent**, because `check:drift` catches both in `integration.yml`, `deploy-qa.yml` and `migrate-production.yml`. Recorded because a design note budgeted two bespoke tests for exactly this before it was checked. Serves `data-model.md` v1.1.13 §4.4. Decided 23 Aug 2026.
+**Status:** v1.9 — **§16.1 gains a row for the Status/Date consistency guard (GAP-135/PR #186 review, PR #187, 12 Sept 2026).** A doc-only fix left `use-cases.md`'s own `**Date:**` disagreeing with `docs/README.md`'s Status table with nothing to catch it; `check-forbidden.mjs`'s `checkDocStatusIndex` now compares every one of the seven docs' own `**Status:**`/`**Date:**` against its README row on any edit to either side. Decided 12 Sept 2026.
+
+**v1.8** — **§16.1's trigger-drift row sharpened to name both triggers and all three workflows, with a note on the half of it that is routinely under-read.** The two hand-maintained lists (`assert_period_open()`'s array, `write_audit_log()`'s attachment) do each run once and do not re-run — but **neither omission is silent**, because `check:drift` catches both in `integration.yml`, `deploy-qa.yml` and `migrate-production.yml`. Recorded because a design note budgeted two bespoke tests for exactly this before it was checked. Serves `data-model.md` v1.1.13 §4.4. Decided 23 Aug 2026.
 
 **v1.7** — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
 **v1.6.1** — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
-**Date:** 10 August 2026
+**Date:** 12 September 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -587,6 +589,7 @@ Chosen by cost: the earlier a rule is caught, the cheaper it is, so each rule si
 | A read with no error state (UI §6.4/M-28) | Guard script | `useQuery(` in `web/src` without `useQueryState`/`QueryState` |
 | `business_id` read from a header, not just a body/query (added 18 Aug 2026, §7.5) | Guard script | `c.req.header(…)` reads for a business id, outside `middleware/auth.ts` — a structurally different pattern from the body/query rule above it, not an extension of the same regex |
 | Platform query imports money-table schema (added 18 Aug 2026, §7.6) | Guard script | `api/src/queries/platform/` importing from `db/schema.ts`'s money-table exports |
+| A doc's own `**Status:**`/`**Date:**` disagrees with its row in `docs/README.md`'s Status table (added 12 Sept 2026) | Guard script | `checkDocStatusIndex`, triggered by an edit to `docs/README.md` or any one of the seven docs it indexes |
 
 The bottom five cannot be linted — they need a running database or a rendered component. Everything above them can, and therefore is.
 

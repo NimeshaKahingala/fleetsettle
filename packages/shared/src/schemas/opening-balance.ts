@@ -37,7 +37,21 @@ export type OpeningBalanceEntryRequest = z.infer<typeof openingBalanceEntryReque
  */
 export const commitOpeningBalanceBatchRequestSchema = z.object({
   goLiveDate: businessDateSchema,
-  entries: z.array(openingBalanceEntryRequestSchema),
+  // A real batch is one row per vehicle/driver/customer this business has —
+  // a bus and two cars' worth, not thousands. The bound exists so an
+  // unbounded request can't turn `saveOpeningBalance`'s archived-party check
+  // (api/CLAUDE.md: "never a loop issuing one query per row") into
+  // unbounded transaction time regardless of how that check is implemented.
+  //
+  // PR #188's Copilot review raised this again as a possible ceiling on a
+  // legitimate atomic replace: `saveOpeningBalance` fully replaces this
+  // batch's entries each save (its own doc comment), never accumulates one
+  // by one, so the real question is the largest go-live snapshot this one
+  // bespoke business (CLAUDE.md's opening paragraph — a bus, two cars, two
+  // partners) could ever have — nowhere near 500 even counting every
+  // customer and driver it has ever dealt with. Not raised again unless
+  // that business description changes.
+  entries: z.array(openingBalanceEntryRequestSchema).max(500),
 });
 export type CommitOpeningBalanceBatchRequest = z.infer<
   typeof commitOpeningBalanceBatchRequestSchema
