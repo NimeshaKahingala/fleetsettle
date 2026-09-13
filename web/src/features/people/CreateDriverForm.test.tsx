@@ -141,9 +141,16 @@ test("PR 187 review: closing the disclosure after a failed submit does not swall
   await user.click(screen.getByRole("button", { name: "Add driver" }));
   expect(await screen.findByText("Choose which day he settles")).toBeInTheDocument();
 
-  // The manager doesn't recognise this as the error state, closes the
-  // section again, and hits save a second time without having fixed anything.
+  // The manager doesn't recognise this as the error state and tries to
+  // close the section again — the close itself must be refused, not just
+  // eventually reversed by the next submit (Copilot/PR 188 review).
   await user.click(screen.getByRole("button", { name: "Fees and mobile" }));
+  expect(screen.getByText("Choose which day he settles")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Fees and mobile" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+
   await user.click(screen.getByRole("button", { name: "Add driver" }));
 
   expect(await screen.findByText("Choose which day he settles")).toBeInTheDocument();
