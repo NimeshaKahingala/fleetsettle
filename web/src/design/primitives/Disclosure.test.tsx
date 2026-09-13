@@ -50,3 +50,20 @@ test("stays open once opened, rather than collapsing again on its own", async ()
     "true",
   );
 });
+
+test("forceOpen cannot be dismissed by a manual toggle while the error it stands for still holds (§9.2)", async () => {
+  const user = userEvent.setup();
+  render(
+    <Disclosure sectionName="Contact details" forceOpen>
+      <p>NIC is required</p>
+    </Disclosure>,
+  );
+  expect(screen.getByText("NIC is required")).toBeInTheDocument();
+
+  // A manager who doesn't recognise this as the error state just closes the
+  // section like any other — it must not swallow the message a second time.
+  await user.click(screen.getByRole("button", { name: "Contact details" }));
+  expect(screen.getByText("NIC is required")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Contact details" }));
+  expect(screen.getByText("NIC is required")).toBeInTheDocument();
+});

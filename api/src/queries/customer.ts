@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Reader, Tx, Writer } from "../db/client.js";
 import { customer } from "../db/schema.js";
 
@@ -67,17 +67,18 @@ export async function findCustomerForBusiness(
   return rows[0] as CustomerRow | undefined;
 }
 
-/** GAP-187 — see `lockDriverForShare`'s own comment (queries/driver.ts) for why `FOR SHARE`, not `FOR UPDATE`. */
-export async function lockCustomerForShare(
+/** GAP-187/PR#186 review — see `lockDriversForShare`'s own comment (queries/driver.ts) for why `FOR SHARE` and set-based. */
+export async function lockCustomersForShare(
   db: Tx,
-  customerId: string,
-): Promise<string | null | undefined> {
+  customerIds: string[],
+): Promise<Map<string, string | null>> {
+  if (customerIds.length === 0) return new Map();
   const rows = await db
-    .select({ voidedAt: customer.voidedAt })
+    .select({ id: customer.id, voidedAt: customer.voidedAt })
     .from(customer)
-    .where(eq(customer.id, customerId))
+    .where(inArray(customer.id, customerIds))
     .for("share");
-  return rows[0]?.voidedAt;
+  return new Map(rows.map((r) => [r.id, r.voidedAt]));
 }
 
 /**
