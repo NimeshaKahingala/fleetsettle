@@ -10,10 +10,15 @@ export interface DisclosureProps {
   onOpenChange?: (open: boolean) => void;
   /**
    * Forces the section open — for a validation error on a field this
-   * section hides. Without this, a collapsed level-2 section can swallow
-   * the only feedback a failed submit produced (§9.2's validation-timing
-   * rules exist precisely so a rejected save is never silent); pass
-   * `errors.someHiddenField !== undefined` from the form.
+   * section hides — and holds it open against a manual collapse for as
+   * long as it stays `true`. A one-shot "open once" (setting state from an
+   * effect) is not enough: the user can still close it again afterwards
+   * while the error persists, and a second failed submit re-derives the
+   * same `true` value rather than a fresh transition, so nothing would
+   * reopen it (§9.2's validation-timing rules exist precisely so a
+   * rejected save is never silent). Pass
+   * `errors.someHiddenField !== undefined` from the form — OR together
+   * every error this section hides, not just one of them.
    */
   forceOpen?: boolean;
 }
@@ -46,6 +51,13 @@ export function Disclosure({
         type="button"
         onClick={() =>
           setOpen((o) => {
+            // A manual close can never dismiss the error forcing this open —
+            // only forceOpen clearing can do that (§9.2). Once it does, `open`
+            // is already `true` from the effect above and stays that way,
+            // same as any other manually-opened section (see the "stays open
+            // once opened" behaviour below) — this only blocks the collapse
+            // attempt itself, it doesn't re-derive `open` from `forceOpen`.
+            if (forceOpen) return o;
             const next = !o;
             onOpenChange?.(next);
             return next;

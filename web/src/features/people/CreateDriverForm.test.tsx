@@ -130,6 +130,45 @@ test("GAP-135, PR 186 review: collapsing the section after choosing Weekly does 
   expect(post).not.toHaveBeenCalled();
 });
 
+test("PR 187 review: closing the disclosure after a failed submit does not swallow the error on a second submit", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn();
+  renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
+
+  await user.type(screen.getByLabelText("Name"), "Sunil Perera");
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.click(screen.getByRole("button", { name: "Weekly" }));
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+  expect(await screen.findByText("Choose which day he settles")).toBeInTheDocument();
+
+  // The manager doesn't recognise this as the error state, closes the
+  // section again, and hits save a second time without having fixed anything.
+  await user.click(screen.getByRole("button", { name: "Fees and mobile" }));
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+
+  expect(await screen.findByText("Choose which day he settles")).toBeInTheDocument();
+  expect(post).not.toHaveBeenCalled();
+});
+
+test("PR 187 review: an over-long mobile number collapsed behind the section is not swallowed either", async () => {
+  const user = userEvent.setup();
+  const post = vi.fn();
+  renderWithProviders(<CreateDriverForm onCreated={vi.fn()} />, { post });
+
+  await user.type(screen.getByLabelText("Name"), "Sunil Perera");
+  await user.click(screen.getByRole("button", { name: "More" }));
+  await user.type(screen.getByLabelText(/^Mobile/), "0".repeat(31));
+
+  await user.click(screen.getByRole("button", { name: "Fees and mobile" }));
+  expect(screen.queryByLabelText(/^Mobile/)).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Add driver" }));
+
+  const mobile = await screen.findByLabelText(/^Mobile/);
+  expect(mobile).toHaveAttribute("aria-invalid", "true");
+  expect(post).not.toHaveBeenCalled();
+});
+
 test("a trip fee entered via MoneyField reaches the request as a wire string, independent of the day fee", async () => {
   const user = userEvent.setup();
   const post = vi.fn().mockResolvedValue({ id: "d1", name: "Sunil Perera" });
