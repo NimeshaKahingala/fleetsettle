@@ -51,8 +51,11 @@ Publish one flagship article first. The follow-ups are standalone pieces, not ma
 | 3 | **AI Code Reviews Still Need an Owner** | Judge findings, remedies, overlap, and release timing | [Article 2 brief](02-four-reviewers-almost-no-overlap.md) |
 | 4 | **The Missing-Line Problem** | Required-but-absent behaviour and fixes that miss sibling paths | [Article 4 brief](04-missing-line-problem.md) |
 | 5 | **Project Memory Is Not Project Truth** | Preserve investigations without promoting stale claims into authority | [Article 5 brief](05-decisions-not-review-docs.md) |
+| 6 | **The Harness I Already Had** | Adjacent strand — comparing a general instruction framework against this project's own harness | [Article 6 brief](06-harness-i-already-had.md) |
 
 File numbers are stable planning IDs, not the publication order. Existing filenames are retained so earlier links keep working; the titles of articles 2 and 5 above supersede their original working titles. The older pieces in `temp/` remain historical drafts, not approved copy or evidence.
+
+Article 6 sits **adjacent** to the collection rather than inside its argument: articles 1–5 are about verification outpacing implementation, while 6 is about instruction layers and harness design. Its brief carries the editorial question of whether it joins the collection or opens a second strand. Its evidence ledger is [ROSETTA-FACTS.md](ROSETTA-FACTS.md), which cites the separate Rosetta POC rather than restating it.
 
 The flagship should be drafted and published before deciding whether all four follow-ups deserve full Medium articles. A follow-up may instead become a shorter LinkedIn post if its argument does not need long form.
 
@@ -65,6 +68,7 @@ The flagship should be drafted and published before deciding whether all four fo
 | PR #170's overlapping reviews; PR #164's stack context; PR #177's deferral | Article 2 | Brief reference to judgment in the flagship |
 | PR #118's missing lock, PR #163's archive-lock follow-up, residual recovery read | Article 4 | No detailed concurrency case in the flagship |
 | Deleted reviews, relocation to `docs/evaluations/`, and disputed September audit claims | Article 5 | One sentence about checking the review in the flagship |
+| PRs #186–#189: a four-PR reviewer chain, and one reviewer claim checked and refuted ([EVIDENCE.md](EVIDENCE.md)) | Article 2, as a second reviewer-chain example | Article 5 may cite the decline-with-reasoning half briefly |
 
 One flagship incident should carry the narrative. Do not turn it into summaries of all four follow-ups.
 

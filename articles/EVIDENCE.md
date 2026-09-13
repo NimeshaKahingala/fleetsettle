@@ -129,6 +129,19 @@ PR #133 noted that removing a credential from current source did not remove it f
 
 Use only if an article needs an example of a reviewer following operational state beyond the diff. Never publish the credential value.
 
+### A four-PR reviewer chain, and one claim that didn't survive being checked (12–13 September 2026)
+
+PRs #186→#189 form one continuous thread: #186 was a `develop`→`main` release PR; Copilot's review of it produced fixes shipped as #187; #187's own review round produced more fixes in the same PR; #186 and #187 merged, and the next `develop`→`main` promotion (#188) surfaced further Copilot findings against the already-fixed code, shipped as #189; #189 itself then went through three more Copilot review rounds before settling.
+
+Two things about this chain are worth more than the fix count:
+
+- **Findings compounded rather than converged at first.** Fixing round *N*'s findings routinely surfaced material for round *N+1* — a strengthened test exposed a second gap in the same function; a new guard rule exposed that its own self-test didn't reach the code path it claimed to. The review process looked less like a single pass to zero and more like each pass buying visibility into the next layer.
+- **One specific reviewer claim was checked empirically and found wrong.** Round 3 on #189 asserted that a guard-script branch (catching a deleted, still-indexed document) was unreachable in practice, citing a specific line in a PostToolUse hook. Reading that hook showed it's wired to `Write`/`Edit` tool calls only — a file deletion happens via `rm`, which never touches it — and a direct test (deleting a real doc, running the full scan both staged and unstaged) showed the check fired correctly regardless. The finding was answered with the evidence in a PR comment rather than either implemented or silently dropped.
+
+Every other finding across the chain that was investigated turned out to be real and was fixed with a verified red-then-green regression test; two were investigated and explicitly declined with reasoning recorded in the code itself (a documented Neon test-branch instability ruling out a race test; a batch-size bound checked against the specific business's actual scale rather than accepted as an arbitrary limit).
+
+Use for article 2 (reviewer rounds compounding rather than converging) and article 5 (the decline-with-reasoning pattern, and a reviewer claim held to the same evidentiary bar as a first-party one). Cite PRs #186–#189 directly rather than restating specifics here, since the finding counts and exact wording are best read from source.
+
 ## Engineering-memory evidence
 
 - On 10 August, commit `efc7c42` deliberately removed 18 temporary root review/planning documents after their active findings had been consolidated.
