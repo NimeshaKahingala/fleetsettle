@@ -462,24 +462,24 @@ Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `m
 
 **Sized, decided and specified 13 September 2026.** Plan, decision record and review absorption: [docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md](docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md). The rules it builds to live where they belong: `use-cases.md` v1.2.20 (W-14 reaffirmed, W-71–W-73), `user-flows.md` v1.1.22 (ST-8, INV-46–INV-50, F-8.2, F-10.2–F-10.4, A-34–A-41), `data-model.md` v1.1.21 (§11.1, D-18–D-21), `tech-stack.md` v1.6, `implementation-guidelines.md` v1.10.
 
-**The decision.** Automatic sending (W-14) over the WhatsApp Cloud API, Meta business verification deferred, English and Sinhala. The 17 Aug deferral recorded below waited for real use; real use exists, and the owner's answers settled it — above all, delivered and read status is wanted, which no assisted path can produce.
+**The decision.** Automatic sending (W-14) over the WhatsApp Cloud API, Meta business verification deferred, English and Sinhala, **each business from its own WhatsApp number in its own name (W-74)**, connected by hand for now. The owner's answers the same day: receipt corrections go at once, a verification hold waits 3 days, one message per handover photo. The 17 Aug deferral recorded below waited for real use; real use exists, and the owner's answers settled it — above all, delivered and read status is wanted, which no assisted path can produce.
 
 **Build order — ten PRs into `develop`, each carrying its own tests.**
 
 | | Item | Waits on |
 |---|---|---|
-| **W1** | Migration `0041` — DM §11.1, including the empty-table pre-check and messaging switched off for the live business | — |
+| **W1** | Migration `0041` — DM §11.1, including `business_whatsapp_account`, the empty-table pre-check, and messaging switched off for existing and new businesses | — |
 | **W2** | Drizzle models for the messaging tables (none exist today) and shared schemas | W1 |
 | **W3** | Domain core: precedence resolution, enqueue by `ON CONFLICT` index inference, rendering from `message_template.body`, the stage builder | W2 |
 | **W4** | Enqueue at every trigger inside its money transaction; post-commit publish; UC-93's re-arm and `payment_correction.receipt_message_id` | W3 |
 | **W5** | `scheduled()` routes on `event.cron`; the `dispatch-messages` sweep; summary cadence | W3 — **its own PR, because it changes existing jobs** |
 | **W6** | Queue consumer: the claim, INV-47's final checks, `Transport` with a logging transport, dead-letter queue | W4, W5 |
 | **W7** | Cloud API transport; webhook with signature, verify token, rate-limit exemption, inbox and inbound auto-reply; photo upload | W6 **and Meta template approval** |
-| **W8** | Read and write endpoints — log, failures, per-record history, resend, other channel, handled; configuration, opt-in and withdrawal, language, pauses, start verification. There is no driver-edit endpoint today | W3 |
+| **W8** | Read and write endpoints — log, failures, per-record history, resend, other channel, handled; configuration, opt-in and withdrawal, language, pauses, start verification. F-11.3, connecting a business's own WhatsApp account (platform admin). There is no driver-edit endpoint today | W3 |
 | **W9** | Settings → Messaging, More → Message log, home failures (`failed`, `unknown`, `expired`), inline history — after a `ui-ux-guidelines.md` change | W8 |
 | **W10** | Integrated QA (`run-qa-pass`), `09-notifications` suite rewritten against the real screens, TRACKER and this file reconciled | all |
 
-**Track M, starting now and in parallel:** a clean number → WhatsApp Business Account and display name → template wording in both languages → submission → app secret, webhook subscription, W-45 auto-reply → secrets. **Only W7 waits on it.**
+**Track M, starting now and in parallel — per business (W-74), the live business first:** its own clean number → its own WhatsApp Business Account and display name, shared with FleetSettle → template wording in both languages (Claude drafts, a partner checks the Sinhala) → submission → FleetSettle's app secret, webhook subscription and system-user token → connect through F-11.3. **Only W7 waits on it. A second, unrelated business needs Meta app review first.**
 
 **Gate:** golden fixtures unmoved · INV-11/12/13 and INV-46–INV-50 · A-34–A-41 · both kill switches · opt-in overrides everything · W-49 linked-driver isolation on every new read · EC-09-004's immediate confirmation, live.
 

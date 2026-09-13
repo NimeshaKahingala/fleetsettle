@@ -1,6 +1,6 @@
 # Tech Stack
 
-**Status:** v1.6 — **§4 and §8 updated for P14 messaging, 13 Sept 2026.** `dispatch-messages` becomes a recovery sweep rather than the send path — confirmations publish to the queue as soon as their write commits (`user-flows.md` F-10.3) — and a second cron expression means `scheduled()` must route on `event.cron`, which it ignores today. §8 gains the webhook's two secrets, records that the queue has a producer and no consumer, exempts the webhook route from `RATE_LIMITER`, and **corrects the `KV` row: the kill switch has always been `business_settings.messaging_kill_switch` in Postgres, never KV.**
+**Status:** v1.6 — **§4 and §8 updated for P14 messaging, 13 Sept 2026.** `dispatch-messages` becomes a recovery sweep rather than the send path — confirmations publish to the queue as soon as their write commits (`user-flows.md` F-10.3) — and a second cron expression means `scheduled()` must route on `event.cron`, which it ignores today. §8 gains the webhook's two secrets, records that the queue has a producer and no consumer, exempts the webhook route from `RATE_LIMITER`, and **corrects the `KV` row: the kill switch has always been `business_settings.messaging_kill_switch` in Postgres, never KV.** **Each business sends from its own number (`use-cases.md` W-74):** the phone-number id leaves the environment for `business_whatsapp_account`, and `WHATSAPP_TOKEN` becomes FleetSettle's system-user token acting for every connected business.
 
 **v1.5** — **§7 gains a note on Cloudflare Browser Rendering (12 Sept 2026)**, available since this document's last full pass and referenced by `use-cases.md` UC-99's re-recorded PDF deferral (GAP-136) — a stack fact belongs here, cited by the product documents rather than restated in them.
 
@@ -179,8 +179,7 @@ One more that is a *choice* rather than a constraint: **Postgres does the enforc
 | `ASGARDEO_ISSUER` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/token` (§2.1) |
 | `ASGARDEO_JWKS_URL` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
 | `ASGARDEO_AUDIENCE` | Var | The client id of the app that issues tokens for **that** environment (§2.1) |
-| `WHATSAPP_TOKEN` | Secret | Cloud API access token — not yet provisioned (P14) |
-| `WHATSAPP_PHONE_ID` | Secret | Sending number id — not yet provisioned (P14). One number for the one live business; per-business numbers are recorded, not built (DM D-21) |
+| `WHATSAPP_TOKEN` | Secret | FleetSettle's Meta system-user token, with access to each connected business's shared WhatsApp account — one token for every business, never stored per business — not yet provisioned (P14) |
 | `WHATSAPP_APP_SECRET` | Secret | Verifies the `X-Hub-Signature-256` signature on every webhook call — not yet provisioned (P14) |
 | `WHATSAPP_VERIFY_TOKEN` | Secret | Answers Meta's webhook subscription challenge — not yet provisioned (P14) |
 | `KV` | KV namespace | JWKS cache. *Until v1.6 this row also said "kill switch"; the kill switch is `business_settings.messaging_kill_switch` and always was* |
@@ -201,7 +200,7 @@ Both R2 buckets have public access **off** (IG §10.10) and a CORS policy scoped
 
 Secrets via `wrangler secret put --env <name>`, never in `wrangler.jsonc`. The same `DATABASE_URL` must **also** exist as a GitHub environment secret: CI runs the migration scripts in Node, where a Cloudflare secret is invisible.
 
-**The WhatsApp webhook is the one public route that must not be rate-limited.** `RATE_LIMITER` is mounted on `*`, and Meta retries a refused delivery report for up to seven days, so a throttled webhook becomes a retry storm. The route is exempt, authenticates by signature rather than by token, and resolves the business only through the attempt its provider id names — never from the payload.
+**The WhatsApp webhook is the one public route that must not be rate-limited.** `RATE_LIMITER` is mounted on `*`, and Meta retries a refused delivery report for up to seven days, so a throttled webhook becomes a retry storm. The route is exempt, authenticates by signature rather than by token, and resolves the business from the receiving phone-number id against `business_whatsapp_account` — never from anything else in the payload — and applies a provider id only if its attempt belongs to that same business (`user-flows.md` INV-51). *There is no `WHATSAPP_PHONE_ID` secret: each business's number is stored with its connection (W-74).*
 
 ---
 

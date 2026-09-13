@@ -1,6 +1,6 @@
 # Data Model
 
-**Status:** v1.1.21 — **§11.1 specifies what P14 adds to the messaging schema, 13 Sept 2026 — for migration `0041`, not yet written.** `0001` shipped §11's four tables with no code behind them. Sizing the build against `use-cases.md` W-71–W-73 and `user-flows.md` INV-46–INV-50 found what they cannot hold: one mutable status cannot record a retried send, so attempts get their own table with an immutable snapshot (D-18); a delivery report can arrive before its send is recorded, so reports get an inbox; `message_event`'s `CHECK` cannot name the new transitions (D-19); and **`messaging_config`'s `UNIQUE` has never bound at business scope** — `scope_id` is NULL there and Postgres treats NULLs as distinct (D-20). **INV-11 is restated**: `one_message_per_trigger` guarantees a row, not a delivery. §17 gains D-18 to D-21. No money table changes; the golden fixtures are untouched.
+**Status:** v1.1.21 — **§11.1 specifies what P14 adds to the messaging schema, 13 Sept 2026 — for migration `0041`, not yet written.** `0001` shipped §11's four tables with no code behind them. Sizing the build against `use-cases.md` W-71–W-73 and `user-flows.md` INV-46–INV-50 found what they cannot hold: one mutable status cannot record a retried send, so attempts get their own table with an immutable snapshot (D-18); a delivery report can arrive before its send is recorded, so reports get an inbox; `message_event`'s `CHECK` cannot name the new transitions (D-19); and **`messaging_config`'s `UNIQUE` has never bound at business scope** — `scope_id` is NULL there and Postgres treats NULLs as distinct (D-20). **INV-11 is restated**: `one_message_per_trigger` guarantees a row, not a delivery. §17 gains D-18 to D-21, and **D-21 is decided by the owner: each business sends from its own WhatsApp account (W-74)** — `business_whatsapp_account` holds the connection, and webhook events route by the receiving number (INV-51). No money table changes; the golden fixtures are untouched.
 
 **v1.1.20** — **D-5 closed and GAP-187's residual gap closed, 12 Sept 2026.** Migration `0040` adds `driver.settlement_weekday`, paired with `settlement_rhythm` by a `CHECK`; `confirmDay`'s `daily_amount` obligation now derives `effective_due_on` for real, and `SETTLEMENT_RHYTHM_UNSUPPORTED` retires with it — §17's D-5 row and §10.6's `opening_balance_entry` note both carry the full account. Golden fixtures unmoved — neither closure touches a table any of G-1/G-2/G-3 reads.
 
@@ -1620,6 +1620,7 @@ CREATE TABLE message_attempt (
   attempt_no          int  NOT NULL CHECK (attempt_no >= 1),
   -- snapshot: immutable once written
   destination_number  text NOT NULL,
+  sender_phone_number_id text NOT NULL,   -- which business number sent it (W-74); survives a reconnection
   template_id         uuid REFERENCES message_template(id),
   language_code       text NOT NULL,
   rendered_text       text NOT NULL,
@@ -1645,6 +1646,8 @@ CREATE TABLE message_webhook_inbox (
   kind                text NOT NULL CHECK (kind IN ('status','inbound')),
   dedup_key           text NOT NULL UNIQUE,        -- status: provider id + status + provider timestamp
   provider_message_id text,
+  phone_number_id     text NOT NULL,               -- the receiving number; routes the event (INV-51)
+  business_id         uuid REFERENCES business(id), -- resolved from phone_number_id; NULL = no connected business, never read by a tenant route
   sender_number       text,                        -- inbound only; the reply's content is not kept (W-45)
   payload             jsonb,                       -- status reports only
   received_at         timestamptz NOT NULL DEFAULT now(),
@@ -1682,6 +1685,26 @@ ALTER TABLE messaging_config
   ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now(),
   ADD COLUMN summary_cadence text CHECK (summary_cadence IN ('weekly','monthly'));
 
+-- W-74: each business sends from its own WhatsApp account and number, in its own name.
+-- Ids only. The access token is FleetSettle's own Meta system-user token (TS §8), never stored per business.
+CREATE TABLE business_whatsapp_account (
+  business_id       uuid PRIMARY KEY REFERENCES business(id),
+  waba_id           text NOT NULL UNIQUE,
+  phone_number_id   text NOT NULL UNIQUE,     -- one number, one business; the webhook routing key (INV-51)
+  display_phone     text NOT NULL,
+  display_name      text NOT NULL,
+  reply_phone       text NOT NULL,            -- the monitored number W-45's auto-reply gives out
+  connected_by      uuid NOT NULL REFERENCES app_user(id),
+  connected_at      timestamptz NOT NULL DEFAULT now(),
+  disconnected_at   timestamptz
+);
+-- A business created after this migration starts with messaging stopped too.
+ALTER TABLE business_settings ALTER COLUMN messaging_kill_switch SET DEFAULT true;
+
+-- W-71's hold window: 3 days, set by the owner 13 Sept 2026 — a wrong number is caught early in the rental.
+ALTER TABLE business_settings ADD COLUMN verification_hold_days int NOT NULL DEFAULT 3
+  CHECK (verification_hold_days > 0);
+
 -- The live business starts with messaging stopped. It is switched on after QA, never by this deploy.
 UPDATE business_settings SET messaging_kill_switch = true;
 ```
@@ -1707,6 +1730,8 @@ The `#c:` suffix is added only when a payment correction starts a new round (INV
 **Deliberately absent.** No void trio and no `replaces_id` on any messaging table, and none joins `assert_period_open()`: a message is correspondence, not a money record, and a closed month must never stop a receipt going out. Archive state is checked at send (FL INV-47), not by the archive guard — the question `0031` and `0037` both left open, answered.
 
 **`payment_correction.receipt_message_id` finally gets a writer.** It has existed since `0001`; `correctPayment` fills it inside its own transaction with the payment's receipt message (W-73).
+
+**One business, one account (W-74).** Every attempt sends from its own business's `phone_number_id`, recorded on the attempt, so a later reconnection to a different number never rewrites which number sent what. A business with no connected account has no message rows written for it. A webhook event names the business only through its receiving `phone_number_id`, and a provider id in that event is applied only when its attempt belongs to the same business (INV-51) — a mismatch stays in the inbox, unapplied. The token that sends for every business is one FleetSettle system-user token in the environment; nothing per business in Postgres is a secret.
 
 ---
 
@@ -2032,6 +2057,7 @@ Every invariant in `user-flows.md` §5, and where it actually lives.
 | 48 verification bound to the number | `verified_number` compared with the current `mobile`; set only from a delivery report for a matching destination | **App** — *specified, unbuilt* |
 | 49 deterministic reversal round | stage suffix `#c:<payment_correction.id>` under `one_message_per_trigger` | **DB** — *specified, unbuilt* |
 | 50 immutable attempt snapshot | `message_attempt_guard` trigger | **DB** — *specified, unbuilt* |
+| 51 webhook events stay inside the receiving business | `business_whatsapp_account.phone_number_id` UNIQUE + an event applied only when its attempt's `business_id` matches | **DB + App** — *specified, unbuilt* |
 | 14 waiver ≠ write-off | Two separate tables, never unioned | **Schema shape** |
 | 15 recovery links to write-off | `write_off_recovery.write_off_id` NOT NULL | **DB** |
 | 16 shares total 100%, dated | Exclusion constraint + `assert_shares_total()` | **DB** |
@@ -2413,13 +2439,14 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-9.2 reports | §15 queries |
 | F-9.3 export | all, filtered by `business_member.role` |
 | F-10.1 paperwork | `vehicle_document`, `driver.licence_expiry` |
-| F-10.2 messaging config | `messaging_config`, `business_settings` |
+| F-10.2 messaging config | `messaging_config`, `business_settings`, `business_whatsapp_account` |
 | F-10.3 automatic sends | `message`, `message_attempt`, `message_template` |
 | F-10.4 message log | `message_event`, `message_attempt`, `message_webhook_inbox` |
 | F-0.3 request an additional business *(added v1.1.10)* | `app_user.business_allowance`, `business_creation_request` |
 | F-0.4 switch between businesses *(added v1.1.10)* | none — client-side selection only, filtered against `business_member`/`driver.linked_user_id` server-side (§2.4, `user-flows.md`) |
 | F-11.1 approve or reject a request *(added v1.1.10)* | `business_creation_request`, `business`, `app_user`, `business_member`, `business_settings`, `accounting_period` (approval runs F-0.1's own transaction) |
 | F-11.2 grant or revoke platform admin *(added v1.1.10)* | `platform_admin`, `platform_audit_log` |
+| F-11.3 connect WhatsApp | `business_whatsapp_account` |
 
 **Result: 66 of 66 flows have a home** *(62 original, plus F-0.3, F-0.4, F-11.1, F-11.2 — added v1.1.10)*. **No flow requires a fact the schema cannot hold.**
 
@@ -2510,7 +2537,7 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-18** | P14: how a send attempt is recorded | **Specified 13 Sept 2026, unbuilt — a `message_attempt` table (§11.1)**, one row per try, carrying its own provider id and an immutable snapshot. Declined: a single mutable `message.provider_message_id` (a late report for a replaced attempt becomes unattributable), and widening `message_event` to carry the snapshot (a log row per status change would repeat it, and its immutability would rest on convention rather than a trigger) |
 | **D-19** | P14: how the new transitions are audited | **Specified 13 Sept 2026, unbuilt — every change to `message.status` or `message_attempt.outcome` writes exactly one `message_event` in the same transaction**, named for the state reached (`claimed` and `released` the two exceptions), with `attempt_id` and `actor_id` added. `0041` replaces the event `CHECK` and refuses to run if `message_event` already holds a row, since nothing has ever written one |
 | **D-20** | `messaging_config`'s `UNIQUE (business_id, scope_type, scope_id, message_type)` does not bind at business scope | **A defect in `0001`, harmless only because nothing writes the table.** `scope_id` is NULL for a business default and Postgres treats NULLs as distinct, so two conflicting defaults for one message type are both accepted. `0041` replaces it with `UNIQUE NULLS NOT DISTINCT` (Postgres 15 and later) |
-| **D-21** | P14: what `message.stage` may hold, and whose number sends | **Stage grammar specified 13 Sept 2026 (§11.1)** — free text with no `CHECK` today, deliberately kept so, and enforced by the single builder that mints stages. **Sending identity recorded, not decided:** one business is live and the environment holds one number (TS §8). A second business sending under its own name would move the phone-number id from an environment secret to `business_settings`; nothing here builds that |
+| **D-21** | P14: what `message.stage` may hold, and whose number sends | **Stage grammar specified 13 Sept 2026 (§11.1)** — free text with no `CHECK` today, deliberately kept so, and enforced by the single builder that mints stages. **Sending identity decided 13 Sept 2026 by the owner — per business (`use-cases.md` W-74).** `business_whatsapp_account` holds each business's account and number ids; the access token is one FleetSettle system-user token in the environment, never per business in Postgres. Declined: one FleetSettle number for every business (the sender is not recognised, it breaks Meta's display-name rule, one business's blocks slow all, and an unverified account holds two numbers), and self-service signup built now (a build and a Meta app review for one live business). **Connecting a business FleetSettle does not own requires Meta app review for advanced access — a gate before the second business, not the first** |
 
 ---
 

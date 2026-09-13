@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.22 — **F-10's messaging mechanics specified for build (P14), 13 Sept 2026: ST-8 redrawn, INV-46 to INV-50 added, F-8.2's re-arm given a mechanism, A-34 to A-41 added.** Carries `use-cases.md` v1.2.20's W-71 (the verification hold), W-72 (no automatic resend of an attempt that may have arrived) and W-73 (reversal rounds). **INV-11 is restated as what a unique index can actually promise** — one message *row* — with the delivery-side guarantee moved to INV-46, because a queue that delivers at least once can turn one row into two sends. Confirmations no longer depend on the 15-minute dispatcher (EC-09-004). Schema: `data-model.md` v1.1.21 §11.1. No golden-fixture figure moves.
+**Status:** v1.1.22 — **F-10's messaging mechanics specified for build (P14), 13 Sept 2026: ST-8 redrawn, INV-46 to INV-51 added, F-8.2's re-arm given a mechanism, A-34 to A-42 added.** Carries `use-cases.md` v1.2.20's W-71 (the verification hold), W-72 (no automatic resend of an attempt that may have arrived), W-73 (reversal rounds) and W-74 (each business sends from its own WhatsApp account; F-11.3 connects one). **INV-11 is restated as what a unique index can actually promise** — one message *row* — with the delivery-side guarantee moved to INV-46, because a queue that delivers at least once can turn one row into two sends. Confirmations no longer depend on the 15-minute dispatcher (EC-09-004). Schema: `data-model.md` v1.1.21 §11.1. No golden-fixture figure moves.
 
 **v1.1.21** — **F-4.5's weekly-settler criterion is built, GAP-135 closed, 12 Sept 2026.** `driver.settlement_weekday` derives `effective_due_on` for real now (`data-model.md` D-5); `SETTLEMENT_RHYTHM_UNSUPPORTED` retires. **F-9.3's PDF deferral is re-recorded, not lifted**: `tech-stack.md` §7 now records an off-Worker rendering option, so the deferral's original runtime-limits premise no longer settles the question by itself — it now rests on its stronger, always-true reason instead: nothing has asked for a document, and the spreadsheet plus a printed screen already get the numbers out. Also corrects a stale citation this note carried since 17 Aug 2026: `TS §7` ("Platform constraints"), not `TS §8` (the environment-bindings table). Neither closure moves a golden fixture.
 
@@ -370,10 +370,11 @@ Each is a property test, not a unit test. Each cites its source.
 | **INV-44** | A loan payment writes its `loan_payment` row **and** its finance cost — or its `partner_payout` when the liability is a named owner's — in one transaction. A partial write would reduce a balance with no cost recorded, or record a cost against a balance that never moved | W-68, W-69, UC-107 |
 | **INV-45** | The principal and finance parts of a payment always add back to the payment, and across the loan's whole life the principal parts sum exactly to the amount borrowed and the finance parts to the difference between total repayable and amount borrowed. Per-payment rounding is absorbed by the closing payment, never carried | W-68, UC-107, UC-108 |
 | **INV-46** | An attempt that may have reached the provider is never retried automatically. Claiming a message, creating its attempt and writing its first log event commit together; a claim abandoned mid-send becomes `unknown`, never `queued`. A resend is always a person's decision and is logged as one | W-72, UC-87 |
-| **INV-47** | Immediately before an attempt is created, every send condition is re-checked against current data: the scheduled time has arrived, the send window is open unless the message is a confirmation, the recipient is still opted in, neither the business nor the person is paused, the party is not archived, the destination is verified for a money message, and the trigger's own condition still holds. A message released from a verification hold passes the same checks; nothing bypasses them | W-71, §6.10, INV-12 |
+| **INV-47** | Immediately before an attempt is created, every send condition is re-checked against current data: the scheduled time has arrived, the send window is open unless the message is a confirmation, the recipient is still opted in, the business still has a connected WhatsApp account, neither the business nor the person is paused, the party is not archived, the destination is verified for a money message, and the trigger's own condition still holds. A message released from a verification hold passes the same checks; nothing bypasses them | W-71, §6.10, INV-12 |
 | **INV-48** | A number is verified only by a successful delivery report for an attempt whose destination equals the party's current number. A report for a number the party no longer has verifies nothing | W-71 |
 | **INV-49** | The reminder round a payment reversal starts is determined by the correction itself, so re-running the same correction's re-arm yields the same round, never another. The same transaction stops every unsent reminder of the round it replaces | W-73, UC-93 |
 | **INV-50** | An attempt's snapshot — destination number, template and language, rendered text, transport, and the configuration that allowed it — never changes once written. Delivery reports only move an outcome forward, and a duplicate report changes nothing | UC-87, U-9 |
+| **INV-51** | A webhook event is applied only inside the business that owns the receiving number. The business is found from the receiving phone-number id against the stored connection, never from anything else in the payload, and a provider id that belongs to another business's attempt is recorded and ignored, not applied. A business with no connected account has no message rows written for it at all | W-74, W-49 |
 
 ---
 
@@ -1076,7 +1077,7 @@ Insurance, registration, revenue licence, permits, emissions, plus the driver's 
 #### F-10.2 Configure messaging
 *Actor:* Owner or manager · *Source:* UC-86, W-14/22/23 · *Phase:* 2
 Per vehicle or per person: which messages are on, days before a due date, the sending window.
-**Accept** · Window **08:00–20:00** business timezone; a reminder generated at 23:00 waits until 08:00 · **confirmations are exempt** — a message confirming money that just moved is worth nothing an hour later · language per recipient, English default, every template a matched pair · **verification before money**: a number is proven by a first successful delivery before any amount is sent to it · **the kill switch** stops everything immediately, globally or per person. · **every setting here is a write this build must add** — business, vehicle and lease settings; a recipient's opt-in and its withdrawal; language; the business and per-person pauses; starting verification; and each driver's summary cadence, weekly or monthly. None has an endpoint today, and a driver cannot be edited at all yet · withdrawing opt-in or pausing a person stops queued messages at send (INV-47); nothing already sent is recalled · **the business starts paused** — messaging is switched on deliberately after the first QA pass, never by the deploy that ships it
+**Accept** · Window **08:00–20:00** business timezone; a reminder generated at 23:00 waits until 08:00 · **confirmations are exempt** — a message confirming money that just moved is worth nothing an hour later · language per recipient, English default, every template a matched pair · **verification before money**: a number is proven by a first successful delivery before any amount is sent to it · **the kill switch** stops everything immediately, globally or per person. · **every setting here is a write this build must add** — business, vehicle and lease settings; a recipient's opt-in and its withdrawal; language; the business and per-person pauses; starting verification; and each driver's summary cadence, weekly or monthly. None has an endpoint today, and a driver cannot be edited at all yet · withdrawing opt-in or pausing a person stops queued messages at send (INV-47); nothing already sent is recalled · **the business starts paused** — messaging is switched on deliberately after the first QA pass, never by the deploy that ships it · **the business's own WhatsApp account must be connected first (W-74)** — until it is, no message rows are written for that business and its messaging cannot be switched on; connecting is F-11.3
 
 #### F-10.3 Automatic sends
 *Actor:* System · *Source:* UC-80…UC-85 · *Phase:* 2
@@ -1088,12 +1089,12 @@ Lease confirmation (with terms and condition photos) · rent reminder (and the o
 · Reminders stop the moment payment is recorded — getting this wrong is worse than sending nothing.
 · **Confirmations go immediately** — UC-80, UC-82, UC-83, UC-84 and the verification message are published to the queue as soon as the write that caused them commits. If that publish fails the row is still there and the dispatcher's sweep sends it: the sweep is the safety net, not the path (EC-09-004)
 · **Reminders and summaries wait for the window** — `scheduled_for` is set to the next opening, and INV-47 checks it again at send, so a reminder queued at 19:59 that reaches a worker at 20:01 waits for 08:00
-· **Verification hold (W-71)** — a money message for a recipient not verified on their current number is written `deferred_verification`, keeping its row, and the amount-free verification message is queued unless one is already out for that number. A delivery report for that number releases every held message for the recipient back to `queued`; the sweep also releases any held message whose recipient is already verified, so a report that lands before the held row commits cannot strand it. A hold still unreleased after the business's hold window (7 days proposed ⚑) becomes `expired` and surfaces
+· **Verification hold (W-71)** — a money message for a recipient not verified on their current number is written `deferred_verification`, keeping its row, and the amount-free verification message is queued unless one is already out for that number. A delivery report for that number releases every held message for the recipient back to `queued`; the sweep also releases any held message whose recipient is already verified, so a report that lands before the held row commits cannot strand it. A hold still unreleased after the business's verification hold window — **3 days by default, set by the owner 13 Sept 2026**, `business_settings.verification_hold_days` — becomes `expired` and surfaces: long enough for a phone that is off over a weekend, short enough that a wrong number is caught early in the rental, while the confirmation of terms still matters
 · **Stage names the round** — `on_due`, `overdue`, `before_3d`; a summary carries its period (`summary:weekly:2026-09-18`, `summary:monthly:2026-09`); verification carries its number; a condition photo carries its attachment; a reversal round carries its correction (`overdue#c:<correction id>`). Grammar in `data-model.md` §11.1. **Only an explicit event mints a new stage — a new period, a new number, a correction. A retry never does**
 · **Settlement summaries run on their own cadence** — weekly or monthly per driver (F-10.2). A weekly period ends on the driver's settlement weekday when he settles weekly, otherwise on Sunday; a monthly one on the last day of the month; both in the business timezone. The sweep enqueues each summary once its period has ended, and the stage makes a second enqueue a no-op
 · **Archived parties receive nothing** — checked at send (INV-47) and suppressed with reason `party_archived`; nothing blocks the money write that queued the message
 · **Condition photos (W-38)** — sent after the lease confirmation, one template message per photo, each its own row and attempt; photos reach WhatsApp by upload from storage, never by a link into this app
-· **A reply gets one automatic answer (W-45)** — at most one per sender number per 24 hours; the reply's content is not kept
+· **A reply gets one automatic answer (W-45)** — at most one per sender number per 24 hours; the reply's content is not kept — and gives that business's own monitored number (F-11.3)
 
 #### F-10.4 The message log
 *Actor:* Manager · *Source:* UC-87, W-33, §6.10 · *Phase:* 2
@@ -1127,6 +1128,18 @@ Not a business role (§2.4) — every flow here runs above the business, for an 
 · The platform always holds at least one active admin, the same shape INV-31 already takes for a business's last owner
 · Every grant and revoke is logged: who did it, to whom, and when
 · Granting admin to someone who also holds a business membership changes nothing about that membership — the two are entirely separate, and neither implies the other (§2.4).
+
+#### F-11.3 Connect a business's WhatsApp account *(added v1.1.22)*
+*Actor:* Platform admin · *Source:* UC-86, W-74 · *Phase:* 2
+**Pre** the business has created its own Meta WhatsApp Business account and number, in its own name, and shared the account with FleetSettle's Meta business.
+**Steps** 1. Open the business in the platform panel. 2. Enter the shared account's id, the phone-number id, the number as customers see it, the display name, and the monitored phone number that replies are pointed to (W-45). 3. Save — the ids are checked against Meta before anything is stored.
+**Writes** one `business_whatsapp_account` row. Nothing else: the business's messaging stays switched off, and switching it on is the business owner's decision (F-10.2), never the admin's.
+**Alternates** · **Disconnect** sets `disconnected_at`; queued messages for that business stop at send (INV-47), and nothing already sent changes · **a number already connected to another business is refused** — one number, one business.
+**Accept**
+· Connecting reads and writes no money (INV-38)
+· A connected number routes webhook events to its own business and no other (INV-51)
+· Every connect and disconnect is logged to the platform's own audit log, never `audit_log`
+· *Why by hand:* one business is live. Self-service connection through Meta's signup flow is a build plus a Meta app review, worth both once several businesses ask for it (W-74). **Connecting a business FleetSettle does not itself own needs that app review regardless** — a gate before the second business, not the first.
 
 ---
 
@@ -1254,7 +1267,8 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-0.3, F-0.4 | UC-102, UC-104 | W-63, W-64, W-66, INV-41, INV-42 |
 | F-11.1, F-11.2 | UC-103, UC-105 | W-63, W-65, W-67, INV-38, INV-40 |
 | F-12.1–F-12.4 | UC-106, UC-107, UC-108, UC-109 | W-68, W-69, W-70, INV-43, INV-44, INV-45 |
-| F-10.2–F-10.4 | UC-80…UC-87 | W-71, W-72, INV-46, INV-47, INV-48, INV-50 — *added v1.1.22* |
+| F-10.2–F-10.4 | UC-80…UC-87 | W-71, W-72, W-74, INV-46, INV-47, INV-48, INV-50, INV-51 — *added v1.1.22* |
+| F-11.3 | UC-86 | W-74, INV-38, INV-51 — *added v1.1.22* |
 | F-8.2 | UC-93 | W-73, INV-49 — *added v1.1.22* |
 
 **Use cases with no flow:** none.
@@ -1367,6 +1381,7 @@ The last row is fully derivable and every step is an assertion: combined allowan
 | A-39 *(added v1.1.22)* | A customer's number changes while verification is pending, and the old number's delivery report arrives late | The new number stays unverified; held money messages stay held (INV-48) |
 | A-40 *(added v1.1.22)* | The re-arm step for one payment correction runs twice — a retried request or a replayed job | One new reminder round, not two; the old round's unsent reminders stopped once (INV-49) |
 | A-41 *(added v1.1.22)* | WhatsApp reports `read`, then `delivered`, then `read` again, for an attempt whose send is not yet recorded | Reports held until the attempt is recorded, then applied; final outcome `read`; one log event per real change (INV-50) |
+| A-42 *(added v1.1.22)* | A delivery report arrives on business A's number carrying a provider id that belongs to business B's attempt | Applied to neither business; kept in the inbox as unmatched (INV-51) |
 
 ---
 
