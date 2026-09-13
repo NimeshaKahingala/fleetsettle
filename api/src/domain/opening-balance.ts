@@ -423,7 +423,9 @@ async function reverseOpeningBalancePostings(
  * was considered and dropped — this project's shared Neon test branch has
  * documented, recurring connection instability (TRACKER.md), and a
  * timing-dependent test there is a stronger candidate for permanent
- * flakiness than this lock is for going untested.
+ * flakiness than this lock is for going untested. Raised again by PR #188's
+ * Copilot review; the reasoning above is unchanged, recorded here rather
+ * than re-argued a third time.
  */
 async function assertOpeningBalancePartiesNotArchived(
   tx: Tx,
