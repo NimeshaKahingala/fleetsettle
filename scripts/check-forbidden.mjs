@@ -901,7 +901,22 @@ function checkDocStatusIndex(
       continue;
     }
     const row = indexRows.get(name);
-    if (!row) continue; // docs/README.md's own table is missing this doc — a separate, pre-existing problem
+    if (!row) {
+      // Silent here would defeat the whole check: a row deleted or
+      // mistyped out of docs/README.md's table stops every future drift
+      // in this doc from ever being caught again (PR #188 review).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-missing-row",
+        match: name,
+        message:
+          `docs/README.md's Status table has no row for "${name}" (${docPath}) — the drift ` +
+          "check for this doc can't run without one. Restore the row (CLAUDE.md → Documents travel together).",
+      });
+      continue;
+    }
     findings.push(...compareDocAgainstIndexRow(name, docPath, docText, row));
   }
   return findings;
@@ -921,7 +936,38 @@ function compareDocAgainstIndexRow(name, docPath, docText, row) {
   const indexDateParsed = parseDocDate(row.date);
   const docDateParsed = docDate ? parseDocDate(docDate) : null;
 
-  if (docVersion !== undefined && docVersion !== row.version) {
+  // A missing/reworded Status or Date line, or a Date in a shape
+  // parseDocDate can't read, used to skip both comparisons below with no
+  // finding at all — the exact silent failure this check exists to
+  // prevent, just moved one level up (PR #188 review).
+  if (docVersion === undefined || docDate === undefined) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-metadata-missing",
+      match: docVersion === undefined ? "**Status:** vX.Y.Z" : "**Date:** D Month YYYY",
+      message:
+        `${docPath} has no parseable ${docVersion === undefined ? "**Status:**" : "**Date:**"} ` +
+        `line near the top — docs/README.md's Status table (v${row.version}, ${row.date}) has ` +
+        `nothing to check "${name}" against.`,
+    });
+    return findings;
+  }
+  if (docDateParsed === null) {
+    findings.push({
+      file: docPath,
+      line: 1,
+      column: 1,
+      id: "docs/status-metadata-missing",
+      match: docDate,
+      message:
+        `${docPath}'s own **Date:** ("${docDate}") isn't a "D Month YYYY" date this check can ` +
+        `parse, so it can't be compared against docs/README.md's Status table for "${name}".`,
+    });
+  }
+
+  if (docVersion !== row.version) {
     findings.push({
       file: docPath,
       line: 1,
@@ -1094,6 +1140,33 @@ function selfTest() {
     );
   }
 
+  // A doc's own Status/Date line missing or unparseable used to skip both
+  // comparisons with no finding at all — silently, the exact failure mode
+  // this whole check exists to prevent (PR #188 review).
+  const noStatusLine = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Date:** 2 January 2026\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!noStatusLine.some((f) => f.id === "docs/status-metadata-missing")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a doc with no parseable **Status:** line",
+    );
+  }
+
+  const unparseableDate = compareDocAgainstIndexRow(
+    "use-cases",
+    "docs/product/use-cases.md",
+    "**Status:** v1.0.0 — fixture\n**Date:** whenever it's convenient\n",
+    { version: "1.0.0", date: "2 Jan 2026" },
+  );
+  if (!unparseableDate.some((f) => f.id === "docs/status-metadata-missing")) {
+    failures.push(
+      "compareDocAgainstIndexRow did not flag a doc whose **Date:** line it can't parse",
+    );
+  }
+
   // checkDocStatusIndex itself: compareDocAgainstIndexRow above never
   // touches readDocIndexRows' README-table regex, the path-relevance
   // filter, or a real file read — a regression in any of those could
@@ -1136,6 +1209,16 @@ function selfTest() {
     if (irrelevant.length !== 0) {
       failures.push(
         "checkDocStatusIndex ran its check on a path that touches neither docs/README.md nor an indexed doc",
+      );
+    }
+
+    // A row deleted or mistyped out of the README's own table used to be a
+    // silent `continue` — no finding, ever again, for that doc.
+    writeFileSync(fixtureReadmeAbs, "| some-other-doc | v1.0 | 1 Jan 2026 |\n", "utf8");
+    const missingRow = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!missingRow.some((f) => f.id === "docs/status-index-missing-row")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc with no row in the README's Status table",
       );
     }
   } finally {
