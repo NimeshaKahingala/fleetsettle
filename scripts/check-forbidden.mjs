@@ -893,7 +893,24 @@ function checkDocStatusIndex(
 
   for (const [name, docPath] of Object.entries(indexFiles)) {
     const docAbs = resolve(ROOT, docPath);
-    if (!existsSync(docAbs)) continue;
+    if (!existsSync(docAbs)) {
+      // A doc DOC_INDEX_FILES/docs/README.md still names but that no
+      // longer exists on disk (moved or deleted without updating either)
+      // used to `continue` past it with nothing reported — the same
+      // silent-guard failure as a missing README row, just from the other
+      // side (PR #189 review).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-missing-doc",
+        match: docPath,
+        message:
+          `docs/README.md's Status table names "${name}" (${docPath}), but that file doesn't ` +
+          "exist — the drift check for it can't run. Update the table, or the path in DOC_INDEX_FILES, to match reality.",
+      });
+      continue;
+    }
     let docText;
     try {
       docText = readText(docAbs);
@@ -916,6 +933,22 @@ function checkDocStatusIndex(
           "check for this doc can't run without one. Restore the row (CLAUDE.md → Documents travel together).",
       });
       continue;
+    }
+    if (parseDocDate(row.date) === null) {
+      // The README's own Date column, not the doc's — mirrors the doc-side
+      // check in compareDocAgainstIndexRow, which this can't delegate to
+      // since a bad *index* date means there is no ground truth to compare
+      // the doc against at all (PR #189 review).
+      findings.push({
+        file: readmePath,
+        line: 1,
+        column: 1,
+        id: "docs/status-index-bad-date",
+        match: row.date,
+        message:
+          `docs/README.md's Status table gives "${name}" a Date ("${row.date}") this check can't ` +
+          `parse as "D Month YYYY" — nothing to compare ${docPath}'s own **Date:** against.`,
+      });
     }
     findings.push(...compareDocAgainstIndexRow(name, docPath, docText, row));
   }
@@ -1220,6 +1253,49 @@ function selfTest() {
       failures.push(
         "checkDocStatusIndex did not flag a doc with no row in the README's Status table",
       );
+    }
+
+    // A path DOC_INDEX_FILES/docs/README.md names that no longer exists on
+    // disk — the mirror image of a missing row, and PR #189 review's own
+    // point: the two metadata-missing cases below were only ever proven
+    // against compareDocAgainstIndexRow directly, not through this
+    // function's path filter, README parsing and real file reads.
+    const missingDocRel = `.self-test-missing-doc-${process.pid}.tmp.md`;
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | 1 Jan 2026 |\n", "utf8");
+    const missingDoc = checkDocStatusIndex([fixtureReadmeRel], {
+      readmePath: fixtureReadmeRel,
+      indexFiles: { fixture: missingDocRel },
+    });
+    if (!missingDoc.some((f) => f.id === "docs/status-index-missing-doc")) {
+      failures.push(
+        "checkDocStatusIndex did not flag an indexed doc path that doesn't exist on disk",
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Date:** 1 January 2026\n", "utf8");
+    const noStatusLineE2e = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!noStatusLineE2e.some((f) => f.id === "docs/status-metadata-missing")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc with no parseable **Status:** line, end to end",
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** whenever it's convenient\n", "utf8");
+    const unparseableDateE2e = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!unparseableDateE2e.some((f) => f.id === "docs/status-metadata-missing")) {
+      failures.push(
+        "checkDocStatusIndex did not flag a doc whose **Date:** line it can't parse, end to end",
+      );
+    }
+
+    // The README's own Date for this doc, not the doc's — the comparison
+    // has no ground truth to check the doc against either way, and used
+    // to skip silently rather than say so.
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | whenever |\n", "utf8");
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 1 January 2026\n", "utf8");
+    const badIndexDate = checkDocStatusIndex([fixtureReadmeRel], overrides);
+    if (!badIndexDate.some((f) => f.id === "docs/status-index-bad-date")) {
+      failures.push("checkDocStatusIndex did not flag a README Date it can't parse");
     }
   } finally {
     for (const f of [fixtureDocAbs, fixtureReadmeAbs]) {
