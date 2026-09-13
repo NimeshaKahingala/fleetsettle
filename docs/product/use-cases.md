@@ -1,6 +1,8 @@
 # Use Cases & User Workflows
 
-**Status:** v1.2.18 — **UC-99's PDF deferral re-recorded, not lifted, 12 Sept 2026.** Its original technical premise no longer holds by itself now that `tech-stack.md` §7 records an off-Worker rendering option — so the deferral now rests on its stronger, always-true reason: nothing has asked for a document, and the spreadsheet already gets the numbers out. Also corrects a stale citation the paragraph carried since 17 Aug 2026 (`TS §7`'s runtime constraints, not §8's environment-bindings table). Mirrors `user-flows.md` v1.1.21's F-9.3. GAP-136.
+**Status:** v1.2.19 — **UC-04 catches up to the settlement-weekday input `user-flows.md` F-1.6 already documented (GAP-135, 12 Sept 2026).** F-1.6 gained "how he settles: Daily or Weekly, with the agreed weekday when Weekly" when the derivation was built; this use case, F-1.6's own source, still listed only name, phone, fees and licence expiry — the pair disagreeing about what UC-04 covers (PR #186 review, PR #187). No new rule: the mechanics stay owned by F-1.6, this only names the input at the use-case level.
+
+**v1.2.18** — **UC-99's PDF deferral re-recorded, not lifted, 12 Sept 2026.** Its original technical premise no longer holds by itself now that `tech-stack.md` §7 records an off-Worker rendering option — so the deferral now rests on its stronger, always-true reason: nothing has asked for a document, and the spreadsheet already gets the numbers out. Also corrects a stale citation the paragraph carried since 17 Aug 2026 (`TS §7`'s runtime constraints, not §8's environment-bindings table). Mirrors `user-flows.md` v1.1.21's F-9.3. GAP-136.
 
 **v1.2.17** — **UC-70 moves to net basis (D1 of the backend accuracy review, 31 Aug 2026): a waiver reduces what counts as earned, and a customer contribution, an insurer settlement and a write-off all now count** — the code read `obligation.amount_minor` gross and read none of the three, while UC-99's own export already included all three and the export/report pair could never reconcile. Schema in `data-model.md` §15.
 
@@ -284,7 +286,7 @@ The three refusals for a manager share one shape: **anything that makes money di
 **The fee itself (W-53):** a management fee is a **vehicle operating cost** to the owner and **income** to the manager. So it reduces vehicle profit before the owners' shares are worked out, and where the manager is also a partner, consolidated business profit nets to zero on it. UC-64 shows the two sides; UC-67 holds the balance.
 
 **UC-04 Add a driver**
-Manager — new driver. Name, phone, his **driver day fee** and **driver trip fee**, licence expiry.
+Manager — new driver. Name, phone, his **driver day fee** and **driver trip fee**, licence expiry, and how he settles: Daily or Weekly, with an agreed weekday when Weekly (GAP-135) — mechanics in `user-flows.md` F-1.6/F-4.5.
 *Variation:* assign him as the default driver for a vehicle for a date range, so trips and daily records pre-fill him.
 *On the naming (W-40 companion):* these two are **money you pay him**. The figure in UC-05 is **money he pays you**. v1.1 called both a "per-day rate", which is the same phrase for opposite directions of money — so the two are now named apart and never abbreviated back to "rate" on a screen where both could appear.
 

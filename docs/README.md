@@ -64,11 +64,11 @@ Three rules that have already earned their place:
 
 | Document | Version | Date |
 |---|---|---|
-| use-cases | v1.2.18 | 12 Sept 2026 |
+| use-cases | v1.2.19 | 12 Sept 2026 |
 | user-flows | v1.1.21 | 12 Sept 2026 |
 | data-model | v1.1.20 | 12 Sept 2026 |
 | tech-stack | v1.5 | 12 Sept 2026 |
-| implementation-guidelines | v1.8 | 23 Aug 2026 |
+| implementation-guidelines | v1.9 | 12 Sept 2026 |
 | ui-ux-guidelines | v1.10 | 28 Aug 2026 |
 | brand-guidelines | v1.1.1 | 22 Aug 2026 |
 
