@@ -857,21 +857,30 @@ function parseDocDate(raw) {
   return `${m[3]}-${String(resolved).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
 }
 
-function readDocIndexRows(readmeText) {
+function readDocIndexRows(readmeText, indexFiles = DOC_INDEX_FILES) {
   const rows = new Map();
   for (const line of readmeText.split("\n")) {
     const m = /^\|\s*([a-z-]+)\s*\|\s*v([0-9.]+)\s*\|\s*([^|]+?)\s*\|$/.exec(line);
-    if (m && DOC_INDEX_FILES[m[1]]) rows.set(m[1], { version: m[2], date: m[3] });
+    if (m && indexFiles[m[1]]) rows.set(m[1], { version: m[2], date: m[3] });
   }
   return rows;
 }
 
-function checkDocStatusIndex(paths) {
+/**
+ * `readmePath`/`indexFiles` default to the real repo constants; the
+ * self-test overrides both to point at disposable fixture files, since
+ * `DOC_README_PATH` is a `const` and can't be swapped at runtime — that
+ * lets it exercise the README-table regex, the path-relevance filter and
+ * real file reads end to end, not only the pure comparator below.
+ */
+function checkDocStatusIndex(
+  paths,
+  { readmePath = DOC_README_PATH, indexFiles = DOC_INDEX_FILES } = {},
+) {
   const findings = [];
-  const readmeAbs = resolve(ROOT, DOC_README_PATH);
+  const readmeAbs = resolve(ROOT, readmePath);
   const touchesIndexedDoc =
-    paths.includes(DOC_README_PATH) ||
-    paths.some((p) => Object.values(DOC_INDEX_FILES).includes(p));
+    paths.includes(readmePath) || paths.some((p) => Object.values(indexFiles).includes(p));
   if (!touchesIndexedDoc || !existsSync(readmeAbs)) return findings;
 
   let readmeText;
@@ -880,9 +889,9 @@ function checkDocStatusIndex(paths) {
   } catch {
     return findings;
   }
-  const indexRows = readDocIndexRows(readmeText);
+  const indexRows = readDocIndexRows(readmeText, indexFiles);
 
-  for (const [name, docPath] of Object.entries(DOC_INDEX_FILES)) {
+  for (const [name, docPath] of Object.entries(indexFiles)) {
     const docAbs = resolve(ROOT, docPath);
     if (!existsSync(docAbs)) continue;
     let docText;
@@ -1083,6 +1092,60 @@ function selfTest() {
     failures.push(
       "compareDocAgainstIndexRow did not flag a Status version disagreeing with its index row",
     );
+  }
+
+  // checkDocStatusIndex itself: compareDocAgainstIndexRow above never
+  // touches readDocIndexRows' README-table regex, the path-relevance
+  // filter, or a real file read — a regression in any of those could
+  // leave the guard permanently inactive while this self-test stayed
+  // green. Fixture files stand in for docs/README.md and a doc, passed
+  // in via `checkDocStatusIndex`'s override parameter rather than the
+  // module's real (const) path constants.
+  const fixtureDocRel = `.self-test-doc-${process.pid}.tmp.md`;
+  const fixtureReadmeRel = `.self-test-readme-${process.pid}.tmp.md`;
+  const fixtureDocAbs = resolve(ROOT, fixtureDocRel);
+  const fixtureReadmeAbs = resolve(ROOT, fixtureReadmeRel);
+  try {
+    const indexFiles = { fixture: fixtureDocRel };
+    const overrides = { readmePath: fixtureReadmeRel, indexFiles };
+
+    writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | 1 Jan 2026 |\n", "utf8");
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 1 January 2026\n", "utf8");
+    const clean = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (clean.length !== 0) {
+      failures.push(
+        `checkDocStatusIndex found drift on a matching README/doc fixture pair: ${JSON.stringify(clean)}`,
+      );
+    }
+
+    writeFileSync(fixtureDocAbs, "**Status:** v1.0\n**Date:** 2 January 2026\n", "utf8");
+    const dateDrift = checkDocStatusIndex([fixtureReadmeRel], overrides);
+    if (!dateDrift.some((f) => f.id === "docs/status-date-drift")) {
+      failures.push(
+        "checkDocStatusIndex did not catch a Date drift when triggered via the README's own path",
+      );
+    }
+    const dateDriftViaDoc = checkDocStatusIndex([fixtureDocRel], overrides);
+    if (!dateDriftViaDoc.some((f) => f.id === "docs/status-date-drift")) {
+      failures.push(
+        "checkDocStatusIndex did not catch a Date drift when triggered via the doc's own path",
+      );
+    }
+
+    const irrelevant = checkDocStatusIndex(["some/unrelated/file.ts"], overrides);
+    if (irrelevant.length !== 0) {
+      failures.push(
+        "checkDocStatusIndex ran its check on a path that touches neither docs/README.md nor an indexed doc",
+      );
+    }
+  } finally {
+    for (const f of [fixtureDocAbs, fixtureReadmeAbs]) {
+      try {
+        unlinkSync(f);
+      } catch {
+        // best-effort cleanup
+      }
+    }
   }
 
   if (failures.length) {
