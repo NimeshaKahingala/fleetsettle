@@ -16,6 +16,7 @@ Preserving a document does not mean its findings were accepted, reproduced, fixe
 | [End-to-end evaluation — 2 September](CODE-EVALUATION-END-TO-END-2026-09-02.md) | A source of candidate findings, with material citation and status problems documented by the next row |
 | [Independent validation — 2 September](INDEPENDENT-VALIDATION-2026-09-02.md) | Claim-by-claim challenges and confirmations; its claims also require verification |
 | [Logical issues audit — 2 September](LOGICAL-ISSUES-AUDIT-2026-09-02.md) | Additional reported issues on `develop` at `a5d19a3`, expanded at `f57cfea`; not all were independently reproduced in the article review |
+| [P14 messaging plan — 13 September](P14-MESSAGING-PLAN-2026-09-13.md) | Decision record and build plan for WhatsApp messaging, after two validation passes. Its rules were absorbed into the specification in the same change — read those documents for the rule, this one for the reasoning, the order and what was declined |
 
 Other files in this folder retain earlier API/data-model, UI, platform, feature, and correction-design investigations. Their dates and internal status text belong to their original work, not to the date they were moved here.
 

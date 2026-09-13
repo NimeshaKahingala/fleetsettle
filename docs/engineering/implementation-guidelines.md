@@ -1,12 +1,14 @@
 # Implementation Guidelines
 
-**Status:** v1.9 — **§16.1 gains a row for the Status/Date consistency guard (GAP-135/PR #186 review, PR #187, 12 Sept 2026).** A doc-only fix left `use-cases.md`'s own `**Date:**` disagreeing with `docs/README.md`'s Status table with nothing to catch it; `check-forbidden.mjs`'s `checkDocStatusIndex` now compares every one of the seven docs' own `**Status:**`/`**Date:**` against its README row on any edit to either side. Decided 12 Sept 2026.
+**Status:** v1.10 — **§4.3 states how an idempotent insert is written inside a money transaction, and §6's `dispatch-messages` row is corrected (P14, 13 Sept 2026).** The rule — a unique violation on an idempotent path is success — is unchanged and correct. What it left unstated is that *catching* the violation only works when the insert is its own transaction: inside a larger one Postgres has already aborted everything, the money write included. And `one_message_per_trigger` is a unique *index*, so `ON CONFLICT ON CONSTRAINT` cannot name it; index inference can.
+
+**v1.9** — **§16.1 gains a row for the Status/Date consistency guard (GAP-135/PR #186 review, PR #187, 12 Sept 2026).** A doc-only fix left `use-cases.md`'s own `**Date:**` disagreeing with `docs/README.md`'s Status table with nothing to catch it; `check-forbidden.mjs`'s `checkDocStatusIndex` now compares every one of the seven docs' own `**Status:**`/`**Date:**` against its README row on any edit to either side. Decided 12 Sept 2026.
 
 **v1.8** — **§16.1's trigger-drift row sharpened to name both triggers and all three workflows, with a note on the half of it that is routinely under-read.** The two hand-maintained lists (`assert_period_open()`'s array, `write_audit_log()`'s attachment) do each run once and do not re-run — but **neither omission is silent**, because `check:drift` catches both in `integration.yml`, `deploy-qa.yml` and `migrate-production.yml`. Recorded because a design note budgeted two bespoke tests for exactly this before it was checked. Serves `data-model.md` v1.1.13 §4.4. Decided 23 Aug 2026.
 
 **v1.7** — **§7.5/§7.6 added: the five-step multi-business header rule and the platform tier's structural boundary.** Two new `check-forbidden.mjs` rows in §16.1 — a header-read pattern distinct from the existing body/query one, and a new directory-scoped guard for `queries/platform/`. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` §7.2/§7.3/§7.7 (decisions 18, 23). Decided 18 Aug 2026.
 **v1.6.1** — merges two same-day changes: §10 item 10, R2 objects served through the Worker, re-authorised per request, not a presigned URL — reversed by A7/GAP-16 (UI §6.3's M-29, renumbered from a same-day M-28 collision with GAP-101) — and §16.1 gaining a row: a `useQuery(` with no error state is now guard-script-caught (UI §6.4/M-28, GAP-101)
-**Date:** 12 September 2026
+**Date:** 13 September 2026
 **Companions:** `tech-stack.md` (the stack) · `data-model.md` (the schema) · `ui-ux-guidelines.md` (the client) · `user-flows.md` (the behaviour)
 
 **This document is downstream of `tech-stack.md`.** That document decides *what* the stack is; this one decides *how* to build on it — layering, error shape, transactions, testing, CI. Where the two disagree, `tech-stack.md` wins and this document is wrong.
@@ -237,6 +239,8 @@ Cron jobs and retried mutations must not double-write, and the guarantee is in t
 
 Handle the unique violation as a **success** on those paths. A cron that fires twice should be a no-op, not a 500 and a page.
 
+**Inside a transaction that also writes money, never let the violation happen.** Postgres aborts the whole transaction at the first error, so catching a unique violation after the fact leaves nothing to commit — the money write is gone with it. Write the idempotent insert so it cannot raise: `INSERT … ON CONFLICT (business_id, trigger_type, subject_type, subject_id, stage) DO NOTHING`. That is index inference, and it is the only form that works for `message`: `one_message_per_trigger` is a standalone unique index, not a named constraint, so `ON CONFLICT ON CONSTRAINT one_message_per_trigger` fails. Enqueuing a message inside a money write is exactly this case (FL F-10.3), and nothing that talks to the network ever runs inside that transaction.
+
 ### 4.4 The money codec
 
 ```ts
@@ -292,7 +296,7 @@ Everything the system does "without being asked" is a Cron Trigger (TS §4), and
 |---|---|
 | `generate-day-cards` | daily, early |
 | `generate-billing-periods` | daily |
-| `dispatch-messages` | every 15 min inside the send window |
+| `dispatch-messages` | every 15 min — a recovery sweep; confirmations publish on commit (TS §4) |
 | `paperwork-warnings` | daily |
 | `deposit-hold-release` | daily |
 
