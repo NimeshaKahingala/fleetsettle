@@ -854,6 +854,23 @@ function parseDocDate(raw) {
   // every other short-form month besides.
   const resolved = MONTH_NUMBER[word.slice(0, 4)] ?? MONTH_NUMBER[word.slice(0, 3)];
   if (!resolved) return null;
+  const day = Number(m[1]);
+  const year = Number(m[3]);
+  // Shape-and-lookup alone accepts a calendar-impossible date ("32 Jan",
+  // "29 Feb" in a non-leap year) as a valid parse — harmless if only one
+  // side has the typo (it then just disagrees with the other), but a typo
+  // copied to both docs/README.md's row and the doc's own line would
+  // compare equal and pass silently (PR #189 review). `Date.UTC` silently
+  // rolls an out-of-range day into the next month, so round-tripping
+  // through it and checking nothing moved is the calendar check itself.
+  const asDate = new Date(Date.UTC(year, resolved - 1, day));
+  if (
+    asDate.getUTCFullYear() !== year ||
+    asDate.getUTCMonth() !== resolved - 1 ||
+    asDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
   return `${m[3]}-${String(resolved).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
 }
 
@@ -894,11 +911,19 @@ function checkDocStatusIndex(
   for (const [name, docPath] of Object.entries(indexFiles)) {
     const docAbs = resolve(ROOT, docPath);
     if (!existsSync(docAbs)) {
-      // A doc DOC_INDEX_FILES/docs/README.md still names but that no
-      // longer exists on disk (moved or deleted without updating either)
-      // used to `continue` past it with nothing reported — the same
-      // silent-guard failure as a missing README row, just from the other
-      // side (PR #189 review).
+      // A path DOC_INDEX_FILES names, and docs/README.md's table still
+      // indexes, that no longer exists on disk (moved or deleted without
+      // updating either) used to `continue` past it with nothing reported
+      // — the same silent-guard failure as a missing README row, just
+      // from the other side (PR #189 review, which also raised whether a
+      // deletion reaches this at all — verified empirically: a deletion
+      // happens via `rm`, not `Edit`/`Write`, so `.claude/hooks/guard.mjs`
+      // (wired to `Write|Edit` only) never runs for it either way, live-hook
+      // or not; the next full `npm run guard` — CI's own gate — catches it
+      // regardless of which file triggered the scan, since docs/README.md's
+      // own presence already satisfies `touchesIndexedDoc` below without
+      // the deleted path needing to survive into `paths` itself. The same
+      // live/CI split every other check in this file already has).
       findings.push({
         file: readmePath,
         line: 1,
@@ -1136,6 +1161,17 @@ function selfTest() {
     }
   }
 
+  // Shape-and-month-lookup alone would accept a calendar-impossible date;
+  // a typo copied identically into both docs/README.md's row and the doc's
+  // own line would then compare equal and pass with nothing reported
+  // (PR #189 review).
+  const impossibleDates = ["32 Jan 2026", "29 Feb 2026", "31 Apr 2026"];
+  for (const bad of impossibleDates) {
+    if (parseDocDate(bad) !== null) {
+      failures.push(`parseDocDate(${JSON.stringify(bad)}) -> ${parseDocDate(bad)}, expected null`);
+    }
+  }
+
   // compareDocAgainstIndexRow: the pure comparison checkDocStatusIndex is
   // built on — exercised directly with fixture strings rather than through
   // real files standing in for docs/README.md and a doc.
@@ -1255,11 +1291,12 @@ function selfTest() {
       );
     }
 
-    // A path DOC_INDEX_FILES/docs/README.md names that no longer exists on
-    // disk — the mirror image of a missing row, and PR #189 review's own
-    // point: the two metadata-missing cases below were only ever proven
+    // A path DOC_INDEX_FILES names, and docs/README.md's table still
+    // indexes, that no longer exists on disk — the mirror image of a
+    // missing row. (PR #189 review's own point about this whole block:
+    // the two metadata-missing cases further below were only ever proven
     // against compareDocAgainstIndexRow directly, not through this
-    // function's path filter, README parsing and real file reads.
+    // function's own path filter, README parsing and real file reads.)
     const missingDocRel = `.self-test-missing-doc-${process.pid}.tmp.md`;
     writeFileSync(fixtureReadmeAbs, "| fixture | v1.0 | 1 Jan 2026 |\n", "utf8");
     const missingDoc = checkDocStatusIndex([fixtureReadmeRel], {
