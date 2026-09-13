@@ -6,7 +6,9 @@
 >
 > **LT-10 is the one to be least willing to skip:** `CloseWatcher` has no iOS Safari fallback by design and has only ever been tested under CDP emulation — LT-13's own sweep used the same emulation, so it cannot substitute. **LT-9** needs a linked-driver account, which needs a real identity to redeem the invite.
 >
-> **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) — **sized, decided and specified 13 Sept 2026**: automatic sending over the Cloud API, ten PRs plus a parallel Meta track, only the real transport waiting on template approval — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
+> **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) — **fully specified 13 Sept 2026, then parked by the owner: not starting soon** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
+>
+> **Next build focus, set by the owner 13 Sept 2026: [Wave 8d · GAP-229 and GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m)** — two live money defects P14's template review found, both wrong in the product today.
 >
 > **Before trusting anything in the superseded block, read [its marker](#the-order-end-to-end) — it now names four exceptions, not one** (17 August 2026). Two live conventions were buried under "do not read it" (`The bar every item clears`, `When an item here is finished`), and **[Skipped by decision](#skipped-by-decision) had six of its seven entries reversed** — it listed A7, GAP-1, GAP-6, GAP-12, GAP-19 and GAP-18 as out of scope after all six had shipped. Each now carries what actually happened. **A contradiction inside this file was resolved the same pass**: its tail read *"worth firing"* the twelve Meta approvals while Wave 10 records the owner's decision not to.
 
@@ -446,6 +448,35 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 
 **Added 25 August 2026 — three more items folded in, by user decision, and Step 16 ordered last on purpose.** GAP-171 and GAP-172 were filed 23 Aug alongside this batch but never got a step in this table; GAP-188 was filed 24 Aug the same way. All three are now Steps 14–16, in the same remediation track, since all three are live defects rather than new build work. **GAP-188 is deliberately last**, not because it is smallest but because it is the one item here that cannot start as code — TRACKER §4's own row says it "needs a design answer first: either a separate *of which, belongs elsewhere* figure stated beside the total, or the month report growing real lines," so a `doc-change` has to land before a diff can. **GAP-170 (the printed slip) is not in this table** — moved to phase 2 the same day, alongside GAP-65, since both are the same shape (an unauthenticated route carrying a full financial position) and neither should ship ahead of the other; see TRACKER §4 for the reasoning and the resulting doc-drift it leaves open.
 
+### Wave 8d · GAP-229 and GAP-230 — two live money defects (M)
+
+**Added 13 September 2026, by owner priority.** Both were found by review of P14's template draft and confirmed against source, and **both are wrong in the product today, independent of messaging** — which is why they do not stay inside Wave 10, where parking P14 would have parked them too. Each row's full account is in [TRACKER.md](TRACKER.md) §4. **The rules they must meet are already in `docs/`, so neither needs a `doc-change` first.**
+
+**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap.
+
+#### GAP-229 — a correction uses credit before reopening dues (S)
+
+| | |
+|---|---|
+| Rule | `user-flows.md` F-8.2 (the credit-first bullet), `use-cases.md` UC-93 |
+| Where | `correctPayment` → `unwindAllocations`, `api/src/domain/payment-correction.ts` |
+| Change | Inside the existing transaction: lock the payment row (`SELECT … FOR UPDATE`, the D-15 convention); read its unallocated credit as `amount_minor − SUM(live payment_allocation)`, the formula `credit-forward.ts` already uses; under `back_to_arrears`, unwind only `max(0, differenceMinor − unallocated)`. `absorbed_loss` unwinds nothing today and needs no change — but check that a correction larger than the credit never leaves a negative remainder that anything reads as credit |
+| Tests (`payment-correction.test.ts`, 10 today) | The review's example: 45,000 owed, 50,000 paid, corrected to 49,000 → **0 owed, 4,000 credit** · a correction exactly equal to the credit · one larger than the credit, reopening only the excess · the same cases under `absorbed_loss` · a customer payment and a driver payment · credit already drawn by forward allocation (GAP-5b) before the correction. **Each new test confirmed failing against today's code before the fix** |
+| Done means | All green; golden fixtures unmoved; the TRACKER row closed with real test counts |
+
+#### GAP-230 — a held deposit can be released (M)
+
+| | |
+|---|---|
+| Rule | `user-flows.md` F-2.7 (one settlement operation), F-2.6 step 6, INV-4 |
+| Where today | `settleLeaseDeposit` (`lease-closure.ts`) and `recordDepositMovementTx` (`deposit.ts`) both refuse anything not `held`. `GET /api/home/deposit-releases` lists releases that are due; `DepositReleasesScreen` only navigates to the party |
+| Change | One operation — e.g. `POST /api/deposit/{id}/release` — that accepts only a `hold_window` deposit and, in one transaction, locks the deposit row, records the refund and any applied or retained amount as movements, sets the final status (`released`, `applied` or `retained`; the existing `CHECK` already allows all three, so **no migration**), and refuses a second settlement. A release action reachable from `DepositReleasesScreen` |
+| Tests | Full refund · part kept, with a reason · all kept or applied · a retried release is a no-op · a `held` deposit (not `hold_window`) is refused · cross-tenant 404 · the deposit leaves the home release list · voiding a release movement returns the deposit to `hold_window` (the recompute in `deposit.ts` already does this; cover it) |
+| **Ask the owner before building** | 1. Where the release action lives: the releases list, the customer, or the closed lease. 2. Whether keeping part needs a real charge to apply it to (UC-91's post-closure charge) or only a reason. 3. Whether a deposit may be released before its release date |
+| Done means | All green; a deposit put on hold in QA released end to end; the TRACKER row closed |
+
+**When P14 resumes, both become its W4 triggers:** the correction message reads the remaining credit GAP-229 computes, and the deposit-release message follows GAP-230's operation.
+
 ### Wave 9 · Release (S)
 
 Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `main`, post-deploy verification before anyone onboards.
@@ -459,6 +490,8 @@ Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `m
 **This also amends the premise the wave plan was built on.** The 12 Aug rule was that nothing goes live until every phase-1 gap is fixed and tested; **GAP-65 is the first gap deliberately shipped unfixed**, so the rule now reads *"every phase-1 gap except those explicitly deferred with their reason recorded."* One exception, one reason, written down in its own row — the distinction worth holding is between a premise amended in the open and one that quietly stops being true.
 
 ### Wave 10 · P14 messaging — **phase 2** (sized 13 Sept 2026)
+
+**⏸ Parked by the owner, 13 September 2026 — fully specified, not starting soon.** Nothing is lost by waiting: the decision, the build order, the templates and the Meta track are all written down. **To resume, read [the plan's §0](docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md#0-status--parked-13-september-2026-and-how-to-resume) first** — it lists what will be stale by then (the migration number, Meta's limits and prices, line citations) and the order to pick back up. **The prerequisite work inside this wave is not parked with it:** GAP-229 and GAP-230 are live defects and moved to [Wave 8d](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m).
 
 **Sized, decided and specified 13 September 2026.** Plan, decision record and review absorption: [docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md](docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md). The rules it builds to live where they belong: `use-cases.md` v1.2.20 (W-14 reaffirmed, W-71–W-73), `user-flows.md` v1.1.22 (ST-8, INV-46–INV-50, F-8.2, F-10.2–F-10.4, A-34–A-41), `data-model.md` v1.1.21 (§11.1, D-18–D-21), `tech-stack.md` v1.6, `implementation-guidelines.md` v1.10.
 

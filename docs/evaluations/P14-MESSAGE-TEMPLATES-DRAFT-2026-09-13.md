@@ -1,6 +1,6 @@
 # P14 — WhatsApp message templates: draft for review
 
-**Status: draft, 13 September 2026. Nothing here has been submitted to Meta.** Track M step 3 of [the P14 plan](P14-MESSAGING-PLAN-2026-09-13.md): drafted by Claude in both languages, per the owner's decision; **every Sinhala template must be checked and approved by a Sinhala-reading partner before submission.**
+**Status: draft, 13 September 2026 — parked with P14 by the owner the same day. Nothing here has been submitted to Meta.** The Sinhala check can happen any time before P14 resumes. Track M step 3 of [the P14 plan](P14-MESSAGING-PLAN-2026-09-13.md): drafted by Claude in both languages, per the owner's decision; **every Sinhala template must be checked and approved by a Sinhala-reading partner before submission.**
 
 The rules these templates serve are in `use-cases.md` Group I (UC-80 to UC-87, W-45, W-71, W-73) and `user-flows.md` F-10.3. Where this draft and those documents disagree, those documents are right, and the disagreement is a finding for §4.
 

@@ -6,6 +6,35 @@
 
 ---
 
+## 0. Status — parked 13 September 2026, and how to resume
+
+**Parked by the owner on 13 September 2026: P14 is fully specified and will not start soon.** A future session reads this section first.
+
+| Part | State when parked |
+|---|---|
+| Decision (W-14, W-71–W-74) | **Complete** — `use-cases.md`, and §1 here |
+| Behaviour and schema | **Complete** — `user-flows.md` F-10.2–F-10.4, F-11.3, INV-46–INV-51; `data-model.md` §11.1 |
+| Build order | **Complete** — §6, ten PRs; [Plan.md](../../Plan.md) Wave 10 |
+| Templates | **English reviewed twice; Sinhala unchecked** — [the template draft](P14-MESSAGE-TEMPLATES-DRAFT-2026-09-13.md), 22 templates |
+| Meta setup (§7) | **Not started** — no SIM, no Meta Business account, nothing submitted |
+| Code | **None** |
+
+**Must happen before resuming**
+
+1. **GAP-229 and GAP-230 fixed.** Both are live defects, now [Plan.md](../../Plan.md) Wave 8d. P14's correction messages read the credit GAP-229 computes, and its deposit-release messages follow the operation GAP-230 adds.
+2. **The Sinhala check** of the template draft, by a Sinhala-reading partner. It can happen any time, independently of everything else.
+
+**Stale by then — re-check, do not trust**
+
+- **The migration number.** `0041` was free at `5e39edb`; anything merged since may have taken it. W1 takes the next free number at build time.
+- **Meta's limits, template rules and prices** (§9). Sri Lanka's utility rate card was due to change on 1 October 2026, and Meta revises these often.
+- **Line citations** here, in the template draft and in TRACKER rows. Re-derive against the tree before relying on one.
+- **The live business's state:** its customers' and drivers' numbers, languages and opt-in; and whether a second business has joined, which makes Meta app review a gate (W-74).
+- **The Cloudflare Queue bindings** (TS §8): confirm both queues still exist.
+
+**Resume order:** re-read W-71–W-74 and §6 → check the stale list above → start §7's Meta track in parallel with W1 → build W1–W10 in §6's order.
+
+
 ## 1. The decision
 
 P14 was deferred entire on 17 August 2026, deliberately without firing any Meta approvals, because UC §8 lists W-14 (fully automatic messaging) as a decision to attack and production then held no real data to attack it with. The question was put back to the owner on 12–13 September, one question at a time:
