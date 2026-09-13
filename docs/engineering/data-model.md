@@ -1717,7 +1717,7 @@ UPDATE business_settings SET messaging_kill_switch = true;
 
 | Base | Qualifier | Used by |
 |---|---|---|
-| `once` | — | UC-80, UC-82, UC-83, UC-84, the receipt correction |
+| `once` | — | UC-80, UC-82, UC-83, UC-84, UC-110, the receipt corrections, the deposit release (subject the deposit) |
 | `before_<n>d`, `on_due`, `overdue` | — | UC-81, one set per obligation |
 | `summary` | `weekly:<period end date>` or `monthly:<YYYY-MM>`, in the business timezone | UC-85, subject the driver |
 | `number` | the destination in E.164 | the verification message, subject the customer or driver |

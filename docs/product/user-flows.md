@@ -1,6 +1,6 @@
 # Key User Flows
 
-**Status:** v1.1.22 — **F-10's messaging mechanics specified for build (P14), 13 Sept 2026: ST-8 redrawn, INV-46 to INV-51 added, F-8.2's re-arm given a mechanism, A-34 to A-42 added.** Carries `use-cases.md` v1.2.20's W-71 (the verification hold), W-72 (no automatic resend of an attempt that may have arrived), W-73 (reversal rounds) and W-74 (each business sends from its own WhatsApp account; F-11.3 connects one). **INV-11 is restated as what a unique index can actually promise** — one message *row* — with the delivery-side guarantee moved to INV-46, because a queue that delivers at least once can turn one row into two sends. Confirmations no longer depend on the 15-minute dispatcher (EC-09-004). Schema: `data-model.md` v1.1.21 §11.1. No golden-fixture figure moves.
+**Status:** v1.1.22 — **F-10's messaging mechanics specified for build (P14), 13 Sept 2026: ST-8 redrawn, INV-46 to INV-51 added, F-8.2's re-arm given a mechanism, A-34 to A-42 added.** Carries `use-cases.md` v1.2.20's W-71 (the verification hold), W-72 (no automatic resend of an attempt that may have arrived), W-73 (reversal rounds) and W-74 (each business sends from its own WhatsApp account; F-11.3 connects one). Owner answers on the template wording add UC-110's driver receipt to F-10.3 and drop the odometer-photo request from the rent reminder. **INV-11 is restated as what a unique index can actually promise** — one message *row* — with the delivery-side guarantee moved to INV-46, because a queue that delivers at least once can turn one row into two sends. Confirmations no longer depend on the 15-minute dispatcher (EC-09-004). Schema: `data-model.md` v1.1.21 §11.1. No golden-fixture figure moves.
 
 **v1.1.21** — **F-4.5's weekly-settler criterion is built, GAP-135 closed, 12 Sept 2026.** `driver.settlement_weekday` derives `effective_due_on` for real now (`data-model.md` D-5); `SETTLEMENT_RHYTHM_UNSUPPORTED` retires. **F-9.3's PDF deferral is re-recorded, not lifted**: `tech-stack.md` §7 now records an off-Worker rendering option, so the deferral's original runtime-limits premise no longer settles the question by itself — it now rests on its stronger, always-true reason instead: nothing has asked for a document, and the spreadsheet plus a printed screen already get the numbers out. Also corrects a stale citation this note carried since 17 Aug 2026: `TS §7` ("Platform constraints"), not `TS §8` (the environment-bindings table). Neither closure moves a golden fixture.
 
@@ -576,7 +576,7 @@ Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was al
 · **Two months together** — one receipt covering both dues, oldest first with a preview (§6.5)
 · **Overpayment** — surplus held as customer credit against the next due.
 **System** stops the reminder (UC-81) — INV-12.
-**Accept** · Recording payment cancels a queued reminder and logs the cancellation with its reason · a part payment leaves the due `part_paid` and the reminder armed · the receiver's held cash increases (feeds UC-75 and F-7.4).
+**Accept** · Recording payment cancels a queued reminder and logs the cancellation with its reason · a part payment leaves the due `part_paid` and the reminder armed · the receiver's held cash increases (feeds UC-75 and F-7.4). · **the receipt states any credit held** — its credit version is used only when a surplus is held (UC-82)
 
 #### F-2.3 Read the odometer and charge excess
 *Actor:* Manager · *Source:* UC-14, W-12/16/18/24 · *Phase:* 1
@@ -627,12 +627,12 @@ Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was al
 · **INV-18** — the deposit cannot be settled until step 4 has been rendered. It does not block; it refuses to let you do it blind
 · A lease in `closing` generates no dues
 · Missing handover photos ⇒ step 5 explains that there is nothing to compare against, and records that the return set was taken anyway
-· A held deposit produces a dated release reminder (F-2.7).
+· A held deposit produces a dated release reminder (F-2.7) · the closing message states the held amount and the date the hold ends, and **releasing it sends its own message** — refunded in full, or part kept with the reason (UC-83)
 
 #### F-2.7 Release a held deposit when the window expires
 *Actor:* System → manager · *Source:* UC-16 step 6, W-29 · *Phase:* 2
 **Steps** On the release date, the deposit appears on the home screen. Release, or apply against a charge that arrived in the meantime (F-8.4).
-**Accept** · A deposit in `hold_window` is still a liability, still in the cash position, and still not income (INV-4) · releasing it is not an expense (§6.13).
+**Accept** · A deposit in `hold_window` is still a liability, still in the cash position, and still not income (INV-4) · releasing it is not an expense (§6.13) · **one operation settles a held deposit** *(review, 13 Sept 2026)* — it accepts only a `hold_window` deposit and, in one transaction, records the refund and any amount applied or retained, sets the deposit's final status, and queues the release message (UC-83); a retried settlement is a no-op · **not built today: every deposit operation refuses a `hold_window` deposit — GAP-230**
 
 #### F-2.8 Customer statement
 *Actor:* Manager · *Source:* UC-19 · *Phase:* 2
@@ -958,9 +958,10 @@ Held by each partner, in each account, plus advances outstanding with drivers.
 
 **Accept**
 · **INV-22 — all of it undoes:** due returns to unpaid/part-paid, arrears reappear, the party balance returns, **and the reminder re-arms**. The stateful rule running in reverse — the direction nobody remembers to build, so it gets its own test — the reminders come back as a new round tied to this correction, and every unsent reminder of the old round stops in the same write (INV-49, W-73)
+· **A correction consumes the payment's unallocated credit first** *(review, 13 Sept 2026)* — only the part of the difference larger than that credit reopens settled dues (`back_to_arrears`) or is absorbed (`absorbed_loss`); the credit part is simply less credit. *Example:* 45,000 owed, 50,000 paid, 5,000 credit, corrected to 49,000 → **0 owed, 4,000 credit**. Every correction message states the credit that remains, even when it is `0`. **Today's `correctPayment` unwinds dues first and produces 1,000 owed and 5,000 credit — GAP-229, a prerequisite for P14's receipt corrections**
 · **INV-21** — the original receipt is not edited away; a correction record references it (§9.2)
 · There is **no silent default** to "his arrears" — defaulting there quietly turns every counting error into the driver's debt, which is how you lose a good driver over 2,000
-· **The one thing it cannot undo:** if a receipt message already went out (UC-82), the log is append-only (INV-13) and the message stands. The correction records **which** receipt message it contradicts — `payment_correction.receipt_message_id`, the payment's receipt whose latest attempt was sent, delivered, read or unknown — and a correction message goes out straight away (W-73). An `absorbed_loss` correction re-arms nothing, since nothing is owed again, but still sends the receipt correction if a receipt went out
+· **The one thing it cannot undo:** if a receipt message already went out (UC-82 to a customer, UC-110 to a driver), the log is append-only (INV-13) and the message stands. The correction records **which** receipt message it contradicts — `payment_correction.receipt_message_id`, the payment's receipt whose latest attempt was sent, delivered, read or unknown — and a correction message goes out straight away (W-73) — to a driver, with both his balances (W-2). An `absorbed_loss` correction re-arms nothing, since nothing is owed again, but still sends the receipt correction if a receipt went out
 
 #### F-8.3 Write off what you will not collect
 *Actor:* Owner / owner-manager · *Source:* UC-90, W-28 · *Phase:* **1** (moved from 2 in v1.1.6, mirroring `use-cases.md` v1.2.5)
@@ -1080,18 +1081,19 @@ Per vehicle or per person: which messages are on, days before a due date, the se
 **Accept** · Window **08:00–20:00** business timezone; a reminder generated at 23:00 waits until 08:00 · **confirmations are exempt** — a message confirming money that just moved is worth nothing an hour later · language per recipient, English default, every template a matched pair · **verification before money**: a number is proven by a first successful delivery before any amount is sent to it · **the kill switch** stops everything immediately, globally or per person. · **every setting here is a write this build must add** — business, vehicle and lease settings; a recipient's opt-in and its withdrawal; language; the business and per-person pauses; starting verification; and each driver's summary cadence, weekly or monthly. None has an endpoint today, and a driver cannot be edited at all yet · withdrawing opt-in or pausing a person stops queued messages at send (INV-47); nothing already sent is recalled · **the business starts paused** — messaging is switched on deliberately after the first QA pass, never by the deploy that ships it · **the business's own WhatsApp account must be connected first (W-74)** — until it is, no message rows are written for that business and its messaging cannot be switched on; connecting is F-11.3
 
 #### F-10.3 Automatic sends
-*Actor:* System · *Source:* UC-80…UC-85 · *Phase:* 2
-Lease confirmation (with terms and condition photos) · rent reminder (and the odometer photo request) · receipt · closing figures · driver paid · driver settlement summary.
+*Actor:* System · *Source:* UC-80…UC-85, UC-110 · *Phase:* 2
+Lease confirmation (with terms and condition photos) · rent reminder — before the due date, on the due date, and once overdue, **with no odometer photo request** (UC-81, decided 13 Sept 2026) · receipt · closing figures · driver paid · **driver payment received (UC-110)** · driver settlement summary.
 **Accept**
 · **INV-11** — at most one message *row* per `(trigger, record, stage)`, enforced by a **unique index**, not by application logic. *Restated v1.1.22:* a row is not a delivery — a queue that delivers at least once can hand one row to two workers, so the guarantee against sending twice is INV-46's claim, not this index. Inside a money transaction the row is written as an insert that skips on conflict, never as an error caught afterwards, which would abort the money write with it (IG §4.3)
 · **INV-12** — the condition is re-checked **at dispatch**: rent arriving an hour before the reminder cancels it, and the cancellation is logged with its reason
 · The confirmation states km **per day**, never a monthly total
 · Reminders stop the moment payment is recorded — getting this wrong is worse than sending nothing.
-· **Confirmations go immediately** — UC-80, UC-82, UC-83, UC-84 and the verification message are published to the queue as soon as the write that caused them commits. If that publish fails the row is still there and the dispatcher's sweep sends it: the sweep is the safety net, not the path (EC-09-004)
-· **Reminders and summaries wait for the window** — `scheduled_for` is set to the next opening, and INV-47 checks it again at send, so a reminder queued at 19:59 that reaches a worker at 20:01 waits for 08:00
+· **Confirmations go immediately** — UC-80, UC-82, UC-83, UC-84, UC-110, the receipt corrections, the deposit release message and the verification message are published to the queue as soon as the write that caused them commits. If that publish fails the row is still there and the dispatcher's sweep sends it: the sweep is the safety net, not the path (EC-09-004)
+· **Reminders and summaries wait for the window** — `scheduled_for` is set to the next opening, and INV-47 checks it again at send, so a reminder queued at 19:59 that reaches a worker at 20:01 waits for 08:00. **A reminder whose moment has passed is suppressed, never sent late:** a before-due reminder still unsent on the due date, or a due-today reminder still unsent at the end of that day, is stopped with reason `stale`, and the overdue message takes over. `overdue` is one stage per due, so it is sent at most once
 · **Verification hold (W-71)** — a money message for a recipient not verified on their current number is written `deferred_verification`, keeping its row, and the amount-free verification message is queued unless one is already out for that number. A delivery report for that number releases every held message for the recipient back to `queued`; the sweep also releases any held message whose recipient is already verified, so a report that lands before the held row commits cannot strand it. A hold still unreleased after the business's verification hold window — **3 days by default, set by the owner 13 Sept 2026**, `business_settings.verification_hold_days` — becomes `expired` and surfaces: long enough for a phone that is off over a weekend, short enough that a wrong number is caught early in the rental, while the confirmation of terms still matters
 · **Stage names the round** — `on_due`, `overdue`, `before_3d`; a summary carries its period (`summary:weekly:2026-09-18`, `summary:monthly:2026-09`); verification carries its number; a condition photo carries its attachment; a reversal round carries its correction (`overdue#c:<correction id>`). Grammar in `data-model.md` §11.1. **Only an explicit event mints a new stage — a new period, a new number, a correction. A retry never does**
 · **Settlement summaries run on their own cadence** — weekly or monthly per driver (F-10.2). A weekly period ends on the driver's settlement weekday when he settles weekly, otherwise on Sunday; a monthly one on the last day of the month; both in the business timezone. The sweep enqueues each summary once its period has ended, and the stage makes a second enqueue a no-op
+· **A receipt names what it covered by one rule** — the dues it settled, oldest first; more than two periods are summarised as a count and a date range; credit held is stated only in the credit version (UC-82, UC-110)
 · **Archived parties receive nothing** — checked at send (INV-47) and suppressed with reason `party_archived`; nothing blocks the money write that queued the message
 · **Condition photos (W-38)** — sent after the lease confirmation, one template message per photo, each its own row and attempt; photos reach WhatsApp by upload from storage, never by a link into this app
 · **A reply gets one automatic answer (W-45)** — at most one per sender number per 24 hours; the reply's content is not kept — and gives that business's own monitored number (F-11.3)
@@ -1267,7 +1269,7 @@ The ordering principle: *things that are silently getting worse* come before *th
 | F-0.3, F-0.4 | UC-102, UC-104 | W-63, W-64, W-66, INV-41, INV-42 |
 | F-11.1, F-11.2 | UC-103, UC-105 | W-63, W-65, W-67, INV-38, INV-40 |
 | F-12.1–F-12.4 | UC-106, UC-107, UC-108, UC-109 | W-68, W-69, W-70, INV-43, INV-44, INV-45 |
-| F-10.2–F-10.4 | UC-80…UC-87 | W-71, W-72, W-74, INV-46, INV-47, INV-48, INV-50, INV-51 — *added v1.1.22* |
+| F-10.2–F-10.4 | UC-80…UC-87, UC-110 | W-71, W-72, W-74, INV-46, INV-47, INV-48, INV-50, INV-51 — *added v1.1.22* |
 | F-11.3 | UC-86 | W-74, INV-38, INV-51 — *added v1.1.22* |
 | F-8.2 | UC-93 | W-73, INV-49 — *added v1.1.22* |
 

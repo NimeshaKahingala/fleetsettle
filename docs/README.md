@@ -70,11 +70,11 @@ Three rules that have already earned their place:
 | tech-stack | v1.6 | 13 Sept 2026 |
 | implementation-guidelines | v1.10 | 13 Sept 2026 |
 | ui-ux-guidelines | v1.10 | 28 Aug 2026 |
-| brand-guidelines | v1.1.1 | 22 Aug 2026 |
+| brand-guidelines | v1.1.2 | 13 Sept 2026 |
 
 **Nothing is open across the suite.** The last item — the second template language — closed on 31 July 2026: **Sinhala** (UC §8, FL OQ-6, UI §16, BR §7).
 
-**P14 messaging specified for build, 13 Sept 2026.** Five documents carry the same date: W-14 revisited on evidence and reaffirmed, with W-71–W-74 (UC); ST-8 redrawn, INV-46–INV-51 and F-11.3 (FL); §11.1 and D-18–D-21 (DM); the sweep, the webhook secrets and its rate-limit exemption (TS); and the in-transaction idempotent insert (IG). Two things stay open by design and are not questions for this suite: the final template inventory, fixed when the wording is written, and Meta app review for FleetSettle, needed before a second, unrelated business is connected (W-74). Reasoning and sequencing: [`evaluations/P14-MESSAGING-PLAN-2026-09-13.md`](evaluations/P14-MESSAGING-PLAN-2026-09-13.md). The golden fixtures are untouched.
+**P14 messaging specified for build, 13 Sept 2026.** Five documents carry the same date: W-14 revisited on evidence and reaffirmed, with W-71–W-74 (UC); ST-8 redrawn, INV-46–INV-51 and F-11.3 (FL); §11.1 and D-18–D-21 (DM); the sweep, the webhook secrets and its rate-limit exemption (TS); and the in-transaction idempotent insert (IG). Two things stay open by design and are not questions for this suite: the Sinhala approval of the template draft (whose inventory, fixed there, is the authority for the count), and Meta app review for FleetSettle, needed before a second, unrelated business is connected (W-74). Reasoning and sequencing: [`evaluations/P14-MESSAGING-PLAN-2026-09-13.md`](evaluations/P14-MESSAGING-PLAN-2026-09-13.md). The golden fixtures are untouched.
 
 **A platform tier above the business, and multi-business membership, absorbed 18 Aug 2026.** All seven affected documents above carry the same date. Settles `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` (decisions 1-29, three independent validation passes) and its companion implementation plan — both retired as standalone notes now that their content lives here, per decision 29. Nothing here is a money-table change; the golden fixtures (**134,000**, **15,000**, **7,500**) are untouched. What ships next, in order: Phase 1 (multi-membership plumbing — the schema and middleware this pass specifies), Phase 2 (the platform tier's tables and panel), Phase 3 (the client switcher) — `TRACKER.md`/`Plan.md` own the build state from here.
 
