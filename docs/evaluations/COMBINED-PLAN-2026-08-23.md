@@ -148,7 +148,7 @@ The original report cited `0001_initial_schema.sql:463` as proof the column exis
 
 ## Part 3 — The combined plan
 
-**Thirteen steps on two tracks that run in parallel.** All thirteen are **filed in [TRACKER.md](TRACKER.md) §4 as GAP-174…GAP-186**, and scheduled in [Plan.md](Plan.md) as Wave 8c.
+**Thirteen steps on two tracks that run in parallel.** All thirteen are **filed in [TRACKER.md](../../TRACKER.md) §4 as GAP-174…GAP-186**, and scheduled in [Plan.md](../../Plan.md) as Wave 8c.
 
 **A convention correction, since this plan asserted the wrong one.** An earlier draft said *"a gap is filed when the fix begins, not before."* Git history disproves it — the four most recent gap commits are `File GAP-170`, `File GAP-171/GAP-172` and `File GAP-173`, every one of them landed **when the defect was found, before any fix**. Gaps are filed on discovery here. That is why all thirteen were filed before this plan's first line of code.
 

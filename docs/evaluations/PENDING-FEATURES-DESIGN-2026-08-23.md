@@ -25,9 +25,9 @@ It is a working note, not a specification. **`docs/` still decides.** When items
 
 ### The problem
 
-A day confirmed after its accounting period closed posts into the currently open period, carrying `belongs_to_period_id` as a reference to where it actually belongs. `business_date` never moves; only the period attribution does. [`resolvePeriodLinkage`](api/src/queries/accounting-period.ts) implements this correctly and is not in question.
+A day confirmed after its accounting period closed posts into the currently open period, carrying `belongs_to_period_id` as a reference to where it actually belongs. `business_date` never moves; only the period attribution does. [`resolvePeriodLinkage`](../../api/src/queries/accounting-period.ts) implements this correctly and is not in question.
 
-FL F-8.1 makes **two** promises: *"reports for the closed month are unchanged; reports for the open month show the item flagged as belonging elsewhere."* Only the first is built. `belongsToPeriodId` appears in no report query in [reports.ts](api/src/queries/reports.ts) (every one filters on `postedPeriodId` alone), no API response schema, and nowhere in `web/src`. It is written and never read.
+FL F-8.1 makes **two** promises: *"reports for the closed month are unchanged; reports for the open month show the item flagged as belonging elsewhere."* Only the first is built. `belongsToPeriodId` appears in no report query in [reports.ts](../../api/src/queries/reports.ts) (every one filters on `postedPeriodId` alone), no API response schema, and nowhere in `web/src`. It is written and never read.
 
 ### The design
 
@@ -50,7 +50,7 @@ No migration, no data change, no document change — this makes an existing acce
 
 ## 2 · Bell rows tappable, stateless
 
-The bell is **already clickable** ([HomeScreen.tsx](web/src/features/home/HomeScreen.tsx)) and opens a summary sheet with a correctly-degrading badge. Two things are missing.
+The bell is **already clickable** ([HomeScreen.tsx](../../web/src/features/home/HomeScreen.tsx)) and opens a summary sheet with a correctly-degrading badge. Two things are missing.
 
 ### Read/unread — declined, deliberately
 
@@ -118,7 +118,7 @@ Every rupee paid is ⅔ principal, ⅓ finance — whatever the amount, whenever
 
 For a normal instalment this is identical to a per-month schedule (`30 → 20 + 10`). It is chosen over one because **arrears here are cumulative**, so a partial, late, or catch-up payment has no month to index into. Proportional allocation is the only version that survives them, and it removes the schedule array entirely.
 
-Use the existing largest-remainder [`split()`](packages/shared/src/money.ts) so the two parts always add back to the payment.
+Use the existing largest-remainder [`split()`](../../packages/shared/src/money.ts) so the two parts always add back to the payment.
 
 **Final-payment true-up:** per-payment rounding can leave principal a rupee or two short of 1,000. When the loan closes — scheduled or settled — the closing payment assigns principal = whatever principal remains, finance = the rest. Totals then land exactly on 1,000 and 500 by construction.
 
@@ -203,7 +203,7 @@ The correct treatment, if lifted later, is two records: finance → `expense` wi
 
 ### Roles and capabilities
 
-[`policy.ts`](api/src/auth/policy.ts) holds a single capability matrix; loans need entries in it rather than ad-hoc role checks.
+[`policy.ts`](../../api/src/auth/policy.ts) holds a single capability matrix; loans need entries in it rather than ad-hoc role checks.
 
 | Action | Capability | Roles |
 |---|---|---|
@@ -261,7 +261,7 @@ So the loan migration must contain **both** an `assert_period_open()` array upda
 
 ### Interface vocabulary
 
-U-6 bans accounting vocabulary outright, and [`check-forbidden.mjs`](scripts/check-forbidden.mjs) enforces a hard list at write time: *accrual, accrued, receivable, payables account, current account, allocation, debtor, creditor, reconciliation.* None of the loan words hit that regex, but several are jargon a bus owner would not use, so the wording is fixed here rather than invented per screen.
+U-6 bans accounting vocabulary outright, and [`check-forbidden.mjs`](../../scripts/check-forbidden.mjs) enforces a hard list at write time: *accrual, accrued, receivable, payables account, current account, allocation, debtor, creditor, reconciliation.* None of the loan words hit that regex, but several are jargon a bus owner would not use, so the wording is fixed here rather than invented per screen.
 
 | Concept | Interface says | Never says |
 |---|---|---|
@@ -303,7 +303,7 @@ Beyond the golden fixtures staying still: the two-list omission above (period ar
 
 **No schema change.** Settled by the owner: an owner **always has a login**, so `ownership_share.user_id → app_user` stands as built, and W-57's code-based invite is how a second owner gets an account. This was the only thing gating item 4.
 
-Everything else already exists and needs verifying, not building: `ownership_share`, `capital_contribution`, `management_fee_agreement`, `partner_payout`, `banking_event`, and the UC-67 four-line statement in [PartnerDetailScreen.tsx](web/src/features/cash/PartnerDetailScreen.tsx).
+Everything else already exists and needs verifying, not building: `ownership_share`, `capital_contribution`, `management_fee_agreement`, `partner_payout`, `banking_event`, and the UC-67 four-line statement in [PartnerDetailScreen.tsx](../../web/src/features/cash/PartnerDetailScreen.tsx).
 
 ### The scenario, in the system's own terms
 

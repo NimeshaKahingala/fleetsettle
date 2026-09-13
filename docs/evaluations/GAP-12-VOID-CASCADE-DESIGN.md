@@ -1,9 +1,9 @@
 # GAP-12 — the nine remaining void endpoints: cascade design
 
 **Written 14 August 2026, on `wave5b/corrections-2026-08-14`, after PR #44 merged.**
-**Status: built and closed, 14 August 2026 — same day.** All nine endpoints below shipped as designed (migration `0024`'s `offset_allocation` void trio, the two read-side filters, `VoidBlockedError`, nine `*AlreadyVoidedError` classes, 23 new integration tests), and the doc-change §7 asked for landed the same day, before any of the nine were built (`use-cases.md` W-61, `user-flows.md` INV-36 and F-8.5). [TRACKER.md](TRACKER.md)'s GAP-12 row carries the closing account and the two bugs found building it; this file keeps the design reasoning that got there.
+**Status: built and closed, 14 August 2026 — same day.** All nine endpoints below shipped as designed (migration `0024`'s `offset_allocation` void trio, the two read-side filters, `VoidBlockedError`, nine `*AlreadyVoidedError` classes, 23 new integration tests), and the doc-change §7 asked for landed the same day, before any of the nine were built (`use-cases.md` W-61, `user-flows.md` INV-36 and F-8.5). [TRACKER.md](../../TRACKER.md)'s GAP-12 row carries the closing account and the two bugs found building it; this file keeps the design reasoning that got there.
 
-This is a working design note, not a specification. `docs/` decides, and by the time this closed, `docs/` already agreed with every decision below — nothing here overrides it. [TRACKER.md](TRACKER.md) carries the one-paragraph summary; this file carries the reasoning, kept for a cold session reconstructing *why*, not *whether*.
+This is a working design note, not a specification. `docs/` decides, and by the time this closed, `docs/` already agreed with every decision below — nothing here overrides it. [TRACKER.md](../../TRACKER.md) carries the one-paragraph summary; this file carries the reasoning, kept for a cold session reconstructing *why*, not *whether*.
 
 ---
 
@@ -39,7 +39,7 @@ This is the concrete form of Plan.md's standing A9b trap — *"voiding a parent 
 
 ## 3. The decisions, per table
 
-Reference shape for all nine: [`voidExpense`](api/src/domain/expense.ts) + [`voidExpenseRow`](api/src/queries/expense.ts) — existence check scoped to business → already-voided check → `writer.transaction` (`withActor` only attributes inside a real one) → catch `isPeriodClosedViolation` → `PeriodClosedError`. `voidedReason` is always a parameter, never hardcoded. Every void `UPDATE` carries `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber (the Gitar finding from PR #44, now the house pattern).
+Reference shape for all nine: [`voidExpense`](../../api/src/domain/expense.ts) + [`voidExpenseRow`](../../api/src/queries/expense.ts) — existence check scoped to business → already-voided check → `writer.transaction` (`withActor` only attributes inside a real one) → catch `isPeriodClosedViolation` → `PeriodClosedError`. `voidedReason` is always a parameter, never hardcoded. Every void `UPDATE` carries `WHERE … voided_at IS NULL` so a losing race is a no-op rather than a clobber (the Gitar finding from PR #44, now the house pattern).
 
 ### 3.1 `adjustment` — reverse the effect; surplus becomes credit
 

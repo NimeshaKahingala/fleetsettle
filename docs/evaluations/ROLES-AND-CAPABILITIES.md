@@ -1,6 +1,6 @@
 # Roles and capabilities — current state
 
-**Written 7 August 2026.** An evaluation, not a specification — the specification is `docs/product/user-flows.md` §2.3 (FL §2.3, W-49) and the enforcement code is [`api/src/auth/policy.ts`](api/src/auth/policy.ts); this document exists to put both next to each other, plus what's actually reachable in the client today, since the three have drifted before (GAP-42) and the gap wasn't visible until someone hit it in production. If this ever disagrees with `policy.ts`, `policy.ts` is right — update this file, not the other way round.
+**Written 7 August 2026.** An evaluation, not a specification — the specification is `docs/product/user-flows.md` §2.3 (FL §2.3, W-49) and the enforcement code is [`api/src/auth/policy.ts`](../../api/src/auth/policy.ts); this document exists to put both next to each other, plus what's actually reachable in the client today, since the three have drifted before (GAP-42) and the gap wasn't visible until someone hit it in production. If this ever disagrees with `policy.ts`, `policy.ts` is right — update this file, not the other way round.
 
 ---
 

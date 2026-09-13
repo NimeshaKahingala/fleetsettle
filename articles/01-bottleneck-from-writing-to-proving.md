@@ -1,14 +1,16 @@
 # Article 1 brief — Agentic Coding Changed My Bottleneck
 
+Status: planning revised 2 September 2026; awaiting author notes, not a draft
+
 Working title: **Agentic Coding Changed My Bottleneck: From Writing Code to Proving It**
 
-Possible subtitle: *What building a financial ledger in one intensive month changed in my work as a technical lead and software architect.*
+Possible subtitle: *What a month of building—and then reviewing the reviews—changed in my work as a technical lead and software architect.*
 
 Format: flagship Medium article, adapted into a shorter native LinkedIn post.
 
 ## Thesis
 
-Agentic coding made implementation dramatically faster, but it did not remove the engineering bottleneck. It moved the bottleneck into deciding what was true, proving that writes preserved that truth under real sequences, and creating assurance independent of the agent’s original understanding.
+The author's observed implementation gains moved the bottleneck into deciding what was true and proving that writes preserved it under real sequences. That verification includes the reviewer's diagnosis and the proposed repair, not just the initial code. Confirm the author's experience of speed before making the first-person claim; do not imply a measured multiplier.
 
 ## Reader promise
 
@@ -16,11 +18,13 @@ The reader will get a practical operating model for leading agentic development 
 
 ## Personal position
 
-The author would use agentic coding again. The changed view is that implementation speed cannot be evaluated separately from the cost of proving the implementation. Senior technical leadership moves closer to invariants, evidence, and review design rather than farther from the code.
+Proposed position to confirm in [AUTHOR-NOTES.md](AUTHOR-NOTES.md): the author would use agentic coding again, but would evaluate implementation speed alongside the cost of verification. Explore whether senior attention moved toward invariants, evidence, and review decisions. These are interview prompts until the author confirms them, not invented recollections.
 
 ## Opening scene
 
-Open in the third week of the project, when producing another endpoint or screen was no longer the slowest activity. The slow work was answering a harder question: if the same financial action happens twice, is corrected later, crosses a closed month, or is performed by another role, does the system still represent the same business fact?
+Open with PR #176: a repair for deposits still marked held after refunding. The initial explanation attributed the rows to test-data insertion; checking the posting history pointed to the application's ordinary opening-balance correction path. Fixing that path then needed further review because refunding the original amount could leave a later top-up still held.
+
+Explain the business consequence first: a status change could remove real held funds from a report without making the funds disappear. The verification work was determining which story about the data was true and whether the repair preserved that truth.
 
 Avoid opening with PR counts. Introduce the scale after the reader understands the problem.
 
@@ -36,11 +40,9 @@ The tone here should be generous and specific. This is why the author is continu
 
 ### 2. The bottleneck moved
 
-Introduce three incidents:
+Carry the main story through the [September evidence register, S1](evidence/2026-09-02-follow-up.md#s1--the-deposit-repair-needed-its-own-review): initial diagnosis, evidence of the producer, repair of existing data plus the writer, the top-up case, and the conditional repair/refusal with regression coverage.
 
-1. The signup role that had no screen, behind 386 green integration tests.
-2. A concurrency correction whose rationale described serialization while its code did not take the required lock.
-3. Internal live QA showing a “committed” opening balance that had not created the ledger facts reports used.
+Use at most two short supporting references: the signup role behind 386 historical green integration tests, and the later discovery that an evaluation itself contained stale claims. Their full mechanics belong to articles 3 and 5. Keep the 10 August opening-balance no-op distinct from this September deposit-correction incident.
 
 The shared pattern is not “AI made mistakes.” It is that implementation, explanation, and verification could all agree on the same incomplete model.
 
@@ -67,17 +69,21 @@ The author’s work shifted toward:
 - verifying that tests challenge rather than restate implementation;
 - distinguishing atomicity, transactionality, and serialization;
 - choosing reviewers for different defect classes;
+- verifying a finding before accepting its diagnosis, remedy, or claimed scope;
+- separating a sound recommendation from the decision to include it in a release;
 - deciding which findings are real, noise, deferred, or declined;
 - preserving the decision after temporary review context disappears.
 
 ### 5. What needs attention next
 
-Use first-person commitments:
+Use author-confirmed priorities, distinguishing completed changes from proposed investments:
 
 - Expand adversarial and two-connection concurrency tests around money-state transitions.
 - Require every absence-based test to be demonstrated red before accepting it green.
 - Audit complete business flows from specification to UI, API, database, reports, and correction path.
-- Keep review models diverse instead of stacking several text-oriented readers.
+- Check reviewer coverage and availability, with neither disagreement nor agreement treated as a verdict by itself.
+- Test migrations against representative pre-existing states as well as clean databases.
+- Require evidence of sibling-path coverage before saying a defect class is closed.
 - Automate documentation and migration drift where possible.
 - Treat internal production deployment as a verification environment until real-user go-live evidence exists.
 
@@ -85,33 +91,26 @@ Use first-person commitments:
 
 Return to the bottleneck. The agent reduced the cost of expressing a design. It increased the importance of independently proving that the design survived contact with time, concurrency, correction, and ordinary user behaviour.
 
-End with a personal statement, not a slogan. Candidate direction:
-
-> I am not planning to write less with agents. I am planning to spend more of my senior attention on the evidence that their output cannot supply for itself.
-
-Rewrite this in the author’s natural voice during drafting.
+End with the author's answer to what they will keep, change, and leave unresolved. Avoid a polished closing slogan before those answers exist. The final position should acknowledge the practical benefit of agents while explaining the verification work the author still owns.
 
 ## Evidence to use
 
-- Dated PR snapshot from `EVIDENCE.md`.
-- `TRACKER.md` §5 for the signup-role and accessibility-test lessons.
-- PR #118 or #136 for the concurrency example—use one in depth, not both.
-- Recovered 10 August live-browser finding for opening balances.
-- The 24-rule guard as evidence of substantial preparation, not as proof of safety.
+- [EVIDENCE.md](EVIDENCE.md) for snapshot and publication boundaries.
+- [September S1](evidence/2026-09-02-follow-up.md#s1--the-deposit-repair-needed-its-own-review) for the principal incident, source links, and the distinction between inspected tests and historically reported red/green results.
+- `TRACKER.md` §5 for the brief signup-role reference.
+- September S4 for one sentence about verifying the review; save the detailed comparison for article 5.
+- The September production-deploy result establishes deployment, not real-user usage or closure of every finding.
 
 ## What to leave for follow-ups
 
-- Detailed reviewer scorecard and category counts.
+- Detailed review overlap, category counts, and accept/defer/decline cases.
 - Full explanation of presence- versus absence-based guardrails.
 - Detailed test-helper mechanics.
+- PR #118/#136's lock mechanics and the newer residual recovery-read issue.
 - Documentation-disposition history.
 
 Mention these briefly only when they support the flagship thesis.
 
 ## LinkedIn adaptation
 
-Target one central observation and one incident. Suggested opening direction:
-
-> After a month of agentic coding, writing code was no longer my bottleneck. Proving it was.
-
-Then give the concurrency or signup-role example, three practices that changed, and a link to the full article. The LinkedIn version should still deliver a complete lesson without requiring the click.
+Target one central observation and the deposit-repair incident. Explain the changed diagnosis, the risk in the repair, and one author-confirmed operating change. The LinkedIn version should deliver a complete lesson without requiring the click; adapt the opening only after the author's natural wording has been captured.

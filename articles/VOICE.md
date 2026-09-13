@@ -1,8 +1,10 @@
 # Voice and tone guide
 
+Status: planning guidance revised 2 September 2026
+
 ## The voice
 
-Write as a senior technical lead who remained close to the code, reviewed the evidence, changed his mind when the evidence changed, and still owns the result.
+Write as a senior technical lead who remained close to the code, reviewed the evidence, changed their mind when the evidence changed, and still owns the result.
 
 The voice should be:
 
@@ -13,13 +15,17 @@ The voice should be:
 - interested in mechanisms and consequences, not blame;
 - forward-looking: every criticism should lead to an operating change.
 
-The intended effect is: “This person actually built and reviewed the system, and is telling me what changed in his engineering judgment.”
+The intended effect is: “This person actually built and reviewed the system, and is telling me what changed in their engineering judgment.”
 
 ## How to avoid an AI-generated sound
 
 ### Start from memory, then verify
 
 Write the rough paragraph in the author’s natural language before opening the evidence. Use the repository to correct facts, not to manufacture a voice from documentation.
+
+[AUTHOR-NOTES.md](AUTHOR-NOTES.md) is the place to capture that language. A first-person PR reply under the repository owner's account is evidence of a recorded decision, not proof that its wording or feelings are the author's own. Confirm those before using them as personal recollections. Until then, mark them as questions, not draft first-person claims.
+
+All sample lines below are tone illustrations, not quotations or verified memories. In particular, do not invent a turning point such as “by the third week,” a frustration, or a personal mistake from the commit chronology alone.
 
 ### Prefer observed detail over abstract framing
 
@@ -51,7 +57,7 @@ It is acceptable to say:
 - “I accepted the first fix.”
 - “The comment was better than the code.”
 - “The test was green because it was listening to nothing.”
-- “I had four reviewers, but three were looking along roughly the same axis.”
+- “Two reviewers caught the same problem. I still had to check the fix.”
 
 These are stronger than detached consultancy language.
 
@@ -80,11 +86,12 @@ Also avoid repeatedly using “not X, but Y.” One sharp contrast can work; a s
 
 - Explain the business consequence before the implementation detail.
 - Use code identifiers only when they make the failure more concrete.
-- Translate database language once: for example, a row lock means two requests cannot both act on the same stale state.
+- Translate database language once: a row lock held through a read-modify-write sequence can make competing writers wait. A lock taken after an earlier read does not refresh the value that was already read.
 - Prefer one exact example over five names from the repository.
 - Do not paste long code blocks. A two- or three-line contrast is usually enough.
 - Distinguish a transaction from serialization; do not use them as synonyms.
 - Distinguish production deployment from real-user go-live.
+- Distinguish a reported issue, a source-inspected mechanism, a reproduced failure, and a verified fix. Use “the review reported” when that is the evidence available.
 
 ## Fairness rules
 
@@ -94,6 +101,10 @@ Also avoid repeatedly using “not X, but Y.” One sharp contrast can work; a s
 - Give static analysis credit for the problems it is designed to catch.
 - Say when a finding came from an independent audit rather than an automated PR review.
 - Separate a factual observation (“no lock was taken”) from an interpretation (“the agent optimized for plausible structure”).
+- Do not assign fixed reasoning specialties to reviewer brands. The September evidence includes overlapping TypeError findings and Copilot concurrency findings.
+- A plan-limit notice or “working” status is not a completed clean review. Reviewer availability belongs in the sample caveats.
+- Prefer “unsupported,” “already fixed,” or “incorrectly cited” to accusations about how an evaluation was produced.
+- Accepting the diagnosis does not require accepting the proposed remedy or release timing. Explain the reason for a deferral and its limits.
 
 ## First-person stance
 
@@ -120,7 +131,7 @@ Every article should end by answering three questions in prose:
 2. What will change because the old assurance model was insufficient?
 3. What remains genuinely unresolved?
 
-The ending should not predict that AI will replace a role or solve verification. It should identify the next engineering investment: adversarial testing, reviewer diversity, invariant enforcement, live workflow evidence, or durable project memory.
+The ending should not predict that AI will replace a role or solve verification. It should identify the next engineering investment: adversarial testing, reviewer diversity, invariant enforcement across sibling paths, migration tests with existing data, reproducible review evidence, or durable project memory. Proposed investments are not completed process changes or personal commitments until the author confirms them.
 
 ## Final voice check
 
@@ -132,3 +143,4 @@ Before publication, ask:
 - Have I used a statistic where an incident would be more memorable?
 - Is this sentence precise, or merely confident?
 - Does the conclusion tell the reader what I will do differently next?
+- Can every first-person claim be traced to a confirmed author note rather than inferred from repository prose?
