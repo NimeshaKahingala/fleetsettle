@@ -534,6 +534,17 @@ export async function releaseHeldDeposit(
 
   if (input.action === "refund") {
     const heldBefore = await sumDepositMovements(writer, input.depositId);
+    // code-review, 14 Sept 2026: a deposit fully drained by a prior "apply"
+    // sweep stays `hold_window` (`applied` is deliberately non-terminal, see
+    // above) with `heldBefore` already at zero — without this guard, the
+    // auto-computed refund amount below would be `0n`, which passes the
+    // draw-below-zero check inside `recordDepositMovementTx` (0 is not `>`
+    // held) and then fails `deposit_movement`'s own `CHECK (amount_minor >
+    // 0)` as a raw, unmapped Postgres error. The same guard the "apply"
+    // branch below already has for the identical zero-balance case.
+    if (heldBefore <= 0n) {
+      throw new ValidationError("Nothing is held on this deposit to refund");
+    }
     const result = await recordDepositMovement(
       writer,
       {
@@ -558,6 +569,16 @@ export async function releaseHeldDeposit(
   // own "apply" already uses.
   const dep = await findDepositForBusiness(writer, input.businessId, input.depositId);
   if (!dep) throw new NotFoundError("No such deposit in this business");
+  // code-review, 14 Sept 2026: an upfront check, matching `settleLeaseDeposit`'s
+  // own single check for every action — without it, a deposit that isn't
+  // `hold_window` and has no outstanding obligations fell through to "Nothing
+  // is currently owed to apply against" below, a misleading reason that hid
+  // the real one. This read is unlocked and only for the message; the
+  // transaction's own `recordDepositMovementTx` calls below stay the actual,
+  // locked guard against a status that changed between here and there.
+  if (dep.status !== "hold_window") {
+    throw new ValidationError(`This deposit is already ${dep.status}`);
+  }
   const partyId = dep.partyType === "customer" ? dep.partyCustomerId : dep.partyDriverId;
   if (partyId === null) throw new NotFoundError("No such deposit in this business");
 

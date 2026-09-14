@@ -65,6 +65,17 @@ function chipClass(selected: boolean): string {
  * only a reason, never a linked charge (the owner's second answer) — this
  * form never asks for one. Early release is allowed (the third answer):
  * nothing here checks the deposit's own release date.
+ *
+ * **Retaining any amount here settles the whole deposit, even a partial
+ * one** — `recordDepositMovementTx`'s `TERMINAL` map marks the deposit
+ * `retained` the moment any `retained` movement lands, the same pre-existing
+ * shape `settleLeaseDeposit`'s own retain action already has. The button
+ * deliberately says only "Retain this amount", not "...and release the
+ * rest" (code-review, 14 Sept 2026, caught that exact wording promising
+ * something this form does not do) — a genuine leftover balance after a
+ * partial retain has no further action reachable from here. Filed as a
+ * follow-up gap rather than redesigned in this pass: the fix touches shared,
+ * already-relied-upon settlement logic.
  */
 export function ReleaseDepositSheet({
   open,
@@ -190,7 +201,7 @@ export function ReleaseDepositSheet({
           <p className="text-body-sm text-critical-ink">{mutation.error.message}</p>
         ) : null}
         <Button type="submit" size="cta" disabled={mutation.isPending}>
-          {action === "refund" ? "Refund the deposit" : "Retain and release the rest"}
+          {action === "refund" ? "Refund the deposit" : "Retain this amount"}
         </Button>
       </form>
     </Sheet>

@@ -83,7 +83,7 @@ test("retain — the amount is required before the sheet lets it submit", async 
 
   await user.click(await screen.findByRole("button", { name: "Release" }));
   await user.click(screen.getByRole("button", { name: "Retain" }));
-  await user.click(screen.getByRole("button", { name: "Retain and release the rest" }));
+  await user.click(screen.getByRole("button", { name: "Retain this amount" }));
 
   expect(await screen.findByText("Amount to retain is required")).toBeInTheDocument();
   expect(post).not.toHaveBeenCalled();

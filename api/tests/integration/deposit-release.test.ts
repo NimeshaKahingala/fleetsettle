@@ -207,6 +207,62 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     await ctx.cleanup();
   });
 
+  /**
+   * code-review, 14 Sept 2026: "apply" is deliberately non-terminal so a
+   * partial sweep leaves the deposit reachable for a follow-up — but that
+   * follow-up must itself be safe once the sweep happens to drain the
+   * balance to exactly zero, which "refund" (before this fix) was not:
+   * it auto-computed the refund amount as the current balance with no
+   * zero-balance guard, unlike "apply" three lines above it which has one.
+   */
+  it("refund — a deposit fully drained to zero by a prior apply is refused cleanly, not a 500", async () => {
+    const ctx = new TestContext(db);
+    const { depositId, customerId, businessId, periodId, token } = await setUpHeldDeposit(ctx, db);
+
+    const rentPaymentRes = await post("/api/payment", token, {
+      partyType: "customer",
+      partyId: customerId,
+      amountMinor: "3100000",
+      occurredOn: "2026-01-22",
+    });
+    expect(rentPaymentRes.status).toBe(201);
+    const rentPaymentBody: { id: string } = await rentPaymentRes.json();
+    ctx.trackCreatedPayment(rentPaymentBody.id);
+
+    // Exactly the full 20,000 held, so the apply sweep below drains the
+    // deposit to precisely zero while status stays hold_window.
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      direction: "owed_to_us",
+      partyType: "customer",
+      customerId,
+      kind: "post_closure_charge",
+      amountMinor: 20_000n,
+      dueOn: "2026-01-23",
+    });
+    ctx.track(async () => {
+      await db
+        .update(depositMovement)
+        .set({ obligationId: null })
+        .where(eq(depositMovement.obligationId, obligationId));
+    });
+
+    const applyRes = await post(`/api/deposit/${depositId}/release`, token, {
+      action: "apply",
+      occurredOn: "2026-01-25",
+    });
+    expect(applyRes.status).toBe(200);
+    const applyBody: ReleaseResponseBody = await applyRes.json();
+    expect(applyBody).toMatchObject({ depositId, status: "hold_window", heldMinor: "0" });
+
+    const res = await post(`/api/deposit/${depositId}/release`, token, {
+      action: "refund",
+      occurredOn: "2026-01-26",
+    });
+    expect(res.status).toBe(400);
+
+    await ctx.cleanup();
+  });
+
   it("early release — the release date has not come yet, and this still succeeds (the owner's own answer, 13 Sept 2026)", async () => {
     const ctx = new TestContext(db);
     // A 3,650-day hold window pushes `holdReleaseDate` far past this suite's
