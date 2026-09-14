@@ -395,7 +395,7 @@ Please keep this message as your record. Thank you.
 
 | | |
 |---|---|
-| Sent when | A held deposit's hold ends and **all of it** is refunded (F-2.7, through `POST /api/deposit/{id}/release` — GAP-230, closed 13 Sept 2026, PR #TBD), straight away. **Added by owner decision, 13 Sept 2026** — a message every time a hold ends. Stage `once`, subject the deposit |
+| Sent when | A held deposit's hold ends and **all of it** is refunded (F-2.7, through `POST /api/deposit/{id}/release` — GAP-230, closed 13 Sept 2026, PR #193), straight away. **Added by owner decision, 13 Sept 2026** — a message every time a hold ends. Stage `once`, subject the deposit |
 | Why a separate template | Meta will not send a template with an empty variable, so "kept: Rs. 0, for —" cannot be sent. A full refund gets its own sentence |
 | Variables | `{{1}}` name · `{{2}}` vehicle · `{{3}}` amount refunded |
 
