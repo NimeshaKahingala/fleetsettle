@@ -1,10 +1,12 @@
 # Tech Stack
 
-**Status:** v1.5 — **§7 gains a note on Cloudflare Browser Rendering (12 Sept 2026)**, available since this document's last full pass and referenced by `use-cases.md` UC-99's re-recorded PDF deferral (GAP-136) — a stack fact belongs here, cited by the product documents rather than restated in them.
+**Status:** v1.6 — **§4 and §8 updated for P14 messaging, 13 Sept 2026.** `dispatch-messages` becomes a recovery sweep rather than the send path — confirmations publish to the queue as soon as their write commits (`user-flows.md` F-10.3) — and a second cron expression means `scheduled()` must route on `event.cron`, which it ignores today. §8 gains the webhook's two secrets, records that the queue has a producer and no consumer, exempts the webhook route from `RATE_LIMITER`, and **corrects the `KV` row: the kill switch has always been `business_settings.messaging_kill_switch` in Postgres, never KV.** **Each business sends from its own number (`use-cases.md` W-74):** the phone-number id leaves the environment for `business_whatsapp_account`, and `WHATSAPP_TOKEN` becomes FleetSettle's system-user token acting for every connected business.
+
+**v1.5** — **§7 gains a note on Cloudflare Browser Rendering (12 Sept 2026)**, available since this document's last full pass and referenced by `use-cases.md` UC-99's re-recorded PDF deferral (GAP-136) — a stack fact belongs here, cited by the product documents rather than restated in them.
 
 **v1.4** — **the `email` scope added (§2.1), and self-registration's activation moved from an Asgardeo-console gate to the platform tier's own approval queue.** The `email` scope shipped 18 Aug 2026 (Track A, PR #70) — `middleware/auth.ts` has always read `payload.email`/`payload.name` off the access token; the client had simply never asked for it. Self-registration itself stays off pending the platform tier (`use-cases.md` Group L, W-63/W-64) — enabling it at the console before that queue exists would let anyone create a business with no approval step at all. Mechanises `PLATFORM-ADMIN-AND-MULTI-BUSINESS-DESIGN-2026-08-17.md` decision 28.
 **v1.3** — deployed. QA and production live on Cloudflare Workers; real binding values, both Neon branches migrated (§8, §9, §10)
-**Date:** 12 September 2026
+**Date:** 13 September 2026
 **Companion:** `data-model.md` (schema) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 
 This document exists for one reason beyond inventory: **four platform constraints change the data model**, and they are listed in §7. Read that section before reviewing the schema.
@@ -120,11 +122,13 @@ Everything the system does "without being asked" lives here. All of it is **idem
 |---|---|---|
 | `generate-day-cards` | daily, early | Creates `day_record` rows for pattern days (UC-05) |
 | `generate-billing-periods` | daily | Rolls the next `billing_period` and its rent obligation (UC-10) |
-| `dispatch-messages` | every 15 min inside the send window | Re-checks each queued message's condition **at dispatch** (INV-12), enqueues to Queues |
+| `dispatch-messages` | every 15 min | **A recovery sweep, not the send path.** Publishes `queued` messages whose time has come (confirmations are already published on commit — FL F-10.3), releases verification holds, expires stale holds, marks abandoned claims `unknown` (FL INV-46), and enqueues settlement summaries whose period has ended. The send window is checked by the queue consumer at send, never inferred from the cron's own firing time |
 | `paperwork-warnings` | daily | Surfaces documents expiring within the warning window (UC-92) |
 | `deposit-hold-release` | daily | Surfaces deposits whose hold window has expired (UC-16, W-29) |
 
 **Idempotency is a schema property, not a code habit** — `day_record` is unique on `(daily_lease_id, business_date)`, `billing_period` on `(lease_id, seq)`, and `message` on `(trigger, subject, stage)`. A duplicate run hits a constraint and stops.
+
+**Two cron expressions need routing.** Until P14 every job fired from one daily expression, and `scheduled()` ignores which expression fired. Adding the 15-minute one without branching on `event.cron` would run day-card generation and billing-period rolls 96 times a day — harmless to the numbers, since both are idempotent, and wrong all the same. **The part that actually sends is a Queues consumer** (`queue()` beside `scheduled` on the Worker's default export), with a dead-letter queue for observation only: a job that exhausts its retries leaves its row `queued` in Postgres, and the sweep publishes it again.
 
 ---
 
@@ -175,11 +179,12 @@ One more that is a *choice* rather than a constraint: **Postgres does the enforc
 | `ASGARDEO_ISSUER` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/token` (§2.1) |
 | `ASGARDEO_JWKS_URL` | Var | `https://api.asgardeo.io/t/fleetsettle/oauth2/jwks` |
 | `ASGARDEO_AUDIENCE` | Var | The client id of the app that issues tokens for **that** environment (§2.1) |
-| `WHATSAPP_TOKEN` | Secret | Business Cloud API token — not yet provisioned (P14) |
-| `WHATSAPP_PHONE_ID` | Secret | Sending number id — not yet provisioned (P14) |
-| `KV` | KV namespace | JWKS cache, kill switch |
+| `WHATSAPP_TOKEN` | Secret | FleetSettle's Meta system-user token, with access to each connected business's shared WhatsApp account — one token for every business, never stored per business — not yet provisioned (P14) |
+| `WHATSAPP_APP_SECRET` | Secret | Verifies the `X-Hub-Signature-256` signature on every webhook call — not yet provisioned (P14) |
+| `WHATSAPP_VERIFY_TOKEN` | Secret | Answers Meta's webhook subscription challenge — not yet provisioned (P14) |
+| `KV` | KV namespace | JWKS cache. *Until v1.6 this row also said "kill switch"; the kill switch is `business_settings.messaging_kill_switch` and always was* |
 | `R2` | R2 bucket | Attachments |
-| `MESSAGE_QUEUE` | Queue | Outbound dispatch |
+| `MESSAGE_QUEUE` | Queue | Outbound dispatch — producer bound in QA and production; the consumer and its dead-letter queue arrive with P14. The local binding still reads `todo-provision-before-deploy` |
 | `RATE_LIMITER` | Rate limit | 100 requests / 60s per IP (IG §13) |
 
 Provisioned 5 August 2026, one isolated set per environment — a QA run must never write into production's bucket or enqueue onto its queue:
@@ -194,6 +199,8 @@ Provisioned 5 August 2026, one isolated set per environment — a QA run must ne
 Both R2 buckets have public access **off** (IG §10.10) and a CORS policy scoped to their environment's origin, ready for the A7 upload endpoint. Both report region **ENAM** despite an `apac` location hint — Cloudflare documents hints as best effort, not a guarantee.
 
 Secrets via `wrangler secret put --env <name>`, never in `wrangler.jsonc`. The same `DATABASE_URL` must **also** exist as a GitHub environment secret: CI runs the migration scripts in Node, where a Cloudflare secret is invisible.
+
+**The WhatsApp webhook is the one public route that must not be rate-limited.** `RATE_LIMITER` is mounted on `*`, and Meta retries a refused delivery report for up to seven days, so a throttled webhook becomes a retry storm. The route is exempt, authenticates by signature rather than by token, and resolves the business from the receiving phone-number id against `business_whatsapp_account` — never from anything else in the payload — and applies a provider id only if its attempt belongs to that same business (`user-flows.md` INV-51). *There is no `WHATSAPP_PHONE_ID` secret: each business's number is stored with its connection (W-74).*
 
 ---
 

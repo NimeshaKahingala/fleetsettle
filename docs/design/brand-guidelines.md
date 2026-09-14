@@ -1,7 +1,9 @@
 # Brand Guidelines
 
-**Status:** v1.1.1 — Tactile Ops (M-35 pending, `TACTILE-OPS-REDESIGN-2026-08-21.md`): brand colour moves to `#0F2E63` (from House Style's `#9C3F2E`), and every rasterised asset regenerated a second time to match. **v1.1.1**: the reversed-mark stroke, missed by that regeneration, corrected from `#FBFBF8` to the table's own `#FFFFFF`.
-**Date:** 22 August 2026
+**Status:** v1.1.2 — **§7 item 2's WhatsApp template count corrected, 13 Sept 2026 (P14).** It said six templates and twelve submissions; writing the actual wording found that fixed template text needs a template for each distinct situation, and each business submits its own (`use-cases.md` W-74). The count now lives in the draft, not here, so it cannot go stale twice.
+
+**v1.1.1** — Tactile Ops (M-35 pending, `TACTILE-OPS-REDESIGN-2026-08-21.md`): brand colour moves to `#0F2E63` (from House Style's `#9C3F2E`), and every rasterised asset regenerated a second time to match. **v1.1.1**: the reversed-mark stroke, missed by that regeneration, corrected from `#FBFBF8` to the table's own `#FFFFFF`.
+**Date:** 13 September 2026
 **Companions:** `ui-ux-guidelines.md` (the design system this sits on) · `use-cases.md` (intent) · `user-flows.md` (mechanics)
 **Assets:** `docs/design/brand/src/*.svg` (source) · `docs/design/brand/png/*` (generated)
 
@@ -253,7 +255,7 @@ Short form: say deposit, advance, earned, received, waiver, write-off, lost day,
 The outbound surfaces are the ones your customers actually see, and they are **not** in this document yet:
 
 1. **The document headers** for the customer statement (UC-19), the driver's printed slip (UC-57) and the export (UC-99) — all three use the flattened horizontal lockup and the formal tone from §6.3. **This is now the only one of the three that phase one needs.**
-2. **The six Group I WhatsApp templates** (UC-80…UC-85), in **English and Sinhala**, each as a fixed sentence with slots — Meta templates take variables, not prose. Approval runs from minutes to about two days *per message per language*, so twelve submissions. This was the item with a real lead time; **UC §9.1 now sequences WhatsApp dispatch last**, so it has left the critical path. It still has to be done before the messaging build, and W-21 only holds if the phrasing exists before that build needs it.
+2. **The WhatsApp templates**, in **English and Sinhala**, each a fixed sentence with slots — Meta templates take variables, not prose. **Drafted 13 Sept 2026** in `docs/evaluations/P14-MESSAGE-TEMPLATES-DRAFT-2026-09-13.md`, awaiting a Sinhala-reading partner's check; **that draft carries the count**. *Until 13 Sept this line said "the six Group I templates … so twelve submissions" — writing the wording showed that each distinct situation (a held deposit, an absorbed correction, a driver's two balances) needs its own template, and each business submits its own set (W-74).* Approval runs from minutes to about two days per template per language. **UC §9.1 sequences WhatsApp dispatch last**, so it is off the critical path, but W-21 only holds if the phrasing exists before the messaging build needs it.
 3. ~~The second language~~ — **closed 31 July 2026: Sinhala.** It decides the templates and the font subset, nothing else.
 
 ---

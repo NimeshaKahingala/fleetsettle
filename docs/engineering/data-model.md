@@ -1,6 +1,8 @@
 # Data Model
 
-**Status:** v1.1.20 — **D-5 closed and GAP-187's residual gap closed, 12 Sept 2026.** Migration `0040` adds `driver.settlement_weekday`, paired with `settlement_rhythm` by a `CHECK`; `confirmDay`'s `daily_amount` obligation now derives `effective_due_on` for real, and `SETTLEMENT_RHYTHM_UNSUPPORTED` retires with it — §17's D-5 row and §10.6's `opening_balance_entry` note both carry the full account. Golden fixtures unmoved — neither closure touches a table any of G-1/G-2/G-3 reads.
+**Status:** v1.1.21 — **§11.1 specifies what P14 adds to the messaging schema, 13 Sept 2026 — for migration `0041`, not yet written.** `0001` shipped §11's four tables with no code behind them. Sizing the build against `use-cases.md` W-71–W-73 and `user-flows.md` INV-46–INV-50 found what they cannot hold: one mutable status cannot record a retried send, so attempts get their own table with an immutable snapshot (D-18); a delivery report can arrive before its send is recorded, so reports get an inbox; `message_event`'s `CHECK` cannot name the new transitions (D-19); and **`messaging_config`'s `UNIQUE` has never bound at business scope** — `scope_id` is NULL there and Postgres treats NULLs as distinct (D-20). **INV-11 is restated**: `one_message_per_trigger` guarantees a row, not a delivery. §17 gains D-18 to D-21, and **D-21 is decided by the owner: each business sends from its own WhatsApp account (W-74)** — `business_whatsapp_account` holds the connection, and webhook events route by the receiving number (INV-51). No money table changes; the golden fixtures are untouched.
+
+**v1.1.20** — **D-5 closed and GAP-187's residual gap closed, 12 Sept 2026.** Migration `0040` adds `driver.settlement_weekday`, paired with `settlement_rhythm` by a `CHECK`; `confirmDay`'s `daily_amount` obligation now derives `effective_due_on` for real, and `SETTLEMENT_RHYTHM_UNSUPPORTED` retires with it — §17's D-5 row and §10.6's `opening_balance_entry` note both carry the full account. Golden fixtures unmoved — neither closure touches a table any of G-1/G-2/G-3 reads.
 
 **v1.1.19** — **§15's UC-70 earned/costs queries move to net basis (M-1, after D1).** `earned_minor` now subtracts `waived_minor` and gains `customer_contribution`/the insurer settlement; `costs_minor` gains `write_off`. Both were already in UC-99's own export before this fix and neither reached the report — the exact drift D1 exists to close. UC-70's earned query is written out in full for the first time; it was never given its own SQL block, an omission rather than a design choice. Golden G-1 (`134,000`) reproduces unmoved — it carries neither a waiver nor an incident. Decided 31 Aug 2026.
 
@@ -21,7 +23,7 @@
 **v1.1.10** — **a platform tier above `business`, and `business_member` no longer capped at one row per user.** §3's own comment calling multi-business membership undescribed anywhere (`one_active_business_per_user`'s header) is corrected — it is now described, in `use-cases.md` Group L and `user-flows.md` §2.4/F-0.3/F-0.4/F-11. That index is **dropped**; `business_member_active_pair` alone now enforces "not the same business twice." New: `app_user.business_allowance`, `platform_admin`, `business_creation_request`, `platform_audit_log`; `driver.linked_user_id` becomes business-scoped. New triggers `platform_admin_audit` and `assert_platform_has_admin()`, mirroring `business_member_audit`/`assert_business_has_owner()` one level up. **§13.1's trigger count was found stale while adding these** — it read "expect 18" against a live schema carrying 43 (measured against QA 18 Aug 2026, not assumed); corrected to the measured figure, now 45 with the two added here. Mechanises `use-cases.md` W-63 to W-67/UC-102 to UC-105 and `user-flows.md` INV-38 to INV-42. Decided 17-18 Aug 2026.
 **v1.1.9** — **D-5 guarded.** The unbuilt `effective_due_on` derivation is now unreachable rather than merely known: `confirmDay` refuses a non-`'daily'` driver (`SETTLEMENT_RHYTHM_UNSUPPORTED`, 409) instead of writing a due date it cannot derive, so FL F-4.5's "a weekly settler is not in arrears on Thursday" can no longer be violated silently — it fails loudly instead. Deliberately **not** a `CHECK` pinning `settlement_rhythm` to `'daily'`: UC-31/UC-37/F-4.5 describe weekly settlement as a real arrangement, and constraining it away would put the schema in contradiction with the product. GAP-135 stays open as the feature it always was. Decided 17 Aug 2026.
 **v1.1.8** — **D-5** resolved: "worth confirming" is now confirmed negative. `confirmDay.ts` (the driver-side obligation write path) sets `effective_due_on` unconditionally to the business date and never reads `driver.settlement_rhythm`; the column itself is written by no endpoint and read nowhere in the codebase. Filed as **GAP-135**, found investigating an unrelated PR review comment on the customer-side ageing chip
-**Date:** 12 September 2026
+**Date:** 13 September 2026
 **Derived from:** `use-cases.md` v1.2.8 · `user-flows.md` v1.1.9
 **Platform:** Neon Postgres — see `tech-stack.md` §7 for the four constraints that shaped this
 
@@ -40,7 +42,7 @@ Workers hold nothing between requests, so every rule guarded in application memo
 | Rule | Enforced by |
 |---|---|
 | INV-1 one arrangement per vehicle-day | **Primary key** on `vehicle_day_allocation (vehicle_id, business_date)` |
-| INV-11 one message per trigger | **Unique index** on `(business_id, trigger, subject, stage)` |
+| INV-11 one message per trigger | **Unique index** on `(business_id, trigger, subject, stage)` — one *row*; one automatic attempt is INV-46's partial unique index (§11.1) |
 | INV-16 shares total 100%, effective-dated | **Exclusion constraint** + deferred sum trigger |
 | INV-13 message log append-only | **Revoked UPDATE/DELETE grants** + trigger |
 | INV-10 closed period immutable | **Trigger** on every money table |
@@ -1566,6 +1568,171 @@ CREATE TABLE messaging_config (
 );
 ```
 
+### 11.1 What P14 adds — specified 13 September 2026, for migration `0041`
+
+**Not yet a migration.** §11 above is what `0001` created, and nothing has ever written to it. This is the shape the build migrates to; `use-cases.md` W-71–W-73 and `user-flows.md` ST-8 and INV-46–INV-50 own the behaviour, and `docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md` the sequencing.
+
+**Three layers, each answering one question.**
+
+| Table | Answers | Mutability |
+|---|---|---|
+| `message` | Was this person owed this message? One row per `(trigger, subject, stage)` — INV-11 | `status` moves; identity columns do not |
+| `message_attempt` | What exactly was sent, to which number, and what became of it? | Snapshot immutable (INV-50); outcome only moves forward |
+| `message_event` | What happened, in what order, and who did it? | Append-only (INV-13) |
+
+**A row is not a delivery.** Cloudflare Queues delivers at least once, so the same `message` can reach two workers. What stops two sends is the claim: one transaction moves `message.status` from `queued` to `sending`, inserts the attempt and writes the `claimed` event, and `message_attempt_one_in_flight` refuses a second in-flight attempt for the same message. A claim nobody finishes is swept to `unknown` — never back to `queued` (INV-46).
+
+**Enqueued inside a money transaction, the row is written with `ON CONFLICT (business_id, trigger_type, subject_type, subject_id, stage) DO NOTHING`** — index inference, because `one_message_per_trigger` is a standalone unique index and `ON CONFLICT ON CONSTRAINT` cannot name it (IG §4.3).
+
+```sql
+-- 0041 refuses to run over data it would reinterpret. Nothing has ever written these tables.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM message) OR EXISTS (SELECT 1 FROM message_event)
+     OR EXISTS (SELECT 1 FROM message_template) OR EXISTS (SELECT 1 FROM messaging_config) THEN
+    RAISE EXCEPTION '0041: messaging tables are not empty; this migration assumes no messaging data exists';
+  END IF;
+END $$;
+
+-- message: new states, and the reasons they must carry. The constraint names are
+-- Postgres's generated defaults for 0001's inline CHECK and UNIQUE — confirm against the catalogue.
+ALTER TABLE message DROP CONSTRAINT message_status_check;
+ALTER TABLE message ADD CONSTRAINT message_status_check CHECK (status IN
+  ('queued','deferred_verification','suppressed','superseded','expired',
+   'sending','sent','delivered','read','failed','unknown'));
+ALTER TABLE message ALTER COLUMN recipient_number_at_time DROP NOT NULL;
+ALTER TABLE message ADD CONSTRAINT message_number_unless_suppressed
+  CHECK (recipient_number_at_time IS NOT NULL OR status = 'suppressed');   -- INV-12: "no number on file" is loggable
+ALTER TABLE message ADD CONSTRAINT message_stop_has_reason
+  CHECK (status NOT IN ('suppressed','superseded','expired')
+         OR (suppressed_reason IS NOT NULL AND btrim(suppressed_reason) <> ''));
+ALTER TABLE message ADD CONSTRAINT message_recipient_matches_type CHECK (
+     (recipient_type = 'customer' AND recipient_customer_id IS NOT NULL AND recipient_driver_id IS NULL)
+  OR (recipient_type = 'driver'   AND recipient_driver_id   IS NOT NULL AND recipient_customer_id IS NULL));
+ALTER TABLE message ADD COLUMN last_published_at timestamptz;   -- the sweep re-publishes; the claim makes a duplicate harmless
+CREATE INDEX message_dispatch ON message (business_id, status, scheduled_for);
+CREATE INDEX message_subject  ON message (business_id, subject_type, subject_id);   -- "what was this person told"
+
+-- One try. W-72, INV-46, INV-50.
+CREATE TABLE message_attempt (
+  id                  uuid PRIMARY KEY,
+  business_id         uuid NOT NULL REFERENCES business(id),
+  message_id          uuid NOT NULL REFERENCES message(id),
+  attempt_no          int  NOT NULL CHECK (attempt_no >= 1),
+  -- snapshot: immutable once written
+  destination_number  text NOT NULL,
+  sender_phone_number_id text NOT NULL,   -- which business number sent it (W-74); survives a reconnection
+  template_id         uuid REFERENCES message_template(id),
+  language_code       text NOT NULL,
+  rendered_text       text NOT NULL,
+  transport           text NOT NULL,
+  config_snapshot     jsonb NOT NULL,     -- the scope row that allowed it: id, level, updated_by, updated_at
+  requested_by        uuid REFERENCES app_user(id),   -- NULL = automatic; set = a person's resend
+  claimed_at          timestamptz NOT NULL DEFAULT now(),
+  -- outcome: provider id set once, outcome only forward
+  provider_message_id text UNIQUE,
+  outcome             text NOT NULL DEFAULT 'sending' CHECK (outcome IN
+                        ('sending','unknown','sent','delivered','read','failed')),
+  outcome_detail      text,
+  outcome_at          timestamptz,
+  UNIQUE (message_id, attempt_no)
+);
+CREATE UNIQUE INDEX message_attempt_one_in_flight ON message_attempt (message_id) WHERE outcome = 'sending';
+REVOKE DELETE ON message_attempt FROM PUBLIC;
+
+-- Delivery reports land here first. A duplicate stops at dedup_key; a report that arrives
+-- before its attempt's provider id is recorded waits here and is applied afterwards.
+CREATE TABLE message_webhook_inbox (
+  id                  uuid PRIMARY KEY,
+  kind                text NOT NULL CHECK (kind IN ('status','inbound')),
+  dedup_key           text NOT NULL UNIQUE,        -- status: provider id + status + provider timestamp
+  provider_message_id text,
+  phone_number_id     text NOT NULL,               -- the receiving number; routes the event (INV-51)
+  business_id         uuid REFERENCES business(id), -- resolved from phone_number_id; NULL = no connected business, never read by a tenant route
+  sender_number       text,                        -- inbound only; the reply's content is not kept (W-45)
+  payload             jsonb,                       -- status reports only
+  received_at         timestamptz NOT NULL DEFAULT now(),
+  applied_attempt_id  uuid REFERENCES message_attempt(id),
+  applied_at          timestamptz,
+  auto_replied_at     timestamptz
+);
+CREATE INDEX message_webhook_unapplied ON message_webhook_inbox (provider_message_id) WHERE applied_at IS NULL;
+
+-- The log names every transition (D-19).
+ALTER TABLE message_event ADD COLUMN attempt_id uuid REFERENCES message_attempt(id);
+ALTER TABLE message_event ADD COLUMN actor_id   uuid REFERENCES app_user(id);   -- NULL = the system
+ALTER TABLE message_event DROP CONSTRAINT message_event_event_check;
+ALTER TABLE message_event ADD CONSTRAINT message_event_event_check CHECK (event IN
+  ('queued','deferred_verification','released','expired','suppressed','superseded',
+   'claimed','unknown','sent','delivered','read','failed',
+   'resend_requested','sent_other_channel','handled_manually'));
+
+-- Verification belongs to a number (W-71, INV-48); a person can be paused outside the precedence chain (UC-86).
+ALTER TABLE driver   ADD COLUMN verified_number text, ADD COLUMN messaging_paused_at timestamptz;
+ALTER TABLE customer ADD COLUMN verified_number text, ADD COLUMN messaging_paused_at timestamptz;
+
+-- Rendering must be reproducible from data, not from code that later changes.
+ALTER TABLE message_template ADD COLUMN body text NOT NULL;
+ALTER TABLE message_template ADD COLUMN header_kind text NOT NULL DEFAULT 'none'
+  CHECK (header_kind IN ('none','image'));
+
+-- D-20, and provenance for UC-87's "who configured that trigger".
+ALTER TABLE messaging_config
+  DROP CONSTRAINT messaging_config_business_id_scope_type_scope_id_message_type_key;
+ALTER TABLE messaging_config ADD CONSTRAINT messaging_config_one_per_scope
+  UNIQUE NULLS NOT DISTINCT (business_id, scope_type, scope_id, message_type);
+ALTER TABLE messaging_config
+  ADD COLUMN updated_by uuid REFERENCES app_user(id),
+  ADD COLUMN updated_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN summary_cadence text CHECK (summary_cadence IN ('weekly','monthly'));
+
+-- W-74: each business sends from its own WhatsApp account and number, in its own name.
+-- Ids only. The access token is FleetSettle's own Meta system-user token (TS §8), never stored per business.
+CREATE TABLE business_whatsapp_account (
+  business_id       uuid PRIMARY KEY REFERENCES business(id),
+  waba_id           text NOT NULL UNIQUE,
+  phone_number_id   text NOT NULL UNIQUE,     -- one number, one business; the webhook routing key (INV-51)
+  display_phone     text NOT NULL,
+  display_name      text NOT NULL,
+  reply_phone       text NOT NULL,            -- the monitored number W-45's auto-reply gives out
+  connected_by      uuid NOT NULL REFERENCES app_user(id),
+  connected_at      timestamptz NOT NULL DEFAULT now(),
+  disconnected_at   timestamptz
+);
+-- A business created after this migration starts with messaging stopped too.
+ALTER TABLE business_settings ALTER COLUMN messaging_kill_switch SET DEFAULT true;
+
+-- W-71's hold window: 3 days, set by the owner 13 Sept 2026 — a wrong number is caught early in the rental.
+ALTER TABLE business_settings ADD COLUMN verification_hold_days int NOT NULL DEFAULT 3
+  CHECK (verification_hold_days > 0);
+
+-- The live business starts with messaging stopped. It is switched on after QA, never by this deploy.
+UPDATE business_settings SET messaging_kill_switch = true;
+```
+
+**`message_attempt_guard`**, a `BEFORE UPDATE` trigger — §13's convention, because a rule in a trigger cannot be forgotten by the next code path. It refuses any change to a snapshot column; refuses changing `provider_message_id` once set; and lets `outcome` move only forward: `sending` to anything; `unknown` to `sent`, `delivered`, `read` or `failed` when a late report proves what happened; `sent` to `delivered`, `read` or `failed`; `delivered` to `read`. `read` and `failed` are final. A report that would move an outcome backward stays in the inbox and changes nothing.
+
+**Audit representation (D-19).** Every change to `message.status` or `message_attempt.outcome` writes exactly one `message_event` in the same transaction, named for the state reached — except `claimed` (into `sending`) and `released` (out of `deferred_verification`). A duplicate delivery report writes none, because it never passes the inbox.
+
+**Stage grammar (D-21).** `stage := base [ ':' qualifier ] [ '#c:' payment_correction.id ]`
+
+| Base | Qualifier | Used by |
+|---|---|---|
+| `once` | — | UC-80, UC-82, UC-83, UC-84, UC-110, the receipt corrections, the deposit release (subject the deposit) |
+| `before_<n>d`, `on_due`, `overdue` | — | UC-81, one set per obligation |
+| `summary` | `weekly:<period end date>` or `monthly:<YYYY-MM>`, in the business timezone | UC-85, subject the driver |
+| `number` | the destination in E.164 | the verification message, subject the customer or driver |
+| `photo` | `attachment.id` | UC-80's condition photos, subject the lease |
+
+The `#c:` suffix is added only when a payment correction starts a new round (INV-49); the correction's id is what makes it deterministic. Stages are minted in one builder, never assembled at a call site.
+
+**Why the pre-check.** Replacing the event `CHECK` and adding `NOT NULL` columns is safe only over empty tables. Every one of these tables is empty because nothing writes them, and the migration says so rather than assuming it — a `0041` run against a database where that has stopped being true fails loudly instead of reinterpreting someone's message history.
+
+**Deliberately absent.** No void trio and no `replaces_id` on any messaging table, and none joins `assert_period_open()`: a message is correspondence, not a money record, and a closed month must never stop a receipt going out. Archive state is checked at send (FL INV-47), not by the archive guard — the question `0031` and `0037` both left open, answered.
+
+**`payment_correction.receipt_message_id` finally gets a writer.** It has existed since `0001`; `correctPayment` fills it inside its own transaction with the payment's receipt message (W-73).
+
+**One business, one account (W-74).** Every attempt sends from its own business's `phone_number_id`, recorded on the attempt, so a later reconnection to a different number never rewrites which number sent what. A business with no connected account has no message rows written for it. A webhook event names the business only through its receiving `phone_number_id`, and a provider id in that event is applied only when its attempt belongs to the same business (INV-51) — a mismatch stays in the inbox, unapplied. The token that sends for every business is one FleetSettle system-user token in the environment; nothing per business in Postgres is a secret.
+
 ---
 
 ## 12. Attachments and audit
@@ -1885,6 +2052,12 @@ Every invariant in `user-flows.md` §5, and where it actually lives.
 | 11 one message per trigger | `one_message_per_trigger` unique index | **DB** |
 | 12 re-check at dispatch | `message.suppressed_reason` + dispatch job | **App + audit** |
 | 13 message log append-only | RULEs + revoked grants on `message_event` | **DB** |
+| 46 no automatic resend of a possibly-delivered attempt | `message_attempt_one_in_flight` partial unique index + claim transaction + sweep to `unknown` (§11.1) | **DB + App** — *specified, unbuilt* |
+| 47 final send checks | queue consumer, immediately before creating an attempt | **App + audit** — *specified, unbuilt* |
+| 48 verification bound to the number | `verified_number` compared with the current `mobile`; set only from a delivery report for a matching destination | **App** — *specified, unbuilt* |
+| 49 deterministic reversal round | stage suffix `#c:<payment_correction.id>` under `one_message_per_trigger` | **DB** — *specified, unbuilt* |
+| 50 immutable attempt snapshot | `message_attempt_guard` trigger | **DB** — *specified, unbuilt* |
+| 51 webhook events stay inside the receiving business | `business_whatsapp_account.phone_number_id` UNIQUE + an event applied only when its attempt's `business_id` matches | **DB + App** — *specified, unbuilt* |
 | 14 waiver ≠ write-off | Two separate tables, never unioned | **Schema shape** |
 | 15 recovery links to write-off | `write_off_recovery.write_off_id` NOT NULL | **DB** |
 | 16 shares total 100%, dated | Exclusion constraint + `assert_shares_total()` | **DB** |
@@ -2257,7 +2430,7 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-7.5 where is our cash | `payment.handled_by_user_id`, `banking_event`, `advance.issued_by_user_id`, `deposit` — query in §15 |
 | F-7.6 partner account | `capital_contribution`, `expense.paid_by_user_id`, `partner_payout`, `ownership_share` |
 | F-8.1 late fact | `belongs_to_period_id` on every money table |
-| F-8.2 payment reversal | `payment_correction`, `payment`, `obligation`, `message` |
+| F-8.2 payment reversal | `payment_correction` (incl. `receipt_message_id`), `payment`, `obligation`, `message` |
 | F-8.3 write off | `write_off`, `write_off_recovery` |
 | F-8.4 post-closure charge | `obligation` (`kind='post_closure_charge'`) |
 | F-8.5 fix a mistake | `voided_at` on 13 money tables, `payment.status`, `audit_log` |
@@ -2266,13 +2439,14 @@ Every flow in `user-flows.md` §6, and the tables it reads or writes. A flow wit
 | F-9.2 reports | §15 queries |
 | F-9.3 export | all, filtered by `business_member.role` |
 | F-10.1 paperwork | `vehicle_document`, `driver.licence_expiry` |
-| F-10.2 messaging config | `messaging_config`, `business_settings` |
-| F-10.3 automatic sends | `message`, `message_template` |
-| F-10.4 message log | `message_event` |
+| F-10.2 messaging config | `messaging_config`, `business_settings`, `business_whatsapp_account` |
+| F-10.3 automatic sends | `message`, `message_attempt`, `message_template` |
+| F-10.4 message log | `message_event`, `message_attempt`, `message_webhook_inbox` |
 | F-0.3 request an additional business *(added v1.1.10)* | `app_user.business_allowance`, `business_creation_request` |
 | F-0.4 switch between businesses *(added v1.1.10)* | none — client-side selection only, filtered against `business_member`/`driver.linked_user_id` server-side (§2.4, `user-flows.md`) |
 | F-11.1 approve or reject a request *(added v1.1.10)* | `business_creation_request`, `business`, `app_user`, `business_member`, `business_settings`, `accounting_period` (approval runs F-0.1's own transaction) |
 | F-11.2 grant or revoke platform admin *(added v1.1.10)* | `platform_admin`, `platform_audit_log` |
+| F-11.3 connect WhatsApp | `business_whatsapp_account` |
 
 **Result: 66 of 66 flows have a home** *(62 original, plus F-0.3, F-0.4, F-11.1, F-11.2 — added v1.1.10)*. **No flow requires a fact the schema cannot hold.**
 
@@ -2360,6 +2534,10 @@ The three walkthroughs seed a Neon preview branch (`tech-stack.md` §9) and asse
 | **D-15** | GAP-5: forward allocation of a payment surplus has no concurrency guard | **Resolved 12 Aug 2026 — `SELECT … FOR UPDATE` on the payment row for the duration of the allocating transaction.** The design itself (§10.2) was already correct and needed no change; this closes the one race two concurrent allocations against different obligations could otherwise create |
 | **D-16** | GAP-60: a void and its replacement are not linked anywhere in the schema | **Shape decided 9 Aug 2026, recorded here 12 Aug 2026 — a nullable, self-referencing `replaces_id uuid` on each of the twelve money tables**, not one shared polymorphic correction table: typed, indexable, and enforceable as a real per-table FK. Scoped to the money tables only — the two new occupancy/exception tables (§4.2, §7) and the three tables D-11 widened (§4.1, §10.2, §10.6) carry the void trio but not `replaces_id`; a structural cause is text in `voided_reason` there, not a second FK concept |
 | **D-17** | GAP-1: `use-cases.md` UC-03's matrix has carried "own vehicles" (owner-manager) and "shared vehicles" (manager, UC-70) since it was written, with no record of which table decides either, or a manager's read as of when | **Resolved 13 Aug 2026 — no migration, an access-control interpretation of tables that already exist.** An owner-manager's `managePartnerCapital` scope is the vehicles his `ownership_share` (§6) names as of the write — a present-tense read, the same one UC-02 already does. A manager's UC-70 (`viewReports`) scope is the vehicles whose `management_fee_agreement` (§7) **overlapped the reported accounting period** — `effective_from <= period_end AND (effective_to IS NULL OR effective_to >= period_start)`, never the agreement's row state today. Two alternatives declined: *as of period end*, which would agree with `sumManagementFeeAsOfDate`'s own basis but let a manager granted on the period's last day see a month he took no part in; *as of today*, simplest but lets a later revoke retroactively hide a month he actually worked. Resolved at the handler that calls `getVehicleMonthReport` (queries/reports.ts), never inside that function itself — it is also called by `sumAllTimeEarnedForUser` (partner.ts) for the unrelated partner-summary figure, and baking scope into the shared function would have silently changed money there. UC-71/72/74/76/78 take no scope — confirmed, not merely left, since `use-cases.md` W-59 records the same pass considered and declined widening them. §15/UC-70's own query is otherwise unchanged; `user-flows.md` INV-34 carries the property test |
+| **D-18** | P14: how a send attempt is recorded | **Specified 13 Sept 2026, unbuilt — a `message_attempt` table (§11.1)**, one row per try, carrying its own provider id and an immutable snapshot. Declined: a single mutable `message.provider_message_id` (a late report for a replaced attempt becomes unattributable), and widening `message_event` to carry the snapshot (a log row per status change would repeat it, and its immutability would rest on convention rather than a trigger) |
+| **D-19** | P14: how the new transitions are audited | **Specified 13 Sept 2026, unbuilt — every change to `message.status` or `message_attempt.outcome` writes exactly one `message_event` in the same transaction**, named for the state reached (`claimed` and `released` the two exceptions), with `attempt_id` and `actor_id` added. `0041` replaces the event `CHECK` and refuses to run if `message_event` already holds a row, since nothing has ever written one |
+| **D-20** | `messaging_config`'s `UNIQUE (business_id, scope_type, scope_id, message_type)` does not bind at business scope | **A defect in `0001`, harmless only because nothing writes the table.** `scope_id` is NULL for a business default and Postgres treats NULLs as distinct, so two conflicting defaults for one message type are both accepted. `0041` replaces it with `UNIQUE NULLS NOT DISTINCT` (Postgres 15 and later) |
+| **D-21** | P14: what `message.stage` may hold, and whose number sends | **Stage grammar specified 13 Sept 2026 (§11.1)** — free text with no `CHECK` today, deliberately kept so, and enforced by the single builder that mints stages. **Sending identity decided 13 Sept 2026 by the owner — per business (`use-cases.md` W-74).** `business_whatsapp_account` holds each business's account and number ids; the access token is one FleetSettle system-user token in the environment, never per business in Postgres. Declined: one FleetSettle number for every business (the sender is not recognised, it breaks Meta's display-name rule, one business's blocks slow all, and an unverified account holds two numbers), and self-service signup built now (a build and a Meta app review for one live business). **Connecting a business FleetSettle does not own requires Meta app review for advanced access — a gate before the second business, not the first** |
 
 ---
 

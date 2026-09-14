@@ -6,7 +6,9 @@
 >
 > **LT-10 is the one to be least willing to skip:** `CloseWatcher` has no iOS Safari fallback by design and has only ever been tested under CDP emulation — LT-13's own sweep used the same emulation, so it cannot substitute. **LT-9** needs a linked-driver account, which needs a real identity to redeem the invite.
 >
-> **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-unsized-and-that-is-the-finding) — **deferred entire 17 Aug, approvals deliberately not fired** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
+> **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) — **fully specified 13 Sept 2026, then parked by the owner: not starting soon** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
+>
+> **Next build focus, set by the owner 13 Sept 2026: [Wave 8d · GAP-229 and GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m)** — two live money defects P14's template review found, both wrong in the product today.
 >
 > **Before trusting anything in the superseded block, read [its marker](#the-order-end-to-end) — it now names four exceptions, not one** (17 August 2026). Two live conventions were buried under "do not read it" (`The bar every item clears`, `When an item here is finished`), and **[Skipped by decision](#skipped-by-decision) had six of its seven entries reversed** — it listed A7, GAP-1, GAP-6, GAP-12, GAP-19 and GAP-18 as out of scope after all six had shipped. Each now carries what actually happened. **A contradiction inside this file was resolved the same pass**: its tail read *"worth firing"* the twelve Meta approvals while Wave 10 records the owner's decision not to.
 
@@ -446,6 +448,35 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 
 **Added 25 August 2026 — three more items folded in, by user decision, and Step 16 ordered last on purpose.** GAP-171 and GAP-172 were filed 23 Aug alongside this batch but never got a step in this table; GAP-188 was filed 24 Aug the same way. All three are now Steps 14–16, in the same remediation track, since all three are live defects rather than new build work. **GAP-188 is deliberately last**, not because it is smallest but because it is the one item here that cannot start as code — TRACKER §4's own row says it "needs a design answer first: either a separate *of which, belongs elsewhere* figure stated beside the total, or the month report growing real lines," so a `doc-change` has to land before a diff can. **GAP-170 (the printed slip) is not in this table** — moved to phase 2 the same day, alongside GAP-65, since both are the same shape (an unauthenticated route carrying a full financial position) and neither should ship ahead of the other; see TRACKER §4 for the reasoning and the resulting doc-drift it leaves open.
 
+### Wave 8d · GAP-229 and GAP-230 — two live money defects (M)
+
+**Added 13 September 2026, by owner priority.** Both were found by review of P14's template draft and confirmed against source, and **both are wrong in the product today, independent of messaging** — which is why they do not stay inside Wave 10, where parking P14 would have parked them too. Each row's full account is in [TRACKER.md](TRACKER.md) §4. **The rules they must meet are already in `docs/`, so neither needs a `doc-change` first.**
+
+**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap.
+
+#### GAP-229 — a correction uses credit before reopening dues (S)
+
+| | |
+|---|---|
+| Rule | `user-flows.md` F-8.2 (the credit-first bullet), `use-cases.md` UC-93 |
+| Where | `correctPayment` → `unwindAllocations`, `api/src/domain/payment-correction.ts` |
+| Change | Inside the existing transaction: lock the payment row (`SELECT … FOR UPDATE`, the D-15 convention); read its unallocated credit as `amount_minor − SUM(live payment_allocation)`, the formula `credit-forward.ts` already uses; under `back_to_arrears`, unwind only `max(0, differenceMinor − unallocated)`. `absorbed_loss` unwinds nothing today and needs no change — but check that a correction larger than the credit never leaves a negative remainder that anything reads as credit |
+| Tests (`payment-correction.test.ts`, 10 today) | The review's example: 45,000 owed, 50,000 paid, corrected to 49,000 → **0 owed, 4,000 credit** · a correction exactly equal to the credit · one larger than the credit, reopening only the excess · the same cases under `absorbed_loss` · a customer payment and a driver payment · credit already drawn by forward allocation (GAP-5b) before the correction. **Each new test confirmed failing against today's code before the fix** |
+| Done means | All green; golden fixtures unmoved; the TRACKER row closed with real test counts |
+
+#### GAP-230 — a held deposit can be released (M)
+
+| | |
+|---|---|
+| Rule | `user-flows.md` F-2.7 (one settlement operation), F-2.6 step 6, INV-4 |
+| Where today | `settleLeaseDeposit` (`lease-closure.ts`) and `recordDepositMovementTx` (`deposit.ts`) both refuse anything not `held`. `GET /api/home/deposit-releases` lists releases that are due; `DepositReleasesScreen` only navigates to the party |
+| Change | One operation — e.g. `POST /api/deposit/{id}/release` — that accepts only a `hold_window` deposit and, in one transaction, locks the deposit row, records the refund and any applied or retained amount as movements, sets the final status (`released`, `applied` or `retained`; the existing `CHECK` already allows all three, so **no migration**), and refuses a second settlement. A release action reachable from `DepositReleasesScreen` |
+| Tests | Full refund · part kept, with a reason · all kept or applied · a retried release is a no-op · a `held` deposit (not `hold_window`) is refused · cross-tenant 404 · the deposit leaves the home release list · voiding a release movement returns the deposit to `hold_window` (the recompute in `deposit.ts` already does this; cover it) |
+| **Ask the owner before building** | 1. Where the release action lives: the releases list, the customer, or the closed lease. 2. Whether keeping part needs a real charge to apply it to (UC-91's post-closure charge) or only a reason. 3. Whether a deposit may be released before its release date |
+| Done means | All green; a deposit put on hold in QA released end to end; the TRACKER row closed |
+
+**When P14 resumes, both become its W4 triggers:** the correction message reads the remaining credit GAP-229 computes, and the deposit-release message follows GAP-230's operation.
+
 ### Wave 9 · Release (S)
 
 Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `main`, post-deploy verification before anyone onboards.
@@ -458,17 +489,38 @@ Full gate, golden fixtures unmoved at 134,000 / 15,000 / 7,500, `develop` → `m
 
 **This also amends the premise the wave plan was built on.** The 12 Aug rule was that nothing goes live until every phase-1 gap is fixed and tested; **GAP-65 is the first gap deliberately shipped unfixed**, so the rule now reads *"every phase-1 gap except those explicitly deferred with their reason recorded."* One exception, one reason, written down in its own row — the distinction worth holding is between a premise amended in the open and one that quietly stops being true.
 
-### Wave 10 · P14 messaging — **phase 2** (unsized, and that is the finding)
+### Wave 10 · P14 messaging — **phase 2** (sized 13 Sept 2026)
 
-**Added 16 August 2026. Until this pass the ten-wave plan ended at Wave 9, so this file — whose whole job is "what remains" — described nothing beyond phase 1.** A `grep` for `P14`, `WhatsApp` or `B7` across the current plan returned zero hits; every mention of either phase sat in the historical block below, which this file's own header declares superseded and unedited. Phase 1 is now five open gaps and four live-test items from done, so "after phase 1" stopped being far away while nothing forward-looking said so.
+**⏸ Parked by the owner, 13 September 2026 — fully specified, not starting soon.** Nothing is lost by waiting: the decision, the build order, the templates and the Meta track are all written down. **To resume, read [the plan's §0](docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md#0-status--parked-13-september-2026-and-how-to-resume) first** — it lists what will be stale by then (the migration number, Meta's limits and prices, line citations) and the order to pick back up. **The prerequisite work inside this wave is not parked with it:** GAP-229 and GAP-230 are live defects and moved to [Wave 8d](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m).
 
-**What it is:** six message templates × two languages, and `dispatch-messages`, the fifth Cron Trigger.
+**Sized, decided and specified 13 September 2026.** Plan, decision record and review absorption: [docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md](docs/evaluations/P14-MESSAGING-PLAN-2026-09-13.md). The rules it builds to live where they belong: `use-cases.md` v1.2.20 (W-14 reaffirmed, W-71–W-73), `user-flows.md` v1.1.22 (ST-8, INV-46–INV-50, F-8.2, F-10.2–F-10.4, A-34–A-41), `data-model.md` v1.1.21 (§11.1, D-18–D-21), `tech-stack.md` v1.6, `implementation-guidelines.md` v1.10.
 
-**What is external and what is not — the distinction this item keeps getting wrong.** The twelve Meta template approvals are genuinely outside this repository (minutes to ~2 days each, and they queue). `dispatch-messages` and the six templates are not, and **no one has sized them.** TRACKER.md's `Blocked` table says exactly this, and then says why it matters, naming its own precedent: real Asgardeo sat in that table for months labelled *"~10 minutes; blocks nothing else."* The console change was ten minutes. The client half — SDK, PKCE, callback, sign-in screen, a real token getter — was unbuilt, unsized, and blocked **everybody from logging in at all**, and the label is what kept it ranked last. **P14 carries the identical label today.** Sizing it is the work; the approvals are not.
+**The decision.** Automatic sending (W-14) over the WhatsApp Cloud API, Meta business verification deferred, English and Sinhala, **each business from its own WhatsApp number in its own name (W-74)**, connected by hand for now. The owner's answers the same day: receipt corrections go at once, a verification hold waits 3 days, one message per handover photo. The 17 Aug deferral recorded below waited for real use; real use exists, and the owner's answers settled it — above all, delivered and read status is wanted, which no assisted path can produce.
 
-**~~Do first, independent of sequencing: fire the twelve approvals now.~~ Overruled by the owner, 17 Aug 2026 — the approvals were deliberately not fired, and the reasoning is better than this line's.** "They queue and cost nothing" is true of the *approvals* and false of what they commit you to: `use-cases.md` §8 records **W-14 (fully automatic messaging) as one of three decisions it expects a good reviewer to attack**, and the alternative it names — assisted sending, where the manager taps and reviews before the message goes — **needs no approved templates at all**. Submitting twelve would therefore have quietly settled the exact question §8 asks to keep open, by making one path cheaper than the other before either was chosen. **P14 is deferred entire until phase 1 ships and there is real usage to judge from**, and phase 2 starts from a genuinely open question rather than a half-committed one. Nothing external is in flight.
+**Build order — ten PRs into `develop`, each carrying its own tests.**
 
-**Traps, carried forward rather than rediscovered:** a message is not a money record and must never become one — nothing in the dispatch path may write to a money table. Idempotency is the cron rule (CLAUDE.md): a job that fires twice is a no-op, not a page, and a unique violation on the send log is success. Both languages ship together or neither does; a template approved in one language is not half a feature.
+| | Item | Waits on |
+|---|---|---|
+| **W1** | Migration `0041` — DM §11.1, including `business_whatsapp_account`, the empty-table pre-check, and messaging switched off for existing and new businesses | — |
+| **W2** | Drizzle models for the messaging tables (none exist today) and shared schemas | W1 |
+| **W3** | Domain core: precedence resolution, enqueue by `ON CONFLICT` index inference, rendering from `message_template.body`, the stage builder | W2 |
+| **W4** | Enqueue at every trigger inside its money transaction; post-commit publish; UC-93's re-arm and `payment_correction.receipt_message_id` | W3 |
+| **W5** | `scheduled()` routes on `event.cron`; the `dispatch-messages` sweep; summary cadence | W3 — **its own PR, because it changes existing jobs** |
+| **W6** | Queue consumer: the claim, INV-47's final checks, `Transport` with a logging transport, dead-letter queue | W4, W5 |
+| **W7** | Cloud API transport; webhook with signature, verify token, rate-limit exemption, inbox and inbound auto-reply; photo upload | W6 **and Meta template approval** |
+| **W8** | Read and write endpoints — log, failures, per-record history, resend, other channel, handled; configuration, opt-in and withdrawal, language, pauses, start verification. F-11.3, connecting a business's own WhatsApp account (platform admin). There is no driver-edit endpoint today | W3 |
+| **W9** | Settings → Messaging, More → Message log, home failures (`failed`, `unknown`, `expired`), inline history — after a `ui-ux-guidelines.md` change | W8 |
+| **W10** | Integrated QA (`run-qa-pass`), `09-notifications` suite rewritten against the real screens, TRACKER and this file reconciled | all |
+
+**Track M, starting now and in parallel — per business (W-74), the live business first:** its own clean number → its own WhatsApp Business Account and display name, shared with FleetSettle → template wording in both languages (Claude drafts, a partner checks the Sinhala) → submission → FleetSettle's app secret, webhook subscription and system-user token → connect through F-11.3. **Only W7 waits on it. A second, unrelated business needs Meta app review first.**
+
+**Gate:** golden fixtures unmoved · INV-11/12/13 and INV-46–INV-50 · A-34–A-41 · both kill switches · opt-in overrides everything · W-49 linked-driver isolation on every new read · EC-09-004's immediate confirmation, live.
+
+**Live-tenant safety:** `0041` switches messaging off for the existing business; it is switched on deliberately after the QA pass. `develop` → `main` deploys production with no pause, so W7 reaches `main` only after that pass.
+
+**Traps, carried forward rather than rediscovered:** a message is not a money record and must never become one — nothing in the dispatch path writes to a money table, and no messaging table joins `assert_period_open()`. **A unique index guarantees a row, not a delivery** (INV-46). **Inside a money transaction the enqueue must not raise** — a caught unique violation has already aborted the money write (IG §4.3). Both languages ship together or neither does. **The template count was never twelve** — the inventory is fixed in `docs/evaluations/P14-MESSAGE-TEMPLATES-DRAFT-2026-09-13.md`, its authority. **GAP-229 precedes W4**: today's payment correction reopens dues before using the payment's credit. **So does GAP-230**: nothing today can release a deposit held after closing, so the release message has no event to follow.
+
+**Superseded 13 Sept 2026 — the 16–17 Aug record of this wave, kept for its reasoning.** Until 16 Aug the plan ended at Wave 9, and this section then read "unsized, and that is the finding", naming the Asgardeo precedent for how an "external" label hides unsized work. That proved exactly right: behind a row reading "twelve approvals", the sizing found an attempt table, a webhook inbox, a verification hold, a cron-routing hazard and a set of write endpoints that did not exist. ~~Do first, independent of sequencing: fire the twelve approvals now.~~ The owner overruled that on 17 Aug, on the reasoning that submitting approvals would have quietly settled W-14 before real use could test it — which held until the evidence it waited for arrived, and is recorded here rather than deleted because it was right when it was made.
 
 ### Wave 10b · The three items deferred out of phase 1 — **phase 2**, added 17 August 2026
 
@@ -1737,7 +1789,7 @@ This section listed the external work that gated something real. **It is empty.*
 
 **~~The one still outstanding is P14's twelve Meta template approvals**, and it is the only thing on either track waiting on anybody else. Worth firing now regardless of when P14 runs — each approval is minutes to two days, and they queue.~~**
 
-> **⚠ Overruled by the owner, 17 August 2026 — and this line contradicted [Wave 10](#wave-10--p14-messaging--phase-2-unsized-and-that-is-the-finding) directly until it was struck through here.** The approvals were **deliberately not fired**. "They queue and cost nothing" is true of the approvals and false of what they commit you to: `use-cases.md` §8 lists **W-14 (fully automatic messaging)** as one of three decisions it expects a good reviewer to attack, and the alternative it names — assisted sending, where the manager taps and reviews before anything goes out — **needs no approved templates at all**. Submitting twelve would have quietly settled that open question by making one path cheaper than the other before either was chosen. **Nothing external is in flight, and that is the current state**; Wave 10 carries the live version of this reasoning.
+> **⚠ Overruled by the owner, 17 August 2026 — and this line contradicted [Wave 10](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) directly until it was struck through here.** The approvals were **deliberately not fired**. "They queue and cost nothing" is true of the approvals and false of what they commit you to: `use-cases.md` §8 lists **W-14 (fully automatic messaging)** as one of three decisions it expects a good reviewer to attack, and the alternative it names — assisted sending, where the manager taps and reviews before anything goes out — **needs no approved templates at all**. Submitting twelve would have quietly settled that open question by making one path cheaper than the other before either was chosen. **Nothing external is in flight, and that is the current state**; Wave 10 carries the live version of this reasoning.
 
 **Done, 5 August 2026: CI's integration workflow.** Was blocked on `secrets.NEON_API_KEY`/`vars.NEON_PROJECT_ID`, absent from the repo — no endpoint had ever been tested by CI at all. Configured via the Neon GitHub App and verified with a real PR run: all seven migrations applied from scratch, the DM §13 drift check, and all 328 integration tests, green, in 12m49s. One live bug surfaced and fixed along the way — Neon's Free plan rejects an explicit `suspend_timeout` on branch creation outright, even at the value it already defaults to — recorded in [TRACKER.md](TRACKER.md) §5 so it isn't rediscovered. Nothing on either track depended on this, but it was the single highest-value non-code fix available, and it's done.
 

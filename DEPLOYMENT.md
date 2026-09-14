@@ -284,7 +284,7 @@ Two different places need the database URL, and putting it in only one of them i
     DATABASE_URL: ${{ secrets.DATABASE_URL }}
 ```
 
-Never a `var`. Vars are plaintext in the deployed bundle (TS §8, IG §9.4). `WHATSAPP_TOKEN` and `WHATSAPP_PHONE_ID` wait for P14.
+Never a `var`. Vars are plaintext in the deployed bundle (TS §8, IG §9.4). `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET` and `WHATSAPP_VERIFY_TOKEN` wait for P14. There is no `WHATSAPP_PHONE_ID`: each business sends from its own number, stored with its connection (`use-cases.md` W-74).
 
 Then the production schema — ✅ **applied 5 August 2026**:
 
