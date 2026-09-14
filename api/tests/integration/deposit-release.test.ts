@@ -55,20 +55,13 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     return res.json();
   }
 
-  /** Start → close → hold, the only path that ever puts a deposit into `hold_window`. */
-  async function setUpHeldDeposit(
-    ctx: TestContext,
-    db: ReturnType<typeof writer>,
-    options: { depositHoldDays?: number } = {},
-  ) {
+  /** The scaffolding every test here needs at minimum: a business, an open period, a vehicle on arrangement A, a customer, an owner token, and a started lease with a deposit — extracted once both `setUpHeldDeposit` and the plain-`held` test needed it verbatim (SonarCloud's new-code duplication gate caught the second copy). */
+  async function setUpLeaseWithDeposit(ctx: TestContext, db: ReturnType<typeof writer>) {
     const businessId = await ctx.createBusiness();
     const periodId = await ctx.createOpenPeriod(businessId, {
       periodStart: "2026-01-01",
       periodEnd: "2026-12-31",
     });
-    if (options.depositHoldDays !== undefined) {
-      await ctx.setDepositHoldDays(businessId, options.depositHoldDays);
-    }
     const vehicleId = await ctx.createVehicle(businessId);
     await ctx.setVehicleArrangement(vehicleId, "A");
     const customerId = await ctx.createCustomer(businessId);
@@ -77,6 +70,21 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
 
     const started = await startLease(token, vehicleId, customerId);
     ctx.trackCreatedLease(started.id);
+
+    return { businessId, periodId, customerId, token, userId: owner.userId, started };
+  }
+
+  /** Start → close → hold, the only path that ever puts a deposit into `hold_window`. */
+  async function setUpHeldDeposit(
+    ctx: TestContext,
+    db: ReturnType<typeof writer>,
+    options: { depositHoldDays?: number } = {},
+  ) {
+    const { businessId, periodId, customerId, token, userId, started } =
+      await setUpLeaseWithDeposit(ctx, db);
+    if (options.depositHoldDays !== undefined) {
+      await ctx.setDepositHoldDays(businessId, options.depositHoldDays);
+    }
 
     const closeRes = await post(`/api/lease/${started.id}/close`, token, {
       closingDate: "2026-01-21",
@@ -98,20 +106,26 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
       leaseId: started.id,
       depositId: started.depositId!,
       token,
-      userId: owner.userId,
+      userId,
       holdReleaseDate: holdBody.holdReleaseDate,
     };
+  }
+
+  /** The full-refund release call, asserted to succeed — repeated verbatim across several tests below (SonarCloud's new-code duplication gate caught the second copy). */
+  async function refundInFull(depositId: string, token: string, occurredOn = "2026-01-25") {
+    const res = await post(`/api/deposit/${depositId}/release`, token, {
+      action: "refund",
+      occurredOn,
+    });
+    expect(res.status).toBe(200);
+    return res;
   }
 
   it("refund — pays back the full held balance and releases it", async () => {
     const ctx = new TestContext(db);
     const { depositId, token } = await setUpHeldDeposit(ctx, db);
 
-    const res = await post(`/api/deposit/${depositId}/release`, token, {
-      action: "refund",
-      occurredOn: "2026-01-25",
-    });
-    expect(res.status).toBe(200);
+    const res = await refundInFull(depositId, token);
     const body: ReleaseResponseBody = await res.json();
     expect(body).toMatchObject({ depositId, status: "released", heldMinor: "0" });
 
@@ -208,11 +222,7 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     const homeRows: { depositId: string }[] = await homeRes.json();
     expect(homeRows.map((r) => r.depositId)).not.toContain(depositId);
 
-    const res = await post(`/api/deposit/${depositId}/release`, token, {
-      action: "refund",
-      occurredOn: "2026-01-25",
-    });
-    expect(res.status).toBe(200);
+    const res = await refundInFull(depositId, token);
     const body: ReleaseResponseBody = await res.json();
     expect(body).toMatchObject({ depositId, status: "released", heldMinor: "0" });
 
@@ -228,11 +238,7 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     ).json();
     expect(before.map((r) => r.depositId)).toContain(depositId);
 
-    const res = await post(`/api/deposit/${depositId}/release`, token, {
-      action: "refund",
-      occurredOn: "2026-01-25",
-    });
-    expect(res.status).toBe(200);
+    await refundInFull(depositId, token);
 
     const after: { depositId: string }[] = await (
       await get("/api/home/deposit-releases", token)
@@ -246,11 +252,7 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     const ctx = new TestContext(db);
     const { depositId, token } = await setUpHeldDeposit(ctx, db);
 
-    const first = await post(`/api/deposit/${depositId}/release`, token, {
-      action: "refund",
-      occurredOn: "2026-01-25",
-    });
-    expect(first.status).toBe(200);
+    await refundInFull(depositId, token);
 
     const second = await post(`/api/deposit/${depositId}/release`, token, {
       action: "refund",
@@ -270,16 +272,7 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
 
   it("400 — a held deposit (not yet hold_window) is refused", async () => {
     const ctx = new TestContext(db);
-    const businessId = await ctx.createBusiness();
-    await ctx.createOpenPeriod(businessId, { periodStart: "2026-01-01", periodEnd: "2026-12-31" });
-    const vehicleId = await ctx.createVehicle(businessId);
-    await ctx.setVehicleArrangement(vehicleId, "A");
-    const customerId = await ctx.createCustomer(businessId);
-    const owner = await mintUser(db, ctx, businessId, "owner");
-    const token = await signAccessToken(owner.asgardeoSub);
-
-    const started = await startLease(token, vehicleId, customerId);
-    ctx.trackCreatedLease(started.id);
+    const { token, started } = await setUpLeaseWithDeposit(ctx, db);
     // Never closed, never held — the deposit is still plain 'held'.
 
     const res = await post(`/api/deposit/${started.depositId!}/release`, token, {
@@ -314,11 +307,7 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     const ctx = new TestContext(db);
     const { businessId, depositId, token, userId } = await setUpHeldDeposit(ctx, db);
 
-    const res = await post(`/api/deposit/${depositId}/release`, token, {
-      action: "refund",
-      occurredOn: "2026-01-25",
-    });
-    expect(res.status).toBe(200);
+    await refundInFull(depositId, token);
 
     const [movement] = await db
       .select({ id: depositMovement.id })
