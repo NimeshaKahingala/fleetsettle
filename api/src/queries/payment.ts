@@ -134,7 +134,13 @@ export interface PaymentRow {
   postedPeriodId: string;
 }
 
-/** F-8.2/UC-93. Scoped by `businessId` — the same tenancy shape every P2+ read gets. */
+/**
+ * F-8.2/UC-93. Scoped by `businessId` — the same tenancy shape every P2+ read
+ * gets. `FOR UPDATE`, the D-15 convention: its one caller, `correctPayment`,
+ * reads this row's own unallocated credit before deciding what to unwind, and
+ * then writes the row later in the same transaction — the lock closes the
+ * same shape of race `applyCreditForward` already closes the other way.
+ */
 export async function findPaymentForBusiness(
   db: ReadDb,
   businessId: string,
@@ -149,7 +155,8 @@ export async function findPaymentForBusiness(
     })
     .from(payment)
     .where(and(eq(payment.id, paymentId), eq(payment.businessId, businessId)))
-    .limit(1);
+    .limit(1)
+    .for("update");
   return rows[0] as PaymentRow | undefined;
 }
 

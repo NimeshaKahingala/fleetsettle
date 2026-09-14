@@ -81,6 +81,7 @@ export async function correctPayment(
           tx,
           input.businessId,
           input.paymentId,
+          paymentRow.amountMinor,
           input.differenceMinor,
           input.userId,
         );
@@ -140,15 +141,26 @@ export async function correctPayment(
   }
 }
 
+/**
+ * F-8.2's credit-first bullet, GAP-229: a correction draws on this payment's
+ * own unallocated credit (`amount_minor − SUM(live payment_allocation)`,
+ * `credit-forward.ts`'s own formula) before it reopens anything. Only the
+ * excess above that credit puts the party back into arrears — the same
+ * allocations array both the credit sum and the unwind order come from, so
+ * this never queries the payment's children twice.
+ */
 async function unwindAllocations(
   tx: Tx,
   businessId: string,
   paymentId: string,
+  paymentAmountMinor: bigint,
   differenceMinor: bigint,
   userId: string,
 ): Promise<void> {
-  let remaining = differenceMinor;
   const allocations = await findPaymentAllocationsForPayment(tx, paymentId);
+  const allocatedMinor = allocations.reduce((sum, alloc) => sum + alloc.amountMinor, 0n);
+  const unallocatedMinor = paymentAmountMinor - allocatedMinor;
+  let remaining = differenceMinor > unallocatedMinor ? differenceMinor - unallocatedMinor : 0n;
 
   for (const alloc of allocations) {
     if (remaining <= 0n) break;
