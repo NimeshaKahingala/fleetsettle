@@ -619,21 +619,24 @@ describe("correct a payment (P9, F-8.2/UC-93)", () => {
     expect(await readAllocatedTotal(paymentId)).toBe(45_000n);
 
     const res = await postCorrection(token, paymentId, {
-      differenceMinor: "1000",
+      differenceMinor: "2000",
       bearer: "back_to_arrears",
       reason: "found short at banking, after the earlier absorbed loss",
       correctedOn: "2026-07-20",
     });
     expect(res.status).toBe(200);
     const body: CorrectionResponseBody = await res.json();
-    expect(body.payment).toMatchObject({ amountMinor: "41000", status: "corrected" });
+    expect(body.payment).toMatchObject({ amountMinor: "40000", status: "corrected" });
     ctx.trackCreatedPaymentCorrection(body.correctionId);
 
-    expect(await readAllocatedTotal(paymentId)).toBe(44_000n);
+    // Correct (clamped): unallocatedMinor is max(0, 42,000-45,000) = 0, so
+    // the full 2,000 unwinds. Pre-fix, unallocatedMinor was -3,000 and
+    // remaining became 2,000-(-3,000) = 5,000 — five times too much.
+    expect(await readAllocatedTotal(paymentId)).toBe(43_000n);
     const after = await readObligation(obligationId);
     expect(after).toMatchObject({
       amountMinor: 45_000n,
-      settledMinor: 44_000n,
+      settledMinor: 43_000n,
       status: "part_paid",
     });
 
