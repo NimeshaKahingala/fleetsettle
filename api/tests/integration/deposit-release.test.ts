@@ -4,23 +4,9 @@ import { writer } from "../../src/db/client.js";
 import { depositMovement, obligation } from "../../src/db/schema.js";
 import { voidDepositMovement } from "../../src/domain/deposit.js";
 import { mintLinkedDriver, mintUser, signAccessToken } from "../support/auth.js";
-import { request } from "../support/client.js";
+import { get, post } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
 import { TestContext } from "../support/factories.js";
-
-const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
-
-async function post(path: string, token: string, body?: unknown) {
-  return request(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...bearer(token).headers },
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-}
-
-async function get(path: string, token: string) {
-  return request(path, bearer(token));
-}
 
 interface StartLeaseBody {
   id: string;

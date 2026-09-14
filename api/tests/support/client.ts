@@ -20,3 +20,25 @@ const testExecutionContext = {
  */
 export const request = (path: string, init?: RequestInit) =>
   app.request(path, init, TEST_ENV, testExecutionContext);
+
+/**
+ * Every test file in this suite has defined its own copy of this exact
+ * trio since P2 — harmless until two files carrying it both land in the
+ * same PR, which is what SonarCloud's new-code duplication gate caught on
+ * GAP-230's own test file. Exported here as the one shared copy for a new
+ * test file to reach for; existing files keep their own local copies
+ * rather than being migrated as a side effect of an unrelated PR.
+ */
+export const bearer = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
+
+export async function post(path: string, token: string, body?: unknown) {
+  return request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...bearer(token).headers },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+}
+
+export async function get(path: string, token: string) {
+  return request(path, bearer(token));
+}
