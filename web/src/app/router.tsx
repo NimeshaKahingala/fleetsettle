@@ -121,7 +121,7 @@ function HomeRoute() {
 }
 
 /** GAP-183: the bell's "Deposits to release" row needed a destination; Home's own section is the same list, so this screen is the linkable form of it. */
-function DepositReleasesRoute({ today }: { today: BusinessDate }) {
+function DepositReleasesRoute({ today }: Readonly<{ today: BusinessDate }>) {
   const navigate = useNavigate();
   const selectParty = useSelectParty();
   return (

@@ -73,7 +73,7 @@ export function ReleaseDepositSheet({
   depositId,
   heldMinor,
   today,
-}: ReleaseDepositSheetProps) {
+}: Readonly<ReleaseDepositSheetProps>) {
   const api = useApi();
   const queryClient = useQueryClient();
   const {

@@ -1,5 +1,5 @@
 import { asBusinessDate } from "@fleetsettle/shared";
-import type { DepositReleaseRow, ReleaseDepositResponse } from "@fleetsettle/shared/schemas";
+import type { DepositReleaseRow } from "@fleetsettle/shared/schemas";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { expect, test, vi } from "vitest";
@@ -54,9 +54,7 @@ test("the Release button opens the release sheet, not the party", async () => {
 test("releasing (refund) posts the expected wire body and closes the sheet", async () => {
   const user = userEvent.setup();
   const get = vi.fn().mockResolvedValue([row]);
-  const post = vi.fn<(path: string, body: unknown) => Promise<ReleaseDepositResponse>>(() =>
-    Promise.resolve({ depositId: "dep1", status: "released", heldMinor: "0" }),
-  );
+  const post = vi.fn().mockResolvedValue({ depositId: "dep1", status: "released", heldMinor: "0" });
   renderWithProviders(
     <DepositReleasesScreen onBack={vi.fn()} onSelectParty={vi.fn()} today={today} />,
     { get, post },
