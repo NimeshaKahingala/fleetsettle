@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { writer } from "../../src/db/client.js";
-import { obligation, paymentCorrection } from "../../src/db/schema.js";
+import { obligation, paymentAllocation, paymentCorrection } from "../../src/db/schema.js";
 import { mintUser, signAccessToken } from "../support/auth.js";
 import { request } from "../support/client.js";
 import { TEST_DATABASE_URL } from "../support/env.js";
@@ -86,6 +86,57 @@ describe("correct a payment (P9, F-8.2/UC-93)", () => {
       .from(obligation)
       .where(eq(obligation.id, obligationId));
     return rows[0];
+  }
+
+  /** GAP-229: the live (non-voided) allocation total is the other half of a payment's unallocated credit — `payment.amountMinor - this` — the same formula `credit-forward.ts` reads. */
+  async function readAllocatedTotal(paymentId: string): Promise<bigint> {
+    const rows = await db
+      .select({ amountMinor: paymentAllocation.amountMinor })
+      .from(paymentAllocation)
+      .where(and(eq(paymentAllocation.paymentId, paymentId), isNull(paymentAllocation.voidedAt)));
+    return rows.reduce((sum, r) => sum + r.amountMinor, 0n);
+  }
+
+  /**
+   * GAP-229's own example: an obligation smaller than the payment that
+   * settled it leaves the surplus as unallocated credit (F-2.2). `partyType`
+   * drives which direction the obligation and the payment settle in —
+   * `"customer"` for `owed_to_us`/`received`, `"driver"` for `owed_by_us`/`paid`.
+   */
+  async function setUpObligationWithCredit(
+    ctx: TestContext,
+    partyType: "customer" | "driver",
+    obligationAmountMinor: bigint,
+    paymentAmountMinor: bigint,
+  ) {
+    const businessId = await ctx.createBusiness();
+    const periodId = await ctx.createOpenPeriod(businessId);
+    const isCustomer = partyType === "customer";
+    const partyId = isCustomer
+      ? await ctx.createCustomer(businessId)
+      : await ctx.createDriver(businessId);
+    const obligationId = await ctx.createObligation(businessId, periodId, {
+      direction: isCustomer ? "owed_to_us" : "owed_by_us",
+      partyType,
+      ...(isCustomer ? { customerId: partyId } : { driverId: partyId }),
+      amountMinor: obligationAmountMinor,
+      dueOn: "2026-07-12",
+    });
+    const owner = await mintUser(db, ctx, businessId, "owner");
+    const token = await signAccessToken(owner.asgardeoSub);
+
+    const paymentRes = await postPayment(token, {
+      direction: isCustomer ? "received" : "paid",
+      partyType,
+      partyId,
+      amountMinor: paymentAmountMinor.toString(),
+      occurredOn: "2026-07-15",
+    });
+    expect(paymentRes.status).toBe(201);
+    const paymentBody: PaymentResponseBody = await paymentRes.json();
+    ctx.trackCreatedPayment(paymentBody.id);
+
+    return { businessId, periodId, partyId, obligationId, token, paymentId: paymentBody.id };
   }
 
   it("back_to_arrears — the shortfall returns to the party's arrears (INV-22)", async () => {
@@ -320,6 +371,274 @@ describe("correct a payment (P9, F-8.2/UC-93)", () => {
     expect(res.status).toBe(200);
     const body: CorrectionResponseBody = await res.json();
     ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * GAP-229/F-8.2's credit-first bullet: a correction must draw on this
+   * payment's own unallocated credit before it reopens anything the
+   * obligation already shows as settled. The review's own example — 45,000
+   * owed, 50,000 paid, corrected to 49,000 — is the first row: the whole
+   * 1,000 difference is smaller than the 5,000 credit, so nothing reopens
+   * and the obligation stays fully paid.
+   */
+  it.each([
+    {
+      label: "the difference is smaller than the credit — nothing reopens",
+      differenceMinor: "1000",
+      expectedPaymentAmountMinor: "49000",
+      expectedAllocatedMinor: 45_000n,
+      expectedObligation: { settledMinor: 45_000n, status: "paid" as const },
+    },
+    {
+      label: "the difference exactly equals the credit — nothing reopens",
+      differenceMinor: "5000",
+      expectedPaymentAmountMinor: "45000",
+      expectedAllocatedMinor: 45_000n,
+      expectedObligation: { settledMinor: 45_000n, status: "paid" as const },
+    },
+    {
+      label: "the difference exceeds the credit — only the excess reopens",
+      differenceMinor: "6000",
+      expectedPaymentAmountMinor: "44000",
+      expectedAllocatedMinor: 44_000n,
+      expectedObligation: { settledMinor: 44_000n, status: "part_paid" as const },
+    },
+  ])(
+    "back_to_arrears, customer — $label",
+    async ({
+      differenceMinor,
+      expectedPaymentAmountMinor,
+      expectedAllocatedMinor,
+      expectedObligation,
+    }) => {
+      const ctx = new TestContext(db);
+      const { obligationId, token, paymentId } = await setUpObligationWithCredit(
+        ctx,
+        "customer",
+        45_000n,
+        50_000n,
+      );
+
+      const res = await postCorrection(token, paymentId, {
+        differenceMinor,
+        bearer: "back_to_arrears",
+        reason: "found short at banking, less than the surplus already held",
+        correctedOn: "2026-07-20",
+      });
+      expect(res.status).toBe(200);
+      const body: CorrectionResponseBody = await res.json();
+      expect(body.payment).toMatchObject({
+        amountMinor: expectedPaymentAmountMinor,
+        status: "corrected",
+      });
+      ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+      expect(await readAllocatedTotal(paymentId)).toBe(expectedAllocatedMinor);
+      const after = await readObligation(obligationId);
+      expect(after).toMatchObject({ amountMinor: 45_000n, ...expectedObligation });
+
+      await ctx.cleanup();
+    },
+  );
+
+  /**
+   * GAP-229: `absorbed_loss` unwinds nothing today (W-37) and needs no
+   * change — this pins that down with the same credit-bearing payment the
+   * `back_to_arrears` cases above use, so a future edit to the shared
+   * `unwindAllocations` helper cannot silently start touching this branch.
+   */
+  it.each(["1000", "5000", "6000"])(
+    "absorbed_loss, customer — a %s difference against a credit-bearing payment still unwinds nothing",
+    async (differenceMinor) => {
+      const ctx = new TestContext(db);
+      const { obligationId, token, paymentId } = await setUpObligationWithCredit(
+        ctx,
+        "customer",
+        45_000n,
+        50_000n,
+      );
+
+      const res = await postCorrection(token, paymentId, {
+        differenceMinor,
+        bearer: "absorbed_loss",
+        reason: "the business absorbs this regardless of the surplus held",
+        correctedOn: "2026-07-20",
+      });
+      expect(res.status).toBe(200);
+      const body: CorrectionResponseBody = await res.json();
+      ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+      expect(await readAllocatedTotal(paymentId)).toBe(45_000n);
+      const after = await readObligation(obligationId);
+      expect(after).toMatchObject({ amountMinor: 45_000n, settledMinor: 45_000n, status: "paid" });
+
+      await ctx.cleanup();
+    },
+  );
+
+  it("back_to_arrears, driver — a driver_fee payment's own credit is drawn first before the excess reopens it", async () => {
+    const ctx = new TestContext(db);
+    const { obligationId, token, paymentId } = await setUpObligationWithCredit(
+      ctx,
+      "driver",
+      45_000n,
+      50_000n,
+    );
+
+    const res = await postCorrection(token, paymentId, {
+      differenceMinor: "6000",
+      bearer: "back_to_arrears",
+      reason: "overpaid the driver by 6,000, only 1,000 beyond what was already surplus",
+      correctedOn: "2026-07-20",
+    });
+    expect(res.status).toBe(200);
+    const body: CorrectionResponseBody = await res.json();
+    expect(body.payment).toMatchObject({ amountMinor: "44000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+    expect(await readAllocatedTotal(paymentId)).toBe(44_000n);
+    const after = await readObligation(obligationId);
+    expect(after).toMatchObject({
+      amountMinor: 45_000n,
+      settledMinor: 44_000n,
+      status: "part_paid",
+    });
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * GAP-229: the credit a correction must draw on first is not only what
+   * this payment left unallocated at the moment it was taken — GAP-5b can
+   * have drawn part of it forward onto a second obligation since. A trip
+   * created against a customer already sitting on credit settles itself
+   * from that credit on the spot (`credit-forward.ts`), leaving a second,
+   * newer `payment_allocation` row against the same payment. The
+   * unallocated total this correction must respect is what's left after
+   * that draw, not the original surplus.
+   */
+  it("back_to_arrears, customer — credit already drawn forward by a second obligation (GAP-5b) is respected", async () => {
+    const ctx = new TestContext(db);
+    const { businessId, partyId, obligationId, token, paymentId } = await setUpObligationWithCredit(
+      ctx,
+      "customer",
+      40_000n,
+      50_000n,
+    );
+    // 10,000 credit left. A new trip_fare of 6,000 draws 6,000 of it forward
+    // (GAP-5b), leaving 4,000 unallocated.
+    const vehicleId = await ctx.createVehicle(businessId);
+    await ctx.setVehicleArrangement(vehicleId, "C");
+    const tripRes = await request("/api/trip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...bearer(token).headers },
+      body: JSON.stringify({
+        vehicleId,
+        customerId: partyId,
+        startDate: "2026-07-16",
+        endDate: "2026-07-16",
+        agreedAmountMinor: "6000",
+      }),
+    });
+    expect(tripRes.status).toBe(201);
+    const tripBody: { id: string } = await tripRes.json();
+    ctx.trackCreatedTrip(tripBody.id);
+
+    const tripObligationRows = await db
+      .select({ id: obligation.id, settledMinor: obligation.settledMinor })
+      .from(obligation)
+      .where(and(eq(obligation.sourceType, "trip"), eq(obligation.sourceId, tripBody.id)));
+    expect(tripObligationRows).toMatchObject([{ settledMinor: 6_000n }]);
+    const tripObligationId = tripObligationRows[0]!.id;
+    expect(await readAllocatedTotal(paymentId)).toBe(46_000n);
+
+    // Only 4,000 unallocated remains. A 5,000 correction is 1,000 beyond
+    // it — that excess unwinds the newest allocation first (the trip's
+    // own, GAP-14's convention), not the original rent obligation.
+    const res = await postCorrection(token, paymentId, {
+      differenceMinor: "5000",
+      bearer: "back_to_arrears",
+      reason: "found short at banking, more than the credit left after the trip drew on it",
+      correctedOn: "2026-07-20",
+    });
+    expect(res.status).toBe(200);
+    const body: CorrectionResponseBody = await res.json();
+    expect(body.payment).toMatchObject({ amountMinor: "45000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+    expect(await readAllocatedTotal(paymentId)).toBe(45_000n);
+    const rentAfter = await readObligation(obligationId);
+    expect(rentAfter).toMatchObject({
+      amountMinor: 40_000n,
+      settledMinor: 40_000n,
+      status: "paid",
+    });
+    const tripAfter = await readObligation(tripObligationId);
+    expect(tripAfter).toMatchObject({
+      amountMinor: 6_000n,
+      settledMinor: 5_000n,
+      status: "part_paid",
+    });
+
+    await ctx.cleanup();
+  });
+
+  /**
+   * GAP-229 review finding, 14 Sept 2026: `absorbed_loss` never touches
+   * allocations (only `back_to_arrears` calls `unwindAllocations`), so it
+   * can reduce `payment.amountMinor` below what is already allocated —
+   * exactly what this test's own first correction does. Without clamping
+   * `unallocatedMinor` at zero, a later `back_to_arrears` correction on the
+   * same payment reads that negative figure as extra credit and unwinds
+   * more than its own `differenceMinor`, reopening arrears the party does
+   * not owe (INV-22). Confirmed failing against the pre-clamp code first.
+   */
+  it("back_to_arrears, customer — credit already negative from a prior absorbed_loss correction unwinds only its own differenceMinor", async () => {
+    const ctx = new TestContext(db);
+    const { obligationId, token, paymentId } = await setUpObligationWithCredit(
+      ctx,
+      "customer",
+      45_000n,
+      50_000n,
+    );
+
+    // absorbed_loss never touches allocations — this alone drives
+    // paymentAmountMinor (42,000) below allocatedMinor (45,000).
+    const absorbed = await postCorrection(token, paymentId, {
+      differenceMinor: "8000",
+      bearer: "absorbed_loss",
+      reason: "a bad note accepted at handover, the business eats it",
+      correctedOn: "2026-07-18",
+    });
+    expect(absorbed.status).toBe(200);
+    const absorbedBody: CorrectionResponseBody = await absorbed.json();
+    expect(absorbedBody.payment).toMatchObject({ amountMinor: "42000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(absorbedBody.correctionId);
+    expect(await readAllocatedTotal(paymentId)).toBe(45_000n);
+
+    const res = await postCorrection(token, paymentId, {
+      differenceMinor: "2000",
+      bearer: "back_to_arrears",
+      reason: "found short at banking, after the earlier absorbed loss",
+      correctedOn: "2026-07-20",
+    });
+    expect(res.status).toBe(200);
+    const body: CorrectionResponseBody = await res.json();
+    expect(body.payment).toMatchObject({ amountMinor: "40000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+    // Correct (clamped): unallocatedMinor is max(0, 42,000-45,000) = 0, so
+    // the full 2,000 unwinds. Pre-fix, unallocatedMinor was -3,000 and
+    // remaining became 2,000-(-3,000) = 5,000 — five times too much.
+    expect(await readAllocatedTotal(paymentId)).toBe(43_000n);
+    const after = await readObligation(obligationId);
+    expect(after).toMatchObject({
+      amountMinor: 45_000n,
+      settledMinor: 43_000n,
+      status: "part_paid",
+    });
 
     await ctx.cleanup();
   });

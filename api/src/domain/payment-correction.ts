@@ -81,6 +81,7 @@ export async function correctPayment(
           tx,
           input.businessId,
           input.paymentId,
+          paymentRow.amountMinor,
           input.differenceMinor,
           input.userId,
         );
@@ -140,15 +141,36 @@ export async function correctPayment(
   }
 }
 
+/**
+ * F-8.2's credit-first bullet, GAP-229: a correction draws on this payment's
+ * own unallocated credit (`amount_minor − SUM(live payment_allocation)`,
+ * `credit-forward.ts`'s own formula) before it reopens anything. Only the
+ * excess above that credit puts the party back into arrears — the same
+ * allocations array both the credit sum and the unwind order come from, so
+ * this never queries the payment's children twice.
+ *
+ * `unallocatedMinor` is clamped at zero: an `absorbed_loss` correction never
+ * touches allocations (`correctPayment` only calls this function under
+ * `back_to_arrears`), so it can reduce `amount_minor` below what is already
+ * allocated and leave the raw subtraction negative. Left unclamped, a later
+ * `back_to_arrears` correction on the same payment would read that negative
+ * figure as *more* credit to draw excess from, unwinding more allocation
+ * than its own `differenceMinor` claims — a real reopened-arrears bug review
+ * found (code-review, 14 Sept 2026), not merely defensive rounding.
+ */
 async function unwindAllocations(
   tx: Tx,
   businessId: string,
   paymentId: string,
+  paymentAmountMinor: bigint,
   differenceMinor: bigint,
   userId: string,
 ): Promise<void> {
-  let remaining = differenceMinor;
   const allocations = await findPaymentAllocationsForPayment(tx, paymentId);
+  const allocatedMinor = allocations.reduce((sum, alloc) => sum + alloc.amountMinor, 0n);
+  const unallocatedMinor =
+    paymentAmountMinor > allocatedMinor ? paymentAmountMinor - allocatedMinor : 0n;
+  let remaining = differenceMinor > unallocatedMinor ? differenceMinor - unallocatedMinor : 0n;
 
   for (const alloc of allocations) {
     if (remaining <= 0n) break;
