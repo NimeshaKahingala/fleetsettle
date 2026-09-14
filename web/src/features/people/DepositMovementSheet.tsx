@@ -9,12 +9,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
-import { DateField } from "../../components/DateField.js";
+import { DateAndReasonFields } from "../../components/DateAndReasonFields.js";
 import { MoneyField } from "../../components/MoneyField.js";
 import { Button } from "../../design/primitives/Button.js";
 import { Field } from "../../design/primitives/Field.js";
 import { NativeSelect } from "../../design/primitives/NativeSelect.js";
-import { NoteField } from "../../design/primitives/NoteField.js";
 import { Sheet } from "../../design/primitives/Sheet.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { fieldErrorId } from "../../lib/fieldErrorId.js";
@@ -76,12 +75,15 @@ export function DepositMovementSheet({
     handleSubmit,
     register,
     reset,
+    setValue,
     watch,
   } = useForm<DepositMovementFormValues>({
     resolver: zodResolver(depositMovementFormSchema),
     defaultValues: { movementType: "topped_up", occurredOn: today, reason: "" },
   });
   const movementType = watch("movementType");
+  const occurredOn = watch("occurredOn");
+  const reason = watch("reason") ?? "";
 
   useEffect(() => {
     if (open) reset({ movementType: "topped_up", occurredOn: today, reason: "" });
@@ -166,23 +168,16 @@ export function DepositMovementSheet({
             <MoneyField label="Amount" valueMinor={field.value ?? null} onChange={field.onChange} />
           )}
         />
-        <Controller
-          control={control}
-          name="occurredOn"
-          render={({ field }) => (
-            <DateField label="Date" value={field.value} onChange={field.onChange} today={today} />
-          )}
-        />
-        <Controller
-          control={control}
-          name="reason"
-          render={({ field }) => (
-            <NoteField
-              label="Reason (optional)"
-              value={field.value ?? ""}
-              onChange={field.onChange}
-            />
-          )}
+        <DateAndReasonFields
+          occurredOn={occurredOn}
+          onOccurredOnChange={(value) => {
+            setValue("occurredOn", value);
+          }}
+          reason={reason}
+          onReasonChange={(value) => {
+            setValue("reason", value);
+          }}
+          today={today}
         />
 
         {mutation.isError ? (
