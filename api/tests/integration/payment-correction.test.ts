@@ -584,4 +584,59 @@ describe("correct a payment (P9, F-8.2/UC-93)", () => {
 
     await ctx.cleanup();
   });
+
+  /**
+   * GAP-229 review finding, 14 Sept 2026: `absorbed_loss` never touches
+   * allocations (only `back_to_arrears` calls `unwindAllocations`), so it
+   * can reduce `payment.amountMinor` below what is already allocated —
+   * exactly what this test's own first correction does. Without clamping
+   * `unallocatedMinor` at zero, a later `back_to_arrears` correction on the
+   * same payment reads that negative figure as extra credit and unwinds
+   * more than its own `differenceMinor`, reopening arrears the party does
+   * not owe (INV-22). Confirmed failing against the pre-clamp code first.
+   */
+  it("back_to_arrears, customer — credit already negative from a prior absorbed_loss correction unwinds only its own differenceMinor", async () => {
+    const ctx = new TestContext(db);
+    const { obligationId, token, paymentId } = await setUpObligationWithCredit(
+      ctx,
+      "customer",
+      45_000n,
+      50_000n,
+    );
+
+    // absorbed_loss never touches allocations — this alone drives
+    // paymentAmountMinor (42,000) below allocatedMinor (45,000).
+    const absorbed = await postCorrection(token, paymentId, {
+      differenceMinor: "8000",
+      bearer: "absorbed_loss",
+      reason: "a bad note accepted at handover, the business eats it",
+      correctedOn: "2026-07-18",
+    });
+    expect(absorbed.status).toBe(200);
+    const absorbedBody: CorrectionResponseBody = await absorbed.json();
+    expect(absorbedBody.payment).toMatchObject({ amountMinor: "42000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(absorbedBody.correctionId);
+    expect(await readAllocatedTotal(paymentId)).toBe(45_000n);
+
+    const res = await postCorrection(token, paymentId, {
+      differenceMinor: "1000",
+      bearer: "back_to_arrears",
+      reason: "found short at banking, after the earlier absorbed loss",
+      correctedOn: "2026-07-20",
+    });
+    expect(res.status).toBe(200);
+    const body: CorrectionResponseBody = await res.json();
+    expect(body.payment).toMatchObject({ amountMinor: "41000", status: "corrected" });
+    ctx.trackCreatedPaymentCorrection(body.correctionId);
+
+    expect(await readAllocatedTotal(paymentId)).toBe(44_000n);
+    const after = await readObligation(obligationId);
+    expect(after).toMatchObject({
+      amountMinor: 45_000n,
+      settledMinor: 44_000n,
+      status: "part_paid",
+    });
+
+    await ctx.cleanup();
+  });
 });
