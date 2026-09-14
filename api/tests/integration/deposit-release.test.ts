@@ -149,17 +149,23 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
     await ctx.cleanup();
   });
 
-  it("apply — sweeps the held balance against an outstanding due, oldest-due-first", async () => {
-    const ctx = new TestContext(db);
+  /**
+   * `setUpHeldDeposit`'s own lease closure leaves the full period's rent
+   * (3,100,000, `startLease`'s own default) outstanding — settled here first
+   * so it is not what the deposit's own apply sweeps into, the same way the
+   * pre-existing GAP-6 apply test in `lease-closure.test.ts` deliberately
+   * leaves it unpaid to prove the opposite point; these tests are about
+   * *this deposit's* own apply, not the lease's unrelated rent. Extracted
+   * once a second test needed the identical scaffolding (SonarCloud's
+   * new-code duplication gate caught the second copy).
+   */
+  async function setUpHeldDepositWithDue(
+    ctx: TestContext,
+    db: ReturnType<typeof writer>,
+    dueAmountMinor: bigint,
+  ) {
     const { depositId, customerId, businessId, periodId, token } = await setUpHeldDeposit(ctx, db);
 
-    // `setUpHeldDeposit`'s own lease closure leaves the full period's rent
-    // (3,100,000, `startLease`'s own default) outstanding — settled here
-    // first so it is not what the deposit's own apply below sweeps into,
-    // the same way the pre-existing GAP-6 apply test in
-    // `lease-closure.test.ts` deliberately leaves it unpaid to prove the
-    // opposite point. This test is about *this* deposit's own apply, not
-    // the lease's unrelated rent.
     const rentPaymentRes = await post("/api/payment", token, {
       partyType: "customer",
       partyId: customerId,
@@ -175,20 +181,27 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
       partyType: "customer",
       customerId,
       kind: "post_closure_charge",
-      amountMinor: 12_000n,
+      amountMinor: dueAmountMinor,
       dueOn: "2026-01-23",
     });
-    // The apply below leaves a `deposit_movement.obligation_id` pointing at
-    // this obligation — cleared here (LIFO: tracked after `createObligation`,
-    // so it runs before that row's own delete) rather than left for the
-    // lease's own teardown, which only clears movements for obligations it
-    // created itself, not one made directly by this test.
+    // A successful apply below leaves a `deposit_movement.obligation_id`
+    // pointing at this obligation — cleared here (LIFO: tracked after
+    // `createObligation`, so it runs before that row's own delete) rather
+    // than left for the lease's own teardown, which only clears movements
+    // for obligations it created itself, not one made directly by this test.
     ctx.track(async () => {
       await db
         .update(depositMovement)
         .set({ obligationId: null })
         .where(eq(depositMovement.obligationId, obligationId));
     });
+
+    return { depositId, obligationId, token };
+  }
+
+  it("apply — sweeps the held balance against an outstanding due, oldest-due-first", async () => {
+    const ctx = new TestContext(db);
+    const { depositId, obligationId, token } = await setUpHeldDepositWithDue(ctx, db, 12_000n);
 
     const res = await post(`/api/deposit/${depositId}/release`, token, {
       action: "apply",
@@ -213,38 +226,13 @@ describe("release a held deposit (GAP-230, F-2.7)", () => {
    * follow-up must itself be safe once the sweep happens to drain the
    * balance to exactly zero, which "refund" (before this fix) was not:
    * it auto-computed the refund amount as the current balance with no
-   * zero-balance guard, unlike "apply" three lines above it which has one.
+   * zero-balance guard, unlike "apply" above it which has one.
    */
   it("refund — a deposit fully drained to zero by a prior apply is refused cleanly, not a 500", async () => {
     const ctx = new TestContext(db);
-    const { depositId, customerId, businessId, periodId, token } = await setUpHeldDeposit(ctx, db);
-
-    const rentPaymentRes = await post("/api/payment", token, {
-      partyType: "customer",
-      partyId: customerId,
-      amountMinor: "3100000",
-      occurredOn: "2026-01-22",
-    });
-    expect(rentPaymentRes.status).toBe(201);
-    const rentPaymentBody: { id: string } = await rentPaymentRes.json();
-    ctx.trackCreatedPayment(rentPaymentBody.id);
-
     // Exactly the full 20,000 held, so the apply sweep below drains the
     // deposit to precisely zero while status stays hold_window.
-    const obligationId = await ctx.createObligation(businessId, periodId, {
-      direction: "owed_to_us",
-      partyType: "customer",
-      customerId,
-      kind: "post_closure_charge",
-      amountMinor: 20_000n,
-      dueOn: "2026-01-23",
-    });
-    ctx.track(async () => {
-      await db
-        .update(depositMovement)
-        .set({ obligationId: null })
-        .where(eq(depositMovement.obligationId, obligationId));
-    });
+    const { depositId, token } = await setUpHeldDepositWithDue(ctx, db, 20_000n);
 
     const applyRes = await post(`/api/deposit/${depositId}/release`, token, {
       action: "apply",
