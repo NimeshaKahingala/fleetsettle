@@ -8,7 +8,7 @@
 >
 > **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) — **fully specified 13 Sept 2026, then parked by the owner: not starting soon** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
 >
-> **Next build focus, set by the owner 13 Sept 2026: [Wave 8d · GAP-229 and GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m)** — two live money defects P14's template review found, both wrong in the product today.
+> **Next build focus, set by the owner 13 Sept 2026: [Wave 8d · GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m)** — the second of two live money defects P14's template review found. **GAP-229 closed the same day, PR #192.**
 >
 > **Before trusting anything in the superseded block, read [its marker](#the-order-end-to-end) — it now names four exceptions, not one** (17 August 2026). Two live conventions were buried under "do not read it" (`The bar every item clears`, `When an item here is finished`), and **[Skipped by decision](#skipped-by-decision) had six of its seven entries reversed** — it listed A7, GAP-1, GAP-6, GAP-12, GAP-19 and GAP-18 as out of scope after all six had shipped. Each now carries what actually happened. **A contradiction inside this file was resolved the same pass**: its tail read *"worth firing"* the twelve Meta approvals while Wave 10 records the owner's decision not to.
 
@@ -452,9 +452,11 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 
 **Added 13 September 2026, by owner priority.** Both were found by review of P14's template draft and confirmed against source, and **both are wrong in the product today, independent of messaging** — which is why they do not stay inside Wave 10, where parking P14 would have parked them too. Each row's full account is in [TRACKER.md](TRACKER.md) §4. **The rules they must meet are already in `docs/`, so neither needs a `doc-change` first.**
 
-**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap.
+**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap. **GAP-229 closed 13 September 2026, PR #192; GAP-230 is next.**
 
 #### GAP-229 — a correction uses credit before reopening dues (S)
+
+**Closed 13 September 2026 — PR #192.** Built exactly as scoped below: `unwindAllocations` now locks the payment row `FOR UPDATE` and reads its unallocated credit from the same live `payment_allocation` rows it already fetches for the unwind order, unwinding only `max(0, differenceMinor − unallocated)` under `back_to_arrears`. `absorbed_loss` needed no change. 8 new tests, `payment-correction.test.ts` now 18, each confirmed failing against the pre-fix code first; golden fixture G-1 unmoved. Full account in [TRACKER.md](TRACKER.md) §4.
 
 | | |
 |---|---|

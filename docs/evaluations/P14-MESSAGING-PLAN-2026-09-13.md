@@ -21,7 +21,7 @@
 
 **Must happen before resuming**
 
-1. **GAP-229 and GAP-230 fixed.** Both are live defects, now [Plan.md](../../Plan.md) Wave 8d. P14's correction messages read the credit GAP-229 computes, and its deposit-release messages follow the operation GAP-230 adds.
+1. **GAP-230 fixed.** A live defect, [Plan.md](../../Plan.md) Wave 8d — P14's deposit-release messages follow the operation it adds. **GAP-229 closed 13 September 2026, PR #192**: P14's correction messages read the credit it now computes.
 2. **The Sinhala check** of the template draft, by a Sinhala-reading partner. It can happen any time, independently of everything else.
 
 **Stale by then — re-check, do not trust**

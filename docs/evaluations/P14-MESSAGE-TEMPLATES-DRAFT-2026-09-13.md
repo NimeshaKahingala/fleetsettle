@@ -242,7 +242,7 @@ Hello {{1}}, we received Rs. {{2}} from you on {{3}} for {{4}}. Balance still ow
 | | |
 |---|---|
 | Sent when | A **customer's** payment that already had a receipt (UC-82) is corrected, and **the difference goes back onto what the customer owes** (W-73, bearer `back_to_arrears`), straight away |
-| Credit | **The difference comes out of the payment's unallocated credit first** (F-8.2, review 13 Sept 2026); only the rest reopens settled dues or is absorbed. **Credit is always stated here, even when `0`** — unlike an everyday receipt (§3.7a), a correction is rare and about exact money, and a silent credit line would leave the reader unsure whether his credit survived. *Depends on GAP-229: today's correction code unwinds dues before credit* |
+| Credit | **The difference comes out of the payment's unallocated credit first** (F-8.2, review 13 Sept 2026); only the rest reopens settled dues or is absorbed. **Credit is always stated here, even when `0`** — unlike an everyday receipt (§3.7a), a correction is rare and about exact money, and a silent credit line would leave the reader unsure whether his credit survived. *Depended on GAP-229, closed 13 September 2026 (PR #192) — the correction code now reads credit before unwinding anything* |
 | Variables | `{{1}}` name · `{{2}}` date of the original receipt · `{{3}}` amount recorded · `{{4}}` amount actually received · `{{5}}` balance now owed · `{{6}}` credit still held, `0` if none |
 
 **English (`en`)**
