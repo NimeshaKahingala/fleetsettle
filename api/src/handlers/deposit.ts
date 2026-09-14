@@ -3,6 +3,7 @@ import type { RouteHandler } from "@hono/zod-openapi";
 import { requireBusinessId, requireCapability, requireUserId } from "../auth/context.js";
 import {
   recordDepositMovement,
+  releaseHeldDeposit,
   takeDriverDeposit,
   voidDepositMovement,
 } from "../domain/deposit.js";
@@ -11,6 +12,7 @@ import { findDriverForBusiness } from "../queries/driver.js";
 import type { DepositRow } from "../queries/driver-money.js";
 import type {
   recordDepositMovementRoute,
+  releaseDepositRoute,
   takeDriverDepositRoute,
   voidDepositMovementRoute,
 } from "../route-defs/deposit.js";
@@ -116,6 +118,40 @@ export const recordDepositMovementHandler: RouteHandler<
       result.movementId,
       body.replacesId ?? null,
     ),
+    200,
+  );
+};
+
+/**
+ * GAP-230/F-2.7. `leaseAndTripLifecycle` — the same gate `settleLeaseDeposit`
+ * uses, since this is that same money decision, only reached from
+ * `DepositReleasesScreen` instead of the closure wizard.
+ */
+export const releaseDepositHandler: RouteHandler<typeof releaseDepositRoute, Env> = async (c) => {
+  requireCapability(c, "leaseAndTripLifecycle");
+  const businessId = requireBusinessId(c);
+  const userId = requireUserId(c);
+  const { id } = c.req.valid("param");
+  const body = c.req.valid("json");
+
+  assertNotFutureBusinessDate(c, asBusinessDate(body.occurredOn), "occurredOn");
+
+  const result = await releaseHeldDeposit(c.get("writer"), {
+    businessId,
+    depositId: id,
+    action: body.action,
+    ...(body.amountMinor !== undefined ? { amountMinor: body.amountMinor } : {}),
+    ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    occurredOn: asBusinessDate(body.occurredOn),
+    userId,
+  });
+
+  return c.json(
+    {
+      depositId: result.depositId,
+      status: result.status,
+      heldMinor: toWire(result.heldMinor),
+    },
     200,
   );
 };

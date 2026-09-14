@@ -632,7 +632,7 @@ Voided rows (`voided_at IS NOT NULL`) never count — a voided obligation was al
 #### F-2.7 Release a held deposit when the window expires
 *Actor:* System → manager · *Source:* UC-16 step 6, W-29 · *Phase:* 2
 **Steps** On the release date, the deposit appears on the home screen. Release, or apply against a charge that arrived in the meantime (F-8.4).
-**Accept** · A deposit in `hold_window` is still a liability, still in the cash position, and still not income (INV-4) · releasing it is not an expense (§6.13) · **one operation settles a held deposit** *(review, 13 Sept 2026)* — it accepts only a `hold_window` deposit and, in one transaction, records the refund and any amount applied or retained, sets the deposit's final status, and queues the release message (UC-83); a retried settlement is a no-op · **not built today: every deposit operation refuses a `hold_window` deposit — GAP-230**
+**Accept** · A deposit in `hold_window` is still a liability, still in the cash position, and still not income (INV-4) · releasing it is not an expense (§6.13) · **one operation settles a held deposit** *(review, 13 Sept 2026)* — it accepts only a `hold_window` deposit and, in one transaction, records the refund and any amount applied or retained, sets the deposit's final status, and (once P14 exists) queues the release message (UC-83); a retried settlement is refused · **GAP-230, closed 13 September 2026 (PR #TBD) — `POST /api/deposit/{id}/release`**
 
 #### F-2.8 Customer statement
 *Actor:* Manager · *Source:* UC-19 · *Phase:* 2

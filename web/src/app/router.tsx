@@ -121,11 +121,15 @@ function HomeRoute() {
 }
 
 /** GAP-183: the bell's "Deposits to release" row needed a destination; Home's own section is the same list, so this screen is the linkable form of it. */
-function DepositReleasesRoute() {
+function DepositReleasesRoute({ today }: { today: BusinessDate }) {
   const navigate = useNavigate();
   const selectParty = useSelectParty();
   return (
-    <DepositReleasesScreen onBack={() => void navigate({ to: "/" })} onSelectParty={selectParty} />
+    <DepositReleasesScreen
+      onBack={() => void navigate({ to: "/" })}
+      onSelectParty={selectParty}
+      today={today}
+    />
   );
 }
 
@@ -1322,7 +1326,7 @@ export function createAppRouteTree(today: BusinessDate, history?: RouterHistory)
   const depositReleasesRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/deposits-to-release",
-    component: DepositReleasesRoute,
+    component: () => <DepositReleasesRoute today={today} />,
   });
 
   // B0b: the Review shell's four tabs and the Mine shell's one screen —

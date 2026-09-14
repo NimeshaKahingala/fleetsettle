@@ -213,6 +213,14 @@ export class TestContext {
     });
   }
 
+  /** GAP-230: same reasoning as `setAutoWaiveThreshold` above, for a test that needs a hold window longer than the 30-day default — a deposit's `hold_release_date` far enough past "today" to prove an early release is genuinely early. */
+  async setDepositHoldDays(businessId: string, days: number): Promise<void> {
+    await this.#db.insert(businessSettings).values({ businessId, depositHoldDays: days });
+    this.track(async () => {
+      await this.#db.delete(businessSettings).where(eq(businessSettings.businessId, businessId));
+    });
+  }
+
   async createOpenPeriod(businessId: string, overrides: OpenPeriodOverrides = {}): Promise<string> {
     const id = newId();
     await this.#db.insert(accountingPeriod).values({

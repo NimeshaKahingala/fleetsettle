@@ -129,6 +129,32 @@ export const voidedDepositMovementResponseSchema = z.object({
 export type VoidedDepositMovementResponse = z.infer<typeof voidedDepositMovementResponseSchema>;
 
 /**
+ * GAP-230/F-2.7: the `hold_window` counterpart to `settleLeaseDepositRequestSchema`
+ * — the same "refund" / "retain" / "apply" choice, minus "hold" (this deposit
+ * is already held). "retain" needs only a reason (the owner's own answer,
+ * 13 Sept 2026) — never a linked charge.
+ */
+export const releaseDepositRequestSchema = z
+  .object({
+    action: z.enum(["refund", "retain", "apply"]),
+    amountMinor: positiveMoneyWireSchema.optional(),
+    reason: z.string().trim().max(500).optional(),
+    occurredOn: businessDateSchema,
+  })
+  .refine((v) => v.action !== "retain" || v.amountMinor !== undefined, {
+    message: "amountMinor is required to retain part of a deposit",
+    path: ["amountMinor"],
+  });
+export type ReleaseDepositRequest = z.infer<typeof releaseDepositRequestSchema>;
+
+export const releaseDepositResponseSchema = z.object({
+  depositId: uuidSchema,
+  status: z.enum(["held", "hold_window", "released", "applied", "retained"]),
+  heldMinor: z.string(),
+});
+export type ReleaseDepositResponse = z.infer<typeof releaseDepositResponseSchema>;
+
+/**
  * F-6.4/UC-56/W-2, INV-3: the ONLY thing that moves both driver balances.
  * The net is information a caller may display; nothing here nets
  * automatically — this record is the explicit, deliberate exception.

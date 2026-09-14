@@ -2,11 +2,13 @@ import { OpenAPIHono } from "@hono/zod-openapi";
 import { zodValidationHook } from "../errors/openapi-hook.js";
 import {
   recordDepositMovementHandler,
+  releaseDepositHandler,
   takeDriverDepositHandler,
   voidDepositMovementHandler,
 } from "../handlers/deposit.js";
 import {
   recordDepositMovementRoute,
+  releaseDepositRoute,
   takeDriverDepositRoute,
   voidDepositMovementRoute,
 } from "../route-defs/deposit.js";
@@ -16,4 +18,5 @@ import type { Env } from "../types.js";
 export const deposit = new OpenAPIHono<Env>({ defaultHook: zodValidationHook })
   .openapi(takeDriverDepositRoute, takeDriverDepositHandler)
   .openapi(recordDepositMovementRoute, recordDepositMovementHandler)
+  .openapi(releaseDepositRoute, releaseDepositHandler)
   .openapi(voidDepositMovementRoute, voidDepositMovementHandler);

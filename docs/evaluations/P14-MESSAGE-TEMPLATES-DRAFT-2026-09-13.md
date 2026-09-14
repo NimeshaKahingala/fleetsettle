@@ -395,7 +395,7 @@ Please keep this message as your record. Thank you.
 
 | | |
 |---|---|
-| Sent when | A held deposit's hold ends and **all of it** is refunded (F-2.7, through the held-deposit settlement GAP-230 adds — no such operation exists today), straight away. **Added by owner decision, 13 Sept 2026** — a message every time a hold ends. Stage `once`, subject the deposit |
+| Sent when | A held deposit's hold ends and **all of it** is refunded (F-2.7, through `POST /api/deposit/{id}/release` — GAP-230, closed 13 Sept 2026, PR #TBD), straight away. **Added by owner decision, 13 Sept 2026** — a message every time a hold ends. Stage `once`, subject the deposit |
 | Why a separate template | Meta will not send a template with an empty variable, so "kept: Rs. 0, for —" cannot be sent. A full refund gets its own sentence |
 | Variables | `{{1}}` name · `{{2}}` vehicle · `{{3}}` amount refunded |
 
@@ -413,7 +413,7 @@ Hello {{1}}, the hold on your deposit for {{2}} has ended, and the full Rs. {{3}
 
 | | |
 |---|---|
-| Sent when | A held deposit's hold ends and **any non-zero amount is kept** for a late charge — up to and including all of it, so `Refunded to you: Rs. 0` is valid (F-2.7 through GAP-230's settlement, UC-91) — straight away. Stage `once`, subject the deposit |
+| Sent when | A held deposit's hold ends and **any non-zero amount is kept** for a late charge — up to and including all of it, so `Refunded to you: Rs. 0` is valid (F-2.7 through `POST /api/deposit/{id}/release`, UC-91) — straight away. Stage `once`, subject the deposit |
 | Variables | `{{1}}` name · `{{2}}` vehicle · `{{3}}` amount refunded · `{{4}}` amount kept · `{{5}}` what it was kept for · `{{6}}` amount the customer still owes |
 | Note | The reason is stated in writing. **It is required and never empty** — taken from the charge the deposit was applied to, or entered by the manager; without one the message is not sent (Meta refuses an empty variable) and the release surfaces for a reason to be added. "Still owes" covers a late charge larger than the deposit, and is `0` otherwise |
 
