@@ -2,6 +2,8 @@ import { createRoute } from "@hono/zod-openapi";
 import {
   depositMovementRequestSchema,
   depositResponseSchema,
+  releaseDepositRequestSchema,
+  releaseDepositResponseSchema,
   takeDriverDepositRequestSchema,
   voidedDepositMovementResponseSchema,
   voidRequestSchema,
@@ -54,6 +56,35 @@ export const recordDepositMovementRoute = createRoute({
       description:
         "That accounting period is closed, replacesId names a movement that isn't voided yet, or it has already been replaced (GAP-60)",
     },
+  },
+});
+
+/**
+ * GAP-230/F-2.7: the `hold_window` counterpart to `POST /api/lease/{id}/settle-deposit`
+ * — refund in full, retain a portion (a reason, never a linked charge), or
+ * apply against what is owed. Reachable from `DepositReleasesScreen` (the
+ * owner's own answer, 13 Sept 2026, on where this action lives).
+ */
+export const releaseDepositRoute = createRoute({
+  method: "post",
+  path: "/{id}/release",
+  request: {
+    params: depositIdParams,
+    body: { content: { "application/json": { schema: releaseDepositRequestSchema } } },
+  },
+  responses: {
+    200: {
+      content: { "application/json": { schema: releaseDepositResponseSchema } },
+      description: "The deposit, after this settlement",
+    },
+    400: {
+      description:
+        "This deposit is not in hold_window (never held, or already settled), amountMinor is missing for 'retain', or 'apply' found nothing outstanding to draw against",
+    },
+    401: { description: "Missing or invalid access token" },
+    403: { description: "This role cannot release a deposit" },
+    404: { description: "No such deposit in this business" },
+    409: { description: "That accounting period is closed" },
   },
 });
 

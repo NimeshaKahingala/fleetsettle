@@ -1,22 +1,26 @@
-import { parse } from "@fleetsettle/shared";
+import { parse, type BusinessDate } from "@fleetsettle/shared";
 import type { DepositReleaseRow } from "@fleetsettle/shared/schemas";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, HandCoins } from "lucide-react";
+import { useState } from "react";
 import { EmptyState } from "../../components/EmptyState.js";
 import { Money } from "../../components/Money.js";
 import { QueryStateFailure } from "../../components/QueryState.js";
 import { Badge } from "../../design/primitives/Badge.js";
+import { Button } from "../../design/primitives/Button.js";
 import { Card } from "../../design/primitives/Card.js";
 import { Screen } from "../../design/primitives/Screen.js";
 import { useApi } from "../../lib/ApiContext.js";
 import { cn } from "../../lib/cn.js";
 import { rowButtonFocus } from "../../lib/rowButtonFocus.js";
 import { useQueryState } from "../../lib/useQueryState.js";
+import { ReleaseDepositSheet } from "./ReleaseDepositSheet.js";
 
 export interface DepositReleasesScreenProps {
   onBack: () => void;
-  /** Each row opens the party who is owed the money back — a deposit is money you hold, never income (CLAUDE.md → Money). */
+  /** Each row's own name/date opens the party who is owed the money back — a deposit is money you hold, never income (CLAUDE.md → Money). */
   onSelectParty: (partyType: "customer" | "driver", partyId: string) => void;
+  today: BusinessDate;
 }
 
 /** Matches `HomeScreen.tsx`'s own `formatShortDate` exactly — no year. This screen deliberately shows the same fields as Home's section, so showing the same date two different ways would be the one thing it must not do. */
@@ -39,14 +43,16 @@ function formatShortDate(date: string): string {
  * the two can never disagree about which deposits are due back.
  *
  * **A held deposit is money you hold, never income** — every figure here is
- * a liability, and the row's action is opening the party you owe it to, not
- * releasing it. Releasing runs through that party's own detail screen, where
- * the deposit's full movement history is (W-50: a release is a movement, and
- * movements belong with their deposit).
+ * a liability. GAP-230, 13 Sept 2026, the owner's own answer on where the
+ * release action lives: **this screen**, not the party's own detail screen —
+ * a "Release" button beside each row opens `ReleaseDepositSheet` directly.
+ * The row's name/date still opens the party, unchanged, for the movement
+ * history a release adds to.
  */
 export function DepositReleasesScreen({
   onBack,
   onSelectParty,
+  today,
 }: Readonly<DepositReleasesScreenProps>) {
   const api = useApi();
   const query = useQuery({
@@ -55,6 +61,7 @@ export function DepositReleasesScreen({
   });
   const state = useQueryState(query);
   const rows = query.data ?? [];
+  const [releasing, setReleasing] = useState<DepositReleaseRow | null>(null);
 
   return (
     <Screen title="Deposits to release" onBack={onBack}>
@@ -79,35 +86,55 @@ export function DepositReleasesScreen({
       {rows.length > 0 ? (
         <div className="flex flex-col gap-3">
           {rows.map((row) => (
-            <button
-              key={row.depositId}
-              type="button"
-              onClick={() => {
-                onSelectParty(row.partyType, row.partyId);
-              }}
-              className={cn("w-full min-h-tap text-left", rowButtonFocus)}
-            >
-              <Card accent="warning" className="flex items-center justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
-                  <div className="min-w-0">
-                    <p className="truncate text-title text-ink-primary">{row.partyName ?? "—"}</p>
-                    <p className="text-body-sm text-ink-muted">
-                      Held since {formatShortDate(row.holdReleaseDate)}
-                    </p>
-                  </div>
+            <Card key={row.depositId} accent="warning" className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectParty(row.partyType, row.partyId);
+                }}
+                className={cn(
+                  "flex min-w-0 min-h-tap flex-1 items-center gap-3 text-left",
+                  rowButtonFocus,
+                )}
+              >
+                <HandCoins className="size-5 shrink-0 text-warning-ink" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-title text-ink-primary">{row.partyName ?? "—"}</p>
+                  <p className="text-body-sm text-ink-muted">
+                    Held since {formatShortDate(row.holdReleaseDate)}
+                  </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex flex-col items-end gap-1">
-                    <Badge variant="warning">Release</Badge>
-                    <Money value={parse(row.heldMinor)} />
-                  </div>
-                  <ChevronRight className="size-4 text-ink-muted" aria-hidden />
+                <ChevronRight className="size-4 shrink-0 text-ink-muted" aria-hidden />
+              </button>
+              <div className="flex shrink-0 items-center gap-3">
+                <div className="flex flex-col items-end gap-1">
+                  <Badge variant="warning">Due</Badge>
+                  <Money value={parse(row.heldMinor)} />
                 </div>
-              </Card>
-            </button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setReleasing(row);
+                  }}
+                >
+                  Release
+                </Button>
+              </div>
+            </Card>
           ))}
         </div>
+      ) : null}
+
+      {releasing !== null ? (
+        <ReleaseDepositSheet
+          open
+          onOpenChange={(open) => {
+            if (!open) setReleasing(null);
+          }}
+          depositId={releasing.depositId}
+          heldMinor={parse(releasing.heldMinor)}
+          today={today}
+        />
       ) : null}
     </Screen>
   );

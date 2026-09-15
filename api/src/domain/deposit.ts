@@ -22,7 +22,11 @@ import {
   voidDepositMovementRow,
   type DepositRow,
 } from "../queries/driver-money.js";
-import { findObligationForDepositApply, updateObligationSettled } from "../queries/obligation.js";
+import {
+  findObligationForDepositApply,
+  findOutstandingObligationsForParty,
+  updateObligationSettled,
+} from "../queries/obligation.js";
 import { computeObligationStatus } from "./obligation-status.js";
 
 export interface TakeDriverDepositInput {
@@ -136,10 +140,18 @@ const TERMINAL: Partial<Record<RecordDepositMovementInput["movementType"], Depos
  * in one sweep (`lease-closure.ts`'s `settleLeaseDeposit` "apply" action)
  * can compose them into a single all-or-nothing transaction instead of one
  * commit per movement.
+ *
+ * GAP-230: `allowedStatuses` defaults to `["held"]`, the only status the
+ * public `/movement` endpoint may ever write against — never part of
+ * `RecordDepositMovementInput` itself, since it is not a caller's choice to
+ * make on the wire. `releaseHeldDeposit` below is the one caller that passes
+ * `["hold_window"]` instead: the same insert/obligation/period logic, aimed
+ * at the one other status a deposit is ever settled from.
  */
 export async function recordDepositMovementTx(
   tx: Tx,
   input: RecordDepositMovementInput,
+  allowedStatuses: DepositRow["status"][] = ["held"],
 ): Promise<RecordedDepositMovement> {
   // GAP-178/B10: the parent row is locked before the held balance is summed.
   // Without it, two concurrent draws both read the same `held`, both pass the
@@ -153,7 +165,7 @@ export async function recordDepositMovementTx(
   // another transaction is about to add.
   const dep = await findDepositForBusiness(tx, input.businessId, input.depositId, true);
   if (!dep) throw new NotFoundError("No such deposit in this business");
-  if (dep.status !== "held") {
+  if (!allowedStatuses.includes(dep.status)) {
     throw new ValidationError(`This deposit is already ${dep.status}`);
   }
 
@@ -265,8 +277,9 @@ export async function recordDepositMovementTx(
 export async function recordDepositMovement(
   writer: Writer,
   input: RecordDepositMovementInput,
+  allowedStatuses: DepositRow["status"][] = ["held"],
 ): Promise<RecordedDepositMovement> {
-  return writer.transaction((tx) => recordDepositMovementTx(tx, input));
+  return writer.transaction((tx) => recordDepositMovementTx(tx, input, allowedStatuses));
 }
 
 export interface VoidDepositMovementInput {
@@ -440,4 +453,183 @@ export async function takeCustomerDeposit(
   input: TakeCustomerDepositInput,
 ): Promise<TakenDeposit> {
   return writer.transaction((tx) => takeCustomerDepositTx(tx, input));
+}
+
+export interface ReleaseHeldDepositInput {
+  businessId: string;
+  depositId: string;
+  action: "refund" | "retain" | "apply";
+  /** Required for "retain" — a portion, never assumed to be everything held. */
+  amountMinor?: Minor;
+  /** Required for "retain" (a reason for keeping someone's money, W-26). Owner, 13 Sept 2026: a reason is enough — this never needs a linked charge. */
+  reason?: string;
+  occurredOn: BusinessDate;
+  userId: string;
+}
+
+export interface ReleasedDeposit {
+  depositId: string;
+  status: DepositRow["status"];
+  heldMinor: Minor;
+}
+
+/**
+ * GAP-230/F-2.7: `settleLeaseDeposit`'s own three disposal actions —
+ * refund in full, retain a portion (a reason, never a linked charge — the
+ * owner's own answer, 13 Sept 2026), or apply against what is owed — aimed
+ * at the one other status a deposit is ever settled from. F-2.6 step 6
+ * already puts a deposit into `hold_window` on purpose (a manager choosing
+ * to hold it for the configured window); until this function, nothing
+ * accepted anything but `held`, so a held-then-`hold_window` deposit could
+ * never actually be paid back (`GET /api/home/deposit-releases` listed it
+ * forever).
+ *
+ * Deliberately not lease-scoped, unlike `settleLeaseDeposit`: that function
+ * looks the deposit up through its lease and requires the lease past step 1,
+ * both meaningless here — a deposit only ever reaches `hold_window` via that
+ * same function's own "hold" action, which already required exactly that.
+ * This one is reached by deposit id alone, from `DepositReleasesScreen`
+ * (the owner's own answer on where the action lives).
+ *
+ * Early release is allowed (the owner's third answer) — `hold_release_date`
+ * is a default the "hold" action sets, never a gate this function checks.
+ *
+ * `recordDepositMovementTx`'s own `allowedStatuses` guard is what refuses a
+ * second settlement: once a `refund` or a `retain` lands, the deposit's
+ * status moves off `hold_window` (`released`/`retained` — the same
+ * `TERMINAL` map `recordDepositMovementTx` already carries), and a retry
+ * finds a status no longer in `["hold_window"]` and 400s rather than moving
+ * money twice. A partial `apply` that does not exhaust every outstanding due
+ * leaves the status unchanged, by the identical design `settleLeaseDeposit`
+ * already has — a follow-up call finishes what remains, which is a
+ * continuation, not a retry.
+ */
+export async function releaseHeldDeposit(
+  writer: Writer,
+  input: ReleaseHeldDepositInput,
+): Promise<ReleasedDeposit> {
+  if (input.action === "retain") {
+    if (input.amountMinor === undefined) {
+      throw new ValidationError("amountMinor is required to retain part of a deposit");
+    }
+    const result = await recordDepositMovement(
+      writer,
+      {
+        businessId: input.businessId,
+        depositId: input.depositId,
+        movementType: "retained",
+        amountMinor: input.amountMinor,
+        occurredOn: input.occurredOn,
+        ...(input.reason !== undefined ? { reason: input.reason } : {}),
+        userId: input.userId,
+      },
+      ["hold_window"],
+    );
+    return {
+      depositId: input.depositId,
+      status: result.deposit.status,
+      heldMinor: result.heldMinor,
+    };
+  }
+
+  if (input.action === "refund") {
+    const heldBefore = await sumDepositMovements(writer, input.depositId);
+    // code-review, 14 Sept 2026: a deposit fully drained by a prior "apply"
+    // sweep stays `hold_window` (`applied` is deliberately non-terminal, see
+    // above) with `heldBefore` already at zero — without this guard, the
+    // auto-computed refund amount below would be `0n`, which passes the
+    // draw-below-zero check inside `recordDepositMovementTx` (0 is not `>`
+    // held) and then fails `deposit_movement`'s own `CHECK (amount_minor >
+    // 0)` as a raw, unmapped Postgres error. The same guard the "apply"
+    // branch below already has for the identical zero-balance case.
+    if (heldBefore <= 0n) {
+      throw new ValidationError("Nothing is held on this deposit to refund");
+    }
+    const result = await recordDepositMovement(
+      writer,
+      {
+        businessId: input.businessId,
+        depositId: input.depositId,
+        movementType: "refunded",
+        amountMinor: heldBefore as Minor,
+        occurredOn: input.occurredOn,
+        userId: input.userId,
+      },
+      ["hold_window"],
+    );
+    return {
+      depositId: input.depositId,
+      status: result.deposit.status,
+      heldMinor: result.heldMinor,
+    };
+  }
+
+  // "apply" — the whole sweep is one transaction, obligations locked for its
+  // duration (GAP-5a discipline), the identical shape `settleLeaseDeposit`'s
+  // own "apply" already uses.
+  const dep = await findDepositForBusiness(writer, input.businessId, input.depositId);
+  if (!dep) throw new NotFoundError("No such deposit in this business");
+  // code-review, 14 Sept 2026: an upfront check, matching `settleLeaseDeposit`'s
+  // own single check for every action — without it, a deposit that isn't
+  // `hold_window` and has no outstanding obligations fell through to "Nothing
+  // is currently owed to apply against" below, a misleading reason that hid
+  // the real one. This read is unlocked and only for the message; the
+  // transaction's own `recordDepositMovementTx` calls below stay the actual,
+  // locked guard against a status that changed between here and there.
+  if (dep.status !== "hold_window") {
+    throw new ValidationError(`This deposit is already ${dep.status}`);
+  }
+  const partyId = dep.partyType === "customer" ? dep.partyCustomerId : dep.partyDriverId;
+  if (partyId === null) throw new NotFoundError("No such deposit in this business");
+
+  const lastResult = await writer.transaction(async (tx) => {
+    const heldBefore = await sumDepositMovements(tx, input.depositId);
+    if (heldBefore <= 0n) {
+      throw new ValidationError("Nothing is held on this deposit to apply");
+    }
+
+    const unpaidObligations = await findOutstandingObligationsForParty(
+      tx,
+      input.businessId,
+      dep.partyType,
+      partyId,
+      "owed_to_us",
+      true,
+    );
+
+    let remaining = heldBefore;
+    let last: Awaited<ReturnType<typeof recordDepositMovementTx>> | undefined;
+    for (const ob of unpaidObligations) {
+      if (remaining <= 0n) break;
+      // GAP-203/H-1/D2: a written-off portion is never collectible.
+      const outstanding = ob.amountMinor - ob.settledMinor - ob.waivedMinor - ob.writtenOffMinor;
+      if (outstanding <= 0n) continue;
+
+      const take = (remaining < outstanding ? remaining : outstanding) as Minor;
+      last = await recordDepositMovementTx(
+        tx,
+        {
+          businessId: input.businessId,
+          depositId: input.depositId,
+          movementType: "applied",
+          amountMinor: take,
+          occurredOn: input.occurredOn,
+          obligationId: ob.id,
+          userId: input.userId,
+        },
+        ["hold_window"],
+      );
+      remaining -= take;
+    }
+    return last;
+  });
+
+  if (lastResult === undefined) {
+    throw new ValidationError("Nothing is currently owed for this deposit to apply against");
+  }
+  return {
+    depositId: input.depositId,
+    status: lastResult.deposit.status,
+    heldMinor: lastResult.heldMinor,
+  };
 }

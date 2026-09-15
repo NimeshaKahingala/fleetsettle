@@ -8,7 +8,7 @@
 >
 > **After phase 1:** [Wave 10 · P14 messaging](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) — **fully specified 13 Sept 2026, then parked by the owner: not starting soon** — and [Wave 11 · B7 offline/PWA](#wave-11--b7-offline-and-the-pwa--phase-3), now joined by GAP-65 and GAP-136. **GAP-135 closed 12 Sept 2026** and is no longer part of this list.
 >
-> **Next build focus, set by the owner 13 Sept 2026: [Wave 8d · GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m)** — the second of two live money defects P14's template review found. **GAP-229 closed the same day, PR #192.**
+> **[Wave 8d · GAP-229 and GAP-230](#wave-8d--gap-229-and-gap-230--two-live-money-defects-m) — both closed 13 Sept 2026** (PR #192, PR #193), the two live money defects P14's template review found. Both were also P14's own W4 prerequisites — [Wave 10](#wave-10--p14-messaging--phase-2-sized-13-sept-2026) stays parked, but nothing else now blocks resuming it besides the Sinhala check. **Next build focus is whatever the owner picks next** — nothing in this file currently names one.
 >
 > **Before trusting anything in the superseded block, read [its marker](#the-order-end-to-end) — it now names four exceptions, not one** (17 August 2026). Two live conventions were buried under "do not read it" (`The bar every item clears`, `When an item here is finished`), and **[Skipped by decision](#skipped-by-decision) had six of its seven entries reversed** — it listed A7, GAP-1, GAP-6, GAP-12, GAP-19 and GAP-18 as out of scope after all six had shipped. Each now carries what actually happened. **A contradiction inside this file was resolved the same pass**: its tail read *"worth firing"* the twelve Meta approvals while Wave 10 records the owner's decision not to.
 
@@ -452,11 +452,11 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 
 **Added 13 September 2026, by owner priority.** Both were found by review of P14's template draft and confirmed against source, and **both are wrong in the product today, independent of messaging** — which is why they do not stay inside Wave 10, where parking P14 would have parked them too. Each row's full account is in [TRACKER.md](TRACKER.md) §4. **The rules they must meet are already in `docs/`, so neither needs a `doc-change` first.**
 
-**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap. **GAP-229 closed 13 September 2026, PR #192; GAP-230 is next.**
+**Order: GAP-229, then GAP-230.** GAP-229 is smaller, silently shows a debt nobody owes, and touches only the payment-correction path. They share no code, so the order can flip if priorities change. Two PRs into `develop`, one per gap. **Both closed 13 September 2026 — GAP-229 PR #192, GAP-230 PR #193.**
 
 #### GAP-229 — a correction uses credit before reopening dues (S)
 
-**Closed 13 September 2026 — PR #192.** Built exactly as scoped below: `unwindAllocations` now locks the payment row `FOR UPDATE` and reads its unallocated credit from the same live `payment_allocation` rows it already fetches for the unwind order, unwinding only `max(0, differenceMinor − unallocated)` under `back_to_arrears`. `absorbed_loss` needed no change. 8 new tests, `payment-correction.test.ts` now 18, each confirmed failing against the pre-fix code first; golden fixture G-1 unmoved. Full account in [TRACKER.md](TRACKER.md) §4.
+**Closed 13 September 2026 — PR #192.** Built exactly as scoped below: `unwindAllocations` now locks the payment row `FOR UPDATE` and reads its unallocated credit from the same live `payment_allocation` rows it already fetches for the unwind order, unwinding only `max(0, differenceMinor − unallocated)` under `back_to_arrears`. `absorbed_loss` needed no change. 8 new tests, `payment-correction.test.ts` now 18, each confirmed failing against the pre-fix code first; golden fixture G-1 unmoved. **Multi-agent `/code-review`, 14 Sept 2026, found and fixed a real defect in this same fix**: `unallocatedMinor` was never clamped at zero, so a prior `absorbed_loss` correction could drive it negative and a later `back_to_arrears` correction would over-unwind — now clamped, 19 tests total. Full account in [TRACKER.md](TRACKER.md) §4.
 
 | | |
 |---|---|
@@ -467,6 +467,8 @@ GAP-44 (the enriched `VehicleDoubleBookedError`, its catch sites, the wire schem
 | Done means | All green; golden fixtures unmoved; the TRACKER row closed with real test counts |
 
 #### GAP-230 — a held deposit can be released (M)
+
+**Closed 13 September 2026 — PR #193.** Built as scoped below, plus the `allowedStatuses` parameter on `recordDepositMovementTx`/`recordDepositMovement` (default `["held"]`, every existing caller unchanged) rather than a second implementation of the same insert/obligation/period logic for `hold_window`. 10 new backend tests, 4 frontend; `lease-closure.test.ts`/`driver-money.test.ts`/full web suite unchanged. **Confirmed by integration test only — a real release against a QA deposit on hold is still owed**, the same gap GAP-217's own closing note named for its endpoint. **GAP-231 found and filed, not fixed**: the generic deposit-movement void/record endpoints 500 for any customer deposit, surfaced by this PR's own void-recompute test (worked around there by calling the domain function directly). **Multi-agent `/code-review`, 14 Sept 2026, found and fixed two more real defects on this PR** (a zero-balance refund crash; a release-sheet button promising a release the retain action does not perform) **and filed a third, GAP-232**: retaining any amount, even partial, terminates the whole deposit and orphans the remainder from every liability report — pre-existing, shared with `settleLeaseDeposit`'s own retain action, needing its own design pass rather than a same-day patch. Full account in [TRACKER.md](TRACKER.md) §4.
 
 | | |
 |---|---|
